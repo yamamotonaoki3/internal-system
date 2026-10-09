@@ -6,7 +6,7 @@ name: internal-system
 services:
   backend:
     container_name: internal-system-${APP_ENV:-development}-backend
-    image: node:24.21.0
+    image: node:26.9.0
     working_dir: /app
     command: sh -c "npm install && if [ \"$$APP_ENV\" = test ]; then npm run dev:test -- --host 0.0.0.0; else npm run dev -- --host 0.0.0.0; fi"
     environment:
