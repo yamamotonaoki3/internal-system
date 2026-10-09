@@ -1,0 +1,440 @@
+# ハーネス（harness）が生成した記録です。ハーネスの更新（harness update）に使います。
+# managed_files は、ハーネスが管理するファイルの指紋です。手で書き換えると、更新のときに差分として扱われます。
+harness_version: 0.0.0
+generated_on: 2026-10-10
+mode: create
+answers:
+  app_name: internal-system
+  ais:
+    - claude
+    - codex
+  project_type: web
+  layers: frontend_backend
+  repository: github
+  visibility: public
+  team_size: solo
+  frontend: react
+  backend: hono
+  infra: cloudflare
+  database: d1
+  data_access: drizzle
+  auth: undecided
+  personal_data: undecided
+  admin: undecided
+  critical_ops: undecided
+  collaborative: undecided
+  org_separation: undecided
+  realtime: undecided
+  availability: undecided
+  file_upload: undecided
+  check_location: github_actions
+  version_policy: latest
+accepted_warnings:
+  - id: version-newer-than-verified
+    message: バージョンで「最新の安定版」を選び、検証済みより新しいものがあります
+    reason: ハーネスでの動作を確認していません
+judgment:
+  asvs_level: 2
+  pentest_required: true
+  undecided:
+    - personal_data
+    - admin
+    - critical_ops
+    - collaborative
+    - org_separation
+    - realtime
+    - availability
+  enabled_rules:
+    - C-09
+    - C-14
+    - C-19
+    - C-20
+    - C-30
+    - C-41
+    - C-64
+    - C-66
+    - C-77
+    - C-79
+versions:
+  - name: node
+    version: 24.21.0
+    reason: 最新の安定版（LTS）
+    surveyed_on: 2026-10-10
+    latest_stable: 24.21.0
+    verified: 24.19.0
+  - name: hono
+    version: 4.13.13
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 4.13.13
+    verified: 4.13.12
+  - name: "@hono/zod-validator"
+    version: 0.9.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 0.9.1
+    verified: 0.9.1
+  - name: zod
+    version: 4.6.5
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 4.6.5
+    verified: 4.6.5
+  - name: wrangler
+    version: 4.149.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 4.149.0
+    verified: 4.144.0
+  - name: vite
+    version: 8.3.4
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 8.3.4
+    verified: 8.3.1
+  - name: "@vitejs/plugin-react"
+    version: 6.1.2
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 6.1.2
+    verified: 6.1.1
+  - name: "@cloudflare/vite-plugin"
+    version: 1.63.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 1.63.1
+    verified: 1.62.2
+  - name: react
+    version: 19.3.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 19.3.0
+    verified: 19.3.0
+  - name: react-dom
+    version: 19.3.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 19.3.0
+    verified: 19.3.0
+  - name: react-router
+    version: 8.4.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 8.4.0
+    verified: 8.4.0
+  - name: "@types/react"
+    version: 19.3.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 19.3.0
+    verified: 19.3.0
+  - name: "@types/react-dom"
+    version: 19.3.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 19.3.0
+    verified: 19.3.0
+  - name: axios
+    version: 1.20.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 1.20.0
+    verified: 1.20.0
+  - name: "@tanstack/react-query"
+    version: 5.104.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 5.104.1
+    verified: 5.104.0
+  - name: react-hook-form
+    version: 7.89.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 7.89.0
+    verified: 7.89.0
+  - name: "@hookform/resolvers"
+    version: 5.9.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 5.9.1
+    verified: 5.9.1
+  - name: vitest
+    version: 4.1.11
+    reason: 範囲内の最新の安定版（範囲 ^4）
+    surveyed_on: 2026-10-10
+    latest_stable: 4.1.11
+    verified: 4.1.11
+  - name: "@cloudflare/vitest-pool-workers"
+    version: 0.23.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 0.23.0
+    verified: 0.22.0
+  - name: "@testing-library/react"
+    version: 16.3.3
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 16.3.3
+    verified: 16.3.3
+  - name: "@testing-library/dom"
+    version: 10.4.2
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 10.4.2
+    verified: 10.4.2
+  - name: "@testing-library/user-event"
+    version: 14.6.7
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 14.6.7
+    verified: 14.6.7
+  - name: jsdom
+    version: 30.1.2
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 30.1.2
+    verified: 30.1.1
+  - name: msw
+    version: 3.0.2
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 3.0.2
+    verified: 3.0.1
+  - name: fast-check
+    version: 4.10.2
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 4.10.2
+    verified: 4.10.2
+  - name: "@playwright/test"
+    version: 1.64.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 1.64.0
+    verified: 1.63.0
+  - name: eslint
+    version: 10.12.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 10.12.0
+    verified: 10.11.0
+  - name: typescript
+    version: 6.0.3
+    reason: 範囲内の最新の安定版（範囲 >=6.0.0 <6.1.0）
+    surveyed_on: 2026-10-10
+    latest_stable: 6.0.3
+    verified: 6.0.3
+  - name: typescript-eslint
+    version: 8.71.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 8.71.1
+    verified: 8.71.0
+  - name: eslint-plugin-react-hooks
+    version: 7.1.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 7.1.1
+    verified: 7.1.1
+  - name: prettier
+    version: 3.9.9
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 3.9.9
+    verified: 3.9.9
+  - name: "@stryker-mutator/core"
+    version: 10.0.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 10.0.0
+    verified: 10.0.0
+  - name: "@stryker-mutator/vitest-runner"
+    version: 10.0.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 10.0.0
+    verified: 10.0.0
+  - name: dependency-cruiser
+    version: 18.5.0
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 18.5.0
+    verified: 18.4.0
+  - name: jscpd
+    version: 5.4.1
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 5.4.1
+    verified: 5.3.3
+  - name: "@types/node"
+    version: 26.6.4
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 26.6.4
+    verified: 24.19.0
+  - name: drizzle-orm
+    version: 0.45.4
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 0.45.4
+    verified: 0.45.3
+  - name: drizzle-kit
+    version: 0.31.11
+    reason: 最新の安定版
+    surveyed_on: 2026-10-10
+    latest_stable: 0.31.11
+    verified: 0.31.11
+roles:
+  orchestrator:
+    claude:
+      model: opus
+  planner:
+    claude:
+      model: opus
+    codex:
+      model: gpt-6-sol
+      effort: high
+  plan_reviewer:
+    claude:
+      model: opus
+    codex:
+      model: gpt-6-sol
+      effort: high
+  implementer:
+    claude:
+      model: sonnet
+    codex:
+      model: gpt-6-sol
+      effort: medium
+  test_writer:
+    claude:
+      model: sonnet
+    codex:
+      model: gpt-6-sol
+      effort: medium
+  code_reviewer:
+    claude:
+      model: opus
+    codex:
+      model: gpt-6-sol
+      effort: high
+  quality_checker:
+    claude:
+      model: sonnet
+    codex:
+      model: gpt-6-luna
+      effort: low
+  prototyper:
+    claude:
+      model: sonnet
+    codex:
+      model: gpt-6-sol
+      effort: medium
+  doc_writer:
+    claude:
+      model: sonnet
+    codex:
+      model: gpt-6-luna
+      effort: medium
+managed_files:
+  .agents/skills/backend-hono/SKILL.md: 82e46ed18b3b164239cbe2a6c499bbe4aa5ec7409ef790659b4d080a9bde4fea
+  .agents/skills/backend/SKILL.md: 919c9e3b37d9a30a0e7825e03e498996b26f9d14b3b7282a2851a1551c9b8a0d
+  .agents/skills/data-access-drizzle/SKILL.md: 51e84b026792944b6c02e7d29c38966ce0ba30e79b2ee17999bcebcdd2e5216b
+  .agents/skills/env-deploy/SKILL.md: b3fe4a5d6fcbcba6c757c8c56e1fe6ebb0f3940c5629c9ee71d8d56ef585b89c
+  .agents/skills/error-api/SKILL.md: 561e497c40edba28c81daa143ba85935ce826e799a4d53623b0b8c3093ad69c9
+  .agents/skills/frontend-build/SKILL.md: 70dddaed5a8592d430067c962fc7c926138c36fb5dfda79c255399a0c0007636
+  .agents/skills/frontend-state/SKILL.md: de539048f33f98ada994ff9915ff32c5574e442f56be61f36efe9f23f353876e
+  .agents/skills/frontend/SKILL.md: e88710ae6d22282932667fd8041e5f506e22861b66cfb9c725dc879ae89e0ff3
+  .agents/skills/http-client-axios/SKILL.md: 8cba8791bf81b69c2d5b578cfa699ada1c867ed1bb646e3dee45559b54422eac
+  .agents/skills/implementation-process/SKILL.md: 511ec6247cdff181318b759053d1f3e5ca08c5e8c13fd7f0f1fc0e05ba47e039
+  .agents/skills/knowledge/SKILL.md: e328157cfe234dd8b057b7afe1eaeaefd9e26e43074720ffb226d0ebcfcee6f0
+  .agents/skills/knowledge/references/backend/api-response-time.md: 3e654f4ba33592410e46dd96f4f9ab492f7c79136c78820211825fe9eafad1ec
+  .agents/skills/knowledge/references/db/index-design.md: a99aff4d81fb3845c0bd582d2cf78e0f1886d825635df2c1b45393fb03a8798f
+  .agents/skills/knowledge/references/db/sql-complexity.md: 805535d434420715b7fbe241dfe03d4a2026a4afcf9daa7fd184d8acf2d69a37
+  .agents/skills/knowledge/references/frontend/initial-bundle-size.md: f460cd234257fd38d17e315c4a38bbf219c5d2e3a5cd07b9c1b3192a137210e3
+  .agents/skills/knowledge/references/general/pentest-scenario.md: af5ef155669f88b9bd7af609f7e57726ff0ff57d30da3d156f03817646970cd3
+  .agents/skills/logger/SKILL.md: 3b6df848acce63fb766c891cc8ba8a760b01ae30b826ac4b3883740d8a59323e
+  .agents/skills/quality-tools/SKILL.md: 090ab793a1332ba51236655eec10684b6f0a6bd572bc66a296079ece18dbd45c
+  .agents/skills/review/SKILL.md: f552c5fa802a5044be75e0685d49b633b247e452006ca569bee0c983e5999440
+  .agents/skills/security/SKILL.md: c8e266ade8a786877214ee806e7456f78a88b53472beb514a8c70bb0f7d25879
+  .agents/skills/test-tools/SKILL.md: fdf106c2878b6ff0a719fa24d734ce691c5461e0c0cb8162f0aa2839fc97a9bd
+  .agents/skills/testing/SKILL.md: da9380b4cd5ef21a6e570cf63983f6c4826d0cd739dd84791b5b4270364e42a2
+  .claude/agents/code-reviewer.md: 08cbb45b7535d5ac02ff32655e7fc730354ea36b90e77e182d955dcbd9e4d93d
+  .claude/agents/doc-writer.md: 69eee1bc3b78db2d7158a39806f1102857737f8343d7cad988764ae6193458ec
+  .claude/agents/implementer.md: 89acc867c878eec7ea2b85afe816d286202d759840845827ab3fcc96a9a16661
+  .claude/agents/plan-reviewer.md: f7f9032201453a50912d059934c444d0c1dda5bf733268895bf8bc75ba16df65
+  .claude/agents/planner.md: e332b368001246408260cc78588cca9d8ea5f486f5a79881ec91539f435af169
+  .claude/agents/prototyper.md: 7d31a646145da11838ee6a8cb25ce52e8b4801d052a54e0a9a0ff17173a04144
+  .claude/agents/quality-checker.md: 347e08a5c65478e07029dae7acc03cb7cb57dde51a92c168b3bdcc7ba7117ef5
+  .claude/agents/test-writer.md: 41a9617b5b376b45882f0935d9b0a6b8bccce532f9823dfe05fc208a515d3842
+  .claude/settings.json: ededbc0aec6e32c248a30a8e76e47bc683918e6f57d7469ad320d83be733607f
+  .claude/skills/backend-hono/SKILL.md: 82e46ed18b3b164239cbe2a6c499bbe4aa5ec7409ef790659b4d080a9bde4fea
+  .claude/skills/backend/SKILL.md: 919c9e3b37d9a30a0e7825e03e498996b26f9d14b3b7282a2851a1551c9b8a0d
+  .claude/skills/data-access-drizzle/SKILL.md: 51e84b026792944b6c02e7d29c38966ce0ba30e79b2ee17999bcebcdd2e5216b
+  .claude/skills/env-deploy/SKILL.md: b3fe4a5d6fcbcba6c757c8c56e1fe6ebb0f3940c5629c9ee71d8d56ef585b89c
+  .claude/skills/error-api/SKILL.md: 561e497c40edba28c81daa143ba85935ce826e799a4d53623b0b8c3093ad69c9
+  .claude/skills/frontend-build/SKILL.md: 70dddaed5a8592d430067c962fc7c926138c36fb5dfda79c255399a0c0007636
+  .claude/skills/frontend-state/SKILL.md: de539048f33f98ada994ff9915ff32c5574e442f56be61f36efe9f23f353876e
+  .claude/skills/frontend/SKILL.md: e88710ae6d22282932667fd8041e5f506e22861b66cfb9c725dc879ae89e0ff3
+  .claude/skills/http-client-axios/SKILL.md: 8cba8791bf81b69c2d5b578cfa699ada1c867ed1bb646e3dee45559b54422eac
+  .claude/skills/implementation-process/SKILL.md: 511ec6247cdff181318b759053d1f3e5ca08c5e8c13fd7f0f1fc0e05ba47e039
+  .claude/skills/knowledge/SKILL.md: e328157cfe234dd8b057b7afe1eaeaefd9e26e43074720ffb226d0ebcfcee6f0
+  .claude/skills/knowledge/references/backend/api-response-time.md: 3e654f4ba33592410e46dd96f4f9ab492f7c79136c78820211825fe9eafad1ec
+  .claude/skills/knowledge/references/db/index-design.md: a99aff4d81fb3845c0bd582d2cf78e0f1886d825635df2c1b45393fb03a8798f
+  .claude/skills/knowledge/references/db/sql-complexity.md: 805535d434420715b7fbe241dfe03d4a2026a4afcf9daa7fd184d8acf2d69a37
+  .claude/skills/knowledge/references/frontend/initial-bundle-size.md: f460cd234257fd38d17e315c4a38bbf219c5d2e3a5cd07b9c1b3192a137210e3
+  .claude/skills/knowledge/references/general/pentest-scenario.md: af5ef155669f88b9bd7af609f7e57726ff0ff57d30da3d156f03817646970cd3
+  .claude/skills/logger/SKILL.md: 3b6df848acce63fb766c891cc8ba8a760b01ae30b826ac4b3883740d8a59323e
+  .claude/skills/quality-tools/SKILL.md: 090ab793a1332ba51236655eec10684b6f0a6bd572bc66a296079ece18dbd45c
+  .claude/skills/review/SKILL.md: f552c5fa802a5044be75e0685d49b633b247e452006ca569bee0c983e5999440
+  .claude/skills/security/SKILL.md: c8e266ade8a786877214ee806e7456f78a88b53472beb514a8c70bb0f7d25879
+  .claude/skills/test-tools/SKILL.md: fdf106c2878b6ff0a719fa24d734ce691c5461e0c0cb8162f0aa2839fc97a9bd
+  .claude/skills/testing/SKILL.md: da9380b4cd5ef21a6e570cf63983f6c4826d0cd739dd84791b5b4270364e42a2
+  .codex/agents/code_reviewer.toml: 16691d720e2d984955be77d43851e0fc19615ba18bd9d294236f4a56ff546628
+  .codex/agents/doc_writer.toml: 4e74c210f16333e6d9a51056d0669625a5f5457f00f987be13fa7fa8ce052df6
+  .codex/agents/implementer.toml: bf0092a67c41072f27725575ef4181157e94fbd003c7ccf15c25c261d5211b3b
+  .codex/agents/plan_reviewer.toml: 67b06eaa3bc654a361f15a5c2da43de7a2e3a623c7cd6c746261b681df07fd56
+  .codex/agents/planner.toml: 52d54cd0ac95137dfbb380823ab79ad84a7a388b377fa75f35361b1b798aec3d
+  .codex/agents/prototyper.toml: 5f2136010687e7abca750bc28245a92f5594fa8e01541548f19cfb33b7393e01
+  .codex/agents/quality_checker.toml: 77068f21280d31d8d709f7687f7b75398f0719727670a8896215067257dd6de4
+  .codex/agents/test_writer.toml: 31d3ed398d27cc0c635dd3e04cccad50e4cf534a60ccec9930e32403c8be57ea
+  .codex/rules/default.rules: f85c72f436603c5448e62c2b3035349fe9a5a798ed3326e08dbfa9dc15e9d379
+  .github/ISSUE_TEMPLATE/child.md: 5f58d527b4222fd908f5b91893cd6150d68e9f3bc36fed024533edabcd85a297
+  .github/ISSUE_TEMPLATE/harness-feedback.md: 58cf8d9921aba05f4a8f045e59107c65721e5bcd1962394f0a4efd7f5dec0c76
+  .github/ISSUE_TEMPLATE/parent.md: 36d248f0c2faa2858ee7139ce253392853d426d1b042f034298d13daa9e9aff1
+  .github/ISSUE_TEMPLATE/replace-icons.md: d51922ee85b4b05f9703a5c57cc2f35c07d49f750a83d9d8c3e5b2839cbebfa1
+  .github/dependabot.yml: 88d2959776b7bee7d2b48397eba6e9f97f2b1658f607dea92b4ebe268739dea5
+  .github/pull_request_template.md: eafa9ec40561ec6fc65428c76168fd0fc24bb8c97bb6ae02aa59fbd3e4a57f6e
+  .gitleaks.toml: 11a80a42c0b98c362b38ba7322dc12949919893c20e41d2fe44e1c8da107e72e
+  .semgrep/NOTICE.md: 340ed40bc73157ec431f2fd6811c8d4c1b343e2b5ad37c54a209b620877ba832
+  .semgrep/javascript-browser-security-dom-based-xss.yaml: 5fb825510e4fad506027229588abadc65ee1345f20d731560160dcbdde3f0859
+  .semgrep/javascript-browser-security-insecure-document-method.yaml: 44c2395367a07b731cb975fd3f7e6758becdc0df1f78f92d6b28ce35ad13e8bc
+  .semgrep/javascript-browser-security-insecure-innerhtml.yaml: 39d09f21183aec0abd2369337659cd8ec2e5225e829f713b5d456b5db0646d26
+  .semgrep/javascript-jose-security-jwt-none-alg.yaml: 5c26477daa8f25be5de81d93915ffcf0e2fe5f36bbd78553273be85ce9b86e6e
+  .semgrep/javascript-jsonwebtoken-security-jwt-none-alg.yaml: 1a52b16861d09f106f12f18ac3d6c34a63f6387b99fa2f90b0f14908b6a8c353
+  .semgrep/javascript-lang-security-audit-code-string-concat.yaml: 2912c108bb33605c1920d6fdd9205df98d867f690e36d93dd509111da3fa80a4
+  .semgrep/javascript-lang-security-audit-dangerous-spawn-shell.yaml: 6f616976a01a775082458a7fc4c9dc7f019e7b6c86c7536eb65c923edca0d759
+  .semgrep/javascript-lang-security-audit-spawn-shell-true.yaml: 310e6f7b264bf3dfa7c202f045bad1916b27e8dc24c9881476aac5785861b6c4
+  .semgrep/javascript-lang-security-detect-child-process.yaml: 0e7dfd959d3e6791ebab63e28ef431c44c195a6ee7995d2b7f584c17278497eb
+  .semgrep/typescript-react-security-react-insecure-request.yaml: 93cc213bd7af4c28a75c2e27be1d8fb99beac92c778457d2aaf8204b6091c4a8
+  AGENTS.md: edc29f4c1c8906870d5c210471ff5827ac900a545e268189847f3f69f266dba4
+  CLAUDE.md: 37ef01d1c88664f0d090927c81a1520ae48c8af0f5304b4f5ecc0c9d4b42747d
+  backend/src/rules-examples/controller.test.ts: 9b7f8a0d5c2f6dc0c1812dc5c149bf9bb8001fad476c8bc644a10d9a5f2b432c
+  backend/src/rules-examples/error-handling.test.ts: b25fb672111249d9b9edc527098f89c90b12082f59d9faabb75f2225b3b68859
+  backend/src/rules-examples/logger.test.ts: bb66c0ee2cf38784adb0da94a81973c04e5b73b2ca763ac5900f00ee73957cfd
+  backend/src/rules-examples/n-plus-one.db.test.ts: 1667c8baf6ae84daec6bfa11f6e675f5c158ab732537c86f476c51af5ac725da
+  backend/src/rules-examples/optimistic-lock.db.test.ts: 03297d3707c16402787d1332822e7835f87ba3cf0d2e4106b64f1bc2baf2b0c8
+  backend/src/rules-examples/raw-sql-validation.db.test.ts: 6e8a493b9074574e45f9fe69844647c3bd0cee69d2599a6a744c3b8927ea87f6
+  backend/src/rules-examples/sql-injection.db.test.ts: 27b9275c8e5941ee9c32e5b2d62a9d07ebdb56261761e46b2199b7f3e1947df0
+  backend/src/rules-examples/transaction.db.test.ts: fc9a9a01837ae6ad64389eaab8f35f73c4924d0c8229e807254b8ff4d3a47e5a
+  docs/secrets.md: 6e6ca6c3d833cee472130129acedfec1016acda3a3aee7b4e44cae365e70a90f
+  frontend/src/rules-examples/form.test.tsx: b042e72c6fc52e1b5f6826db5dfe9d6695457c1a46df22905d8feb1519c79304
+  frontend/src/rules-examples/http-client.test.tsx: 6e05282eaaffd481bff066e9a0ec37a37a7a61d2e551c6ea8c146eba70bdaacd
+  frontend/src/rules-examples/server-state.test.tsx: e4de03f7b3ecea1d030c3de206ee5e49455fe0ba72fa81f5238c2844ebe52e46
+  scripts/compose-local.ts: 687f6ff51c57098195cdd6badd935ec5db054c82ecf20ece85042663f1fd236c
+  scripts/db-local.ts: b4245aecad9927b023915f9efddfcccdb12414e4e8bef31e1ca11b1dc67f4a42
+  scripts/env-check.mjs: 3c96841cf11b6c18a3c9cea0eed18a52052caf6f1bfd1d99d73f7709d0091568
+  scripts/local-env.ts: f768ee11b6e615d4759343170984894c2c63c07f8767785084ab4f75f6cfbf0d
+  scripts/run-local.ts: 8a4496bebe6e343fd80ac9830e08b5e69d8141aaf43231dd81d81ac74a08ebe9
+  scripts/security-check.mjs: bf94539fee83b483598248406592088ba8fcb4ff41c38106fe3279ce5bfb29eb
+  scripts/test-safety.mjs: fe971a4b405f319a1a347cb6dbbc5aac4e435f6b26f18ce7f2fada13c5f945be

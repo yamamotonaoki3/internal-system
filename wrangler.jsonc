@@ -1,0 +1,26 @@
+// Cloudflare Workers の設定。ハーネスが、選んだ技術プロファイルの設定をまとめて作った。
+// D1・Hyperdrive・R2 のつなぎ方は、DB・ファイル保存の回答で変わる。
+// Hyperdrive の手元の接続先は、このファイルに書かず、環境変数で渡す（.env.example を見る）。
+// Hyperdrive の id など本番の値は、デプロイの設定で本物にする（ここにあるのは、手元の開発用の仮の値）。
+{
+  "name": "internal-system",
+  "main": "backend/src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "vars": {
+    "APP_ENV": "production",
+    "ALLOWED_ORIGINS": "http://localhost:5173"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "internal-system-db",
+      "migrations_dir": "backend/db/migrations"
+    }
+  ]
+}
