@@ -21,7 +21,7 @@
 
 ## 4. テストの実行方法
 
-`npm run check`（Lint・型・書式・依存の向き・重複・テスト・脆弱性・セキュリティのテストをまとめて実行する。CI でも同じコマンドを使う）。ホストで実行する。Docker を使わない部分だけなら `npm run check:app`（Docker のコンテナの中では、こちらを実行する）
+`npm run check`（Lint・型・書式・依存の向き・重複・テスト・脆弱性・セキュリティのテストをまとめて実行する。CI では、コードを含む変更で同じコマンドを使う。文書だけの変更（`docs/*`・ルート直下の `README.md`・`LICENSE`）では `npm run security` だけを実行する。判定は `.github/workflows/check.yml`）。ホストで実行する。Docker を使わない部分だけなら `npm run check:app`（Docker のコンテナの中では、こちらを実行する）
 
 ## 5. 後始末
 
