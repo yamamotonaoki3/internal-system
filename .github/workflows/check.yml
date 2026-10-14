@@ -1,5 +1,10 @@
-# 品質チェック（F-16）。手元と同じ npm run check を実行する。
-# 検証用の環境変数は、リポジトリの Secrets の ENV_TEST に、.env.test の中身を登録して渡す（値はこのファイルに書かない。docs/secrets.md）
+# 品質チェック（F-16）。
+# - 文書だけの変更では npm run security を実行し、それ以外は手元と同じ npm run check を実行する
+# - 環境変数ファイルは、実値を含まない .env.example から作る（C-05。Secrets は使わない）
+# - OSV-Scanner は外部通信するため、通信失敗は再実行で対応する
+# - docs/* は拡張子を問わず文書扱いにする（docs 配下に実行されるコードを置かない前提）
+# - 文書扱いは docs/*、ルート直下の README.md、LICENSE だけ。.prettierignore の README.md はどの階層にも一致するが、CI の判定では下の階層の README.md や、それ以外の *.md は安全側に倒してコード扱いにする
+# - ジョブ名 check は、ブランチ保護の必須チェックの名前のため変えない
 name: 品質チェック
 
 on:
@@ -16,14 +21,79 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: 変更の種類を判定する
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # チェックアウトされるのはマージコミット。第1親が取り込み先
+            BASE="HEAD^1"
+            HEAD="HEAD"
+          else
+            BASE="$PUSH_BEFORE"
+            HEAD="$PUSH_SHA"
+          fi
+
+          code=true
+          first_code_file=""
+          if [ -z "$BASE" ] || printf '%s' "$BASE" | grep -Eq '^0+$' || ! git cat-file -e "$BASE^{commit}"; then
+            first_code_file="(比較元がないため判定できない)"
+          else
+            changed_file="$RUNNER_TEMP/changed-files"
+            git -c core.quotePath=false diff --name-only --no-renames -z "$BASE" "$HEAD" > "$changed_file"
+            count=0
+            code=false
+            while IFS= read -r -d '' f; do
+              count=$((count + 1))
+              # 先頭から順に照合する。コード扱いのパターンを先に並べる
+              case "$f" in
+                AGENTS.md | CLAUDE.md | .claude/* | .agents/* | .github/* | prototype/*)
+                  code=true
+                  first_code_file="$f"
+                  break
+                  ;;
+                docs/* | README.md | LICENSE) ;;
+                *)
+                  code=true
+                  first_code_file="$f"
+                  break
+                  ;;
+              esac
+            done < "$changed_file"
+            if [ "$count" -eq 0 ]; then
+              code=true
+              first_code_file="(差分がない)"
+            fi
+          fi
+          echo "コードあり: $code"
+          if [ "$code" = "true" ]; then
+            echo "コード扱いになった最初のファイル: $first_code_file"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .node-version
           cache: npm
-      - run: npm ci
-      - name: 検証用の環境変数のファイルを作る
-        env:
-          ENV_TEST: ${{ secrets.ENV_TEST }}
-        run: printf '%s\n' "$ENV_TEST" > .env.test
-      
-      - run: npm run check
+      - name: 依存を入れる
+        if: steps.changes.outputs.code == 'true'
+        run: npm ci
+      - name: 環境変数のファイルを .env.example から作る
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          cp .env.example .env.development
+          grep -q '^APP_ENV=development$' .env.development || { echo "::error::.env.example に APP_ENV=development の行がない"; exit 1; }
+          sed 's/^APP_ENV=.*/APP_ENV=test/' .env.example > .env.test
+          grep -q '^APP_ENV=test$' .env.test || { echo "::error::APP_ENV=test の行が .env.test にない"; exit 1; }
+      - name: 品質チェックを実行する
+        if: steps.changes.outputs.code == 'true'
+        run: npm run check
+      - name: セキュリティのテストだけ実行する（文書のみの変更）
+        if: steps.changes.outputs.code == 'false'
+        run: npm run security

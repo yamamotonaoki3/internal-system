@@ -81,6 +81,10 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
   gh secret set <項目名>
   ```
 
+- CI の `.env.development`・`.env.test` は、`.env.example` から作る
+- `.env.example` に秘密の項目を足すときは、CI の環境変数ファイルを Secret から渡す方式に変える
+- 以前の手順で登録した Secret の `ENV_TEST` は不要になった。削除は利用者が行う（`gh secret delete ENV_TEST`。AI は実行しない）
+
 ## Terraform
 
 - 秘密情報はコードに書かず、環境変数で渡す。`.env.example` には入れない（`npm run dev` などの手元の実行には要らない。`infra/` で Terraform を使うときだけ、自分のターミナルで設定する）
