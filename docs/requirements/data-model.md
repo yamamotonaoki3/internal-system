@@ -15,6 +15,10 @@
 エンティティと関係だけを示す。主キー・外部キー・属性は、機能別の詳細図に書く。
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 erDiagram
     departments ||--o{ users : "所属"
     users ||--o{ sessions : "ログイン中"
@@ -64,6 +68,10 @@ erDiagram
 ### 3.1 アカウント・認証・監査（機能0）
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 erDiagram
     departments ||--o{ users : "所属"
     users ||--o{ sessions : "ログイン中"
@@ -137,6 +145,10 @@ erDiagram
 ### 3.2 ワークスペースとチャンネルの管理（機能2・7）
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 erDiagram
     users ||--o{ workspaces : "オーナー"
     workspaces ||--o{ workspace_members : "メンバー"
@@ -221,6 +233,10 @@ erDiagram
 ### 3.3 メッセージング・案件・通知（機能1・3・4・5・6）
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 erDiagram
     rooms ||--o| channels : "チャンネル"
     rooms ||--o| conversations : "ダイレクトメッセージ"
