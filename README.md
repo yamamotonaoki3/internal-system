@@ -23,7 +23,7 @@ GitHub のアカウントとの紐付け（`gh auth login`）は、利用者が�
 1. GitHub にログインする：`gh auth login`
 1. Git を用意して、最初のコミットをする：`git init -b main` のあと `git add -A`、`git commit -m "chore: 生成した初期状態"`
 1. リポジトリを作って push する：`gh repo create internal-system --public --source=. --push`
-1. 品質チェックの検証用の環境変数を登録する：GitHub のリポジトリの Secrets に `ENV_TEST`（`.env.test` の中身）を登録する。手順は `docs/secrets.md` の CI の章。`gh secret set` は値を入力するコマンドのため、利用者が自分で実行します（AI には実行させません）
+1. 品質チェックの環境変数を確かめる：CI は `.env.example` から環境変数のファイルを作るため、Secrets の登録は不要。秘密の項目を足すときは `docs/secrets.md` の CI の節に従う
 1. `main` を保護する：下の「`main` ブランチの保護」の手順で設定する
 1. 仮のアイコンの Issue を作る：下の「仮のアイコン」の手順で作る
 
