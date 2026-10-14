@@ -12,7 +12,11 @@
 
 ## 2. 全体のER図
 
-エンティティと関係だけを示す。主キー・外部キー・属性は、機能別の詳細図に書く。
+全体を1枚にすると、`users`から多くの線が出て読みにくい。そこで、領域別に4枚の図に分ける。`users`は、線の相手がいる図のすべてに登場させ、線は省かない。同じエンティティ（`users`・`rooms`・`channels`など）が複数の図に載る場合がある。エンティティと関係だけを示し、主キー・外部キー・属性は、機能別の詳細図に書く。
+
+### 2.1 組織・認証・監査
+
+部署・ユーザー・セッション・監査ログ。線は3本。
 
 ```mermaid
 ---
@@ -23,6 +27,21 @@ erDiagram
     departments ||--o{ users : "所属"
     users ||--o{ sessions : "ログイン中"
     users |o--o{ audit_logs : "操作者"
+    login_attempts
+```
+
+- `login_attempts`（ログイン試行）は、ユーザーIDの文字列をキーにし、`users`と外部キーで結ばない。存在しないユーザーIDへの試行も数えて、アカウントの有無を推測されにくくするため。線がないのは、この設計のとおりである
+
+### 2.2 ワークスペース・チャンネル
+
+ワークスペース・チャンネルのメンバー・作成の承認・招待。線は15本。
+
+```mermaid
+---
+config:
+  layout: elk
+---
+erDiagram
     users ||--o{ workspaces : "オーナー"
     workspaces ||--o{ workspace_members : "メンバー"
     users ||--o{ workspace_members : "参加"
@@ -38,6 +57,20 @@ erDiagram
     channels |o--o{ invitations : "招待先"
     users ||--o{ invitations : "招待する人"
     users ||--o{ invitations : "招待される人"
+```
+
+- 部署（`departments`）とワークスペース（`workspaces`）の関係は、未決定事項#3のため、図に線を引いていない
+
+### 2.3 やり取りの場（ルーム・ダイレクトメッセージ・案件）
+
+チャンネル・ダイレクトメッセージ・案件が、共通の親の`rooms`に結びつく関係と、それぞれの参加者。線は7本。
+
+```mermaid
+---
+config:
+  layout: elk
+---
+erDiagram
     rooms ||--o| channels : "チャンネル"
     rooms ||--o| conversations : "ダイレクトメッセージ"
     rooms ||--o| cases : "案件"
@@ -45,6 +78,18 @@ erDiagram
     users ||--o{ conversation_members : "参加"
     cases ||--o{ case_participants : "参加者"
     users ||--o{ case_participants : "参加"
+```
+
+### 2.4 メッセージ・通知
+
+メッセージとその添付・リアクション・メンション、既読位置、通知。線は12本。
+
+```mermaid
+---
+config:
+  layout: elk
+---
+erDiagram
     rooms ||--o{ messages : "含む"
     users ||--o{ messages : "送信者"
     messages |o--o{ messages : "返信"
@@ -57,11 +102,7 @@ erDiagram
     rooms ||--o{ read_positions : "対象"
     users ||--o{ notifications : "受け取る"
     messages ||--o{ notifications : "もと"
-    login_attempts
 ```
-
-- `login_attempts`（ログイン試行）は、ユーザーIDの文字列をキーにし、`users`と外部キーで結ばない。存在しないユーザーIDへの試行も数えて、アカウントの有無を推測されにくくするため
-- 部署（`departments`）とワークスペース（`workspaces`）の関係は、未決定事項#3のため、図に線を引いていない
 
 ## 3. 機能別の詳細図
 
