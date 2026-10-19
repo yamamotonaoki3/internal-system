@@ -79,6 +79,11 @@
 - Superpowersプラグインが利用できることを、作業を始める前に確認する。利用できない場合は、導入手順（README）を案内し、利用できないまま作業を進めない
 - 各役割の中で、Superpowersの該当するSkillを使う（計画で`writing-plans`、テストで`test-driven-development`、コードレビューで`requesting-code-review`、完了の判定で`verification-before-completion`等）
 
+## Issueの分け方（このプロジェクトの決定）
+
+- Issueは、実装する機能の単位で立てる。フロントエンド・バックエンド・DBなどの作業領域では分けない
+- Skill「実装の進め方」の「作業領域ごとに子Issueに分ける」「対象の作業領域を書く」は、このプロジェクトでは適用しない（`AGENTS.md`の優先順位：利用者の指示 ＞ `AGENTS.md` ＞ Skill）
+
 ## 設定ファイルの扱い
 
 - `.claude/skills/`と`.claude/agents/`はプロジェクトのルールとしてコミットする。変更は必ずIssue・PRで行う
