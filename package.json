@@ -61,16 +61,16 @@
   },
   "dependencies": {
     "@hono/zod-validator": "0.9.1",
-    "@hookform/resolvers": "5.9.1",
-    "@tanstack/react-query": "5.104.1",
+    "@hookform/resolvers": "6.0.0",
+    "@tanstack/react-query": "5.104.5",
     "axios": "1.20.0",
     "drizzle-orm": "0.45.4",
     "hono": "4.13.13",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-hook-form": "7.89.0",
-    "react-router": "8.4.0",
-    "zod": "4.6.5"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-hook-form": "7.90.0",
+    "react-router": "8.5.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.63.1",
