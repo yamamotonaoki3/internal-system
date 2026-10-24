@@ -28,7 +28,7 @@ API 仕様書（`docs/api/openapi.json`）から、異常な入力（範囲外�
 ## 3. 確認の方法
 
 - `http://localhost:5173/api/health` が 200 を返す
-- 状態を変える要求（POST など）は、**許可した Origin がないと 403 になる**（C-28）。Schemathesis には、許可した Origin を、すべての要求に付けて渡す（付けないと、POST の API は、すべて 403 になる）。Origin を付けない・別の Origin を付けると 403 になることを、次のコマンドで確かめられる（`/api/*` の POST は、API の中身より先に、Origin を確かめる）
+- 状態を変える要求（POST など）は、**許可した Origin がないと 403 になる**（ハーネスC-28）。Schemathesis には、許可した Origin を、すべての要求に付けて渡す（付けないと、POST の API は、すべて 403 になる）。Origin を付けない・別の Origin を付けると 403 になることを、次のコマンドで確かめられる（`/api/*` の POST は、API の中身より先に、Origin を確かめる）
 
   ```text
   curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5173/api/health
@@ -73,5 +73,5 @@ docker run --rm --network host -v "$(pwd)/docs/api:/api:ro" schemathesis/schemat
 | すべて 403 になる | `-H "Origin: <Origin>"` を付けているか。`.env.development` の `ALLOWED_ORIGINS` と同じ値か |
 | `Network unreachable`・接続できない | 開発サーバーを `--host 127.0.0.1` で起動しているか。`localhost` だけで起動すると、コンテナから届かないことがある（IPv6 のみで待ち受けるため） |
 | `Blocked request. This host is not allowed`（403・text/plain） | Windows・macOS の手順の `-H "Host: localhost:5173"` を付けているか |
-| 500 が見つかった | アプリの不具合。`Reproduce with:` の `curl` で再現し、直す。再発を防ぐテストを足す（C-82） |
+| 500 が見つかった | アプリの不具合。`Reproduce with:` の `curl` で再現し、直す。再発を防ぐテストを足す（ハーネスC-82） |
 | 仕様と違う応答が見つかった | 仕様書か実装のどちらかが誤り。仕様書を直すときは、実際のルートと合わせる（`backend/src/openapi.test.ts`） |
