@@ -51,7 +51,7 @@ Docker のコンテナの中（`docker compose` で動かした開発用のコ�
 - gitleaks は、Git に入らないもの（`.env`・`.dev.vars`・`node_modules/`・組み立ての結果など）と、ハーネスの記録（`.harness/config.yaml`。ファイルの指紋のハッシュ値だけが入る）を、`.gitleaks.toml` のパスの例外で検査から外している。`.env.example` は検査する
 - OSV-Scanner は、開発用の依存（`package-lock.json` の `dev`）を除く。重大度が付いていない指摘・7.0 未満の指摘は、記録として表示し、失敗にはしない。`npm audit --omit=dev`（`check:app` に含む）も、そのまま残す
 - OSV-Scanner の「通信の失敗」と「脆弱性の検出」は、表示で区別する（どちらも失敗になる）。通信の失敗のときは、通信を確かめて、もう一度実行する
-- 脆弱性が見つかったら、直った版へ更新する。バージョンを変えるときは、固定したまま動作を確かめる（`docs/project-rules.md`・C-62）
+- 脆弱性が見つかったら、直った版へ更新する。バージョンを変えるときは、固定したまま動作を確かめる（`docs/project-rules.md`・ハーネスC-62）
 
 ### Semgrep のルール
 
@@ -101,7 +101,7 @@ Docker のコンテナの中（`docker compose` で動かした開発用のコ�
 
 ## 9. 依存ライブラリの更新の通知（Dependabot）
 
-`.github/dependabot.yml` が、npm・GitHub Actions・Docker Compose の依存を、毎週確かめて、更新の PR を作る。npm の本番の依存は、1つの PR にまとめる。更新の PR は、品質チェックを通したうえで、固定したまま動作を確かめてから取り込む（C-62）。
+`.github/dependabot.yml` が、npm・GitHub Actions・Docker Compose の依存を、毎週確かめて、更新の PR を作る。npm の本番の依存は、1つの PR にまとめる。更新の PR は、品質チェックを通したうえで、固定したまま動作を確かめてから取り込む（ハーネスC-62）。
 
 ## 10. 固定したイメージ（版・ダイジェスト・確かめた日と方法）
 
