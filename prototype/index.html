@@ -3,20 +3,156 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>internal-system（プロトタイプ）</title>
+    <title>internal-system｜画面プロトタイプ</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="shell.css" />
+    <link rel="stylesheet" href="organize.css" />
+    <script src="extras.js" defer></script>
+    <script src="screens.js" defer></script>
+    <script src="admin.js" defer></script>
+    <script src="organize.js" defer></script>
+    <script src="app.js" defer></script>
   </head>
   <body>
-    <header>
-      <h1>internal-system（プロトタイプ）</h1>
-      <nav aria-label="表示の切り替え">
-        <button type="button" data-state="loading">読み込み中</button>
-        <button type="button" data-state="data">データあり</button>
-        <button type="button" data-state="empty">データなし</button>
-        <button type="button" data-state="error">エラー</button>
-      </nav>
-    </header>
-    <main id="screen"></main>
-    <script src="app.js"></script>
+    <a class="skip-link" href="#screen">本文へ移動</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主なメニュー">
+        <div id="sidebar-content"></div>
+      </aside>
+      <div class="main-area">
+        <header class="topbar">
+          <button
+            type="button"
+            id="drawer-open"
+            class="top-icon mobile-only"
+            data-ui="drawer-open"
+            aria-label="メニューを開く"
+          >
+            ☰
+          </button>
+          <button type="button" class="site-logo" data-ui="go" data-page="S01">
+            internal-system
+          </button>
+          <form id="global-search" class="global-search" role="search">
+            <label for="global-query">検索</label>
+            <input
+              id="global-query"
+              name="query"
+              type="search"
+              placeholder="メッセージ・案件を検索"
+              data-max="100"
+              data-name="検索語"
+            />
+            <button type="submit" aria-label="検索する">⌕</button>
+          </form>
+          <div class="topbar-actions">
+            <button
+              type="button"
+              class="top-icon"
+              data-ui="go"
+              data-page="S15"
+              aria-label="検索画面"
+            >
+              ⌕
+            </button>
+            <button
+              type="button"
+              class="top-icon"
+              data-ui="go"
+              data-page="S14"
+              aria-label="通知を開く"
+            >
+              🔔<span class="unread-dot">●</span>
+            </button>
+            <button
+              type="button"
+              id="avatar-menu-button"
+              class="avatar"
+              data-ui="avatar-menu"
+              aria-label="自分のメニューを開く"
+            >
+              01
+            </button>
+          </div>
+        </header>
+        <div class="content-grid">
+          <main id="screen" tabindex="-1"></main>
+          <aside
+            id="thread-panel"
+            class="thread-panel"
+            aria-label="スレッド"
+            hidden
+          ></aside>
+        </div>
+      </div>
+    </div>
+    <nav
+      id="mobile-nav"
+      class="mobile-nav"
+      aria-label="スマートフォンのメニュー"
+    ></nav>
+    <dialog id="drawer" class="drawer" aria-label="メニュー">
+      <div class="drawer-header">
+        <strong>メニュー</strong
+        ><button
+          type="button"
+          data-ui="drawer-close"
+          aria-label="メニューを閉じる"
+        >
+          ×
+        </button>
+      </div>
+      <div id="drawer-content"></div>
+    </dialog>
+    <dialog
+      id="avatar-dialog"
+      class="avatar-dialog"
+      aria-label="自分のメニュー"
+    ></dialog>
+    <div
+      id="prototype-toolbar"
+      class="prototype-toolbar"
+      aria-label="画面確認用の道具"
+    >
+      <button
+        type="button"
+        id="tool-toggle"
+        class="tool-toggle"
+        data-ui="tool-toggle"
+        aria-expanded="false"
+      >
+        画面確認
+      </button>
+      <div id="tool-content" hidden>
+        <label for="viewer">表示する社員</label
+        ><select id="viewer"></select>
+        <label for="screen-catalog">画面番号</label
+        ><select id="screen-catalog"></select>
+        <div id="state-controls" role="group" aria-label="表示状態"></div>
+        <p class="tool-note">下書きの確認(メッセージ入力欄の一時保存)</p>
+        <div class="tool-buttons">
+          <button type="button" data-ui="draft-age">
+            下書きの最終編集を8日前にする
+          </button>
+          <button type="button" data-ui="draft-clear">
+            下書きをすべて消す
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <dialog id="modal" aria-labelledby="modal-title"></dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">編集中の内容があります</h2>
+      <p>画面を離れると、入力した内容は失われます。</p>
+      <div class="confirm-actions">
+        <button type="button" class="button primary" data-guard="stay">
+          編集を続ける
+        </button>
+        <button type="button" class="button danger" data-guard="discard">
+          破棄して離れる
+        </button>
+      </div>
+    </dialog>
   </body>
 </html>
