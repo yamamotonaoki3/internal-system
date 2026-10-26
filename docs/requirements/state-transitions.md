@@ -214,7 +214,7 @@ stateDiagram-v2
     state 在職・有効・所属あり as EmployeeActive
     state 退職処理の申請中（有効状態を維持） as RetirementRequested
     state 退職済み・無効・所属なし as EmployeeRetired
-    EmployeeActive --> RetirementRequested: 部署管理者が全体管理者へ申請／申請履歴を記録
+    EmployeeActive --> RetirementRequested: オーナーが全体管理者へ申請／申請履歴を記録
     RetirementRequested --> EmployeeActive: 全体管理者が申請を却下・差し戻す場合の運用は未決定
     RetirementRequested --> EmployeeRetired: 全体管理者が確認し再認証後に無効化
 ```
