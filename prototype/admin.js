@@ -30,6 +30,12 @@ const dedicatedChannel = (name) =>
   prototypeData.channels.find(
     (channel) => channel.dept === name && channel.name === name,
   );
+// 部署のお知らせ専用チャンネル（C-108）。名前は「<部署名>のお知らせ」の見本で、決定ではない。
+const announceName = (department) => `${department}のお知らせ`;
+const announceChannelOf = (name) =>
+  prototypeData.channels.find(
+    (channel) => channel.dept === name && channel.announce,
+  );
 // 画面の再認証の見本。実際の本人確認はしないので、空でなければ通す。
 const reauthField = (id) =>
   `<div class="form-field"><label for="${id}">パスワードを再入力（再認証）</label><input id="${id}" name="reauth" type="password" autocomplete="off" required></div><p class="subtle">重要な操作の前の再認証の見本です。入力値は保存せず、実際の本人確認はしません。</p>`;
@@ -97,7 +103,7 @@ function createDepartmentScreen() {
   return screenFrame(
     "S08",
     "部署を作成",
-    "部署と、公開の専用チャンネルを同時に作る画面です。再認証して確定します。",
+    "部署と、公開の専用チャンネル・公開のお知らせ専用チャンネルを同時に作る画面です。再認証して確定します。",
     shellCard(
       "新しい部署",
       `<form data-proto-form="department">${field("部署名（必須）", "dept-name", "text", "", true, [1, 50])}${field("説明（任意）", "dept-description", "text", "", false, [0, 500])}${selectField(
@@ -110,7 +116,7 @@ function createDepartmentScreen() {
             `${p.name}（${deptOf(p)}・${roleLabel(p)}）`,
           ]),
         ],
-      )}<div id="successor-area" aria-live="polite"></div><p class="subtle">作成すると、公開チャンネル「# 部署名」（部署の専用チャンネル）も同時に作られ、部署の社員が自動で参加します。専用チャンネルは公開のため、ほかの部署の社員も参加せずに読めます。部署内だけの連絡は、非公開チャンネルを申請してください。指名した社員（全体管理者以外）の所属は、この部署に移ります。別の部署のオーナーを指名したときは、元部署の後任を選んで、オーナーの交代と所属の変更をまとめて反映します。</p><div class="form-actions"><button type="submit" class="button primary">作成する</button>${protoButton("キャンセル", "go", 'data-page="S24"')}</div></form>`,
+      )}<div id="successor-area" aria-live="polite"></div><p class="subtle">作成すると、公開チャンネル「# 部署名」（部署の専用チャンネル）と、公開のお知らせ専用チャンネル「# 部署名のお知らせ」（投稿できるのは、その部署のオーナーと全体管理者だけ）も同時に作られ、部署の社員が参加します（お知らせ専用チャンネルの名前・参加の扱いは見本で、未決定です）。専用チャンネルは公開のため、ほかの部署の社員も参加せずに読めます。部署内だけの連絡は、非公開チャンネルを申請してください。指名した社員（全体管理者以外）の所属は、この部署に移ります。別の部署のオーナーを指名したときは、元部署の後任を選んで、オーナーの交代と所属の変更をまとめて反映します。</p><div class="form-actions"><button type="submit" class="button primary">作成する</button>${protoButton("キャンセル", "go", 'data-page="S24"')}</div></form>`,
     ),
   );
 }
@@ -153,17 +159,29 @@ function checkDepartmentInput(values) {
         "同じ部署名がすでにあります（大文字・小文字の違いは区別しません）。",
       ],
     };
-  // 専用チャンネルは部署名と同じ名前になる。チャンネル名は会社内で重複できない（C-105）。
-  if (
-    prototypeData.channels.some((c) => normalizeName(c.name) === normalizeName(name)) ||
+  // 専用チャンネルは部署名、お知らせ専用チャンネルは「<部署名>のお知らせ」の名前になる。
+  // チャンネル名は会社内で重複できない（C-105。大文字・小文字は区別せず、承認待ちの申請の名前を含む。却下された申請は数えない）。
+  const nameTaken = (channelName) =>
+    prototypeData.channels.some(
+      (c) => normalizeName(c.name) === normalizeName(channelName),
+    ) ||
     prototypeData.channelRequests.some(
-      (c) => c.status === "pending" && normalizeName(c.name) === normalizeName(name),
-    )
-  )
+      (c) =>
+        c.status === "pending" &&
+        normalizeName(c.name) === normalizeName(channelName),
+    );
+  if (nameTaken(name))
     return {
       error: [
         "dept-name",
         "同じ名前のチャンネル（または承認待ちの申請）があるため、専用チャンネルを作れません。",
+      ],
+    };
+  if (nameTaken(announceName(name)))
+    return {
+      error: [
+        "dept-name",
+        `同じ名前のチャンネル（または承認待ちの申請）があるため、お知らせ専用チャンネル「${announceName(name)}」を作れません。`,
       ],
     };
   const owner = values.ownerId
@@ -202,7 +220,7 @@ function submitDepartmentForm(data) {
   const { name, owner, successor } = result.value;
   showModal(
     "S-26 再認証（部署の作成）",
-    `<p>次の内容で作成します。</p><ul class="plain-list"><li>部署名: ${e(name)}</li><li>オーナー: ${owner ? e(owner.name) : `${e(currentUser().name)}（作成した全体管理者）`}</li>${owner && owner.role !== "admin" ? `<li>${e(owner.name)} の所属は ${e(owner.department || "—")} から ${e(name)} に移ります</li>` : ""}${successor ? `<li>${e(owner.department)} の後任オーナー: ${e(successor.name)}（元部署のオーナー交代も同時に反映します）</li>` : ""}<li>公開チャンネル「# ${e(name)}」（部署の専用チャンネル）も同時に作られ、部署の社員が自動で参加します</li></ul>${reauthField("dept-reauth")}`,
+    `<p>次の内容で作成します。</p><ul class="plain-list"><li>部署名: ${e(name)}</li><li>オーナー: ${owner ? e(owner.name) : `${e(currentUser().name)}（作成した全体管理者）`}</li>${owner && owner.role !== "admin" ? `<li>${e(owner.name)} の所属は ${e(owner.department || "—")} から ${e(name)} に移ります</li>` : ""}${successor ? `<li>${e(owner.department)} の後任オーナー: ${e(successor.name)}（元部署のオーナー交代も同時に反映します）</li>` : ""}<li>公開チャンネル「# ${e(name)}」（部署の専用チャンネル）と、公開のお知らせ専用チャンネル「# ${e(announceName(name))}」も同時に作られ、部署の社員が参加します（お知らせ専用チャンネルの名前・参加の扱いは見本）</li></ul>${reauthField("dept-reauth")}`,
     "department-create",
     "作成を確定",
   );
@@ -236,18 +254,30 @@ function createDepartment(data) {
     admin.ownerOf = [...(admin.ownerOf || []), name];
   }
   // 専用チャンネルは公開。部署の社員（この時点では移ってきたオーナーだけ）を自動参加させる（C-95）。
+  // お知らせ専用チャンネル（C-108）も公開で、参加者は同じ式にする（自動参加かどうかは C-108(3) で未決定の見本）。
+  const createdAt = Date.now();
+  const initialMembers = () =>
+    employees.filter((p) => p.active && p.department === name).map((p) => p.id);
   prototypeData.channels.push({
-    id: `dept-${Date.now()}`,
+    id: `dept-${createdAt}`,
     name,
     dept: name,
     folder: "共通連絡",
     private: false,
-    members: employees
-      .filter((p) => p.active && p.department === name)
-      .map((p) => p.id),
+    members: initialMembers(),
     messages: [],
   });
-  auditLog("部署の作成", name, `${name} を作成（オーナー: ${ownerPerson.name}）。公開の専用チャンネルも作成`);
+  prototypeData.channels.push({
+    id: `announce-dept-${createdAt}`,
+    name: announceName(name),
+    dept: name,
+    folder: "共通連絡",
+    private: false,
+    announce: true,
+    members: initialMembers(),
+    messages: [],
+  });
+  auditLog("部署の作成", name, `${name} を作成（オーナー: ${ownerPerson.name}）。公開の専用チャンネルと公開のお知らせ専用チャンネルも作成`);
   if (successor)
     auditLog(
       "オーナーの交代",
@@ -258,7 +288,7 @@ function createDepartment(data) {
   closeModal();
   proceedTo("S01");
   return notify(
-    `部署と専用チャンネル（公開）を作成しました（オーナー: ${ownerPerson.name}）。「部署の一覧とオーナーの任命・交代」に反映されています。`,
+    `部署と、専用チャンネル・お知らせ専用チャンネル（どちらも公開）を作成しました（オーナー: ${ownerPerson.name}）。「部署の一覧とオーナーの任命・交代」に反映されています。`,
   );
 }
 
@@ -527,7 +557,7 @@ function openTransfer(userId) {
   const targets = employees.filter((p) => p.active && p.role !== "admin" && p.department);
   return showModal(
     "部署異動を登録",
-    `<p class="subtle">対象社員・新しい所属部署・異動日を指定します。異動日までは現在の所属を維持し、異動日に旧部署から外れて新部署へ所属します。会社のワークスペースには所属し続けます。旧部署の専用チャンネルから外れ、新部署の専用チャンネルに参加します（C-30・C-95）。旧部署のオーナーは、異動の前に後任へ交代しておく必要があります。</p>${selectField("対象社員", "transfer-user", targets.map((p) => [p.id, `${p.name}（${p.department}）`]), userId)}${selectField("新しい所属部署", "transfer-to", departmentNames().map((n) => [n, n]))}<div class="form-field"><label for="transfer-date">異動日</label><input id="transfer-date" name="transfer-date" type="date" required></div>${reauthField("transfer-reauth")}<p class="subtle">異動前後の所属・権限・実行者・日時を監査ログに残します。異動すると、その社員の案件作成の申請（承認待ち）は自動で取り消されます。公開の申請と再開の申請は続きます。</p>`,
+    `<p class="subtle">対象社員・新しい所属部署・異動日を指定します。異動日までは現在の所属を維持し、異動日に旧部署から外れて新部署へ所属します。会社のワークスペースには所属し続けます。旧部署の専用チャンネルとお知らせ専用チャンネルから外れ、新部署の専用チャンネルとお知らせ専用チャンネルに参加します（C-30・C-95。お知らせ専用チャンネルの扱いは C-108(5) で未決定の見本）。旧部署のオーナーは、異動の前に後任へ交代しておく必要があります。</p>${selectField("対象社員", "transfer-user", targets.map((p) => [p.id, `${p.name}（${p.department}）`]), userId)}${selectField("新しい所属部署", "transfer-to", departmentNames().map((n) => [n, n]))}<div class="form-field"><label for="transfer-date">異動日</label><input id="transfer-date" name="transfer-date" type="date" required></div>${reauthField("transfer-reauth")}<p class="subtle">異動前後の所属・権限・実行者・日時を監査ログに残します。異動すると、その社員の案件作成の申請（承認待ち）は自動で取り消されます。公開の申請と再開の申請は続きます。</p>`,
     "transfer-save",
     "異動を登録",
   );
@@ -539,9 +569,11 @@ function applyTransfer(person, to) {
       channel.members = channel.members.filter((id) => id !== person.id);
   });
   person.department = to;
-  const dedicated = dedicatedChannel(to);
-  if (dedicated && !dedicated.members.includes(person.id))
-    dedicated.members.push(person.id);
+  // 異動先の専用チャンネルとお知らせ専用チャンネルに参加する。お知らせ専用の扱いは C-108(5) で未決定の見本の動き。
+  [dedicatedChannel(to), announceChannelOf(to)].forEach((channel) => {
+    if (channel && !channel.members.includes(person.id))
+      channel.members.push(person.id);
+  });
   state.requests.forEach((request) => {
     if (request.applicant === person.id && request.status === "pending") {
       request.status = "cancelled";

@@ -514,55 +514,98 @@ function disableClient(data) {
   return notify("取引先を無効にしました。");
 }
 
-/* ---------- 部署のお知らせの編集・削除(C-78) ---------- */
-function openNoticeEdit(id) {
-  const note = prototypeData.announcements.find((item) => item.id === id);
-  if (!note || !canManageNotice(note)) return refuse();
-  showModal(
-    "お知らせを編集",
-    `${field("題名", "notice-edit-title", "text", note.title, true, [1, 100])}<div class="form-field"><label for="notice-edit-text">本文</label><textarea id="notice-edit-text" name="notice-edit-text" required data-min="1" data-max="5000" data-name="本文">${e(note.text)}</textarea></div><input type="hidden" name="id" value="${e(id)}">`,
-    "notice-save",
-    "保存する",
-  );
+/* ---------- サイドバーの開閉の保存(案。C-106【案】に伴う追加) ---------- */
+// 閉じているセクション名の配列を、この端末のブラウザだけに保存する。サーバーには保存しない。
+// 保存を社員ごとにするか端末ごとにするか、期限、サーバー保存の要否は未決定。ここでは社員ごと（画面確認で社員を替えて確かめるため）。
+const SIDEBAR_PREFIX = "internal-system-proto-sidebar:";
+const SIDE_SECTIONS = ["company", "own", "other", "dm", "case", "org"];
+// 一度でも読み書きに失敗したら、再読み込みするまで false のままにして、知らせ続ける（成功した操作で消さない）。
+const sidebarStatus = { available: true };
+const sidebarKey = (userId) => `${SIDEBAR_PREFIX}${userId}`;
+
+function sidebarStorage() {
+  try {
+    return window.localStorage;
+  } catch (error) {
+    // 保存できない環境では、開けるか閉じるかはメモリの状態だけで動かし、サイドバーの下に知らせる。
+    sidebarStatus.available = false;
+    return null;
+  }
 }
-function saveNotice(data) {
-  const note = prototypeData.announcements.find(
-    (item) => item.id === data.get("id"),
-  );
-  if (!note || !canManageNotice(note)) return refuse();
-  const title = String(data.get("notice-edit-title") || "").trim();
-  const text = String(data.get("notice-edit-text") || "").trim();
-  if (!title || !text) return modalError("題名と本文を入力してください。");
-  note.title = title;
-  note.text = text;
-  closeModal();
-  render();
-  return notify("お知らせを更新しました。");
+function loadSidebarState(userId) {
+  const store = sidebarStorage();
+  if (!store) return [];
+  let raw = null;
+  try {
+    raw = store.getItem(sidebarKey(userId));
+  } catch (error) {
+    sidebarStatus.available = false;
+    return [];
+  }
+  if (raw === null) return [];
+  let list = null;
+  try {
+    list = JSON.parse(raw);
+  } catch (error) {
+    // 壊れた値は復元できないため捨てる（開閉の状態は補助の保存で、主の処理には影響しない）。
+    discardSidebarState(userId);
+    return [];
+  }
+  if (!Array.isArray(list) || !list.every((item) => SIDE_SECTIONS.includes(item))) {
+    discardSidebarState(userId);
+    return [];
+  }
+  return list;
 }
-function openNoticeRemove(id) {
-  const note = prototypeData.announcements.find((item) => item.id === id);
-  if (!note || !canManageNotice(note)) return refuse();
-  showModal(
-    "S-26 再認証(お知らせの削除)",
-    `<p>「${e(note.title)}」を削除します。</p>${field("パスワードを再入力", "notice-reauth", "password", "", true)}<p class="subtle">入力値は保存せず、実際の本人確認は行いません。</p><input type="hidden" name="id" value="${e(id)}">`,
-    "notice-remove",
-    "削除する",
-    true,
-  );
+function discardSidebarState(userId) {
+  try {
+    sidebarStorage()?.removeItem(sidebarKey(userId));
+  } catch (error) {
+    sidebarStatus.available = false;
+  }
 }
-function removeNotice(data) {
-  const note = prototypeData.announcements.find(
-    (item) => item.id === data.get("id"),
-  );
-  if (!note || !canManageNotice(note)) return refuse();
-  if (!String(data.get("notice-reauth") || ""))
-    return modalError("パスワードを入力してください。");
-  prototypeData.announcements = prototypeData.announcements.filter(
-    (item) => item !== note,
-  );
-  closeModal();
-  render();
-  return notify("お知らせを削除しました。");
+function saveSidebarState(userId, collapsed) {
+  const store = sidebarStorage();
+  if (!store) return;
+  try {
+    store.setItem(sidebarKey(userId), JSON.stringify([...collapsed]));
+  } catch (error) {
+    sidebarStatus.available = false;
+  }
+}
+// 社員を替えたときは、その社員の保存した状態を読み直す。保存がなければ、すべて開く。
+function sideCollapsed() {
+  if (ui.sideLoadedFor !== state.userId) {
+    ui.sideLoadedFor = state.userId;
+    ui.sideCollapsed = new Set(loadSidebarState(state.userId));
+  }
+  return ui.sideCollapsed;
+}
+function setSideCollapsed(sections) {
+  sideCollapsed();
+  ui.sideCollapsed = new Set(sections);
+  saveSidebarState(state.userId, ui.sideCollapsed);
+  renderSidebars();
+}
+function toggleSideSection(element) {
+  const section = element.dataset.section;
+  if (!SIDE_SECTIONS.includes(section)) return refuse();
+  const next = new Set(sideCollapsed());
+  if (next.has(section)) next.delete(section);
+  else next.add(section);
+  // 操作元のコンテナー（パソコンの左かドロワー）の中だけでフォーカスを戻す。ドロワーの操作で背面へ移らないようにする。
+  const container = element.closest("#sidebar-content, #drawer-content");
+  setSideCollapsed(next);
+  container
+    ?.querySelector(`[data-ui="side-toggle"][data-section="${section}"]`)
+    ?.focus();
+}
+function clearSideState() {
+  discardSidebarState(state.userId);
+  ui.sideLoadedFor = state.userId;
+  ui.sideCollapsed = new Set();
+  renderSidebars();
+  notify("保存した開閉の状態を消しました。すべて開きます。");
 }
 
 /* ---------- クリック・送信・入力の受け口(最初に登録する) ---------- */
@@ -581,8 +624,10 @@ const EXTRA_UI = {
   "client-add": () => openClientForm(null),
   "client-edit": (element) => openClientForm(element.dataset.code),
   "client-disable": (element) => openClientDisable(element.dataset.code),
-  "announce-edit": (element) => openNoticeEdit(element.dataset.id),
-  "announce-delete": (element) => openNoticeRemove(element.dataset.id),
+  "side-toggle": toggleSideSection,
+  "side-open-all": () => setSideCollapsed([]),
+  "side-close-all": () => setSideCollapsed(SIDE_SECTIONS),
+  "side-clear": clearSideState,
   "draft-age": () =>
     notify(
       `${ageAllDrafts()}件の下書きの最終編集を8日前にしました。ページを再読み込みすると期限切れとして消えます。`,
@@ -592,8 +637,6 @@ const EXTRA_UI = {
 const EXTRA_MODAL = {
   "client-save": saveClient,
   "client-disable": disableClient,
-  "notice-save": saveNotice,
-  "notice-remove": removeNotice,
 };
 
 document.addEventListener(
