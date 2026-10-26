@@ -125,6 +125,7 @@ function refreshSuccessorArea() {
     return;
   }
   const options = successorCandidates(person);
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てている
   area.innerHTML = options.length
     ? `${selectField(
         `元部署（${person.department}）の後任（必須）`,

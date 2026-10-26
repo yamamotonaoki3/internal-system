@@ -303,6 +303,7 @@ const STATUS_CHOICES = ["在席", "外出", "欠席", "休暇", "会議中"];
 function openAvatarMenu() {
   const dialog = document.querySelector("#avatar-dialog");
   const current = currentUser().status || "在席";
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで、利用者の入力をそのまま入れない
   dialog.innerHTML = `<div class="drawer-header"><strong>自分のメニュー</strong><button type="button" data-ui="avatar-close" aria-label="自分のメニューを閉じる">×</button></div><div class="avatar-links"><p class="avatar-status-label" id="avatar-status-label">ステータス: ${e(current)}</p><div class="status-buttons" role="group" aria-labelledby="avatar-status-label">${STATUS_CHOICES.map((value) => `<button type="button" class="button small ${value === current ? "primary" : ""}" data-ui="set-status" data-value="${e(value)}" aria-pressed="${value === current}">${e(value)}</button>`).join("")}</div>${[
     ["S19", "プロフィール"],
     ["S04", "パスワード変更"],

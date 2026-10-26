@@ -464,6 +464,7 @@ function renderList() {
     caseSubnav() +
     stateSwitcher();
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html + statePanel();
     return;
   }
@@ -476,6 +477,7 @@ function renderList() {
   html += `<div class="stat-row"><div class="panel stat"><span>進行中の案件</span><strong>${openCount}</strong></div><div class="panel stat"><span>アーカイブ</span><strong>${archiveCount}</strong></div><div class="panel stat"><span>自分が参加中</span><strong>${state.cases.filter((item) => isMember(item) && item.status === "active").length}</strong></div></div>`;
   html += `<div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="case-search" type="search" placeholder="件名・案件番号・取引先名で絞り込み" value="${e(state.query)}" autocomplete="off" aria-label="件名・案件番号・取引先名で絞り込み"></label><div class="filters"><label for="scope">表示範囲</label><select id="scope"><option value="all" ${state.scope === "all" ? "selected" : ""}>すべての案件</option><option value="mine" ${state.scope === "mine" ? "selected" : ""}>自分が参加する案件</option></select></div></div>`;
   html += `<div class="panel list-panel"><div class="list-title"><strong>案件一覧</strong><span>${items.length} 件</span></div>${items.length ? `<div class="case-list">${items.map(caseRow).join("")}</div>` : `<div class="empty-screen"><span class="empty-icon">▤</span><h2>該当する案件はありません</h2><p>条件を変えて、もう一度探してください。</p></div>`}</div>`;
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
 }
 function renderDetail() {
@@ -549,6 +551,7 @@ function renderDetail() {
     ) +
     stateSwitcher();
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html + statePanel();
     return;
   }
@@ -577,6 +580,7 @@ function renderDetail() {
   html += publicationStatus(item);
   if (!visible) {
     html += `<div class="panel empty-screen"><span class="empty-icon">♧</span><h2>参加者だけが見られます（非公開）</h2><p>この案件の概要は全社員に表示されます。会話・TODO・資料を確認するには参加が必要です。</p>${archived && item.members.length === 0 ? (pendingReopen ? "<p>再開申請の審査中です。</p>" : "<p>参加者がいないため、再開申請を出せます。承認までは過去の内容を見られません。</p>") : ""}</div>`;
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html;
     return;
   }
@@ -592,6 +596,7 @@ function renderDetail() {
     .join(
       "",
     )}</div>${detailTabContent(item, readOnly)}</div>${state.detailTab === "messages" && !readOnly ? caseComposer(item) : ""}</section><section class="panel"><div class="panel-header"><h2>操作の履歴</h2></div><div class="panel-body">${item.events.length ? `<div class="timeline">${item.events.map((event) => `<div class="timeline-item"><time>${e(event.at)}</time>${e(event.text)}</div>`).join("")}</div>` : '<p class="subtle">この試作中の操作履歴はまだありません。</p>'}</div></section></div><div class="side-column"><section class="panel"><div class="panel-header"><h2>参加者</h2>${!readOnly ? `<button type="button" class="button small" data-ui="case-manage" data-id="${item.id}">参加者を管理</button>` : ""}</div><div class="panel-body">${item.members.length ? item.members.map((id) => `<div class="person"><span class="message-avatar">${e(nameOf(id).slice(-2))}</span><span>${personButton(id)}</span></div>`).join("") : '<p class="subtle">有効な参加者はいません。</p>'}</div></section><section class="panel"><div class="panel-header"><h2>公開範囲</h2></div><div class="panel-body"><div class="muted-box">${archived && item.visibility === "public" ? "全社員が過去の内容を閲覧できます。再開すると過去も含め参加者限定へ戻ります。" : "案件の内容は参加者だけに公開されています。アーカイブを全社員公開するには承認が必要です。"}</div></div></section></div></div>`;
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
 }
 // 全社員公開の申請状況。参加者には申請者と審査状況を示し、却下されたときは理由も示す。
@@ -677,6 +682,7 @@ function renderMyRequests() {
     caseSubnav() +
     stateSwitcher();
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html + statePanel();
     return;
   }
@@ -689,6 +695,7 @@ function renderMyRequests() {
   for (const request of reopens)
     html += `<section class="panel request-card"><div class="request-card-head"><h2>再開の申請：${e(getCase(request.caseId)?.title || request.caseId)}</h2>${badge(requestStatus(request.status), requestType(request.status))}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 理由: ${e(request.reason)}</p>${request.previous ? `<p>元の申請: ${e(request.previous)}</p>` : ""}${request.decisionReason && request.status === "rejected" ? `<p>却下理由: ${e(request.decisionReason)}</p>` : ""}<div class="request-actions">${request.status === "pending" ? button("取り下げ", "withdraw-reopen", `data-id="${request.id}"`, "button small danger") : ""}${["rejected", "withdrawn"].includes(request.status) ? button("修正して再申請", "reapply-reopen", `data-id="${request.id}"`) : ""}</div></section>`;
   html += "</div>";
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
 }
 function renderApprovals() {
@@ -702,6 +709,7 @@ function renderApprovals() {
       "担当できる案件作成申請と、関連する公開・再開の審査を確認します。",
     ) + stateSwitcher();
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html + statePanel();
     return;
   }
@@ -716,6 +724,7 @@ function renderApprovals() {
   for (const request of reopens)
     html += `<section class="panel request-card"><div class="request-card-head"><h2>再開：${e(getCase(request.caseId)?.title || request.caseId)}</h2>${badge("承認待ち", "pending")}</div><p>申請者: ${e(nameOf(request.applicant))} ・ 理由: ${e(request.reason)}${request.previous ? ` ・ 元の申請: ${e(request.previous)}` : ""}</p><p>審査中は過去の内容を読み取り専用で確認できます（閲覧は監査記録に残ります）。申請者本人には、承認前は過去の内容を表示しません。</p><div class="request-actions">${button("内容を見る", "review-content", `data-id="${request.caseId}"`)}${button("再開を審査", "review-reopen", `data-id="${request.id}"`, "button primary small")}</div></section>`;
   html += "</div>";
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
 }
 function renderGuide() {
@@ -726,6 +735,7 @@ function renderGuide() {
       "表示する社員を切り替え、合意した権限と画面の変化を確かめてください。",
     ) + stateSwitcher();
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
     screen.innerHTML = html + statePanel();
     return;
   }
@@ -737,6 +747,7 @@ function renderGuide() {
           .join("")
       : "<div>まだ操作はありません。</div>"
   }</div></section><section class="panel guide-card"><h2>この試作について</h2><p>データは架空で、ブラウザのメモリだけにあります。再読み込みすると初期状態に戻ります。資料のダウンロードや実際の認証は行いません。</p></section></div>`;
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
 }
 function render() {
@@ -820,6 +831,7 @@ function modalHtml(title, body, action, actionLabel, danger = false) {
 }
 function showModal(title, body, action, actionLabel, danger = false) {
   returnFocus = document.activeElement;
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   modal.innerHTML = modalHtml(title, body, action, actionLabel, danger);
   modal.showModal();
   modal

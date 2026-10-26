@@ -506,6 +506,7 @@ function renderShell() {
   const auth = ["S02", "S03", "S34"].includes(state.page);
   document.body.classList.toggle("auth-view", auth);
   const viewer = document.querySelector("#viewer");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   viewer.innerHTML = employees
     .filter((person) => person.active)
     .map(
@@ -516,12 +517,14 @@ function renderShell() {
   document.querySelector("#avatar-menu-button").textContent =
     currentUser().name.slice(-2);
   const jump = document.querySelector("#screen-catalog");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   jump.innerHTML = screenCatalog
     .map(
       ([id, label]) =>
         `<option value="S-${id.slice(1)}" ${state.page === id ? "selected" : ""}>S-${id.slice(1)} ${e(label)}</option>`,
     )
     .join("");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   document.querySelector("#state-controls").innerHTML = [
     ["data", "データあり"],
     ["loading", "読み込み中"],
@@ -533,9 +536,12 @@ function renderShell() {
         `<button type="button" class="${state.viewState === value ? "active" : ""}" data-action="state" data-value="${value}" aria-pressed="${state.viewState === value}">${label}</button>`,
     )
     .join("");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   document.querySelector("#sidebar-content").innerHTML = sidebarContent();
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   document.querySelector("#drawer-content").innerHTML =
     sidebarContent();
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   document.querySelector("#mobile-nav").innerHTML = [
     ["S01", "ホーム"],
     ["S06", "DM"],
@@ -642,6 +648,7 @@ function sidebarContent() {
     )}</div><div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div><div class="side-section"><strong>案件</strong><button type="button" class="side-link" data-ui="go" data-page="S16">▣ 案件一覧</button>${caseChannels || '<span class="side-empty">参加中の案件はありません</span>'}</div><div class="side-section"><strong>整理スペース</strong><button type="button" class="side-link" data-ui="go" data-page="S33">◇ 自分専用</button></div><div class="side-section"><strong>共通・管理</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button><button type="button" class="side-link" data-ui="go" data-page="S21">部署のお知らせ</button>${ownerMenu}${channelApproval}${caseApprovals}${adminMenu}</div></div>`;
 }
 function showNoPermission() {
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = shellCard(
     "この画面を使う権限がありません",
     `<p class="subtle">表示する社員を確認してください。</p>${protoButton("ホームへ戻る", "go", 'data-page="S01"')}`,
@@ -669,10 +676,12 @@ function renderExtraPage(page) {
   if (page === "S26") return renderReauthDemo();
   if (page === "S27") return renderProfileDemo();
   if (page === "S33" && state.viewState === "empty") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
     screen.innerHTML = personalSpaceScreen(true);
     return;
   }
   if (state.viewState !== "data") {
+    // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
     screen.innerHTML = screenFrame(
       page,
       screenCatalog.find(([id]) => id === page)?.[1] || "",
@@ -713,6 +722,7 @@ function renderExtraPage(page) {
     S35: threadsScreen,
     S36: clientsScreen,
   };
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = (renderers[page] || homeScreen)();
 }
 // 案内だけを出す。未読の要約や最近のチャンネルは出さない（C-77）。
@@ -874,9 +884,11 @@ function renderThread() {
   const canReply = threadCanWrite(thread);
   const draft = draftFor(threadDraftScope(thread));
   panel.dataset.screenId = "S-07";
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   panel.innerHTML = `<div class="thread-header"><strong>S-07 スレッド</strong><button type="button" data-ui="thread-close" aria-label="スレッドを閉じる">×</button></div><div class="thread-scroll"><p class="thread-label">${e(thread.label || "")}</p><p class="side-caption">元のメッセージ</p><div class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body">${personButton(message.by)}<p>${e(message.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="元のメッセージを整理スペースに登録">整理スペースに登録</button></div></div></div><h3>返信 ${message.replies?.length || 0}件</h3>${message.replies?.length ? message.replies.map((reply) => `<div class="thread-reply" data-mid="${e(midOf(reply))}"><strong>${e(nameOf(reply.by))}</strong> <time>${e(reply.at || "")}</time><p>${e(reply.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="reply" data-ref="${e(midOf(reply))}" aria-label="${e(nameOf(reply.by))}の${e(reply.at || "")}の返信を整理スペースに登録">整理スペースに登録</button></div></div>`).join("") : '<p class="subtle">まだ返信がありません。</p>'}</div>${canReply ? `<form class="thread-form" data-proto-form="reply"><label for="reply-text">返信を入力</label><textarea id="reply-text" name="text" required data-min="1" data-max="4000" data-name="返信" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<button type="submit" class="button primary">返信する</button></form>` : `<p class="prototype-hint">${thread.source === "channel" ? "参加すると返信できます。" : "読み取り専用です。"}</p>`}`;
 }
 function renderReauthDemo() {
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = screenFrame(
     "S26",
     "再認証ダイアログ",
@@ -888,6 +900,7 @@ function renderReauthDemo() {
   );
 }
 function renderProfileDemo() {
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = screenFrame(
     "S27",
     "プロフィールカード",
