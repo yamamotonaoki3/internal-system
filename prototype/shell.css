@@ -183,6 +183,44 @@
   border-left: 3px solid #7dd8c9;
   padding-left: 7px;
 }
+/* サイドバーの開閉（案）。見出しは button で、閉じた本体は hidden にする。 */
+.side-toggle {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  min-height: 32px;
+  cursor: pointer;
+}
+.side-toggle.side-top {
+  font-size: 11px;
+  color: #91adba;
+  padding: 0 11px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.side-toggle.side-subhead {
+  color: #e9f3f6;
+  font-size: 12px;
+  margin: 4px 0 2px;
+  padding: 0 7px 0 11px;
+  border-left: 3px solid #7dd8c9;
+  font-weight: 700;
+}
+.side-toggle:hover,
+.side-toggle:focus-visible {
+  background: #274c60;
+  color: #fff;
+}
+.side-body,
+.side-unread {
+  display: grid;
+  gap: 2px;
+}
+.side-body[hidden] {
+  display: none;
+}
 .side-tag {
   display: inline-block;
   font-size: 10px;
@@ -496,8 +534,7 @@
   gap: 8px;
   padding-top: 18px;
 }
-.chat-composer textarea,
-.notice textarea {
+.chat-composer textarea {
   width: 100%;
   min-height: 75px;
   border: 1px solid #d6e2e7;
@@ -525,18 +562,6 @@
   padding: 15px;
   border-radius: 8px;
   font-size: 12px;
-}
-.notice {
-  padding: 12px 0;
-  border-bottom: 1px solid #e5edef;
-}
-.notice time,
-.notice small {
-  font-size: 11px;
-  color: #79909c;
-}
-.notice p {
-  margin: 8px 0;
 }
 .pagination {
   display: flex;
@@ -946,10 +971,6 @@
   border-radius: 5px;
   padding: 6px;
   text-align: left;
-}
-.notice h3 {
-  margin: 6px 0;
-  font-size: 15px;
 }
 @media (max-width: 767px) {
   .info-grid {

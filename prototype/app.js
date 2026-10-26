@@ -1151,7 +1151,6 @@ document.querySelector("#viewer").addEventListener("change", (event) => {
   ui.profile = null;
   state.caseManage = false;
   ui.manageDept = null;
-  ui.announcementDept = null;
   ui.dirFilter = "すべて";
   ui.channelId = defaultChannelId();
   closeModalIfOpen();

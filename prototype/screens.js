@@ -1,6 +1,7 @@
 "use strict";
 
 // screens.md の画面構成を試すための架空データ。案件の状態と権限は app.js に置く。
+// S-21（部署のお知らせの専用画面）は廃止された（C-108）ため欠番。番号は詰めない。
 const screenCatalog = [
   ["S01", "共通レイアウト"],
   ["S02", "ログイン"],
@@ -22,7 +23,6 @@ const screenCatalog = [
   ["S18", "案件の作成申請・参加者管理"],
   ["S19", "プロフィール設定"],
   ["S20", "社員一覧"],
-  ["S21", "部署のお知らせ"],
   ["S22", "アカウント管理"],
   ["S23", "アカウント登録"],
   ["S24", "部署の一覧とオーナーの任命・交代"],
@@ -58,6 +58,8 @@ const prototypeData = {
           text: "今週の連絡事項を共有します。",
           at: "10:02",
           mentions: ["u1"],
+          // 未読の見本（参加者だけに付く）。u1 は下の返信が未読のため、親メッセージの未読は付けない。
+          unreadFor: ["u2", "u4", "u5", "u7", "u8"],
           attachments: [{ id: "a-gen-1", name: "議事録.pdf" }],
           replies: [
             {
@@ -169,6 +171,71 @@ const prototypeData = {
         },
       ],
     },
+    // 部署のお知らせ専用チャンネル（C-108）。公開で、投稿できるのは自部署のオーナーと全体管理者だけ。
+    // announce は、このプロトタイプ内の表現にすぎない（投稿制限の持たせ方は C-108(1) で未決定）。
+    // 初期の参加者は部署の社員の見本で、自動参加と決めたものではない（C-108(3) は未決定）。置き場のフォルダも案。
+    // 題名は別欄にせず、本文の先頭に「【題名】」として入れる（題名と本文の長さの規則は 7-2 AC-4 で未決定）。
+    {
+      id: "announce-sales",
+      name: "営業部のお知らせ",
+      dept: "営業部",
+      folder: "共通連絡",
+      private: false,
+      announce: true,
+      // u3 は、他部署の社員が参加した場合の見本（参加しても投稿はできない）。
+      members: ["u1", "u2", "u5", "u3"],
+      messages: [
+        {
+          by: "u5",
+          text: "【展示会の準備状況】展示会の準備は予定どおり進んでいます。",
+          at: "10/12",
+          unreadFor: ["u2"],
+          replies: [],
+        },
+        {
+          by: "u2",
+          text: "【来週の全体会議について】来週の月曜日は全体会議です。",
+          at: "10/20",
+          unreadFor: ["u3"],
+          replies: [],
+        },
+      ],
+    },
+    {
+      id: "announce-design",
+      name: "設計部のお知らせ",
+      dept: "設計部",
+      folder: "共通連絡",
+      private: false,
+      announce: true,
+      members: ["u3", "u4", "u8"],
+      messages: [
+        {
+          by: "u4",
+          text: "【図面の提出期限】今月末までに最新の図面を提出してください。",
+          at: "10/18",
+          unreadFor: ["u3"],
+          replies: [],
+        },
+      ],
+    },
+    {
+      id: "announce-soumu",
+      name: "総務部のお知らせ",
+      dept: "総務部",
+      folder: "共通連絡",
+      private: false,
+      announce: true,
+      members: ["u5", "u7"],
+      messages: [
+        {
+          by: "u5",
+          text: "【備品の棚卸し】備品の棚卸しを実施します。",
+          at: "10/15",
+          replies: [],
+        },
+      ],
+    },
   ],
   dm: {
     "u1:u3": [
@@ -241,40 +308,6 @@ const prototypeData = {
       reason: "",
     },
   ],
-  announcements: [
-    {
-      id: "an1",
-      dept: "営業部",
-      by: "u2",
-      title: "来週の全体会議について",
-      text: "来週の月曜日は全体会議です。",
-      date: "10/20",
-    },
-    {
-      id: "an2",
-      dept: "営業部",
-      by: "u5",
-      title: "展示会の準備状況",
-      text: "展示会の準備は予定どおり進んでいます。",
-      date: "10/12",
-    },
-    {
-      id: "an3",
-      dept: "設計部",
-      by: "u4",
-      title: "図面の提出期限",
-      text: "今月末までに最新の図面を提出してください。",
-      date: "10/18",
-    },
-    {
-      id: "an4",
-      dept: "総務部",
-      by: "u5",
-      title: "備品の棚卸し",
-      text: "備品の棚卸しを実施します。",
-      date: "10/15",
-    },
-  ],
   // 個人整理スペースの登録（2-8）。登録は元へのリンクだけを持ち、内容は複製しない（C-67）。
   // kind: channel / file / message / reply / case / dm。refId は対象のID（dm は相手のID）。
   // 種類＋refId が同じものは1件だけ（C-72）。folderId が null なら「フォルダなし」（C-69）。
@@ -334,7 +367,9 @@ const ui = {
   inviteChannelId: null,
   staffFilter: "すべて",
   registerMode: "individual",
-  announcementDept: null,
+  // サイドバーの閉じているセクション（案）。保存は extras.js の sidebarStorage。
+  sideCollapsed: new Set(),
+  sideLoadedFor: null,
   manageDept: null,
   dirFilter: "すべて",
   channelFilter: "",
@@ -364,6 +399,35 @@ const deptLabel = (name) => (name === COMPANY ? "会社直属" : name);
 // 公開チャンネルは参加しなくても読める。非公開は参加者だけ（C-94）。投稿・リアクションは参加者のみ。
 const canReadChannel = (channel) =>
   !!channel && (!channel.private || isChannelMember(channel));
+// お知らせ専用チャンネル（C-108）の投稿は、自部署のオーナーと全体管理者だけ（C-96・7-2 AC-1）。
+// ほかの人は、参加しても投稿できない。リアクションと返信は、参加者なら通常どおり使える。
+const canPostAnnounce = (channel) =>
+  adminOnly() ||
+  (currentUser().role === "owner" && currentUser().department === channel.dept);
+// 投稿できるのは参加者だけ（C-94）。お知らせ専用チャンネルは、そのうえで canPostAnnounce も満たすこと。
+const canPostChannel = (channel) =>
+  isChannelMember(channel) && (!channel.announce || canPostAnnounce(channel));
+// 未読は参加者だけに付く（C-94）。親メッセージか返信のどちらかに、自分宛ての未読があるか。
+const channelUnread = (channel) =>
+  isChannelMember(channel) &&
+  channel.messages.some(
+    (message) =>
+      message.unreadFor?.includes(state.userId) ||
+      (message.replies || []).some((reply) =>
+        reply.unreadFor?.includes(state.userId),
+      ),
+  );
+// チャンネルを開くと、親メッセージの未読だけが既読になる。返信の未読は、スレッドを開いたときに消す（C-91）。
+function markChannelRead(channel) {
+  let changed = false;
+  channel.messages.forEach((message) => {
+    if (message.unreadFor?.includes(state.userId)) {
+      message.unreadFor = message.unreadFor.filter((id) => id !== state.userId);
+      changed = true;
+    }
+  });
+  return changed;
+}
 // サイドバーのチャンネルの分け方（C-106【案】）。会社 → 自部署 → 他部署の順。
 const channelSection = (channel) =>
   channel.dept === COMPANY
@@ -502,6 +566,14 @@ function todoContent(item, readOnly) {
       : '<div class="todo-add"><button type="button" class="button small" data-action="todo-add">+ 項目を追加</button></div>';
   return rows + tail;
 }
+// サイドバー（パソコンの左）とドロワー（スマートフォン）の両方を描き直す。開閉の操作と未読の変化では、メインの画面は描き直さない。
+function renderSidebars() {
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
+  document.querySelector("#sidebar-content").innerHTML = sidebarContent("side");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
+  document.querySelector("#drawer-content").innerHTML =
+    sidebarContent("drawer");
+}
 function renderShell() {
   const auth = ["S02", "S03", "S34"].includes(state.page);
   document.body.classList.toggle("auth-view", auth);
@@ -536,11 +608,7 @@ function renderShell() {
         `<button type="button" class="${state.viewState === value ? "active" : ""}" data-action="state" data-value="${value}" aria-pressed="${state.viewState === value}">${label}</button>`,
     )
     .join("");
-  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
-  document.querySelector("#sidebar-content").innerHTML = sidebarContent();
-  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
-  document.querySelector("#drawer-content").innerHTML =
-    sidebarContent();
+  renderSidebars();
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   document.querySelector("#mobile-nav").innerHTML = [
     ["S01", "ホーム"],
@@ -557,11 +625,24 @@ function renderShell() {
   document.querySelector("#thread-panel").hidden = !ui.thread;
   if (ui.thread) renderThread();
 }
+// サイドバーの開閉（案。要件 S-01 への反映は、確かめた後）。見出しは button と aria-expanded にし、閉じた本体は hidden にする。
+// 閉じていても、未読のあるチャンネルだけは見出しの下に残す（未読は参加者だけ。件数は出さない）。
+// 本体の id は描画先ごとに分ける（prefix は side か drawer）。パソコンのサイドバーとドロワーの両方に描くため。
+function sideToggleSection(prefix, key, label, bodyHtml, unreadChannels, kind) {
+  const closed = sideCollapsed().has(key);
+  const bodyId = `${prefix}-body-${key}`;
+  const head = `<button type="button" class="side-toggle ${kind}" data-ui="side-toggle" data-section="${key}" aria-expanded="${!closed}" aria-controls="${bodyId}"><span aria-hidden="true">${closed ? "▶" : "▼"}</span> ${label}</button>`;
+  const unread =
+    closed && unreadChannels.length
+      ? `<div class="side-unread">${unreadChannels.map(sidebarChannelButton).join("")}</div>`
+      : "";
+  return `${head}${unread}<div class="side-body" id="${bodyId}" ${closed ? "hidden" : ""}>${bodyHtml}</div>`;
+}
 // チャンネル欄は「会社」「自部署」「他部署」に分ける（C-106【案】）。公開チャンネルは参加していなくても読めるため、
 // 未参加の公開チャンネルも「未参加」と示して並べる。非公開は参加者だけに出す。
 function sidebarChannelButton(channel) {
   const joined = isChannelMember(channel);
-  return `<button type="button" class="side-link" data-ui="channel" data-id="${e(channel.id)}"># ${e(channel.name)}${channel.private ? ' <span class="side-tag">非公開</span>' : ""}${joined ? "" : ' <span class="side-tag">未参加</span>'}${channel.id === "general" ? ' <span class="unread-mark">● 未読</span>' : ""}</button>`;
+  return `<button type="button" class="side-link" data-ui="channel" data-id="${e(channel.id)}"># ${e(channel.name)}${channel.private ? ' <span class="side-tag">非公開</span>' : ""}${joined ? "" : ' <span class="side-tag">未参加</span>'}${channelUnread(channel) ? ' <span class="unread-mark">● 未読</span>' : ""}</button>`;
 }
 function sidebarFolderGroups(dept, channels) {
   const folders = prototypeData.folders[dept] || [];
@@ -580,23 +661,37 @@ function sidebarFolderGroups(dept, channels) {
     })
     .join("");
 }
-function sidebarChannelSections() {
+function sidebarChannelSections(prefix) {
   const visible = prototypeData.channels.filter(canReadChannel);
   const company = visible.filter((c) => channelSection(c) === "company");
   const own = visible.filter((c) => channelSection(c) === "own");
   const other = visible.filter((c) => channelSection(c) === "other");
   const otherDepts = [...new Set(other.map((c) => c.dept))];
-  const empty = (text) => `<span class="side-empty">${text}</span>`;
-  return `<div class="side-sub"><strong class="side-subhead">会社</strong>${sidebarFolderGroups(COMPANY, company) || empty("チャンネルはありません")}</div><div class="side-sub"><strong class="side-subhead">自部署（${e(currentUser().department)}）</strong>${sidebarFolderGroups(currentUser().department, own) || empty("チャンネルはありません")}</div><div class="side-sub"><strong class="side-subhead">他部署</strong>${
-    otherDepts
-      .map(
-        (dept) =>
-          `<div class="side-group"><strong>⌄ ${e(dept)}</strong>${other.filter((c) => c.dept === dept).map(sidebarChannelButton).join("")}</div>`,
-      )
-      .join("") || empty("チャンネルはありません")
-  }</div>`;
+  const empty = '<span class="side-empty">チャンネルはありません</span>';
+  const sub = (key, label, channels, bodyHtml) =>
+    `<div class="side-sub">${sideToggleSection(prefix, key, label, bodyHtml || empty, channels.filter(channelUnread), "side-subhead")}</div>`;
+  return (
+    sub("company", "会社", company, sidebarFolderGroups(COMPANY, company)) +
+    sub(
+      "own",
+      `自部署（${e(currentUser().department)}）`,
+      own,
+      sidebarFolderGroups(currentUser().department, own),
+    ) +
+    sub(
+      "other",
+      "他部署",
+      other,
+      otherDepts
+        .map(
+          (dept) =>
+            `<div class="side-group"><strong>⌄ ${e(dept)}</strong>${other.filter((c) => c.dept === dept).map(sidebarChannelButton).join("")}</div>`,
+        )
+        .join(""),
+    )
+  );
 }
-function sidebarContent() {
+function sidebarContent(prefix) {
   const manage = folderTargets().length
     ? `<button type="button" class="side-link" data-ui="go" data-page="S32">フォルダを管理</button>`
     : "";
@@ -636,16 +731,25 @@ function sidebarContent() {
     )
     .join("");
   const unreadThreads = unreadThreadTotal();
-  return `<div class="side-content"><div class="side-section"><strong>チャンネル</strong>${sidebarChannelSections()}<button type="button" class="side-link side-add" data-ui="go" data-page="S09">＋ 探す / 参加 / 申請</button>${manage}</div><div class="side-section"><strong>ダイレクトメッセージ</strong><button type="button" class="side-link side-add" data-ui="dm-new">＋ 新しいDM</button>${employees
+  // DM・案件・整理スペースには未読のデータがない。閉じたときに残す未読は、チャンネルだけ（未決定）。
+  const dmBody = `<button type="button" class="side-link side-add" data-ui="dm-new">＋ 新しいDM</button>${employees
     .filter((person) => person.active && person.id !== state.userId)
     .slice(0, 2)
     .map(
       (person) =>
         `<button type="button" class="side-link" data-ui="dm" data-user="${person.id}">@ ${e(person.name)}</button>`,
     )
-    .join(
-      "",
-    )}</div><div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div><div class="side-section"><strong>案件</strong><button type="button" class="side-link" data-ui="go" data-page="S16">▣ 案件一覧</button>${caseChannels || '<span class="side-empty">参加中の案件はありません</span>'}</div><div class="side-section"><strong>整理スペース</strong><button type="button" class="side-link" data-ui="go" data-page="S33">◇ 自分専用</button></div><div class="side-section"><strong>共通・管理</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button><button type="button" class="side-link" data-ui="go" data-page="S21">部署のお知らせ</button>${ownerMenu}${channelApproval}${caseApprovals}${adminMenu}</div></div>`;
+    .join("")}`;
+  const caseBody = `<button type="button" class="side-link" data-ui="go" data-page="S16">▣ 案件一覧</button>${caseChannels || '<span class="side-empty">参加中の案件はありません</span>'}`;
+  const orgBody = `<button type="button" class="side-link" data-ui="go" data-page="S33">◇ 自分専用</button>`;
+  const section = (key, label, body) =>
+    `<div class="side-section">${sideToggleSection(prefix, key, label, body, [], "side-top")}</div>`;
+  const channelBlock = `<div class="side-section"><strong>チャンネル</strong>${sidebarChannelSections(prefix)}<button type="button" class="side-link side-add" data-ui="go" data-page="S09">＋ 探す / 参加 / 申請</button>${manage}</div>`;
+  // 保存できないときは黙らずに知らせる。sideCollapsed() の読み込みの後に判定するため、最後に組み立てる。
+  const saveNote = sidebarStatus.available
+    ? ""
+    : '<p class="side-empty" role="status">この端末では開閉の状態を覚えられません</p>';
+  return `<div class="side-content">${channelBlock}${section("dm", "ダイレクトメッセージ", dmBody)}<div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div>${section("case", "案件", caseBody)}${section("org", "整理スペース", orgBody)}<div class="side-section"><strong>共通・管理</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button>${ownerMenu}${channelApproval}${caseApprovals}${adminMenu}</div>${saveNote}</div>`;
 }
 function showNoPermission() {
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
@@ -708,7 +812,6 @@ function renderExtraPage(page) {
     S18: caseRequestScreen,
     S19: profileScreen,
     S20: employeeScreen,
-    S21: announcementsScreen,
     S22: accountsScreen,
     S23: accountRegisterScreen,
     S24: departmentAdminScreen,
@@ -792,6 +895,8 @@ function channelScreen() {
       shellCard("見つかりません", "<p>このチャンネルは表示できません。</p>"),
     );
   const joined = isChannelMember(channel);
+  // 親メッセージの未読は、開いた時点で既読にする。サイドバーは先に描画済みのため、変わったときだけ描き直す。
+  if (markChannelRead(channel)) renderSidebars();
   const participants = channel.members
     .map(
       (id) =>
@@ -800,11 +905,13 @@ function channelScreen() {
     .join("");
   // 未参加の公開チャンネルは、投稿欄の代わりに参加の案内を出す（C-94）。
   const joinNotice = `<div class="join-notice" role="status"><p><strong>参加すると使えます</strong></p><p class="subtle">このチャンネルは公開のため、参加しなくても内容を読めます。投稿とリアクションは参加者だけが使えます。</p>${protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`, true)}</div>`;
+  // 参加していても投稿できない場合（お知らせ専用チャンネルの一般社員・他部署の社員）は、入力欄の代わりに理由を出す。
+  const noPostNotice = `<div class="join-notice" role="status"><p><strong>投稿できません</strong></p><p class="subtle">このチャンネルに投稿できるのは、${e(channel.dept)}のオーナーと全体管理者だけです。リアクションと返信は、参加していれば使えます。</p></div>`;
   return screenFrame(
     "S05",
     `# ${channel.name}`,
-    `${deptLabel(channel.dept)} ・ ${channel.private ? "非公開" : "公開"}チャンネル${joined ? "" : " ・ 参加せずに読んでいます"}`,
-    `<details class="mobile-participants"><summary>参加者 ${channel.members.length}人</summary>${participants || "<p class=\"subtle\">参加者はまだいません</p>"}</details><div class="chat-layout">${shellCard("メッセージ", `${messageRows(channel.messages, "channel")}${joined ? composer("channel") : joinNotice}`)}<div class="desktop-participants">${shellCard("参加者", participants || '<p class="subtle">参加者はまだいません</p>')}</div></div>`,
+    `${deptLabel(channel.dept)} ・ ${channel.announce ? "お知らせ専用 ・ " : ""}${channel.private ? "非公開" : "公開"}チャンネル${joined ? "" : " ・ 参加せずに読んでいます"}`,
+    `<details class="mobile-participants"><summary>参加者 ${channel.members.length}人</summary>${participants || "<p class=\"subtle\">参加者はまだいません</p>"}</details><div class="chat-layout">${shellCard("メッセージ", `${messageRows(channel.messages, "channel")}${!joined ? joinNotice : canPostChannel(channel) ? composer("channel") : noPostNotice}`)}<div class="desktop-participants">${shellCard("参加者", participants || '<p class="subtle">参加者はまだいません</p>')}</div></div>`,
     (channel.private && joined
       ? protoButton(
           "招待",
@@ -939,7 +1046,9 @@ function channelDirectoryScreen() {
   const row = (channel) => {
     const joined = isChannelMember(channel);
     const dedicated = channel.dept !== COMPANY && channel.name === channel.dept;
-    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${dedicated ? "（部署の専用チャンネル）" : ""} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p></div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
+    // お知らせ専用の区別の出し方は未決定（screens.md S-09）。ここでは案として文字のタグを付ける。
+    const tag = channel.announce ? "（お知らせ専用）" : dedicated ? "（部署の専用チャンネル）" : "";
+    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${tag} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p></div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
   };
   return screenFrame(
     "S09",
@@ -1212,40 +1321,6 @@ function employeeScreen() {
         [["すべて", "すべて"], ...departmentNames().map((name) => [name, name])],
         ui.staffFilter,
       )}<div class="list-cards">${list.map((person) => `<div class="directory-row"><div>${personButton(person.id)}<p class="subtle">${e(person.department)} ・ 内線 ${e(extOf(person))} ・ <a href="mailto:${e(emailOf(person))}">${e(emailOf(person))}</a> ・ ${e(person.status || "在席")}</p></div><div class="inline-actions">${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}${adminOnly() || (currentUser().role === "owner" && currentUser().department === person.department) ? protoButton("代理設定", "delegate-status", `data-user="${person.id}"`) : ""}</div></div>`).join("") || "<p>該当する社員がいません。</p>"}</div>`,
-    ),
-  );
-}
-// 表示する部署。全社員が全部署のお知らせを閲覧できる（C-96）。
-const noticeDepartment = () =>
-  departmentNames().includes(ui.announcementDept)
-    ? ui.announcementDept
-    : currentUser().department;
-// 投稿・編集・削除は自部署のオーナー（自部署の全投稿）と全体管理者（全部署）（C-96・C-107 (b)）。
-const canPostNotice = (department) =>
-  adminOnly() ||
-  (currentUser().role === "owner" && currentUser().department === department);
-const canManageNotice = (note) => canPostNotice(note.dept);
-// 部署のお知らせはチャンネルと分けた専用画面。
-function announcementsScreen() {
-  const department = noticeDepartment();
-  const notes = prototypeData.announcements.filter(
-    (note) => note.dept === department,
-  );
-  const postForm = canPostNotice(department)
-    ? `<form data-proto-form="notice"><h3>お知らせを投稿</h3>${field("題名", "notice-title", "text", "", true, [1, 100])}<div class="form-field"><label for="notice-text">本文</label><textarea id="notice-text" name="text" required data-min="1" data-max="5000" data-name="本文"></textarea></div><button type="submit" class="button primary">投稿する</button></form>`
-    : `<p class="subtle">${e(department)}のお知らせの投稿・編集・削除は、${e(department)}のオーナーと全体管理者だけができます。</p>`;
-  return screenFrame(
-    "S21",
-    `${department}のお知らせ`,
-    "部署ごとのお知らせです。全社員が全部署のものを閲覧できます。部署のチャンネルとは別の画面にしています。",
-    shellCard(
-      "お知らせ",
-      `${selectField(
-        "表示する部署",
-        "announcement-dept",
-        departmentNames().map((value) => [value, value]),
-        department,
-      )}${notes.map((note) => `<article class="notice"><time>${e(note.date)}</time><h3>${e(note.title)}</h3><p>${e(note.text)}</p><small>投稿者: ${e(nameOf(note.by))}</small>${canManageNotice(note) ? `<div class="inline-actions">${protoButton("編集", "announce-edit", `data-id="${e(note.id)}" aria-label="${e(note.title)}を編集"`)}${protoButton("削除", "announce-delete", `data-id="${e(note.id)}" aria-label="${e(note.title)}を削除"`)}</div>` : ""}</article>`).join("") || "<p>お知らせはありません。</p>"}${postForm}`,
     ),
   );
 }
@@ -1792,11 +1867,6 @@ document.addEventListener(
       ui.accountFilter = target.value;
       render();
     }
-    if (target.id === "announcement-dept") {
-      ui.announcementDept = target.value;
-      render();
-      document.getElementById("announcement-dept")?.focus();
-    }
   },
   true,
 );
@@ -1971,6 +2041,10 @@ document.addEventListener(
       if (form.dataset.kind === "channel") {
         const channel = activeChannel();
         if (!isChannelMember(channel)) return refuse("参加すると使えます。");
+        if (!canPostChannel(channel))
+          return refuse(
+            `このチャンネルに投稿できるのは、${channel.dept}のオーナーと全体管理者だけです。`,
+          );
         channel.messages.push({
           by: state.userId,
           text,
@@ -2034,23 +2108,6 @@ document.addEventListener(
       currentUser().message = String(data.get("status-message") || "");
       render();
       return notify("プロフィールを保存しました。");
-    }
-    if (kind === "notice") {
-      const department = noticeDepartment();
-      if (!canPostNotice(department)) return refuse();
-      const title = String(data.get("notice-title") || "").trim();
-      const text = String(data.get("text") || "").trim();
-      if (!title || !text) return notify("題名と本文を入力してください。");
-      prototypeData.announcements.unshift({
-        id: `an-${Date.now()}`,
-        dept: department,
-        by: state.userId,
-        title,
-        text,
-        date: stamp(),
-      });
-      render();
-      return notify("お知らせを表示しました。");
     }
     if (kind === "channel-request") {
       const name = String(data.get("channel-name") || "").trim();
