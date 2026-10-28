@@ -95,7 +95,7 @@ function findFile(aid) {
   for (const room of savedRooms())
     for (const message of room.messages) {
       const att = (message.attachments || []).find((value) => value.id === aid);
-      if (att) return { room, message, att };
+      if (att && !message.deleted) return { room, message, att };
     }
   return null;
 }
@@ -131,6 +131,8 @@ function resolveSaved(entry) {
   if (entry.kind === "message" || entry.kind === "reply") {
     const found = findMessage(entry.refId);
     if (!found || !!found.parent !== (entry.kind === "reply")) return deleted;
+    // 削除された投稿（お知らせの削除・緊急削除。C-57）は、元の内容を返さない。
+    if (found.message.deleted) return deleted;
     if (!roomVisible(found.room)) return blocked;
     return {
       status: "ok",
@@ -171,7 +173,7 @@ const folderName = (id) =>
 // 入口は各画面の「整理スペースに登録」。同じ対象（種類＋ID）は1件だけで、再登録は案内だけ。
 // 既存の登録先フォルダは変えない（C-72）。登録先は「フォルダなし」で、あとからフォルダを変えられる（C-69）。
 function addSaved(kind, refId) {
-  if (!ORG_KIND_LABEL[kind] || !refId) return refuse();
+  if (!Object.hasOwn(ORG_KIND_LABEL, kind) || !refId) return refuse();
   if (mySaved().some((entry) => entry.kind === kind && entry.refId === refId))
     return notify("登録済みです");
   const entry = { id: orgId("sv"), kind, refId, folderId: null };
@@ -212,7 +214,9 @@ function applyFlash() {
   mark.classList.add("is-target");
   const badge = document.createElement("span");
   badge.className = "target-badge";
-  badge.textContent = att ? "整理スペースから開いたファイル" : "整理スペースから開いた位置";
+  badge.textContent =
+    flash.label ||
+    (att ? "整理スペースから開いたファイル" : "整理スペースから開いた位置");
   if (att) att.append(badge);
   else (el.querySelector(".chat-meta") || el).append(badge);
   mark.setAttribute("tabindex", "-1");

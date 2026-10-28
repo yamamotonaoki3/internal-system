@@ -103,7 +103,7 @@ function createDepartmentScreen() {
   return screenFrame(
     "S08",
     "部署を作成",
-    "部署と、公開の専用チャンネル・公開のお知らせ専用チャンネルを同時に作る画面です。再認証して確定します。",
+    "全体管理（S-24 とあわせた総称。C-113）の画面です。部署と、公開の専用チャンネル・公開のお知らせ専用チャンネルを同時に作ります。再認証して確定します。",
     shellCard(
       "新しい部署",
       `<form data-proto-form="department">${field("部署名（必須）", "dept-name", "text", "", true, [1, 50])}${field("説明（任意）", "dept-description", "text", "", false, [0, 500])}${selectField(
@@ -152,7 +152,8 @@ function checkDepartmentInput(values) {
         `「${COMPANY}」は会社直属のチャンネルの置き場の名前のため、部署名に使えません。`,
       ],
     };
-  if (departmentNames().some((value) => normalizeName(value) === normalizeName(name)))
+  // 無効にした部署の名前も、重複の判定に残す（C-103）。
+  if (allDepartmentNames().some((value) => normalizeName(value) === normalizeName(name)))
     return {
       error: [
         "dept-name",
@@ -300,32 +301,36 @@ function disableBlockers(name) {
   if (size > 0) blockers.push(`所属が${size}人います`);
   if (employees.some((p) => p.active && p.role === "owner" && p.department === name))
     blockers.push("オーナーが引き継がれていません（全体管理者の兼任になっていません）");
-  const used =
-    state.cases.filter((c) => c.department === name).length +
-    state.requests.filter((c) => c.department === name && c.status === "pending").length;
-  if (used) blockers.push(`担当部署に指定された案件・申請が${used}件あります`);
+  // 付け替えの対象は案件（進行中・終了）。申請中の案件作成申請を対象にするかは未決定（Q-3）のため、条件には数えず、別に示す。
+  const used = state.cases.filter((c) => c.department === name).length;
+  if (used) blockers.push(`担当部署に指定された案件が${used}件あります（先に付け替えてください）`);
   return blockers;
 }
+const pendingRequestCount = (name) =>
+  state.requests.filter((c) => c.department === name && c.status === "pending").length;
 function departmentAdminScreen() {
-  const rows = departmentNames()
+  const rows = allDepartmentNames()
     .map((name) => {
       const owner = departmentOwner(name);
       const channel = dedicatedChannel(name);
-      const blockers = disableBlockers(name);
-      return `<div class="directory-row"><div><strong>${e(name)}</strong><p class="subtle">${departmentSize(name)}人 ・ オーナー: ${owner ? e(owner.name) + (owner.role === "admin" ? "（全体管理者が兼任）" : "") : "未設定"} ・ 専用チャンネル: ${channel ? "# " + e(channel.name) + "（公開）" : "なし"}</p>${blockers.length ? `<p class="subtle">無効化できない理由: ${e(blockers.join("／"))}</p>` : '<p class="subtle">無効化の条件を満たしています（案）</p>'}</div><div class="inline-actions">${protoButton("オーナーを任命・交代", "owner-handover", `data-dept="${e(name)}" aria-label="${e(name)}のオーナーを任命・交代"`)}<button type="button" class="button" data-ui="dept-disable" data-dept="${e(name)}" aria-label="${e(name)}を無効化（案）" ${blockers.length ? "disabled" : ""}>無効化（案）</button></div></div>`;
+      const disabled = isDeptDisabled(name);
+      const blockers = disabled ? [] : disableBlockers(name);
+      const caseCount = state.cases.filter((c) => c.department === name).length;
+      const pendingCount = pendingRequestCount(name);
+      return `<div class="directory-row"><div><strong>${e(name)}</strong>${disabled ? ' <span class="badge archived">無効</span>' : ""}<p class="subtle">${departmentSize(name)}人 ・ オーナー: ${owner ? e(owner.name) + (owner.role === "admin" ? "（全体管理者が兼任）" : "") : "未設定"} ・ 専用チャンネル: ${channel ? "# " + e(channel.name) + "（公開）" : "なし"}</p>${disabled ? '<p class="subtle">無効化済みです。お知らせ専用チャンネルは読み取り専用です。</p>' : blockers.length ? `<p class="subtle">無効化できない理由: ${e(blockers.join("／"))}</p>` : '<p class="subtle">無効化の条件を満たしています（案）</p>'}${pendingCount ? `<p class="subtle">申請中の案件作成申請が${pendingCount}件（付け替えの対象かは未決定）</p>` : ""}</div><div class="inline-actions">${protoButton("オーナーを任命・交代", "owner-handover", `data-dept="${e(name)}" aria-label="${e(name)}のオーナーを任命・交代"`)}${caseCount && !disabled ? protoButton("担当部署を付け替える", "dept-reassign", `data-dept="${e(name)}" aria-label="${e(name)}の担当部署を付け替える（案件${caseCount}件）"`) : ""}<button type="button" class="button" data-ui="dept-disable" data-dept="${e(name)}" aria-label="${e(name)}を無効化（案）" ${blockers.length || disabled ? "disabled" : ""}>無効化（案）</button></div></div>`;
     })
     .join("");
   return screenFrame(
     "S24",
     "部署の一覧とオーナーの任命・交代",
-    "部署の一覧です。任命・交代は再認証を挟みます。",
+    "全体管理（S-08 とあわせた総称。C-113）の画面です。任命・交代・付け替え・無効化は再認証を挟みます。",
     shellCard(
       "部署",
       rows || "<p>部署はありません。</p>",
       protoButton("＋ 部署を作成", "go", 'data-page="S08"'),
     ) +
       hint(
-        "未再現: オーナー交代の確定（確認の見本だけ）、部署名の変更、部署の無効化の実行（条件の表示と確認の見本だけ。無効化は【案】で、案件の担当部署の付け替え手順は未決定）。会社のワークスペースは会社に1つで、部署ではないため、この一覧には出しません。",
+        "未再現: オーナー交代の確定（確認の見本だけ）、部署名の変更。付け替えの画面の細部（一覧の並び・件数が多いとき・一括実行の途中失敗）は未決定で、この試作は案です。無効化は【案】（C-103）で、条件を満たすと実行できます。会社のワークスペースは会社に1つで、部署ではないため、この一覧には出しません。",
       ),
   );
 }
@@ -334,10 +339,134 @@ function openDeptDisable(name) {
     return refuse();
   showModal(
     "S-26 再認証（部署の無効化・案）",
-    `<p>${e(name)} を無効化する確認の見本です。無効化は【案】（C-103）で、この試作では部署の状態を変えません。</p>${reauthField("dept-disable-reauth")}`,
-    "dept-disable-sample",
-    "確認した",
+    `<p>${e(name)} を無効化します（C-103の案）。</p><ul class="plain-list"><li>お知らせ専用チャンネルは読み取り専用になります。未処理の依頼と申請中の緊急削除は、自動で「無効」になります</li><li>通常の部署の専用チャンネルへの影響は未決定のため、変えません</li><li>部署名は、新しい部署の名前の重複判定に残ります</li></ul>${reauthField("dept-disable-reauth")}<input type="hidden" name="dept" value="${e(name)}">${hint("文言・扱いは案です（未決定）。")}`,
+    "dept-disable-run",
+    "無効化する",
+    true,
   );
+}
+// 部署の無効化（C-103の案）。条件（所属0人・オーナー引き継ぎ済み・担当の案件の付け替え済み）を満たさなければ拒否する。
+function disableDepartment(name) {
+  if (!adminOnly()) return refuse();
+  if (typeof name !== "string" || !allDepartmentNames().includes(name)) return refuse();
+  if (isDeptDisabled(name)) return refuse("この部署はすでに無効です。");
+  const blockers = disableBlockers(name);
+  if (blockers.length) return refuse(`無効化できません: ${blockers.join("／")}`);
+  prototypeData.disabledDepartments.push(name);
+  onDepartmentDisabled(name);
+  auditLog("部署の無効化", name, `${name} を無効化`);
+  notify(`${name} を無効化しました。お知らせ専用チャンネルは読み取り専用です。`);
+  return true;
+}
+// 担当部署の一括付け替え（C-116(3)）。個別の指定がない案件は一括の先へ。すべて検査してから変える（途中失敗の扱いは未決定）。
+function reassignDepartmentCases(from, bulkTo, individual = {}) {
+  if (!adminOnly()) return refuse();
+  if (typeof from !== "string" || !allDepartmentNames().includes(from)) return refuse();
+  const items = state.cases.filter((item) => item.department === from);
+  if (!items.length) return refuse("付け替える案件がありません。");
+  const valid = (to) => departmentNames().includes(to) && to !== from;
+  const plan = items.map((item) => ({ item, to: individual?.[item.id] || bulkTo }));
+  if (!plan.every(({ to }) => typeof to === "string" && valid(to)))
+    return refuse("付け替え先には、有効な他の部署を選んでください。");
+  plan.forEach(({ item, to }) => {
+    item.department = to;
+    record(item, `担当部署を ${from} から ${to} に付け替え`);
+  });
+  auditLog("担当部署の付け替え", from, `${from} の案件${plan.length}件を付け替え（${plan.map(({ item, to }) => `${item.no}→${to}`).join("、")}）`);
+  notify(`案件${plan.length}件の担当部署を付け替えました。`);
+  return true;
+}
+function openDeptReassign(name) {
+  if (!adminOnly() || !departmentNames().includes(name)) return refuse();
+  const items = state.cases.filter((item) => item.department === name);
+  if (!items.length) return refuse("付け替える案件がありません。");
+  const targets = departmentNames().filter((value) => value !== name);
+  if (!targets.length) return refuse("付け替え先の有効な部署がありません。");
+  showModal(
+    "担当部署の付け替え（案）",
+    `<p>${e(name)} が担当の案件（進行中・終了）${items.length}件を、ほかの部署へ付け替えます。</p>${selectField("一括の付け替え先", "reassign-bulk", targets.map((value) => [value, value]))}<p class="subtle">案件ごとに変える場合は、下で個別に選びます。</p>${items
+      .map(
+        (item) =>
+          `<div class="form-field"><label for="reassign-${e(item.id)}">${e(item.no)} ${e(item.title)}（${item.status === "archived" ? "終了" : "進行中"}）</label><select id="reassign-${e(item.id)}" name="to-${e(item.id)}"><option value="">一括の付け替え先に従う</option>${targets.map((value) => `<option value="${e(value)}">${e(value)}</option>`).join("")}</select></div>`,
+      )
+      .join("")}${reauthField("reassign-reauth")}<input type="hidden" name="dept" value="${e(name)}">${hint("一覧の並び・件数が多いときの扱い・一括実行の途中失敗の扱いは未決定です（案）。申請中の案件作成申請を対象にするかも未決定です。")}`,
+    "dept-reassign",
+    "付け替える",
+  );
+}
+// 画面確認の道具（業務の操作ではない）。無効化の確認用に、条件を満たしうる見本の部署を作る。
+const K1 = "m-ann-k1";
+const K2 = "m-ann-k2";
+const K3 = "m-ann-k3";
+function seedPlanningDept() {
+  if (allDepartmentNames().includes("企画部"))
+    return notify("見本の部署「企画部」は追加済みです。");
+  employees.push({ id: "u9", name: "testuser_009", role: "owner", department: "企画部", active: true });
+  prototypeData.departments.push("企画部");
+  prototypeData.folders["企画部"] = ["共通連絡"];
+  const day = 86400000;
+  prototypeData.channels.push(
+    {
+      id: "dept-planning",
+      name: "企画部",
+      dept: "企画部",
+      folder: "共通連絡",
+      private: false,
+      members: ["u9"],
+      messages: [{ by: "u9", text: "企画部の専用チャンネルです（見本）。", at: "10/20", replies: [] }],
+    },
+    {
+      id: "announce-planning",
+      name: "企画部のお知らせ",
+      dept: "企画部",
+      folder: "共通連絡",
+      private: false,
+      announce: true,
+      members: ["u9"],
+      messages: [
+        { mid: "m-ann-h4", by: "u5", text: "（承認された緊急削除の見本の投稿）", at: "10/08", deleted: true, replies: [] },
+        { mid: "m-ann-h5", by: "u5", text: "企画部の今月の予定を共有します。", at: "10/09", replies: [] },
+        { mid: K1, by: "u5", text: "企画会議の議事録を共有します。", at: "10/21", replies: [] },
+        { mid: K2, by: "u5", text: "企画書の提出日を連絡します。", at: "10/22", replies: [] },
+        { mid: K3, by: "u5", text: "企画部の備品について連絡します。", at: "10/23", replies: [] },
+        { mid: "m-ann-u9", by: "u9", text: "企画部からの連絡です（見本）。", at: "10/24", replies: [] },
+      ],
+    },
+  );
+  prototypeData.emergencyRequests.push(
+    { id: "ER-04", mid: "m-ann-h4", channelId: "announce-planning", by: "u9", byDept: "企画部", reason: "誤った情報を載せたため（架空の見本）", status: "approved", at: "10/16 09:00", ts: Date.now() - 12 * day, decidedBy: "u5", rejectReason: "" },
+    { id: "ER-05", mid: "m-ann-h5", channelId: "announce-planning", by: "u9", byDept: "企画部", reason: "表現を見直したいため（架空の見本）", status: "rejected", at: "10/17 11:00", ts: Date.now() - 11 * day, decidedBy: "u5", rejectReason: "" },
+  );
+  state.cases.push({
+    id: "C-201",
+    no: "INT-261020-0009",
+    clientCode: "INT",
+    due: "",
+    description: "企画部の見本の案件です（架空）。",
+    title: "企画部の見本の案件",
+    department: "企画部",
+    status: "active",
+    visibility: "restricted",
+    members: ["u9"],
+    messages: [],
+    todos: [],
+    publication: null,
+    events: [],
+  });
+  render();
+  notify("見本の部署「企画部」を追加しました（確認用。業務の操作ではありません）。社員の切り替えに testuser_009 が出ます。");
+}
+// オーナー交代・オーナーの異動はこの試作で未再現のため、状態だけを作る確認用の道具（業務の手順を決めたものではない）。
+function seedPlanningHandover() {
+  const owner = employees.find((person) => person.id === "u9");
+  if (!owner || owner.department !== "企画部" || owner.role !== "owner")
+    return notify("先に「無効化の見本の部署を追加」を押してください（または引き継ぎ済みです）。");
+  owner.department = "営業部";
+  owner.role = "member";
+  const admin = employees.find((person) => person.id === "u5");
+  (admin.ownerOf ||= []).includes("企画部") || admin.ownerOf.push("企画部");
+  render();
+  notify("企画部のオーナーを全体管理者の兼任にし、testuser_009 を営業部の一般社員へ移しました（確認用の見本）。");
 }
 
 /* ---------- S-12 チャンネル招待 ---------- */
@@ -737,6 +866,9 @@ function approveNameChange(data) {
 
 /* ---------- クリック・送信・変更の受け口 ---------- */
 Object.assign(EXTRA_UI, {
+  "dept-reassign": (element) => openDeptReassign(element.dataset.dept),
+  "seed-planning": seedPlanningDept,
+  "seed-handover": seedPlanningHandover,
   "invite-open": (element) => {
     ui.inviteChannelId = element.dataset.id;
     proceedTo("S12");
@@ -758,11 +890,24 @@ Object.assign(EXTRA_UI, {
 });
 Object.assign(EXTRA_MODAL, {
   "department-create": createDepartment,
-  "dept-disable-sample": () => {
-    const missing = reauthMissing(new FormData(document.getElementById("modal-form")));
+  "dept-disable-run": (data) => {
+    const missing = reauthMissing(data);
     if (missing) return modalError(missing);
+    disableDepartment(String(data.get("dept") || ""));
     closeModal();
-    return notify("無効化の確認の見本です。この試作では部署の状態を変えません。");
+    render();
+  },
+  "dept-reassign": (data) => {
+    const missing = reauthMissing(data);
+    if (missing) return modalError(missing);
+    const individual = {};
+    state.cases.forEach((item) => {
+      const to = String(data.get(`to-${item.id}`) || "");
+      if (to) individual[item.id] = to;
+    });
+    reassignDepartmentCases(String(data.get("dept") || ""), String(data.get("reassign-bulk") || ""), individual);
+    closeModal();
+    render();
   },
   "name-change-request": saveNameChangeRequest,
   "invite-reauth": inviteReauth,

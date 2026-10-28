@@ -267,6 +267,19 @@
   background: #274c60;
   color: #fff;
 }
+/* 管理項目の色（案。具体色は利用者が確かめる対象。Q-39）。暗い背景に対し4.5:1以上。 */
+.side-admin {
+  --admin-menu-color: #ffd98a;
+}
+.side-admin > strong,
+.side-admin .side-toggle,
+.side-admin .side-link {
+  color: var(--admin-menu-color);
+}
+.side-admin .side-link:hover,
+.side-admin .side-link:focus-visible {
+  color: #fff;
+}
 .side-add {
   color: #7dd8c9;
 }

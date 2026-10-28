@@ -383,7 +383,7 @@ function threadsScreen() {
         ? threads
             .map(
               (thread, index) =>
-                `<div class="directory-row thread-row"><div><strong>${e(thread.label)}</strong>${thread.unread ? `<span class="unread-mark-inline">● 未読の返信 ${thread.unread}件</span>` : ""}<p>${e(thread.message.text.slice(0, 60))}</p><p class="subtle">最後の返信: ${e(nameOf(thread.last.by))}・${e(thread.last.at || "")} ／ 返信 ${thread.message.replies.length}件 ／ ${e(thread.reasons.join("、"))}</p></div>${protoButton("スレッドを開く", "thread-pick", `data-key="${index}" aria-label="${e(thread.label)}のスレッドを開く"`)}</div>`,
+                `<div class="directory-row thread-row"><div><strong>${e(thread.label)}</strong>${thread.unread ? `<span class="unread-mark-inline">● 未読の返信 ${thread.unread}件</span>` : ""}<p>${thread.message.deleted ? "削除されました" : e(thread.message.text.slice(0, 60))}</p><p class="subtle">最後の返信: ${e(nameOf(thread.last.by))}・${e(thread.last.at || "")} ／ 返信 ${thread.message.replies.length}件 ／ ${e(thread.reasons.join("、"))}</p></div>${protoButton("スレッドを開く", "thread-pick", `data-key="${index}" aria-label="${e(thread.label)}のスレッドを開く"`)}</div>`,
             )
             .join("")
         : "<p>スレッドはまだありません。</p>",
@@ -439,7 +439,7 @@ function clientsScreen() {
       protoButton("＋ 取引先を登録", "client-add", "", true),
     ) +
       hint(
-        "未決定: 無効にした取引先の案件の表示、一覧の並び・絞り込み、案件番号の検索方式、連番が9999を超えたときの扱い。ここでは確定した動きとして作っていません。",
+        "無効にした後は、既存の案件に取引先名を出して「（無効）」の印を付けます（C-117）。新しい案件の申請では選べません。未決定: 一覧の並び・絞り込み。",
       ),
   );
 }
@@ -518,7 +518,19 @@ function disableClient(data) {
 // 閉じているセクション名の配列を、この端末のブラウザだけに保存する。サーバーには保存しない。
 // 保存を社員ごとにするか端末ごとにするか、期限、サーバー保存の要否は未決定。ここでは社員ごと（画面確認で社員を替えて確かめるため）。
 const SIDEBAR_PREFIX = "internal-system-proto-sidebar:";
-const SIDE_SECTIONS = ["company", "own", "other", "dm", "case", "org"];
+// 管理メニューのまとまり（manage-*。案）も、同じ仕組みで開閉する。
+const SIDE_SECTIONS = [
+  "company",
+  "own",
+  "other",
+  "dm",
+  "case",
+  "org",
+  "manage-approve",
+  "manage-account",
+  "manage-dept",
+  "manage-master",
+];
 // 一度でも読み書きに失敗したら、再読み込みするまで false のままにして、知らせ続ける（成功した操作で消さない）。
 const sidebarStatus = { available: true };
 const sidebarKey = (userId) => `${SIDEBAR_PREFIX}${userId}`;
