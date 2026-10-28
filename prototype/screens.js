@@ -38,6 +38,7 @@ const screenCatalog = [
   ["S34", "初代全体管理者の初回セットアップ"],
   ["S35", "スレッド一覧"],
   ["S36", "取引先の管理"],
+  ["S37", "緊急削除の申請一覧"],
 ];
 // 会社のワークスペースは1つ（C-93）。チャンネルの置き場は「部署」か「会社直属」のどちらか。
 // dept が COMPANY のチャンネルは会社直属（全部署に属さない）。部署の専用チャンネルは、部署名と同じ名前の公開チャンネル（C-95）。
@@ -174,7 +175,8 @@ const prototypeData = {
     // 部署のお知らせ専用チャンネル（C-108）。公開で、投稿できるのは自部署のオーナーと全体管理者だけ。
     // announce は、このプロトタイプ内の表現にすぎない（投稿制限の持たせ方は C-108(1) で未決定）。
     // 初期の参加者は部署の社員の見本で、自動参加と決めたものではない（C-108(3) は未決定）。置き場のフォルダも案。
-    // 題名は別欄にせず、本文の先頭に「【題名】」として入れる（題名と本文の長さの規則は 7-2 AC-4 で未決定）。
+    // お知らせは題名を設けず、通常のメッセージと同じ規則（本文 1〜4,000文字）とする（C-116(4)、7-2 AC-4）。
+    // 確認用の呼び名 P1〜P6 の投稿は announce.js の定数。依頼・緊急削除の申請の見本もそこにある。
     {
       id: "announce-sales",
       name: "営業部のお知らせ",
@@ -186,17 +188,40 @@ const prototypeData = {
       members: ["u1", "u2", "u5", "u3"],
       messages: [
         {
+          mid: "m-ann-p1",
           by: "u5",
-          text: "【展示会の準備状況】展示会の準備は予定どおり進んでいます。",
+          text: "展示会の準備は予定どおり進んでいます。",
           at: "10/12",
           unreadFor: ["u2"],
+          replies: [
+            {
+              by: "u2",
+              text: "了解しました。",
+              at: "10/12",
+              ts: Date.now() - 14 * 86400000,
+            },
+          ],
+        },
+        {
+          mid: "m-ann-p2",
+          by: "u2",
+          text: "来週の月曜日は全体会議です。",
+          at: "10/20",
+          unreadFor: ["u3"],
           replies: [],
         },
         {
-          by: "u2",
-          text: "【来週の全体会議について】来週の月曜日は全体会議です。",
-          at: "10/20",
-          unreadFor: ["u3"],
+          mid: "m-ann-p3",
+          by: "u5",
+          text: "来月の営業会議の日程は、決まりしだい連絡します。",
+          at: "10/22",
+          replies: [],
+        },
+        {
+          mid: "m-ann-p4",
+          by: "u5",
+          text: "展示会の来場者アンケートの結果を共有します。",
+          at: "10/23",
           replies: [],
         },
       ],
@@ -211,8 +236,45 @@ const prototypeData = {
       members: ["u3", "u4", "u8"],
       messages: [
         {
+          mid: "m-ann-h1",
+          by: "u6",
+          text: "（承認された緊急削除の見本の投稿）",
+          at: "10/10",
+          deleted: true,
+          replies: [],
+        },
+        {
+          mid: "m-ann-h2",
+          by: "u6",
+          text: "図面のファイル名の付け方を統一します。",
+          at: "10/11",
+          replies: [],
+        },
+        {
+          mid: "m-ann-h3",
+          by: "u6",
+          text: "図面の保管先を変更しました。",
+          at: "10/12",
+          replies: [],
+        },
+        {
+          mid: "m-ann-p6",
+          by: "u6",
+          text: "旧オーナーが書いた、図面の確認手順についての連絡です。",
+          at: "10/16",
+          replies: [
+            {
+              by: "u3",
+              text: "確認しました。",
+              at: "10/16",
+              ts: Date.now() - 12 * 86400000,
+            },
+          ],
+        },
+        {
+          mid: "m-ann-p5",
           by: "u4",
-          text: "【図面の提出期限】今月末までに最新の図面を提出してください。",
+          text: "今月末までに最新の図面を提出してください。",
           at: "10/18",
           unreadFor: ["u3"],
           replies: [],
@@ -230,7 +292,7 @@ const prototypeData = {
       messages: [
         {
           by: "u5",
-          text: "【備品の棚卸し】備品の棚卸しを実施します。",
+          text: "備品の棚卸しを実施します。",
           at: "10/15",
           replies: [],
         },
@@ -378,7 +440,13 @@ const ui = {
   threadReturn: null,
 };
 // 部署のデータから作る。会社直属は部署ではなく、案件の担当部署にもしない（C-98）。
-const departmentNames = () => [...prototypeData.departments];
+// 無効にした部署（C-103）は、重複の判定（allDepartmentNames）には残し、選択肢（departmentNames）からは外す。
+prototypeData.disabledDepartments = [];
+const allDepartmentNames = () => [...prototypeData.departments];
+const isDeptDisabled = (name) => prototypeData.disabledDepartments.includes(name);
+const departmentNames = () =>
+  prototypeData.departments.filter((name) => !isDeptDisabled(name));
+const deptDisplay = (name) => (isDeptDisabled(name) ? `${name}（無効）` : name);
 const SCREEN_IDS = new Set(screenCatalog.map(([id]) => id));
 const adminOnly = () => currentUser().role === "admin";
 // 管理できる部署（S-13）。オーナーは自部署、全体管理者は任命された部署だけ（C-99・C-107）。
@@ -386,11 +454,13 @@ const managedDepts = () =>
   currentUser().role === "owner"
     ? [currentUser().department]
     : adminOnly()
-      ? [...(currentUser().ownerOf || [])]
+      ? (currentUser().ownerOf || []).filter((name) => !isDeptDisabled(name))
       : [];
 const ownerHere = () => managedDepts().length > 0;
-// 共通フォルダ（S-32）の対象。会社直属のチャンネルのフォルダは【案：全体管理者】で未確定（C-97）。
-const folderTargets = () => [...managedDepts(), ...(adminOnly() ? [COMPANY] : [])];
+// 共通フォルダ（S-32）の対象。全体管理者は全部署と会社直属、オーナーは自部署（C-97・C-110）。
+// 無効にした部署のフォルダを対象から外すかは未決定（Q-16）のため、外さず「（無効）」と添える。
+const folderTargets = () =>
+  adminOnly() ? [...allDepartmentNames(), COMPANY] : [...managedDepts()];
 const pickTarget = (list, current) =>
   list.includes(current) ? current : list[0] || null;
 const manageDeptNow = () => pickTarget(managedDepts(), ui.manageDept);
@@ -695,32 +765,79 @@ function sidebarContent(prefix) {
   const manage = folderTargets().length
     ? `<button type="button" class="side-link" data-ui="go" data-page="S32">フォルダを管理</button>`
     : "";
-  const ownerMenu = ownerHere()
-    ? `<button type="button" class="side-link" data-ui="go" data-page="S13">部署管理（オーナー）</button>`
-    : "";
-  const channelApproval =
-    currentUser().role === "owner" || adminOnly()
-      ? `<button type="button" class="side-link" data-ui="go" data-page="S11">チャンネル承認</button>`
-      : "";
-  const caseApprovals =
-    currentUser().role === "owner" || adminOnly()
-      ? `<button type="button" class="side-link" data-ui="go" data-page="S29">案件の承認</button>`
-      : "";
-  const adminMenu = adminOnly()
-    ? [
-        ["S22", "アカウント管理"],
-        ["S23", "アカウント登録"],
-        ["S24", "部署の一覧とオーナーの任命・交代"],
-        ["S08", "部署を作成"],
-        ["S36", "取引先の管理"],
-        ["S25", "監査ログ"],
-        ["S28", "管理者の引き継ぎ"],
-      ]
-        .map(
-          ([id, label]) =>
-            `<button type="button" class="side-link" data-ui="go" data-page="${id}">${label}</button>`,
+  // 管理メニュー（C-116(2)）。サイドバー最下部の「管理」項目に、ロールに応じた項目だけを出す。一般メンバーには出さない。
+  // 全体管理者の項目のうち S-24・S-08 を、まとめて「全体管理」と呼ぶ（C-113。総称であり、見出しは作らない）。
+  // 用途ごとのまとまりに分け、まとまりごとに開閉できる（案。利用者が選んだ方式。要件文書は「下部の『管理』項目」まで）。
+  // ロールに応じて、自分に関係する項目だけを出し、項目が0個のまとまりは見出しごと出さない。
+  const isOwnerOrAdmin = currentUser().role === "owner" || adminOnly();
+  const manageGroups = [
+    [
+      "manage-approve",
+      "承認",
+      [
+        ...(isOwnerOrAdmin
+          ? [
+              ["S11", "チャンネル作成の承認"],
+              ["S29", "案件作成の承認"],
+            ]
+          : []),
+        ...(adminOnly() ? [["S37", "緊急削除の申請"]] : []),
+      ],
+    ],
+    [
+      "manage-account",
+      "アカウント",
+      adminOnly()
+        ? [
+            ["S22", "アカウント管理"],
+            ["S23", "アカウント登録"],
+            ["S28", "全体管理者の引き継ぎ"],
+          ]
+        : [],
+    ],
+    [
+      "manage-dept",
+      "部署",
+      [
+        // S-24 と S-08 をまとめて「全体管理」と呼ぶ（C-113。総称であり、画面名・入口は変えない）。
+        ...(adminOnly()
+          ? [
+              ["S24", "全体管理（部署の一覧・オーナーの任命・交代）"],
+              ["S08", "部署を作成"],
+            ]
+          : []),
+        ...(ownerHere() ? [["S13", "部署管理（オーナー）"]] : []),
+      ],
+    ],
+    [
+      "manage-master",
+      "マスタ・記録",
+      adminOnly()
+        ? [
+            ["S36", "取引先の管理"],
+            ["S25", "監査ログ"],
+          ]
+        : [],
+    ],
+  ].filter(([, , items]) => items.length);
+  const manageBlock = manageGroups.length
+    ? `<nav class="side-section side-admin" aria-label="管理"><strong>管理</strong><p class="side-empty">まとまりと開閉は案です</p>${manageGroups
+        .map(([key, label, items]) =>
+          sideToggleSection(
+            prefix,
+            key,
+            label,
+            items
+              .map(
+                ([id, text]) =>
+                  `<button type="button" class="side-link" data-ui="go" data-page="${id}">${text}</button>`,
+              )
+              .join(""),
+            [],
+            "side-top",
+          ),
         )
-        .join("")
+        .join("")}</nav>`
     : "";
   // 案件専用チャンネルは「案件」の見出しの下にまとめる。参加者だけに出し、通常のチャンネル一覧には出さない（C-83）。
   const caseChannels = state.cases
@@ -749,7 +866,7 @@ function sidebarContent(prefix) {
   const saveNote = sidebarStatus.available
     ? ""
     : '<p class="side-empty" role="status">この端末では開閉の状態を覚えられません</p>';
-  return `<div class="side-content">${channelBlock}${section("dm", "ダイレクトメッセージ", dmBody)}<div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div>${section("case", "案件", caseBody)}${section("org", "整理スペース", orgBody)}<div class="side-section"><strong>共通・管理</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button>${ownerMenu}${channelApproval}${caseApprovals}${adminMenu}</div>${saveNote}</div>`;
+  return `<div class="side-content">${channelBlock}${section("dm", "ダイレクトメッセージ", dmBody)}<div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div>${section("case", "案件", caseBody)}${section("org", "整理スペース", orgBody)}<div class="side-section"><strong>共通</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button></div>${manageBlock}${saveNote}</div>`;
 }
 function showNoPermission() {
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
@@ -764,7 +881,7 @@ function renderExtraPage(page) {
     return;
   }
   if (
-    ["S08", "S22", "S23", "S24", "S25", "S28", "S36"].includes(page) &&
+    ["S08", "S22", "S23", "S24", "S25", "S28", "S36", "S37"].includes(page) &&
     !adminOnly()
   )
     return showNoPermission();
@@ -824,6 +941,7 @@ function renderExtraPage(page) {
     S34: setupScreen,
     S35: threadsScreen,
     S36: clientsScreen,
+    S37: emergencyListScreen,
   };
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = (renderers[page] || homeScreen)();
@@ -866,10 +984,14 @@ function messageRows(messages, source) {
     source === "case" && getCase(state.selectedId)?.status === "archived";
   // 未参加の公開チャンネルでは本文は読めるが、リアクションは参加者だけが使える（C-94）。
   const notJoined = source === "channel" && !isChannelMember(activeChannel());
+  const announce = source === "channel" && !!activeChannel()?.announce;
+  const readOnlyChannel = source === "channel" && !!activeChannel()?.readOnly;
   return messages
     .map(
       (message, index) =>
-        `<article class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body"><div class="chat-meta">${personButton(message.by)}<time>${e(message.at)}</time></div><p>${e(message.text)}</p>${attachmentList(message, source)}<div class="chat-tools">${readonlyCase ? "" : notJoined ? `<button type="button" disabled aria-label="リアクションは参加すると使えます（いいね ${message.likes || 0}人）">👍 ${message.likes || 0} 参加すると使えます</button>` : `<button type="button" data-ui="reaction" data-source="${source}" data-index="${index}" aria-label="いいね ${message.likes || 0}人">👍 ${message.likes || 0}</button>`}<button type="button" data-ui="thread-open" data-source="${source}" data-index="${index}">返信 ${message.replies?.length || 0}件</button><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="${e(nameOf(message.by))}の${e(message.at)}のメッセージを整理スペースに登録">整理スペースに登録</button></div></div></article>`,
+        message.deleted
+          ? announceDeletedRow(message, index)
+          : `<article class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body"><div class="chat-meta">${personButton(message.by)}<time>${e(message.at)}</time>${message.editedAt ? '<span class="subtle">（編集済み）</span>' : ""}</div><p>${e(message.text)}</p>${announce ? announceMarks(activeChannel(), message) : ""}${attachmentList(message, source)}<div class="chat-tools">${readonlyCase ? "" : readOnlyChannel ? `<button type="button" disabled aria-label="リアクションは読み取り専用のため使えません（いいね ${message.likes || 0}人）">👍 ${message.likes || 0} 読み取り専用</button>` : notJoined ? `<button type="button" disabled aria-label="リアクションは参加すると使えます（いいね ${message.likes || 0}人）">👍 ${message.likes || 0} 参加すると使えます</button>` : `<button type="button" data-ui="reaction" data-source="${source}" data-index="${index}" aria-label="いいね ${message.likes || 0}人">👍 ${message.likes || 0}</button>`}<button type="button" data-ui="thread-open" data-source="${source}" data-index="${index}">返信 ${message.replies?.length || 0}件</button><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="${e(nameOf(message.by))}の${e(message.at)}のメッセージを整理スペースに登録">整理スペースに登録</button>${announce ? announceMenu(activeChannel(), message) : ""}</div></div></article>`,
     )
     .join("");
 }
@@ -907,11 +1029,12 @@ function channelScreen() {
   const joinNotice = `<div class="join-notice" role="status"><p><strong>参加すると使えます</strong></p><p class="subtle">このチャンネルは公開のため、参加しなくても内容を読めます。投稿とリアクションは参加者だけが使えます。</p>${protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`, true)}</div>`;
   // 参加していても投稿できない場合（お知らせ専用チャンネルの一般社員・他部署の社員）は、入力欄の代わりに理由を出す。
   const noPostNotice = `<div class="join-notice" role="status"><p><strong>投稿できません</strong></p><p class="subtle">このチャンネルに投稿できるのは、${e(channel.dept)}のオーナーと全体管理者だけです。リアクションと返信は、参加していれば使えます。</p></div>`;
+  const readOnlyNotice = `<div class="join-notice" role="status"><p><strong>読み取り専用です</strong></p><p class="subtle">この部署は無効化されたため、読み取り専用です。</p></div>`;
   return screenFrame(
     "S05",
     `# ${channel.name}`,
     `${deptLabel(channel.dept)} ・ ${channel.announce ? "お知らせ専用 ・ " : ""}${channel.private ? "非公開" : "公開"}チャンネル${joined ? "" : " ・ 参加せずに読んでいます"}`,
-    `<details class="mobile-participants"><summary>参加者 ${channel.members.length}人</summary>${participants || "<p class=\"subtle\">参加者はまだいません</p>"}</details><div class="chat-layout">${shellCard("メッセージ", `${messageRows(channel.messages, "channel")}${!joined ? joinNotice : canPostChannel(channel) ? composer("channel") : noPostNotice}`)}<div class="desktop-participants">${shellCard("参加者", participants || '<p class="subtle">参加者はまだいません</p>')}</div></div>`,
+    `<details class="mobile-participants"><summary>参加者 ${channel.members.length}人</summary>${participants || "<p class=\"subtle\">参加者はまだいません</p>"}</details><div class="chat-layout">${shellCard("メッセージ", `${channel.announce ? hint("お知らせの依頼・緊急削除の申請の文言と印は案です（未決定）。") : ""}${messageRows(channel.messages, "channel")}${channel.readOnly ? readOnlyNotice : !joined ? joinNotice : canPostChannel(channel) ? composer("channel") : noPostNotice}`)}<div class="desktop-participants">${shellCard("参加者", participants || '<p class="subtle">参加者はまだいません</p>')}</div></div>`,
     (channel.private && joined
       ? protoButton(
           "招待",
@@ -992,7 +1115,7 @@ function renderThread() {
   const draft = draftFor(threadDraftScope(thread));
   panel.dataset.screenId = "S-07";
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
-  panel.innerHTML = `<div class="thread-header"><strong>S-07 スレッド</strong><button type="button" data-ui="thread-close" aria-label="スレッドを閉じる">×</button></div><div class="thread-scroll"><p class="thread-label">${e(thread.label || "")}</p><p class="side-caption">元のメッセージ</p><div class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body">${personButton(message.by)}<p>${e(message.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="元のメッセージを整理スペースに登録">整理スペースに登録</button></div></div></div><h3>返信 ${message.replies?.length || 0}件</h3>${message.replies?.length ? message.replies.map((reply) => `<div class="thread-reply" data-mid="${e(midOf(reply))}"><strong>${e(nameOf(reply.by))}</strong> <time>${e(reply.at || "")}</time><p>${e(reply.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="reply" data-ref="${e(midOf(reply))}" aria-label="${e(nameOf(reply.by))}の${e(reply.at || "")}の返信を整理スペースに登録">整理スペースに登録</button></div></div>`).join("") : '<p class="subtle">まだ返信がありません。</p>'}</div>${canReply ? `<form class="thread-form" data-proto-form="reply"><label for="reply-text">返信を入力</label><textarea id="reply-text" name="text" required data-min="1" data-max="4000" data-name="返信" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<button type="submit" class="button primary">返信する</button></form>` : `<p class="prototype-hint">${thread.source === "channel" ? "参加すると返信できます。" : "読み取り専用です。"}</p>`}`;
+  panel.innerHTML = `<div class="thread-header"><strong>S-07 スレッド</strong><button type="button" data-ui="thread-close" aria-label="スレッドを閉じる">×</button></div><div class="thread-scroll"><p class="thread-label">${e(thread.label || "")}</p><p class="side-caption">元のメッセージ</p><div class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body">${personButton(message.by)}${message.deleted ? '<p class="deleted-note">削除されました</p>' : `<p>${e(message.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="元のメッセージを整理スペースに登録">整理スペースに登録</button></div>`}</div></div><h3>返信 ${message.replies?.length || 0}件</h3>${message.replies?.length ? message.replies.map((reply) => `<div class="thread-reply" data-mid="${e(midOf(reply))}"><strong>${e(nameOf(reply.by))}</strong> <time>${e(reply.at || "")}</time><p>${e(reply.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="reply" data-ref="${e(midOf(reply))}" aria-label="${e(nameOf(reply.by))}の${e(reply.at || "")}の返信を整理スペースに登録">整理スペースに登録</button></div></div>`).join("") : '<p class="subtle">まだ返信がありません。</p>'}</div>${canReply ? `<form class="thread-form" data-proto-form="reply"><label for="reply-text">返信を入力</label><textarea id="reply-text" name="text" required data-min="1" data-max="4000" data-name="返信" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<button type="submit" class="button primary">返信する</button></form>` : `<p class="prototype-hint">${message.deleted ? "削除された投稿には返信できません。" : thread.source === "channel" ? (prototypeData.channels.find((item) => item.id === thread.channelId)?.readOnly ? "この部署は無効化されたため、読み取り専用です。" : "参加すると返信できます。") : "読み取り専用です。"}</p>`}`;
 }
 function renderReauthDemo() {
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
@@ -1061,6 +1184,9 @@ function channelDirectoryScreen() {
     ),
   );
 }
+// チャンネル名の使用可能文字（C-117(1)、V-25）。「日本語」の範囲は未定義のため、判定は案（Q-1）。
+const channelNameCharsOk = (name) =>
+  /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}ー々〆a-zA-Z0-9０-９Ａ-Ｚａ-ｚ_-]+$/u.test(name);
 function channelRequestScreen() {
   const own = prototypeData.channelRequests.filter(
     (request) => request.by === state.userId,
@@ -1070,7 +1196,7 @@ function channelRequestScreen() {
     "S10",
     "チャンネル作成の申請",
     "承認されるまではチャンネルとして使えません。",
-    `${shellCard("作成を申請", `<div class="banner">案件に関する話題のチャンネルは非公開をおすすめします。案件専用チャンネルは案件承認時に自動作成されます。</div><form data-proto-form="channel-request">${field("チャンネル名", "channel-name", "text", "", true, [1, 50])}${field("説明（任意）", "channel-description", "text", "", false, [0, 500])}<fieldset><legend>公開範囲</legend><label><input type="radio" name="visibility" value="public" checked> 公開</label><label><input type="radio" name="visibility" value="private"> 非公開</label></fieldset><fieldset><legend>作る場所（他部署のチャンネルは選べません）</legend><label><input type="radio" name="place" value="own" checked> 自部署のチャンネル（${e(dept)}）</label><label><input type="radio" name="place" value="company"> 会社直属のチャンネル</label></fieldset><p class="subtle">承認する人: 自部署のチャンネルは自部署のオーナー（オーナー自身の申請は全体管理者）、会社直属のチャンネルは全体管理者です。チャンネル名は会社内で重複できません（大文字・小文字は区別しません。承認待ちの申請の名前を含みます）。</p><button type="submit" class="button primary">申請する</button></form>`)}${shellCard("自分の申請", own.length ? own.map((request) => `<div class="directory-row"><div><strong># ${e(request.name)}</strong><p class="subtle">${e(deptLabel(request.dept))} ・ ${request.private ? "非公開" : "公開"} ・ ${requestStatusLabel(request)}</p>${request.reason ? `<p class="subtle">却下理由: ${e(request.reason)}</p>` : ""}</div></div>`).join("") : "<p>申請はまだありません。</p>")}`,
+    `${shellCard("作成を申請", `<div class="banner">案件に関する話題のチャンネルは非公開をおすすめします。案件専用チャンネルは案件承認時に自動作成されます。</div><form data-proto-form="channel-request">${field("チャンネル名", "channel-name", "text", "", true, [1, 50])}${field("説明（任意）", "channel-description", "text", "", false, [0, 500])}<fieldset><legend>公開範囲</legend><label><input type="radio" name="visibility" value="public" checked> 公開</label><label><input type="radio" name="visibility" value="private"> 非公開</label></fieldset><fieldset><legend>作る場所（他部署のチャンネルは選べません）</legend><label><input type="radio" name="place" value="own" checked> 自部署のチャンネル（${e(dept)}）</label><label><input type="radio" name="place" value="company"> 会社直属のチャンネル</label></fieldset><p class="subtle">承認する人: 自部署のチャンネルは自部署のオーナー（オーナー自身の申請は全体管理者）、会社直属のチャンネルは全体管理者です。チャンネル名は会社内で重複できません（大文字・小文字は区別しません。承認待ちの申請の名前を含みます）。</p><p class="subtle">使える文字は、日本語・英数字・ハイフン・アンダースコアです。記号・スペースは使えません。「日本語」の範囲は文書にないため、ひらがな・カタカナ・漢字・長音符・々・全角英数字を通す案の判定です（案）。</p><button type="submit" class="button primary">申請する</button></form>`)}${shellCard("自分の申請", own.length ? own.map((request) => `<div class="directory-row"><div><strong># ${e(request.name)}</strong><p class="subtle">${e(deptLabel(request.dept))} ・ ${request.private ? "非公開" : "公開"} ・ ${requestStatusLabel(request)}</p>${request.reason ? `<p class="subtle">却下理由: ${e(request.reason)}</p>` : ""}</div></div>`).join("") : "<p>申請はまだありません。</p>")}`,
   );
 }
 function channelApprovalsScreen() {
@@ -1220,11 +1346,16 @@ function caseSearchHits(item, has) {
 function searchScreen() {
   const term = ui.search.trim().toLowerCase();
   const has = (text) => !!term && String(text).toLowerCase().includes(term);
+  // 参加していない公開チャンネルも対象（C-117(2)）。非公開は参加者だけ、DM・閲覧権限のない案件の中身は対象外。
   const channelHits = prototypeData.channels
-    .filter((channel) => isChannelMember(channel))
+    .filter((channel) => canReadChannel(channel))
     .flatMap((channel) =>
       channel.messages
-        .filter((message) => !term || message.text.toLowerCase().includes(term))
+        .filter(
+          (message) =>
+            !message.deleted &&
+            (!term || message.text.toLowerCase().includes(term)),
+        )
         .map((message) => ({ channel, message })),
     );
   const cases = state.cases
@@ -1232,17 +1363,18 @@ function searchScreen() {
       item,
       meta:
         !term ||
-        [item.title, item.no, clientNameOf(item.clientCode)].some(has),
+        [item.title, clientNameOf(item.clientCode)].some(has) ||
+        caseNoMatches(item, term),
       inner: caseSearchHits(item, has),
     }))
     .filter((hit) => hit.meta || hit.inner.length);
   const caseCard = ({ item, inner }) =>
-    `<div class="directory-row search-case"><div><strong><span class="case-id">${e(item.no)}</span>${e(item.title)}</strong><p class="subtle">取引先: ${e(clientNameOf(item.clientCode))} ・ ${e(item.department)} ・ ${e(caseStatusLabel(item))} ・ 進捗 ${progressHtml(item)} ・ 納期 ${item.due ? e(item.due) : "なし"}</p>${inner.length ? `<ul class="search-inner" aria-label="${e(item.title)}の一致した内容">${inner.map((hit) => `<li><span class="badge archived">${e(hit.type)}</span> ${e(hit.text.slice(0, 60))}${hit.mid ? ` <button type="button" class="button small" data-ui="case-msg-open" data-id="${e(item.id)}" data-mid="${e(hit.mid)}" aria-label="${e(item.title)}の該当の投稿を開く">投稿を開く</button><button type="button" class="button small" data-ui="org-add" data-kind="message" data-ref="${e(hit.mid)}" aria-label="該当の投稿を整理スペースに登録">整理スペースに登録</button>` : ""}</li>`).join("")}</ul>` : ""}</div><div class="inline-actions">${protoButton("概要を開く", "case-open", `data-id="${e(item.id)}"`)}${canSeeContent(item) ? protoButton("整理スペースに登録", "org-add", `data-kind="case" data-ref="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}を整理スペースに登録"`) : ""}</div></div>`;
+    `<div class="directory-row search-case"><div><strong><span class="case-id">${e(item.no)}</span>${e(item.title)}</strong><p class="subtle">取引先: ${e(clientLabelOf(item.clientCode))} ・ ${e(item.department)} ・ ${e(caseStatusLabel(item))} ・ 進捗 ${progressHtml(item)} ・ 納期 ${item.due ? e(item.due) : "なし"}</p>${inner.length ? `<ul class="search-inner" aria-label="${e(item.title)}の一致した内容">${inner.map((hit) => `<li><span class="badge archived">${e(hit.type)}</span> ${e(hit.text.slice(0, 60))}${hit.mid ? ` <button type="button" class="button small" data-ui="case-msg-open" data-id="${e(item.id)}" data-mid="${e(hit.mid)}" aria-label="${e(item.title)}の該当の投稿を開く">投稿を開く</button><button type="button" class="button small" data-ui="org-add" data-kind="message" data-ref="${e(hit.mid)}" aria-label="該当の投稿を整理スペースに登録">整理スペースに登録</button>` : ""}</li>`).join("")}</ul>` : ""}</div><div class="inline-actions">${protoButton("概要を開く", "case-open", `data-id="${e(item.id)}"`)}${canSeeContent(item) ? protoButton("整理スペースに登録", "org-add", `data-kind="case" data-ref="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}を整理スペースに登録"`) : ""}</div></div>`;
   return screenFrame(
     "S15",
     "検索結果",
-    "案件は件名・案件番号・取引先名で探せます。案件の参加者と公開済みアーカイブは、メッセージ・TODO・添付名も対象です。非参加者には概要だけを示します。",
-    `<form data-proto-form="search" data-no-guard class="directory-toolbar"><label for="search-term">キーワード</label><input id="search-term" name="term" type="search" value="${e(ui.search)}" data-max="100" data-name="検索語"><button type="submit" class="button primary">検索する</button></form>${shellCard("メッセージ", channelHits.length ? channelHits.map((hit) => `<div class="directory-row"><div><strong># ${e(hit.channel.name)}</strong><p>${e(hit.message.text)}</p></div><div class="inline-actions">${protoButton("開く", "channel", `data-id="${hit.channel.id}"`)}${protoButton("整理スペースに登録", "org-add", `data-kind="message" data-ref="${e(midOf(hit.message))}" aria-label="# ${e(hit.channel.name)}のメッセージを整理スペースに登録"`)}</div></div>`).join("") : "<p>該当するメッセージはありません。</p>")}${shellCard("案件", cases.length ? cases.map(caseCard).join("") : "<p>該当する案件はありません。</p>")}`,
+    "案件は件名・案件番号（先頭から一致）・取引先名で探せます。案件の参加者と公開済みアーカイブは、メッセージ・TODO・添付名も対象です。非参加者には概要だけを示します。",
+    `<form data-proto-form="search" data-no-guard class="directory-toolbar"><label for="search-term">キーワード</label><input id="search-term" name="term" type="search" value="${e(ui.search)}" data-max="100" data-name="検索語"><button type="submit" class="button primary">検索する</button></form>${shellCard("メッセージ", channelHits.length ? channelHits.map((hit) => `<div class="directory-row"><div><strong># ${e(hit.channel.name)}</strong>${isChannelMember(hit.channel) ? "" : '<span class="subtle">（参加していません・案）</span>'}<p>${e(hit.message.text)}</p></div><div class="inline-actions">${protoButton("開く", "channel", `data-id="${hit.channel.id}"`)}${protoButton("整理スペースに登録", "org-add", `data-kind="message" data-ref="${e(midOf(hit.message))}" aria-label="# ${e(hit.channel.name)}のメッセージを整理スペースに登録"`)}</div></div>`).join("") : "<p>該当するメッセージはありません。</p>")}${shellCard("案件", cases.length ? cases.map(caseCard).join("") : "<p>該当する案件はありません。</p>")}`,
   );
 }
 function caseRequestScreen() {
@@ -1260,6 +1392,8 @@ function caseRequestScreen() {
       ),
     );
   const prior = state.reapplySource ? getRequest(state.reapplySource) : null;
+  // 説明の下書きは端末に一時保存する（C-82・C-117(5)）。新規の申請と、却下後の再申請でキーを分け、件名・個人情報は保存しない。
+  const descDraft = draftFor(prior ? `case-request:reapply:${prior.id}` : "case-request:new");
   // 担当部署は必須。一般社員・オーナーは自部署のみ、全体管理者は全部署から選ぶ（C-98）。
   const department =
     currentUser().role === "admin"
@@ -1285,7 +1419,7 @@ function caseRequestScreen() {
     "承認されるまで案件や専用チャンネルは作られません。",
     shellCard(
       "申請する内容",
-      `<form data-proto-form="case-request"><div class="banner">申請者は承認時に自動参加します。</div><div class="form-field"><label for="case-title">案件名（件名）</label><p class="field-note" id="case-title-note">件名は参加していない人にも見える場合があります。機密情報を書かないでください</p><input id="case-title" name="case-title" required value="${e(prior?.title || "")}" aria-describedby="case-title-note" data-min="1" data-max="100" data-name="件名"></div>${clients}<div class="form-field"><label for="case-description">説明（任意）</label><textarea id="case-description" name="case-description" data-max="2000" data-name="説明">${e(prior?.description || "")}</textarea></div><div class="form-field"><label for="case-due">納期（任意）</label><input id="case-due" name="case-due" type="date" value="${e(prior?.due || "")}"><p class="form-hint">設定すると全社員が案件の一覧と概要で見られます。通知や期限の警告は出ません。</p></div>${department}<p class="form-label">追加の参加候補（任意）</p><p class="subtle">他部署の社員も選べます。承認者は候補の追加のみできます。</p>${participantOptions(prior?.candidates || [], [state.userId])}<div class="form-actions"><button type="submit" class="button primary">申請する</button>${protoButton("案件一覧へ", "go", 'data-page="S16"')}</div></form>`,
+      `<form data-proto-form="case-request"><div class="banner">申請者は承認時に自動参加します。</div><div class="form-field"><label for="case-title">案件名（件名）</label><p class="field-note" id="case-title-note">件名は参加していない人にも見える場合があります。機密情報を書かないでください</p><input id="case-title" name="case-title" required value="${e(prior?.title || "")}" aria-describedby="case-title-note" data-min="1" data-max="100" data-name="件名"></div>${clients}<div class="form-field"><label for="case-description">説明（任意）</label><textarea id="case-description" name="case-description" data-max="2000" data-name="説明" data-draft-key="${e(descDraft.key)}">${e(descDraft.text || prior?.description || "")}</textarea>${draftNote(descDraft)}</div><div class="form-field"><label for="case-due">納期（任意）</label><input id="case-due" name="case-due" type="date" min="${e(todayText())}" value="${e(prior?.due || "")}"><p class="form-hint">今日以降の日付だけ入力できます（入力欄の細部は案）。設定すると全社員が案件の一覧と概要で見られます。通知や期限の警告は出ません。</p></div>${department}<p class="form-label">追加の参加候補（任意）</p><p class="subtle">他部署の社員も選べます。承認者は候補の追加のみできます。</p>${participantOptions(prior?.candidates || [], [state.userId])}<div class="form-actions"><button type="submit" class="button primary">申請する</button>${protoButton("案件一覧へ", "go", 'data-page="S16"')}</div></form>`,
     ),
   );
 }
@@ -1431,15 +1565,15 @@ function sharedFolderScreen() {
     "S32",
     "チャンネルの共通フォルダ",
     target === COMPANY
-      ? "会社直属のチャンネルのフォルダです。管理者は【案：全体管理者】で、未確定です。"
-      : `${target} の共通フォルダです。${target} の社員には同じ並びで表示されます。`,
+      ? "会社直属のチャンネルのフォルダです。全体管理者が管理します（C-110）。"
+      : `${deptDisplay(target)} の共通フォルダです。${target} の社員には同じ並びで表示されます。`,
     (targets.length > 1
       ? shellCard(
           "対象",
           selectField(
             "フォルダを管理する場所",
             "folder-dept",
-            targets.map((name) => [name, name === COMPANY ? "会社直属（案）" : name]),
+            targets.map((name) => [name, name === COMPANY ? "会社直属" : deptDisplay(name)]),
             target,
           ),
         )
@@ -1547,10 +1681,14 @@ function threadCanRead(thread) {
 }
 function threadCanWrite(thread) {
   if (!threadCanRead(thread)) return false;
-  if (thread.source === "channel")
-    return isChannelMember(
-      prototypeData.channels.find((item) => item.id === thread.channelId),
+  // 削除済みの親投稿には新しい返信をつけられない。既存の返信は読める（1-4 AC-2・C-59）。
+  if (thread.message.deleted) return false;
+  if (thread.source === "channel") {
+    const channel = prototypeData.channels.find(
+      (item) => item.id === thread.channelId,
     );
+    return isChannelMember(channel) && !channel.readOnly;
+  }
   if (thread.source !== "case") return true;
   const item = getCase(thread.caseId);
   return item.status === "active" && isMember(item);
@@ -1607,6 +1745,8 @@ function proceedTo(page) {
   if (avatarDialog.open) avatarDialog.close();
   if (ui.thread) closeThread();
   state.caseManage = false;
+  // S-37 の絞り込みは、開き直すたびに既定の「申請中」に戻す（C-115）。
+  if (page === "S37" && state.page !== "S37") ui.annFilter = "pending";
   navigate(page);
 }
 function uiAction(element) {
@@ -1696,6 +1836,9 @@ function uiAction(element) {
       return refuse();
     if (source === "channel" && !isChannelMember(activeChannel()))
       return refuse();
+    // 無効にした部署のお知らせ専用チャンネル（読み取り専用）では、リアクションも受け付けない。
+    if (source === "channel" && activeChannel()?.readOnly)
+      return refuse("この部署は無効化されたため、読み取り専用です。");
     const message =
       source === "channel"
         ? activeChannel()?.messages[index]
@@ -1703,12 +1846,14 @@ function uiAction(element) {
           ? (prototypeData.dm[dmKey(state.userId, ui.dmUserId)] || [])[index]
           : getCase(state.selectedId)?.messages[index];
     if (!message) return refuse();
+    if (message.deleted) return refuse("この投稿はすでに削除されています。");
     message.likes = (message.likes || 0) + 1;
     return render();
   }
   if (action === "notification-open") {
     const note = ownNotices().find((item) => item.id === element.dataset.id);
     if (!note) return refuse();
+    if (note.announce) return announceOpenNotice(note);
     if (note.channel) {
       const channel = prototypeData.channels.find(
         (item) => item.id === note.channel,
@@ -2113,6 +2258,11 @@ document.addEventListener(
       const name = String(data.get("channel-name") || "").trim();
       if (!name)
         return fieldError("channel-name", "チャンネル名を入力してください。");
+      if (!channelNameCharsOk(name))
+        return fieldError(
+          "channel-name",
+          "使えない文字が含まれています（使えるのは、日本語・英数字・ハイフン・アンダースコア）。",
+        );
       // 作る場所は自部署か会社直属だけ（他部署は不可）。名前は会社内で一意。大文字・小文字は区別せず、
       // 承認待ちの申請の名前も対象にする（C-105、2-2 AC-13）。却下された申請の名前は数えない。
       const dept =
@@ -2150,6 +2300,9 @@ document.addEventListener(
         due = String(data.get("case-due") || ""),
         description = String(data.get("case-description") || "").trim();
       if (!title) return notify("件名を入力してください。");
+      if (due && !isRealDate(due)) return notify("納期は日付で入力してください。");
+      if (due && due < todayText())
+        return notify("今日以降の日付を選んでください。");
       if (
         (currentUser().role !== "admin" &&
           department !== currentUser().department) ||
@@ -2182,6 +2335,8 @@ document.addEventListener(
         reason: "",
         previous: previous?.id || null,
       });
+      // 申請を送ったら、説明の下書きを消す。
+      removeDraft(form.querySelector("[data-draft-key]")?.dataset.draftKey);
       state.reapplySource = null;
       state.caseTab = "my";
       proceedTo("S16");

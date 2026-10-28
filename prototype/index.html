@@ -11,6 +11,7 @@
     <script src="screens.js" defer></script>
     <script src="admin.js" defer></script>
     <script src="organize.js" defer></script>
+    <script src="announce.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -136,6 +137,21 @@
           </button>
           <button type="button" data-ui="draft-clear">
             下書きをすべて消す
+          </button>
+        </div>
+        <p class="tool-note">部署の無効化の確認(見本。業務の操作ではありません)</p>
+        <div class="tool-buttons">
+          <button type="button" data-ui="seed-planning">
+            無効化の見本の部署(企画部)を追加
+          </button>
+          <button type="button" data-ui="seed-handover">
+            企画部のオーナーを引き継いで異動したことにする(見本)
+          </button>
+        </div>
+        <p class="tool-note">案件番号の連番の確認(見本。業務の操作ではありません。翌日以降に承認できる動きは再現しません)</p>
+        <div class="tool-buttons">
+          <button type="button" data-ui="seed-caseno">
+            ABC の今年の連番を9999にする(見本)
           </button>
         </div>
         <p class="tool-note">サイドバーの開閉の確認(案。端末内の保存)</p>

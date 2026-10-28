@@ -325,6 +325,12 @@ const progressHtml = (item) => {
 const clientByCode = (code) =>
   state.clients.find((client) => client.code === code);
 const clientNameOf = (code) => clientByCode(code)?.name || "（取引先なし）";
+// 表示用。取引先を無効にした後も、既存の案件には名前をそのまま出し「（無効）」の印を付ける（C-117(4)）。
+const clientLabelOf = (code) =>
+  `${clientNameOf(code)}${clientByCode(code) && !clientByCode(code).active ? "（無効）" : ""}`;
+// 案件番号の検索は、番号だけ前方一致（大文字・小文字を区別しない）。件名・取引先名は部分一致のまま（C-117(4)）。
+const caseNoMatches = (item, term) =>
+  item.no.toLowerCase().startsWith(term.trim().toLowerCase());
 const dueText = (value) => (value ? value : "");
 // 案件番号は承認時に自動で付く（C-89）。形式: 取引先コード-YYMMDD-その取引先のその年の連番4桁。
 const issueCaseNo = (clientCode) => {
@@ -332,12 +338,22 @@ const issueCaseNo = (clientCode) => {
   const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
-  const used = state.cases.filter(
-    (item) =>
-      item.clientCode === clientCode && item.no.split("-")[1].slice(0, 2) === yy,
-  ).length;
+  const used = usedCaseSeq(clientCode, yy);
   return `${clientCode}-${yy}${mm}${dd}-${String(used + 1).padStart(4, "0")}`;
 };
+// その取引先のその年の使用済みの連番。案件の件数と、画面確認の見本値（state.caseNoUsed）の大きいほう。
+const usedCaseSeq = (clientCode, yy) =>
+  Math.max(
+    state.cases.filter(
+      (item) =>
+        item.clientCode === clientCode && item.no.split("-")[1].slice(0, 2) === yy,
+    ).length,
+    (state.caseNoUsed ||= {})[`${clientCode}-${yy}`] || 0,
+  );
+const CASE_SEQ_MAX = 9999;
+const thisYY = () => String(new Date().getFullYear()).slice(-2);
+// 連番が9999に達していたら、その日の承認は 409（CONFLICT）の見本として拒否する（V-44・EP-5-04）。
+const caseSeqFull = (clientCode) => usedCaseSeq(clientCode, thisYY()) >= CASE_SEQ_MAX;
 const notify = (message) => {
   toast.textContent = message;
   toast.classList.add("show");
@@ -435,7 +451,7 @@ function caseRow(item) {
       : "";
   const count = canSeeContent(item) ? `・${item.members.length} 人が参加` : "";
   const due = dueText(item.due);
-  return `<button type="button" class="case-row" data-action="open-case" data-id="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}の詳細を開く"><div><h3><span class="case-id">${e(item.no)}</span>${e(item.title)}</h3><span class="row-note">取引先: ${e(clientNameOf(item.clientCode))}・${note}${reviewNote}${count}</span><span class="mobile-meta">担当部署 ${e(item.department)} ・ 進捗 ${progressHtml(item)} ・ 納期 ${due ? e(due) : "なし"}</span></div><span class="cell-text hide-mobile"><span class="cell-label">担当部署</span>${e(item.department)}</span><span>${badge(label, badgeType)}</span><span class="cell-text hide-mobile"><span class="cell-label">進捗</span>${progressHtml(item)}</span><span class="cell-text hide-mobile"><span class="cell-label">納期</span>${due ? e(due) : "なし"}</span><span class="arrow" aria-hidden="true">›</span></button>`;
+  return `<button type="button" class="case-row" data-action="open-case" data-id="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}の詳細を開く"><div><h3><span class="case-id">${e(item.no)}</span>${e(item.title)}</h3><span class="row-note">取引先: ${e(clientLabelOf(item.clientCode))}・${note}${reviewNote}${count}</span><span class="mobile-meta">担当部署 ${e(item.department)} ・ 進捗 ${progressHtml(item)} ・ 納期 ${due ? e(due) : "なし"}</span></div><span class="cell-text hide-mobile"><span class="cell-label">担当部署</span>${e(item.department)}</span><span>${badge(label, badgeType)}</span><span class="cell-text hide-mobile"><span class="cell-label">進捗</span>${progressHtml(item)}</span><span class="cell-text hide-mobile"><span class="cell-label">納期</span>${due ? e(due) : "なし"}</span><span class="arrow" aria-hidden="true">›</span></button>`;
 }
 function renderList() {
   const archived = state.caseTab === "archived" || state.page === "archived";
@@ -443,9 +459,9 @@ function renderList() {
     .filter((item) => item.status === (archived ? "archived" : "active"))
     .filter((item) => state.scope === "all" || isMember(item))
     .filter((item) =>
-      [item.title, item.no, clientNameOf(item.clientCode)].some((text) =>
+      [item.title, clientNameOf(item.clientCode)].some((text) =>
         text.toLowerCase().includes(state.query.trim().toLowerCase()),
-      ),
+      ) || caseNoMatches(item, state.query),
     );
   const title = archived ? "アーカイブ" : "進行中の案件";
   const description = archived
@@ -475,7 +491,7 @@ function renderList() {
     (item) => item.status === "archived",
   ).length;
   html += `<div class="stat-row"><div class="panel stat"><span>進行中の案件</span><strong>${openCount}</strong></div><div class="panel stat"><span>アーカイブ</span><strong>${archiveCount}</strong></div><div class="panel stat"><span>自分が参加中</span><strong>${state.cases.filter((item) => isMember(item) && item.status === "active").length}</strong></div></div>`;
-  html += `<div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="case-search" type="search" placeholder="件名・案件番号・取引先名で絞り込み" value="${e(state.query)}" autocomplete="off" aria-label="件名・案件番号・取引先名で絞り込み"></label><div class="filters"><label for="scope">表示範囲</label><select id="scope"><option value="all" ${state.scope === "all" ? "selected" : ""}>すべての案件</option><option value="mine" ${state.scope === "mine" ? "selected" : ""}>自分が参加する案件</option></select></div></div>`;
+  html += `<div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="case-search" type="search" placeholder="件名・案件番号（先頭から一致）・取引先名で絞り込み" value="${e(state.query)}" autocomplete="off" aria-label="件名・案件番号（先頭から一致）・取引先名で絞り込み"></label><div class="filters"><label for="scope">表示範囲</label><select id="scope"><option value="all" ${state.scope === "all" ? "selected" : ""}>すべての案件</option><option value="mine" ${state.scope === "mine" ? "selected" : ""}>自分が参加する案件</option></select></div></div>`;
   html += `<div class="panel list-panel"><div class="list-title"><strong>案件一覧</strong><span>${items.length} 件</span></div>${items.length ? `<div class="case-list">${items.map(caseRow).join("")}</div>` : `<div class="empty-screen"><span class="empty-icon">▤</span><h2>該当する案件はありません</h2><p>条件を変えて、もう一度探してください。</p></div>`}</div>`;
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
   screen.innerHTML = html;
@@ -617,8 +633,60 @@ function caseStatusLabel(item) {
 // 非参加者にも見える概要は、件名・状態・担当部署・進捗・納期に案件番号・取引先名を加えた7項目（C-86・C-89）。
 function caseInfo(item, visible) {
   const due = dueText(item.due);
-  return `<section class="panel case-info" aria-label="案件の概要"><dl class="info-grid"><div><dt>案件番号</dt><dd>${e(item.no)}</dd></div><div><dt>取引先</dt><dd>${e(clientNameOf(item.clientCode))}（${e(item.clientCode)}）</dd></div><div><dt>状態</dt><dd>${e(caseStatusLabel(item))}</dd></div><div><dt>担当部署</dt><dd>${e(item.department)}</dd></div><div><dt>進捗</dt><dd>${progressHtml(item)}</dd></div><div><dt>納期</dt><dd>${due ? e(due) : "設定なし"}</dd></div>${visible ? `<div class="wide"><dt>説明</dt><dd>${e(item.description || "なし")}</dd></div>` : ""}</dl>${visible ? "" : '<p class="subtle">この概要は全社員に表示されます。</p>'}</section>`;
+  return `<section class="panel case-info" aria-label="案件の概要"><dl class="info-grid"><div><dt>案件番号</dt><dd>${e(item.no)}</dd></div><div><dt>取引先</dt><dd>${e(clientLabelOf(item.clientCode))}（${e(item.clientCode)}）</dd></div><div><dt>状態</dt><dd>${e(caseStatusLabel(item))}</dd></div><div><dt>担当部署</dt><dd>${e(item.department)}</dd></div><div><dt>進捗</dt><dd>${progressHtml(item)}</dd></div><div><dt>納期</dt><dd>${due ? e(due) : "設定なし"}${canChangeDue(item) ? ` <button type="button" class="button small" data-ui="case-due-open" data-id="${e(item.id)}" aria-label="${e(item.no)}の納期を変更">納期を変更</button>` : ""}</dd></div>${visible ? `<div class="wide"><dt>説明</dt><dd>${e(item.description || "なし")}</dd></div>` : ""}</dl>${visible ? "" : '<p class="subtle">この概要は全社員に表示されます。</p>'}</section>`;
 }
+// 納期を変えられるのは、進行中の案件の参加者（C-117(3)）。終了中は表示だけ。
+const canChangeDue = (item) => item.status === "active" && isMember(item);
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+// 存在する日付か。年月日から作り直した日付と照合し、2027-02-30 のような補正される値を拒否する。
+function isRealDate(value) {
+  if (typeof value !== "string" || !DATE_PATTERN.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+  );
+}
+function changeCaseDue(id, due) {
+  const item = getCase(id);
+  if (!item || !canChangeDue(item)) return refuse();
+  if (!isRealDate(due))
+    return refuse("納期は日付で入力してください。");
+  if (due < todayText()) return refuse("今日以降の日付を選んでください。");
+  if (due === item.due) return refuse("納期が変わっていません。");
+  const before = item.due || "設定なし";
+  item.due = due;
+  // 変更は監査ログに残す（変更前・変更後・変更者・日時）。通知は付けず、案件の画面に履歴も出さない（C-117(3)）。
+  auditLog("案件の納期の変更", item.no, `納期を ${before} から ${due} に変更`);
+  notify("納期を変更しました。");
+  return true;
+}
+function openDueChange(id) {
+  const item = getCase(id);
+  if (!item || !canChangeDue(item)) return refuse();
+  showModal(
+    "納期を変更（入力欄の細部は案）",
+    `<div class="form-field"><label for="due-input">納期（今日以降の日付）</label><input id="due-input" name="due" type="date" required min="${e(todayText())}" value="${e(item.due && item.due >= todayText() ? item.due : "")}"></div><input type="hidden" name="id" value="${e(item.id)}"><p class="subtle">変更は監査ログに残ります。通知は出ません。画面に変更の履歴は出しません。空に戻せるかは未決定のため、この試作では日付を必ず入れます。</p>${hint("入力欄の細部は案です（未決定）。")}`,
+    "case-due",
+    "変更する",
+  );
+}
+Object.assign(EXTRA_UI, {
+  "case-due-open": (element) => openDueChange(element.dataset.id),
+  "seed-caseno": () => {
+    (state.caseNoUsed ||= {})[`ABC-${thisYY()}`] = CASE_SEQ_MAX;
+    notify("ABC の今年の連番を9999にしました（確認用の見本。業務の操作ではありません）。S-29 で ABC の申請を承認すると、上限の拒否が出ます。");
+  },
+});
+Object.assign(EXTRA_MODAL, {
+  "case-due": (data) => {
+    const id = String(data.get("id") || "");
+    const ok = changeCaseDue(id, String(data.get("due") || ""));
+    closeModal();
+    render();
+    if (ok) document.querySelector('[data-ui="case-due-open"]')?.focus();
+  },
+});
 function caseComposer(item) {
   const draft = draftFor(`case:${item.id}`);
   return `<form id="message-form" class="composer"><label class="form-label" for="message-text">メッセージを投稿</label><textarea id="message-text" name="text" placeholder="案件の参加者へ共有する内容" required data-max="4000" data-min="1" data-name="メッセージ" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<div class="composer-actions"><button class="button primary" type="submit">投稿する</button></div></form>`;
@@ -691,7 +759,7 @@ function renderMyRequests() {
     html +=
       '<div class="panel empty-screen"><span class="empty-icon">◷</span><h2>申請はまだありません</h2><p>自部署の案件を申請できます（全体管理者は全部署）。</p></div>';
   for (const request of mine)
-    html += `<section class="panel request-card"><div class="request-card-head"><h2>${e(request.title)}</h2>${badge(requestStatus(request.status), requestType(request.status))}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 取引先: ${e(clientNameOf(request.clientCode))} ・ 納期: ${request.due ? e(request.due) : "なし"} ・ 参加候補: ${e(request.candidates.concat(request.added).map(nameOf).join("、") || "なし")}</p><p>案件番号: ${request.caseNo ? e(request.caseNo) : "承認時に自動で付きます"}</p>${request.previous ? `<p>元の申請: ${e(request.previous)}</p>` : ""}${request.reason ? `<p>${request.status === "rejected" ? "却下理由" : "理由"}: ${e(request.reason)}</p>` : ""}<div class="request-actions">${request.status === "pending" ? button("取り下げ", "withdraw", `data-id="${request.id}"`, "button small danger") : ""}${["rejected", "withdrawn"].includes(request.status) ? button("修正して再申請", "reapply", `data-id="${request.id}"`) : ""}</div></section>`;
+    html += `<section class="panel request-card"><div class="request-card-head"><h2>${e(request.title)}</h2>${badge(requestStatus(request.status), requestType(request.status))}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 取引先: ${e(clientLabelOf(request.clientCode))} ・ 納期: ${request.due ? e(request.due) : "なし"} ・ 参加候補: ${e(request.candidates.concat(request.added).map(nameOf).join("、") || "なし")}</p><p>案件番号: ${request.caseNo ? e(request.caseNo) : "承認時に自動で付きます"}</p>${request.previous ? `<p>元の申請: ${e(request.previous)}</p>` : ""}${request.reason ? `<p>${request.status === "rejected" ? "却下理由" : "理由"}: ${e(request.reason)}</p>` : ""}<div class="request-actions">${request.status === "pending" ? button("取り下げ", "withdraw", `data-id="${request.id}"`, "button small danger") : ""}${["rejected", "withdrawn"].includes(request.status) ? button("修正して再申請", "reapply", `data-id="${request.id}"`) : ""}</div></section>`;
   for (const request of reopens)
     html += `<section class="panel request-card"><div class="request-card-head"><h2>再開の申請：${e(getCase(request.caseId)?.title || request.caseId)}</h2>${badge(requestStatus(request.status), requestType(request.status))}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 理由: ${e(request.reason)}</p>${request.previous ? `<p>元の申請: ${e(request.previous)}</p>` : ""}${request.decisionReason && request.status === "rejected" ? `<p>却下理由: ${e(request.decisionReason)}</p>` : ""}<div class="request-actions">${request.status === "pending" ? button("取り下げ", "withdraw-reopen", `data-id="${request.id}"`, "button small danger") : ""}${["rejected", "withdrawn"].includes(request.status) ? button("修正して再申請", "reapply-reopen", `data-id="${request.id}"`) : ""}</div></section>`;
   html += "</div>";
@@ -718,7 +786,7 @@ function renderApprovals() {
     html +=
       '<div class="panel empty-screen"><span class="empty-icon">✓</span><h2>承認待ちはありません</h2><p>担当できる申請が届くと、ここに表示されます。</p></div>';
   for (const request of requests)
-    html += `<section class="panel request-card"><div class="request-card-head"><h2>案件作成：${e(request.title)}</h2>${badge("承認待ち", "pending")}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 申請者: ${e(nameOf(request.applicant))}</p><p>取引先: ${e(clientNameOf(request.clientCode))}（${e(request.clientCode)}） ・ 納期: ${request.due ? e(request.due) : "なし"} ・ 案件番号は承認時に自動で付きます</p><p>申請された参加候補: ${e(request.candidates.map(nameOf).join("、") || "なし")}</p><p>承認者が追加: ${e(request.added.map(nameOf).join("、") || "なし")}</p><div class="request-actions">${button("内容を確認", "review-request", `data-id="${request.id}"`, "button primary small")}</div></section>`;
+    html += `<section class="panel request-card"><div class="request-card-head"><h2>案件作成：${e(request.title)}</h2>${badge("承認待ち", "pending")}</div><p>${e(request.id)} ・ 担当部署 ${e(request.department)} ・ 申請者: ${e(nameOf(request.applicant))}</p><p>取引先: ${e(clientLabelOf(request.clientCode))}（${e(request.clientCode)}） ・ 納期: ${request.due ? e(request.due) : "なし"} ・ 案件番号は承認時に自動で付きます</p><p>申請された参加候補: ${e(request.candidates.map(nameOf).join("、") || "なし")}</p><p>承認者が追加: ${e(request.added.map(nameOf).join("、") || "なし")}</p><div class="request-actions">${button("内容を確認", "review-request", `data-id="${request.id}"`, "button primary small")}</div></section>`;
   for (const item of publications)
     html += `<section class="panel request-card"><div class="request-card-head"><h2>全社員公開：${e(item.title)}</h2>${badge("承認待ち", "pending")}</div><p>${e(item.no)} ・ 担当部署 ${e(item.department)} ・ 申請者: ${e(nameOf(item.publication.applicant))}</p><p>審査中は内容を読み取り専用で確認できます。</p><div class="request-actions">${button("内容を見る", "review-content", `data-id="${item.id}"`)}${button("公開を審査", "review-publication", `data-id="${item.id}"`, "button primary small")}</div></section>`;
   for (const request of reopens)
@@ -863,7 +931,7 @@ function reviewRequest(id) {
   const candidates = request.candidates.concat(request.added);
   showModal(
     "案件申請を審査",
-    `<div class="muted-box"><strong>${e(request.title)}</strong><br>担当部署 ${e(request.department)} ・ 申請者: ${e(nameOf(request.applicant))}<br>取引先: ${e(clientNameOf(request.clientCode))}（${e(request.clientCode)}） ・ 納期: ${request.due ? e(request.due) : "なし"}<br>申請者は承認時に自動参加します。案件番号は承認時に自動で付きます。</div><p class="form-label">申請者が指定した候補</p><p class="subtle">${e(request.candidates.map(nameOf).join("、") || "なし")}（削除できません）</p><p class="form-label">承認者が追加する候補</p>${participantOptions(request.added, [request.applicant, ...request.candidates])}<input type="hidden" name="id" value="${e(id)}"><div class="form-field"><label for="review-result">判断</label><select id="review-result" name="result"><option value="approve">承認</option><option value="reject">却下</option></select></div><div class="form-field"><label for="review-reason">却下理由（却下時は必須。1〜200文字）</label><textarea id="review-reason" name="reason" placeholder="申請者に伝える理由" data-max="200" data-name="却下理由"></textarea></div>`,
+    `<div class="muted-box"><strong>${e(request.title)}</strong><br>担当部署 ${e(request.department)} ・ 申請者: ${e(nameOf(request.applicant))}<br>取引先: ${e(clientLabelOf(request.clientCode))}（${e(request.clientCode)}） ・ 納期: ${request.due ? e(request.due) : "なし"}<br>申請者は承認時に自動参加します。案件番号は承認時に自動で付きます。</div><p class="form-label">申請者が指定した候補</p><p class="subtle">${e(request.candidates.map(nameOf).join("、") || "なし")}（削除できません）</p><p class="form-label">承認者が追加する候補</p>${participantOptions(request.added, [request.applicant, ...request.candidates])}<input type="hidden" name="id" value="${e(id)}"><div class="form-field"><label for="review-result">判断</label><select id="review-result" name="result"><option value="approve">承認</option><option value="reject">却下</option></select></div><div class="form-field"><label for="review-reason">却下理由（却下時は必須。1〜200文字）</label><textarea id="review-reason" name="reason" placeholder="申請者に伝える理由" data-max="200" data-name="却下理由"></textarea></div>`,
     "judge-request",
     "判断を確定",
   );
@@ -1341,6 +1409,10 @@ modal.addEventListener("submit", (event) => {
       request.reason = reason;
       auditLog("案件作成の却下", request.id, `${currentUser().name} が「${request.title}」の作成申請を却下（理由: ${reason}）`);
     } else {
+      if (caseSeqFull(request.clientCode))
+        return modalError(
+          `この取引先の今年の案件番号が上限（${CASE_SEQ_MAX}）に達したため、今日は承認できません。翌日以降に承認してください（409の見本。翌日以降に承認できる動きは、この試作では再現しません）。案件は作られず、申請は「申請中」のままです。`,
+        );
       request.added = data.getAll("candidates").map(String);
       const members = [
         ...new Set([

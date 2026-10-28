@@ -1092,3 +1092,129 @@ dialog::backdrop {
     min-height: 40px;
   }
 }
+
+/* お知らせ専用チャンネルの依頼・緊急削除（S-05・S-37。announce.js） */
+.announce-menu {
+  position: relative;
+  display: inline-block;
+}
+.announce-menu summary {
+  cursor: pointer;
+  background: #f0f6f7;
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: #416879;
+  list-style: none;
+}
+.announce-menu summary::-webkit-details-marker {
+  display: none;
+}
+.announce-menu summary:focus-visible {
+  outline: 2px solid #087669;
+  outline-offset: 2px;
+}
+.announce-menu[open] summary {
+  background: #dcebee;
+}
+.announce-menu-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #d3e1e5;
+  border-radius: 8px;
+}
+.announce-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.announce-mark {
+  border: 1px solid #c98a1b;
+  background: #fff2d9;
+  color: #6b4408;
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.announce-mark:focus-visible {
+  outline: 2px solid #6b4408;
+  outline-offset: 2px;
+}
+.deleted-note {
+  color: #5c7382;
+  font-style: italic;
+}
+.is-deleted .message-avatar {
+  opacity: 0.6;
+}
+.ann-detail dt {
+  font-weight: 800;
+  margin-top: 8px;
+}
+.ann-detail dd {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ann-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ann-table th,
+.ann-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 9px 8px;
+  border-bottom: 1px solid #e3ebee;
+}
+.ann-table td p {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.ann-reason-line {
+  white-space: pre-wrap;
+}
+.empty-note {
+  padding: 14px 0;
+  color: #3e5663;
+}
+@media (max-width: 767px) {
+  .ann-table thead {
+    position: absolute;
+    left: -9999px;
+  }
+  .ann-table,
+  .ann-table tbody,
+  .ann-table tr,
+  .ann-table td {
+    display: block;
+    width: 100%;
+  }
+  .ann-table tr {
+    border: 1px solid #d3e1e5;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    padding: 4px 8px;
+  }
+  .ann-table td {
+    border: 0;
+  }
+  .ann-table td::before {
+    content: attr(data-label) "：";
+    font-weight: 800;
+    display: block;
+    font-size: 11px;
+    color: #52717e;
+  }
+  .ann-table .button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
