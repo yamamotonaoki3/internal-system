@@ -111,11 +111,14 @@ function draftNote(draft) {
 
 /* ---------- 入力の長さの表示と確認(C-90) ---------- */
 const charCount = (value) => [...String(value).trim()].length;
+// data-normalize のある欄（保存時に自動整形する欄）は整形後の文字数、それ以外は従来どおり。カウンターと送信時の検査の両方で使う。
+const fieldCount = (el) =>
+  el.hasAttribute("data-normalize") ? [...normalizeInput(el.value)].length : charCount(el.value);
 let counterSeq = 0;
 function updateCounter(el) {
   const counter = document.getElementById(el.dataset.counterId);
   if (!counter) return;
-  const count = charCount(el.value);
+  const count = fieldCount(el);
   const min = Number(el.dataset.min || 0);
   const max = Number(el.dataset.max);
   const range = min ? `${min}〜${max}文字` : `${max}文字まで`;
@@ -148,10 +151,13 @@ function decorateLimits() {
 }
 function validateLimits(form) {
   for (const el of form.querySelectorAll("[data-max]")) {
-    const count = charCount(el.value);
+    // data-normalize のある欄（件名・取引先名・チャンネル名・部署名・TODOの題名・拠点名）だけ、保存値と同じ整形後の文字数で数える（C-121【案】）。
+    const normalized = el.hasAttribute("data-normalize");
+    const count = fieldCount(el);
     const min = Number(el.dataset.min || 0);
     const max = Number(el.dataset.max);
     const name = el.dataset.name || "入力欄";
+    if (normalized && min && count === 0) return { el, message: `${name}を入力してください。` };
     if (count > max)
       return { el, message: `${name}は${max}文字以内で入力してください(現在${count}文字)。` };
     if (min && count < min)
@@ -452,7 +458,7 @@ function openClientForm(code) {
   const codeField = `<div class="form-field"><label for="client-code">取引先コード(英大文字3文字)</label><input id="client-code" name="client-code" value="${e(client?.code || "")}" autocomplete="off" ${locked ? "disabled" : 'required data-min="3" data-max="3" data-name="取引先コード"'}></div>${locked ? `<p class="form-hint">${client.code === "INT" ? "予約コード INT(社内)は変更できません。" : "この取引先の案件があるため、コードは変更できません。"}</p>` : ""}`;
   showModal(
     client ? "取引先の名前を変更" : "取引先を登録",
-    `${codeField}${field("取引先名", "client-name", "text", client?.name || "", true, [1, 50])}<input type="hidden" name="target" value="${e(client?.code || "")}">`,
+    `${codeField}${field("取引先名", "client-name", "text", client?.name || "", true, [1, 50], true)}<p class="subtle">保存時に表記を自動で整えます（全角英数字を半角に、連続する空白を1つに、ハイフン類を「-」に。細部は案）。</p><input type="hidden" name="target" value="${e(client?.code || "")}">`,
     "client-save",
     client ? "変更する" : "登録する",
   );
@@ -462,15 +468,18 @@ function saveClient(data) {
   const target = String(data.get("target") || "");
   const client = target ? clientByCode(target) : null;
   if (target && !client) return refuse("取引先が見つかりません。");
-  const name = String(data.get("client-name") || "").trim();
+  // 取引先名は保存時に自動整形する（C-121【案】）。長さと重複は整形後の値で、既存の名前も同じ整形をして比べる（無効の取引先を含む）。
+  const rawName = String(data.get("client-name") || "");
+  const name = normalizeInput(rawName);
   if (!name) return modalError("取引先名を入力してください。");
+  if ([...name].length > 50) return modalError("取引先名は1〜50文字で入力してください（整形後の文字数）。");
   if (
     state.clients.some(
-      (other) => other !== client && normalizeName(other.name) === normalizeName(name),
+      (other) => other !== client && compareKey(other.name) === compareKey(name),
     )
   )
     return modalError(
-      "同じ名前の取引先がすでにあります(前後の空白と大文字・小文字の違いは区別しません)。",
+      "同じ名前の取引先がすでにあります(整形後の値で、大文字・小文字の違いは区別しません)。",
     );
   const locked =
     client && (client.code === "INT" || clientCaseCount(client.code) > 0);
@@ -487,7 +496,7 @@ function saveClient(data) {
   } else state.clients.push({ code: newCode, name, active: true });
   closeModal();
   render();
-  return notify(client ? "取引先名を変更しました。" : "取引先を登録しました。");
+  return notify(`${client ? "取引先名を変更しました。" : "取引先を登録しました。"}${rawName.trim() !== name ? "表記を整えて保存しました（案）。" : ""}`);
 }
 function openClientDisable(code) {
   if (!adminOnly()) return refuse();

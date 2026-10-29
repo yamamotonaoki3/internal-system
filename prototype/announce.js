@@ -202,6 +202,9 @@ function onDepartmentDisabled(name) {
         .forEach((item) => (item.status = "void"));
       channel.readOnly = true;
     });
+  // 部署の通常の専用チャンネルも読み取り専用にする（C-120(2)）。申請で作った部署のほかのチャンネルを含むかは未決定（Q-45）。
+  const dedicated = dedicatedChannel(name);
+  if (dedicated) dedicated.readOnly = true;
 }
 
 /* ---------- 実行する関数（ブラウザのコンソールからも呼べる。検査に通らなければ拒否して何も変えない） ---------- */
@@ -366,6 +369,15 @@ function adminDeleteAnnounce(mid, reason) {
   if (text === null) return refuse(annReasonMessage(true));
   message.deleted = true;
   onAnnounceDeleted(message);
+  // 投稿者へ通知し、理由も伝える（C-120(8)。文言は案。無効の社員・退職者には作られない）。削除後の行に理由は出さない。
+  annNotice(
+    message.by,
+    "お知らせの削除",
+    `全体管理者があなたのお知らせを削除しました。理由: ${text}`,
+    "S05",
+    channel.id,
+    mid,
+  );
   auditLog(
     "お知らせの削除（全体管理者）",
     annAuditTarget(channel),
