@@ -396,6 +396,13 @@ const prototypeData = {
   // 部署の一覧。会社直属（会社のワークスペース）は部署ではないので入れない（C-93）。
   // 部署のオーナーは社員のデータ（role と department、全体管理者は ownerOf）から求める。
   departments: ["営業部", "設計部", "総務部"],
+  // 拠点ラベル（C-119。管理の置き場所は未決定のため S-24 の中に置く【案】）。部署の階層・権限・オーナーには使わない。
+  // 部署ごとに1つまで（任意）。data-model.md の department_locations【案】に相当する対応表で、総務部は拠点を持たない見本。
+  locations: [
+    { id: "loc-osaka", name: "大阪" },
+    { id: "loc-tokyo", name: "東京" },
+  ],
+  departmentLocations: { 営業部: "loc-osaka", 設計部: "loc-tokyo" },
   // 全体管理者が確認する退職処理の申請（0-1 AC-20）。申請しただけでは所属・状態は変わらない。
   retireRequests: [
     {
@@ -434,6 +441,8 @@ const ui = {
   sideLoadedFor: null,
   manageDept: null,
   dirFilter: "すべて",
+  dirLocFilter: "すべて",
+  staffLocFilter: "すべて",
   channelFilter: "",
   screenBeforeAuth: "S01",
   drawerReturn: null,
@@ -447,6 +456,15 @@ const isDeptDisabled = (name) => prototypeData.disabledDepartments.includes(name
 const departmentNames = () =>
   prototypeData.departments.filter((name) => !isDeptDisabled(name));
 const deptDisplay = (name) => (isDeptDisabled(name) ? `${name}（無効）` : name);
+// 拠点ラベル（C-119）。拠点を持たない部署（と会社直属）はラベルなし。表示と絞り込みだけに使い、権限の判定には使わない。
+const locationOf = (dept) =>
+  prototypeData.locations.find((loc) => loc.id === prototypeData.departmentLocations[dept]) || null;
+// 戻り値は e() で無害化済みの小さな印（HTML）。なしは空文字。
+const locationBadge = (dept) =>
+  locationOf(dept) ? ` <span class="loc-badge" title="拠点ラベル（案）">${e(locationOf(dept).name)}</span>` : "";
+// option は文字だけのため、印の代わりに（拠点名）を添える。
+const deptOptionLabel = (name) => (locationOf(name) ? `${deptDisplay(name)}（${locationOf(name).name}）` : deptDisplay(name));
+const locationFilterOptions = () => [["すべて", "すべて"], ...prototypeData.locations.map((loc) => [loc.id, loc.name])];
 const SCREEN_IDS = new Set(screenCatalog.map(([id]) => id));
 const adminOnly = () => currentUser().role === "admin";
 // 管理できる部署（S-13）。オーナーは自部署、全体管理者は任命された部署だけ（C-99・C-107）。
@@ -476,7 +494,9 @@ const canPostAnnounce = (channel) =>
   (currentUser().role === "owner" && currentUser().department === channel.dept);
 // 投稿できるのは参加者だけ（C-94）。お知らせ専用チャンネルは、そのうえで canPostAnnounce も満たすこと。
 const canPostChannel = (channel) =>
-  isChannelMember(channel) && (!channel.announce || canPostAnnounce(channel));
+  isChannelMember(channel) &&
+  !channel.readOnly &&
+  (!channel.announce || canPostAnnounce(channel));
 // 未読は参加者だけに付く（C-94）。親メッセージか返信のどちらかに、自分宛ての未読があるか。
 const channelUnread = (channel) =>
   isChannelMember(channel) &&
@@ -570,8 +590,9 @@ const field = (
   value = "",
   required = false,
   limits = null,
+  normalize = false,
 ) =>
-  `<div class="form-field"><label for="${id}">${e(label)}</label><input id="${id}" name="${id}" type="${type}" value="${e(value)}" ${required ? "required" : ""} ${limits ? `data-min="${limits[0]}" data-max="${limits[1]}" data-name="${e(label.replace(/（.*）/, ""))}"` : ""}></div>`;
+  `<div class="form-field"><label for="${id}">${e(label)}</label><input id="${id}" name="${id}" type="${type}" value="${e(value)}" ${required ? "required" : ""} ${limits ? `data-min="${limits[0]}" data-max="${limits[1]}" data-name="${e(label.replace(/（.*）/, ""))}"` : ""} ${normalize ? "data-normalize" : ""}></div>`;
 const selectField = (label, id, options, selected = "") =>
   `<div class="form-field"><label for="${id}">${e(label)}</label><select id="${id}" name="${id}">${options.map(([value, text]) => `<option value="${e(value)}" ${value === selected ? "selected" : ""}>${e(text)}</option>`).join("")}</select></div>`;
 const personButton = (id) =>
@@ -613,7 +634,7 @@ function todoEditForm(item, todo) {
         `<option value="${e(value)}" ${value === (draftless.assignee || "") ? "selected" : ""}>${e(text)}</option>`,
     )
     .join("");
-  return `<form id="todo-form" class="todo-form" data-todo="${e(draftless.id)}" aria-label="${todo ? "TODOの編集" : "TODOの追加"}"><div class="form-field"><label for="todo-title">題名</label><input id="todo-title" name="title" value="${e(draftless.title)}" autocomplete="off" placeholder="次に行うこと" data-min="1" data-max="100" data-name="TODOの題名"></div><div class="form-field"><label for="todo-assignee">担当者（任意）</label><select id="todo-assignee" name="assignee">${options}</select></div><div class="todo-form-actions"><button type="submit" class="button small primary">保存</button><button type="button" class="button small" data-action="todo-cancel" data-todo="${e(draftless.id)}">キャンセル</button></div></form>`;
+  return `<form id="todo-form" class="todo-form" data-todo="${e(draftless.id)}" aria-label="${todo ? "TODOの編集" : "TODOの追加"}"><div class="form-field"><label for="todo-title">題名</label><input id="todo-title" name="title" value="${e(draftless.title)}" autocomplete="off" placeholder="次に行うこと" data-min="1" data-max="100" data-name="TODOの題名" data-normalize></div><div class="form-field"><label for="todo-assignee">担当者（任意）</label><select id="todo-assignee" name="assignee">${options}</select></div><div class="todo-form-actions"><button type="submit" class="button small primary">保存</button><button type="button" class="button small" data-action="todo-cancel" data-todo="${e(draftless.id)}">キャンセル</button></div></form>`;
 }
 function todoContent(item, readOnly) {
   const edit =
@@ -755,7 +776,7 @@ function sidebarChannelSections(prefix) {
       otherDepts
         .map(
           (dept) =>
-            `<div class="side-group"><strong>⌄ ${e(dept)}</strong>${other.filter((c) => c.dept === dept).map(sidebarChannelButton).join("")}</div>`,
+            `<div class="side-group"><strong>⌄ ${e(deptDisplay(dept))}${locationBadge(dept)}</strong>${other.filter((c) => c.dept === dept).map(sidebarChannelButton).join("")}</div>`,
         )
         .join(""),
     )
@@ -767,7 +788,7 @@ function sidebarContent(prefix) {
     : "";
   // 管理メニュー（C-116(2)）。サイドバー最下部の「管理」項目に、ロールに応じた項目だけを出す。一般メンバーには出さない。
   // 全体管理者の項目のうち S-24・S-08 を、まとめて「全体管理」と呼ぶ（C-113。総称であり、見出しは作らない）。
-  // 用途ごとのまとまりに分け、まとまりごとに開閉できる（案。利用者が選んだ方式。要件文書は「下部の『管理』項目」まで）。
+  // 用途ごとの4つのまとまりに分け、まとまりごとに開閉できる（C-118で決定。保存は社員ごと）。S-24とS-08を1項目にまとめるかは未決定で、別項目の案。
   // ロールに応じて、自分に関係する項目だけを出し、項目が0個のまとまりは見出しごと出さない。
   const isOwnerOrAdmin = currentUser().role === "owner" || adminOnly();
   const manageGroups = [
@@ -821,7 +842,7 @@ function sidebarContent(prefix) {
     ],
   ].filter(([, , items]) => items.length);
   const manageBlock = manageGroups.length
-    ? `<nav class="side-section side-admin" aria-label="管理"><strong>管理</strong><p class="side-empty">まとまりと開閉は案です</p>${manageGroups
+    ? `<nav class="side-section side-admin" aria-label="管理"><strong>管理</strong><p class="side-empty">まとまりと開閉は決定済み（C-118）</p>${manageGroups
         .map(([key, label, items]) =>
           sideToggleSection(
             prefix,
@@ -1154,14 +1175,16 @@ function channelDirectoryScreen() {
   const filterOptions = [
     ["すべて", "すべて"],
     [COMPANY, "会社直属"],
-    [own, `自部署（${own}）`],
+    [own, `自部署（${deptOptionLabel(own)}）`],
     ...departmentNames()
       .filter((name) => name !== own)
-      .map((name) => [name, name]),
+      .map((name) => [name, deptOptionLabel(name)]),
   ];
   const channels = prototypeData.channels
     .filter(canReadChannel)
     .filter((channel) => ui.dirFilter === "すべて" || channel.dept === ui.dirFilter)
+    // 拠点で絞ると、拠点を持たない会社直属のチャンネルは出ない（Q-50 未決定。試作の案）。
+    .filter((channel) => ui.dirLocFilter === "すべて" || locationOf(channel.dept)?.id === ui.dirLocFilter)
     .sort(
       (a, b) =>
         sectionOrder[channelSection(a)] - sectionOrder[channelSection(b)],
@@ -1171,7 +1194,7 @@ function channelDirectoryScreen() {
     const dedicated = channel.dept !== COMPANY && channel.name === channel.dept;
     // お知らせ専用の区別の出し方は未決定（screens.md S-09）。ここでは案として文字のタグを付ける。
     const tag = channel.announce ? "（お知らせ専用）" : dedicated ? "（部署の専用チャンネル）" : "";
-    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${tag} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p></div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
+    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${locationBadge(channel.dept)}${tag} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p></div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
   };
   return screenFrame(
     "S09",
@@ -1179,7 +1202,7 @@ function channelDirectoryScreen() {
     "会社直属のチャンネルと全部署の公開チャンネル、参加中の非公開チャンネルを表示します。公開チャンネルは参加しなくても読めます。",
     shellCard(
       "チャンネル一覧",
-      `<div class="directory-toolbar">${selectField("部署", "directory-dept", filterOptions, ui.dirFilter)}<div class="form-field"><label for="channel-search">名前で絞り込み</label><input id="channel-search" type="search" autocomplete="off"></div></div><div class="list-cards" id="channel-list">${channels.map(row).join("") || "<p>参加できるチャンネルがありません。チャンネルを申請できます。</p>"}</div><p id="channel-search-empty" class="subtle" hidden>該当するチャンネルがありません。</p>`,
+      `<div class="directory-toolbar">${selectField("部署", "directory-dept", filterOptions, ui.dirFilter)}${selectField("拠点（案）", "directory-location", locationFilterOptions(), ui.dirLocFilter)}<div class="form-field"><label for="channel-search">名前で絞り込み</label><input id="channel-search" type="search" autocomplete="off"></div></div><div class="list-cards" id="channel-list">${channels.map(row).join("") || "<p>参加できるチャンネルがありません。チャンネルを申請できます。</p>"}</div><p id="channel-search-empty" class="subtle" hidden>該当するチャンネルがありません。</p>`,
       protoButton("＋ チャンネルを申請", "go", 'data-page="S10"'),
     ),
   );
@@ -1187,6 +1210,104 @@ function channelDirectoryScreen() {
 // チャンネル名の使用可能文字（C-117(1)、V-25）。「日本語」の範囲は未定義のため、判定は案（Q-1）。
 const channelNameCharsOk = (name) =>
   /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}ー々〆a-zA-Z0-9０-９Ａ-Ｚａ-ｚ_-]+$/u.test(name);
+// 案件作成の申請の入力の検査と正規化（画面の送信と実行する関数の両方から呼ぶ）。{ error } か { value } を返す。
+// 保存する値は、ここで検査・正規化した値だけを使う。文字列でない値は、未指定として許す項目（納期・説明・参加候補・再申請元）の
+// undefined・null を除いて拒否する。件名は整形後の文字数、担当部署は一般社員・オーナーが自部署のみ・全体管理者は有効な全部署、
+// 取引先は有効なもの、納期は存在する日付で今日（日本時間）以降。
+function cleanCaseRequest(values) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return { error: "申請の内容が正しくありません。" };
+  const missing = (v) => v === undefined || v === null;
+  if (typeof values.title !== "string") return { error: "件名を入力してください。" };
+  const title = normalizeInput(values.title);
+  if (!title) return { error: "件名を入力してください。" };
+  if ([...title].length > 100) return { error: "件名は1〜100文字で入力してください（整形後の文字数）。" };
+  if (!missing(values.description) && typeof values.description !== "string") return { error: "説明は文字で入力してください。" };
+  const description = missing(values.description) ? "" : values.description.trim();
+  if ([...description].length > 2000) return { error: "説明は2000文字以内で入力してください。" };
+  if (!missing(values.due) && typeof values.due !== "string") return { error: "納期は日付で入力してください。" };
+  const due = missing(values.due) ? "" : values.due.trim();
+  if (due && !isRealDate(due)) return { error: "納期は日付で入力してください。" };
+  if (due && due < todayText()) return { error: "今日以降の日付を選んでください。" };
+  if (
+    typeof values.department !== "string" ||
+    (currentUser().role !== "admin" && values.department !== currentUser().department) ||
+    !departmentNames().includes(values.department)
+  )
+    return { error: "担当部署を選んでください（一般社員は自部署のみ）。" };
+  if (typeof values.clientCode !== "string" || !clientByCode(values.clientCode)?.active)
+    return { error: "取引先を一覧から選んでください。" };
+  if (!missing(values.candidates) && (!Array.isArray(values.candidates) || values.candidates.some((id) => typeof id !== "string")))
+    return { error: "参加候補が正しくありません。" };
+  const candidates = (values.candidates || []).filter(
+    (id) => id !== state.userId && employees.some((person) => person.id === id && person.active),
+  );
+  if (!missing(values.previous) && typeof values.previous !== "string") return { error: "再申請の元が正しくありません。" };
+  return {
+    value: {
+      title,
+      changed: values.title.trim() !== title,
+      clientCode: values.clientCode,
+      due,
+      description,
+      department: values.department,
+      candidates: [...new Set(candidates)],
+      previous: values.previous || null,
+      draftKey: typeof values.draftKey === "string" ? values.draftKey : undefined,
+    },
+  };
+}
+const caseRequestProblem = (values) => cleanCaseRequest(values).error || "";
+// 案件作成の申請を作る。類似件名の警告のあとの確定でも、警告がないときも、ここを1回だけ通る。
+function createCaseRequest(values) {
+  // 警告のあとの確定でも、保存の直前に必ず再検査する。検査に通らなければ何も変えない。
+  const cleaned = cleanCaseRequest(values);
+  if (cleaned.error) return refuse(cleaned.error);
+  const clean = cleaned.value;
+  const previous = clean.previous ? getRequest(clean.previous) : null;
+  if (
+    clean.previous &&
+    (!previous ||
+      previous.applicant !== state.userId ||
+      !["rejected", "withdrawn"].includes(previous.status))
+  )
+    return refuse();
+  state.requests.push({
+    id: `R-${Date.now()}`,
+    title: clean.title,
+    clientCode: clean.clientCode,
+    due: clean.due,
+    description: clean.description,
+    caseNo: "",
+    department: clean.department,
+    applicant: state.userId,
+    candidates: clean.candidates,
+    added: [],
+    status: "pending",
+    reason: "",
+    previous: previous?.id || null,
+  });
+  // 申請を送ったら、説明の下書きを消す。
+  removeDraft(clean.draftKey);
+  state.reapplySource = null;
+  state.caseTab = "my";
+  proceedTo("S16");
+  return notify(`案件の作成を申請しました。${clean.changed ? "表記を整えて保存しました（案）。" : ""}`);
+}
+let pendingCaseRequest = null;
+// 似た件名の警告（案）。「戻って直す」・閉じる・Esc では申請を作らず、入力と下書きを残す。
+function openSimilarWarning(values, similar) {
+  pendingCaseRequest = values;
+  showModal(
+    "似た案件があります（案）",
+    `<p>同じ取引先に、似た件名の案件があります。重複した申請でないかを確かめてください。警告だけで、申請は止めません。</p><ul class="plain-list">${similar
+      .map((item) => `<li>${e(item.no)} ${e(item.title)}（${e(caseStatusLabel(item))}）</li>`)
+      .join("")}</ul>${hint("似ているかの判定の基準は未決定です（案：同じ取引先の進行中・終了の案件が対象。整形後に、空白・ハイフン・アンダースコアを除いた件名が同じ、または3文字以上の一方が他方を含むとき）。申請中の申請は比べません。")}`,
+    "case-request-confirm",
+    "このまま申請する",
+    false,
+    "戻って直す",
+  );
+}
 function channelRequestScreen() {
   const own = prototypeData.channelRequests.filter(
     (request) => request.by === state.userId,
@@ -1196,7 +1317,7 @@ function channelRequestScreen() {
     "S10",
     "チャンネル作成の申請",
     "承認されるまではチャンネルとして使えません。",
-    `${shellCard("作成を申請", `<div class="banner">案件に関する話題のチャンネルは非公開をおすすめします。案件専用チャンネルは案件承認時に自動作成されます。</div><form data-proto-form="channel-request">${field("チャンネル名", "channel-name", "text", "", true, [1, 50])}${field("説明（任意）", "channel-description", "text", "", false, [0, 500])}<fieldset><legend>公開範囲</legend><label><input type="radio" name="visibility" value="public" checked> 公開</label><label><input type="radio" name="visibility" value="private"> 非公開</label></fieldset><fieldset><legend>作る場所（他部署のチャンネルは選べません）</legend><label><input type="radio" name="place" value="own" checked> 自部署のチャンネル（${e(dept)}）</label><label><input type="radio" name="place" value="company"> 会社直属のチャンネル</label></fieldset><p class="subtle">承認する人: 自部署のチャンネルは自部署のオーナー（オーナー自身の申請は全体管理者）、会社直属のチャンネルは全体管理者です。チャンネル名は会社内で重複できません（大文字・小文字は区別しません。承認待ちの申請の名前を含みます）。</p><p class="subtle">使える文字は、日本語・英数字・ハイフン・アンダースコアです。記号・スペースは使えません。「日本語」の範囲は文書にないため、ひらがな・カタカナ・漢字・長音符・々・全角英数字を通す案の判定です（案）。</p><button type="submit" class="button primary">申請する</button></form>`)}${shellCard("自分の申請", own.length ? own.map((request) => `<div class="directory-row"><div><strong># ${e(request.name)}</strong><p class="subtle">${e(deptLabel(request.dept))} ・ ${request.private ? "非公開" : "公開"} ・ ${requestStatusLabel(request)}</p>${request.reason ? `<p class="subtle">却下理由: ${e(request.reason)}</p>` : ""}</div></div>`).join("") : "<p>申請はまだありません。</p>")}`,
+    `${shellCard("作成を申請", `<div class="banner">案件に関する話題のチャンネルは非公開をおすすめします。案件専用チャンネルは案件承認時に自動作成されます。</div><form data-proto-form="channel-request">${field("チャンネル名", "channel-name", "text", "", true, [1, 50], true)}${field("説明（任意）", "channel-description", "text", "", false, [0, 500])}<fieldset><legend>公開範囲</legend><label><input type="radio" name="visibility" value="public" checked> 公開</label><label><input type="radio" name="visibility" value="private"> 非公開</label></fieldset><fieldset><legend>作る場所（他部署のチャンネルは選べません）</legend><label><input type="radio" name="place" value="own" checked> 自部署のチャンネル（${e(dept)}）</label><label><input type="radio" name="place" value="company"> 会社直属のチャンネル</label></fieldset><p class="subtle">承認する人: 自部署のチャンネルは自部署のオーナー（オーナー自身の申請は全体管理者）、会社直属のチャンネルは全体管理者です。チャンネル名は会社内で重複できません（大文字・小文字は区別しません。承認待ちの申請の名前を含みます）。</p><p class="subtle">使える文字は、日本語（ひらがな・カタカナ・漢字・長音符「ー」・「々」「〆」）・英数字・ハイフン・アンダースコアです。記号・スペースは使えません（C-117・C-120で決定）。部署の自動作成名「{部署名}のお知らせ」は例外です。保存時に表記を自動で整えます（全角英数字を半角に、ハイフン類を「-」に。細部は案）。長さと重複は整形後の値で判定します（案）。</p><button type="submit" class="button primary">申請する</button></form>`)}${shellCard("自分の申請", own.length ? own.map((request) => `<div class="directory-row"><div><strong># ${e(request.name)}</strong><p class="subtle">${e(deptLabel(request.dept))} ・ ${request.private ? "非公開" : "公開"} ・ ${requestStatusLabel(request)}</p>${request.reason ? `<p class="subtle">却下理由: ${e(request.reason)}</p>` : ""}</div></div>`).join("") : "<p>申請はまだありません。</p>")}`,
   );
 }
 function channelApprovalsScreen() {
@@ -1271,7 +1392,7 @@ function departmentManageScreen() {
         );
   };
   const members =
-    `<p class="subtle">メンバー ${people.length}人</p>` +
+    `<p class="subtle">拠点ラベル（案）:${locationOf(dept) ? locationBadge(dept) : " なし"}（表示のみ。設定は全体管理者が行います）</p><p class="subtle">メンバー ${people.length}人</p>` +
     people
       .map(
         (person) =>
@@ -1286,7 +1407,7 @@ function departmentManageScreen() {
     (depts.length > 1
       ? shellCard(
           "対象の部署",
-          selectField("管理する部署", "manage-dept", depts.map((n) => [n, n]), dept),
+          selectField("管理する部署", "manage-dept", depts.map((n) => [n, deptOptionLabel(n)]), dept),
         )
       : "") +
       `<div class="guide-grid">${shellCard("メンバー", members)}${shellCard(
@@ -1400,7 +1521,7 @@ function caseRequestScreen() {
       ? `<div class="form-field"><label for="case-department">担当部署（必須）</label><select id="case-department" name="case-department" required><option value="">担当部署を選んでください</option>${departmentNames()
           .map(
             (name) =>
-              `<option value="${e(name)}" ${prior?.department === name ? "selected" : ""}>${e(name)}</option>`,
+              `<option value="${e(name)}" ${prior?.department === name ? "selected" : ""}>${e(deptOptionLabel(name))}</option>`,
           )
           .join("")}</select></div>`
       : `<p class="form-label">担当部署（必須。自部署のみ）</p><div class="muted-box">${e(currentUser().department)}</div><input type="hidden" name="case-department" value="${e(currentUser().department)}">`;
@@ -1419,7 +1540,7 @@ function caseRequestScreen() {
     "承認されるまで案件や専用チャンネルは作られません。",
     shellCard(
       "申請する内容",
-      `<form data-proto-form="case-request"><div class="banner">申請者は承認時に自動参加します。</div><div class="form-field"><label for="case-title">案件名（件名）</label><p class="field-note" id="case-title-note">件名は参加していない人にも見える場合があります。機密情報を書かないでください</p><input id="case-title" name="case-title" required value="${e(prior?.title || "")}" aria-describedby="case-title-note" data-min="1" data-max="100" data-name="件名"></div>${clients}<div class="form-field"><label for="case-description">説明（任意）</label><textarea id="case-description" name="case-description" data-max="2000" data-name="説明" data-draft-key="${e(descDraft.key)}">${e(descDraft.text || prior?.description || "")}</textarea>${draftNote(descDraft)}</div><div class="form-field"><label for="case-due">納期（任意）</label><input id="case-due" name="case-due" type="date" min="${e(todayText())}" value="${e(prior?.due || "")}"><p class="form-hint">今日以降の日付だけ入力できます（入力欄の細部は案）。設定すると全社員が案件の一覧と概要で見られます。通知や期限の警告は出ません。</p></div>${department}<p class="form-label">追加の参加候補（任意）</p><p class="subtle">他部署の社員も選べます。承認者は候補の追加のみできます。</p>${participantOptions(prior?.candidates || [], [state.userId])}<div class="form-actions"><button type="submit" class="button primary">申請する</button>${protoButton("案件一覧へ", "go", 'data-page="S16"')}</div></form>`,
+      `<form data-proto-form="case-request"><div class="banner">申請者は承認時に自動参加します。</div><div class="form-field"><label for="case-title">案件名（件名）</label><p class="field-note" id="case-title-note">件名は参加していない人にも見える場合があります。機密情報を書かないでください</p><input id="case-title" name="case-title" required value="${e(prior?.title || "")}" aria-describedby="case-title-note" data-min="1" data-max="100" data-name="件名" data-normalize><p class="form-hint">保存時に表記を自動で整えます（全角英数字を半角に、連続する空白を1つに、ハイフン類を「-」に。細部は案）。同じ取引先に似た件名の案件があるときは、申請の前に警告します（警告だけで止めません。基準は案）。</p></div>${clients}<div class="form-field"><label for="case-description">説明（任意）</label><textarea id="case-description" name="case-description" data-max="2000" data-name="説明" data-draft-key="${e(descDraft.key)}">${e(descDraft.text || prior?.description || "")}</textarea>${draftNote(descDraft)}</div><div class="form-field"><label for="case-due">納期（任意）</label><input id="case-due" name="case-due" type="date" min="${e(todayText())}" value="${e(prior?.due || "")}"><p class="form-hint">今日以降の日付だけ入力できます（入力欄の細部は案）。設定すると全社員が案件の一覧と概要で見られます。通知や期限の警告は出ません。</p></div>${department}<p class="form-label">追加の参加候補（任意）</p><p class="subtle">他部署の社員も選べます。承認者は候補の追加のみできます。</p>${participantOptions(prior?.candidates || [], [state.userId])}<div class="form-actions"><button type="submit" class="button primary">申請する</button>${protoButton("案件一覧へ", "go", 'data-page="S16"')}</div></form>`,
     ),
   );
 }
@@ -1441,7 +1562,9 @@ function employeeScreen() {
     (person) =>
       person.active &&
       !!person.department &&
-      (ui.staffFilter === "すべて" || person.department === ui.staffFilter),
+      (ui.staffFilter === "すべて" || person.department === ui.staffFilter) &&
+      // 拠点を持たない部署の社員は、拠点を選んだときは出ない（Q-50 の考え方に合わせた案）。
+      (ui.staffLocFilter === "すべて" || locationOf(person.department)?.id === ui.staffLocFilter),
   );
   return screenFrame(
     "S20",
@@ -1452,9 +1575,9 @@ function employeeScreen() {
       `${selectField(
         "部署で絞り込む",
         "staff-department",
-        [["すべて", "すべて"], ...departmentNames().map((name) => [name, name])],
+        [["すべて", "すべて"], ...departmentNames().map((name) => [name, deptOptionLabel(name)])],
         ui.staffFilter,
-      )}<div class="list-cards">${list.map((person) => `<div class="directory-row"><div>${personButton(person.id)}<p class="subtle">${e(person.department)} ・ 内線 ${e(extOf(person))} ・ <a href="mailto:${e(emailOf(person))}">${e(emailOf(person))}</a> ・ ${e(person.status || "在席")}</p></div><div class="inline-actions">${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}${adminOnly() || (currentUser().role === "owner" && currentUser().department === person.department) ? protoButton("代理設定", "delegate-status", `data-user="${person.id}"`) : ""}</div></div>`).join("") || "<p>該当する社員がいません。</p>"}</div>`,
+      )}${selectField("拠点で絞り込む（案）", "staff-location", locationFilterOptions(), ui.staffLocFilter)}<div class="list-cards">${list.map((person) => `<div class="directory-row"><div>${personButton(person.id)}<p class="subtle">${e(person.department)}${locationBadge(person.department)} ・ 内線 ${e(extOf(person))} ・ <a href="mailto:${e(emailOf(person))}">${e(emailOf(person))}</a> ・ ${e(person.status || "在席")}</p></div><div class="inline-actions">${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}${adminOnly() || (currentUser().role === "owner" && currentUser().department === person.department) ? protoButton("代理設定", "delegate-status", `data-user="${person.id}"`) : ""}</div></div>`).join("") || "<p>該当する社員がいません。</p>"}</div>`,
     ),
   );
 }
@@ -1573,7 +1696,7 @@ function sharedFolderScreen() {
           selectField(
             "フォルダを管理する場所",
             "folder-dept",
-            targets.map((name) => [name, name === COMPANY ? "会社直属" : deptDisplay(name)]),
+            targets.map((name) => [name, name === COMPANY ? "会社直属" : deptOptionLabel(name)]),
             target,
           ),
         )
@@ -1987,6 +2110,13 @@ document.addEventListener(
       event.stopImmediatePropagation();
       return;
     }
+    if (target.id === "directory-location") {
+      ui.dirLocFilter = target.value;
+      render();
+      document.getElementById("directory-location")?.focus();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (target.id === "manage-dept" || target.id === "folder-dept") {
       ui.manageDept = target.value;
       render();
@@ -2007,6 +2137,11 @@ document.addEventListener(
     if (target.id === "staff-department") {
       ui.staffFilter = target.value;
       render();
+    }
+    if (target.id === "staff-location") {
+      ui.staffLocFilter = target.value;
+      render();
+      document.getElementById("staff-location")?.focus();
     }
     if (target.id === "account-department") {
       ui.accountFilter = target.value;
@@ -2186,6 +2321,7 @@ document.addEventListener(
       if (form.dataset.kind === "channel") {
         const channel = activeChannel();
         if (!isChannelMember(channel)) return refuse("参加すると使えます。");
+        if (channel.readOnly) return refuse("この部署は無効化されたため、読み取り専用です。");
         if (!canPostChannel(channel))
           return refuse(
             `このチャンネルに投稿できるのは、${channel.dept}のオーナーと全体管理者だけです。`,
@@ -2255,9 +2391,13 @@ document.addEventListener(
       return notify("プロフィールを保存しました。");
     }
     if (kind === "channel-request") {
-      const name = String(data.get("channel-name") || "").trim();
+      // チャンネル名は保存時に自動整形する（C-121【案】）。長さ・使用可能文字・重複は整形後の値で判定する。
+      const rawName = String(data.get("channel-name") || "");
+      const name = normalizeInput(rawName);
       if (!name)
         return fieldError("channel-name", "チャンネル名を入力してください。");
+      if ([...name].length > 50)
+        return fieldError("channel-name", "チャンネル名は1〜50文字で入力してください（整形後の文字数）。");
       if (!channelNameCharsOk(name))
         return fieldError(
           "channel-name",
@@ -2269,12 +2409,12 @@ document.addEventListener(
         data.get("place") === "company" ? COMPANY : currentUser().department;
       const taken =
         prototypeData.channels.some(
-          (channel) => normalizeName(channel.name) === normalizeName(name),
+          (channel) => compareKey(channel.name) === compareKey(name),
         ) ||
         prototypeData.channelRequests.some(
           (request) =>
             request.status === "pending" &&
-            normalizeName(request.name) === normalizeName(name),
+            compareKey(request.name) === compareKey(name),
         );
       if (taken)
         return fieldError(
@@ -2291,26 +2431,19 @@ document.addEventListener(
         reason: "",
       });
       render();
-      return notify("チャンネルの作成を申請しました。");
+      return notify(`チャンネルの作成を申請しました。${rawName.trim() !== name ? "表記を整えて保存しました（案）。" : ""}`);
     }
     if (kind === "case-request") {
-      const title = String(data.get("case-title") || "").trim(),
+      // 件名は保存時に自動整形する（C-121【案】）。長さは整形後の文字数で検査する。
+      const titleRaw = String(data.get("case-title") || ""),
+        title = normalizeInput(titleRaw),
         department = String(data.get("case-department") || ""),
         clientCode = String(data.get("case-client") || ""),
         due = String(data.get("case-due") || ""),
         description = String(data.get("case-description") || "").trim();
-      if (!title) return notify("件名を入力してください。");
-      if (due && !isRealDate(due)) return notify("納期は日付で入力してください。");
-      if (due && due < todayText())
-        return notify("今日以降の日付を選んでください。");
-      if (
-        (currentUser().role !== "admin" &&
-          department !== currentUser().department) ||
-        !departmentNames().includes(department)
-      )
-        return notify("担当部署を選んでください（一般社員は自部署のみ）。");
-      if (!clientByCode(clientCode)?.active)
-        return notify("取引先を一覧から選んでください。");
+      // 入力の検査は実行する関数（createCaseRequest）と共通の caseRequestProblem で行う。
+      const problem = caseRequestProblem({ title, department, clientCode, due, description });
+      if (problem) return notify(problem);
       const previous = state.reapplySource
         ? getRequest(state.reapplySource)
         : null;
@@ -2320,27 +2453,21 @@ document.addEventListener(
           !["rejected", "withdrawn"].includes(previous.status))
       )
         return refuse();
-      state.requests.push({
-        id: `R-${Date.now()}`,
-        title,
+      // 保存・再検査には整形前の件名を渡し、整形は検査の中（cleanCaseRequest）で一度だけ行う。
+      const values = {
+        title: titleRaw,
         clientCode,
         due,
         description,
-        caseNo: "",
         department,
-        applicant: state.userId,
         candidates: data.getAll("candidates").map(String),
-        added: [],
-        status: "pending",
-        reason: "",
         previous: previous?.id || null,
-      });
-      // 申請を送ったら、説明の下書きを消す。
-      removeDraft(form.querySelector("[data-draft-key]")?.dataset.draftKey);
-      state.reapplySource = null;
-      state.caseTab = "my";
-      proceedTo("S16");
-      return notify("案件の作成を申請しました。");
+        draftKey: form.querySelector("[data-draft-key]")?.dataset.draftKey,
+      };
+      // 同じ取引先に似た件名の案件があれば、申請の前に警告する（C-121(3)【案】）。警告だけで止めない。
+      const similar = similarCases(clientCode, title);
+      if (similar.length) return openSimilarWarning(values, similar);
+      return createCaseRequest(values);
     }
     if (kind === "folder") {
       const target = folderTargetNow();

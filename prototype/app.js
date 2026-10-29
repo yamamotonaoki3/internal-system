@@ -271,6 +271,16 @@ const escapeHtml = (value) =>
       ],
   );
 const e = escapeHtml;
+// 保存時の自動整形（C-121。細部は【案】）。全角英数字→半角、ハイフン類→"-"、連続する空白→1つ、前後の空白を除く。
+// 長音符「ー」・波ダッシュは変換しない（Q-42）。先に読まれるファイルのトップレベルからは呼ばず、関数の中から使う。
+const normalizeInput = (value) =>
+  String(value ?? "")
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+    .replace(/[‐‑‒–—−－]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+// 重複の比較用。整形したうえで大文字・小文字を区別しない（【案】）。
+const compareKey = (value) => normalizeInput(value).toLowerCase();
 const getCase = (id) => state.cases.find((item) => item.id === id);
 const getRequest = (id) => state.requests.find((item) => item.id === id);
 const getReopen = (id) => state.reopenRequests.find((item) => item.id === id);
@@ -329,8 +339,27 @@ const clientNameOf = (code) => clientByCode(code)?.name || "（取引先なし�
 const clientLabelOf = (code) =>
   `${clientNameOf(code)}${clientByCode(code) && !clientByCode(code).active ? "（無効）" : ""}`;
 // 案件番号の検索は、番号だけ前方一致（大文字・小文字を区別しない）。件名・取引先名は部分一致のまま（C-117(4)）。
-const caseNoMatches = (item, term) =>
-  item.no.toLowerCase().startsWith(term.trim().toLowerCase());
+// ハイフンなし（ABC261024）の入力も一致する（C-120(9)）。入力は前後の空白除去・全角→半角の整形（案）をしてから比べる。
+// ハイフンを除いて空になる入力（"-" など）は、全件一致を防ぐため一致させない。
+const caseNoMatches = (item, term) => {
+  const key = compareKey(term).replace(/-/g, "");
+  return key !== "" && item.no.toLowerCase().replace(/-/g, "").startsWith(key);
+};
+// 類似件名の判定（案。C-121(3)・基準は未決定）。同じ取引先の既存の案件（進行中・終了）だけが対象で、申請中の申請は比べない。
+// 整形後・小文字化し、空白・ハイフン・アンダースコアを除いた件名が同じ、または3文字以上の一方が他方を含むとき似ているとする。
+const similarKey = (value) => compareKey(value).replace(/[\s_-]/g, "");
+function similarCases(clientCode, title) {
+  const key = similarKey(title);
+  if (!key) return [];
+  return state.cases.filter((item) => {
+    if (item.clientCode !== clientCode || !["active", "archived"].includes(item.status)) return false;
+    const other = similarKey(item.title);
+    if (!other) return false;
+    if (other === key) return true;
+    const [short, long] = key.length <= other.length ? [key, other] : [other, key];
+    return [...short].length >= 3 && long.includes(short);
+  });
+}
 const dueText = (value) => (value ? value : "");
 // 案件番号は承認時に自動で付く（C-89）。形式: 取引先コード-YYMMDD-その取引先のその年の連番4桁。
 const issueCaseNo = (clientCode) => {
@@ -650,14 +679,16 @@ function isRealDate(value) {
 function changeCaseDue(id, due) {
   const item = getCase(id);
   if (!item || !canChangeDue(item)) return refuse();
-  if (!isRealDate(due))
-    return refuse("納期は日付で入力してください。");
-  if (due < todayText()) return refuse("今日以降の日付を選んでください。");
-  if (due === item.due) return refuse("納期が変わっていません。");
+  // 空は「未定に戻す」（C-120(5)）。それ以外は存在する日付で、今日（日本時間）以降だけ。
+  if (due !== "") {
+    if (!isRealDate(due)) return refuse("納期は日付で入力してください。");
+    if (due < todayText()) return refuse("今日以降の日付を選んでください。");
+  }
+  if (due === (item.due || "")) return refuse(due === "" ? "納期はもともと未定です。" : "納期が変わっていません。");
   const before = item.due || "設定なし";
   item.due = due;
   // 変更は監査ログに残す（変更前・変更後・変更者・日時）。通知は付けず、案件の画面に履歴も出さない（C-117(3)）。
-  auditLog("案件の納期の変更", item.no, `納期を ${before} から ${due} に変更`);
+  auditLog("案件の納期の変更", item.no, `納期を ${before} から ${due || "設定なし"} に変更`);
   notify("納期を変更しました。");
   return true;
 }
@@ -666,7 +697,7 @@ function openDueChange(id) {
   if (!item || !canChangeDue(item)) return refuse();
   showModal(
     "納期を変更（入力欄の細部は案）",
-    `<div class="form-field"><label for="due-input">納期（今日以降の日付）</label><input id="due-input" name="due" type="date" required min="${e(todayText())}" value="${e(item.due && item.due >= todayText() ? item.due : "")}"></div><input type="hidden" name="id" value="${e(item.id)}"><p class="subtle">変更は監査ログに残ります。通知は出ません。画面に変更の履歴は出しません。空に戻せるかは未決定のため、この試作では日付を必ず入れます。</p>${hint("入力欄の細部は案です（未決定）。")}`,
+    `<div class="form-field"><label for="due-input">納期（今日以降の日付。今日は日本時間）</label><input id="due-input" name="due" type="date" min="${e(todayText())}" value="${e(item.due && item.due >= todayText() ? item.due : "")}"></div><label class="checkbox-option"><input type="checkbox" name="clear-due" value="1"> 未定に戻す（日付を空にする）</label><input type="hidden" name="id" value="${e(item.id)}"><p class="subtle">変更は監査ログに残ります。通知は出ません。画面に変更の履歴は出しません。</p>${hint("入力欄の細部は案です（未決定）。")}`,
     "case-due",
     "変更する",
   );
@@ -679,9 +710,18 @@ Object.assign(EXTRA_UI, {
   },
 });
 Object.assign(EXTRA_MODAL, {
+  // 類似件名の警告で「このまま申請する」を押したときだけ申請を作る。押した直後にボタンを無効にし、二重に作らない。
+  "case-request-confirm": () => {
+    const button = modal.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    const values = pendingCaseRequest;
+    pendingCaseRequest = null;
+    closeModal();
+    if (values) createCaseRequest(values);
+  },
   "case-due": (data) => {
     const id = String(data.get("id") || "");
-    const ok = changeCaseDue(id, String(data.get("due") || ""));
+    const ok = changeCaseDue(id, data.get("clear-due") ? "" : String(data.get("due") || "-"));
     closeModal();
     render();
     if (ok) document.querySelector('[data-ui="case-due-open"]')?.focus();
@@ -703,7 +743,7 @@ function detailTabContent(item, readOnly) {
             )
             .join("")
         : '<div class="muted-box">項目なし</div>'
-    }${!readOnly ? `<form id="todo-form" class="form-field" style="margin-top:18px"><label for="todo-title">TODOを追加</label><input id="todo-title" name="title" maxlength="100" required placeholder="次に行うこと"><button class="button small" type="submit">追加する</button></form>` : ""}`;
+    }${!readOnly ? `<form id="todo-form" class="form-field" style="margin-top:18px"><label for="todo-title">TODOを追加</label><input id="todo-title" name="title" required placeholder="次に行うこと" data-min="1" data-max="100" data-name="TODOの題名" data-normalize><button class="button small" type="submit">追加する</button></form>` : ""}`;
   return caseFiles(item);
 }
 // 資料の一覧は、メッセージの添付から作る（元のメッセージに結び付けたまま、二重には持たない。5-2 AC-7）。
@@ -894,13 +934,13 @@ function openCase(id) {
   render();
   screen.focus();
 }
-function modalHtml(title, body, action, actionLabel, danger = false) {
-  return `<form id="modal-form" data-submit="${action}"><div class="modal-header"><h2 id="modal-title">${e(title)}</h2>${button("閉じる", "close-modal", "", "button ghost small")}</div><div class="modal-body">${body}<p id="modal-error" class="form-error" role="alert" hidden></p></div><div class="modal-footer">${button("キャンセル", "close-modal")}${actionLabel ? `<button type="submit" class="button ${danger ? "danger" : "primary"}">${e(actionLabel)}</button>` : ""}</div></form>`;
+function modalHtml(title, body, action, actionLabel, danger = false, cancelLabel = "キャンセル") {
+  return `<form id="modal-form" data-submit="${action}"><div class="modal-header"><h2 id="modal-title">${e(title)}</h2>${button("閉じる", "close-modal", "", "button ghost small")}</div><div class="modal-body">${body}<p id="modal-error" class="form-error" role="alert" hidden></p></div><div class="modal-footer">${button(cancelLabel, "close-modal")}${actionLabel ? `<button type="submit" class="button ${danger ? "danger" : "primary"}">${e(actionLabel)}</button>` : ""}</div></form>`;
 }
-function showModal(title, body, action, actionLabel, danger = false) {
+function showModal(title, body, action, actionLabel, danger = false, cancelLabel = "キャンセル") {
   returnFocus = document.activeElement;
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。html は、利用者の入力を e()（escapeHtml）で無害化した値と固定のマークアップだけで組み立てた文字列で、入力をそのまま入れない
-  modal.innerHTML = modalHtml(title, body, action, actionLabel, danger);
+  modal.innerHTML = modalHtml(title, body, action, actionLabel, danger, cancelLabel);
   modal.showModal();
   modal
     .querySelector("input:not([type=hidden]),textarea,select,button")
@@ -1220,6 +1260,7 @@ document.querySelector("#viewer").addEventListener("change", (event) => {
   state.caseManage = false;
   ui.manageDept = null;
   ui.dirFilter = "すべて";
+  ui.dirLocFilter = "すべて";
   ui.channelId = defaultChannelId();
   closeModalIfOpen();
   render();
@@ -1289,8 +1330,11 @@ screen.addEventListener("submit", (event) => {
     removeDraft(event.target.querySelector("[data-draft-key]")?.dataset.draftKey);
     record(item, "メッセージを投稿");
   } else {
-    const title = String(data.get("title") || "").trim();
+    // TODOの題名は保存時に自動整形する（C-121【案】）。長さは整形後の文字数で検査する。
+    const titleRaw = String(data.get("title") || "");
+    const title = normalizeInput(titleRaw);
     if (!title) return refuse("TODOの題名を入力してください。");
+    if ([...title].length > 100) return refuse("TODOの題名は1〜100文字で入力してください（整形後の文字数）。");
     const assignee = String(data.get("assignee") || "") || null;
     const todoId = event.target.dataset.todo;
     const editing = todoId && item.todos.find((entry) => entry.id === todoId);
@@ -1329,7 +1373,7 @@ screen.addEventListener("submit", (event) => {
     }
     state.todoEdit = null;
     render();
-    notify(todoId ? "TODOを保存しました。" : "TODOを追加しました。");
+    notify(`${todoId ? "TODOを保存しました。" : "TODOを追加しました。"}${titleRaw.trim() !== title ? "表記を整えて保存しました（案）。" : ""}`);
     return focusTodo(
       focusId
         ? `[data-action="todo-edit"][data-todo="${CSS.escape(focusId)}"]`
