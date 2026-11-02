@@ -418,7 +418,12 @@ main {
 }
 .badge.withdrawn {
   background: #eef1f3;
-  color: #687987;
+  color: #5b6c7a;
+}
+/* アーカイブ済みの印（案。色は #95 の段階3で対比を確かめる）。文字「アーカイブ済み」を必ず添える。 */
+.badge.shelved {
+  background: #f1e8f6;
+  color: #5a2f77;
 }
 .stat-row {
   display: grid;

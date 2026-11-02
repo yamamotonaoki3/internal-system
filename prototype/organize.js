@@ -44,7 +44,7 @@ function attachmentList(message, source) {
       const scope = item
         ? `<span class="badge ${restricted ? "archived" : "public"}">${restricted ? "参加者限定" : "公開可能"}</span>`
         : "";
-      return `<li class="attachment" data-aid="${e(att.id)}"><span class="attachment-name">添付: ${e(att.name)}</span>${scope}<button type="button" data-ui="org-add" data-kind="file" data-ref="${e(att.id)}" aria-label="${e(att.name)}を整理スペースに登録">整理スペースに登録</button></li>`;
+      return `<li class="attachment" data-aid="${e(att.id)}"><span class="attachment-name">添付: ${e(att.name)}</span>${att.size ? `<span class="row-note">${e(sizeText(att.size))}</span>` : ""}${scope}<button type="button" data-ui="org-add" data-kind="file" data-ref="${e(att.id)}" aria-label="${e(att.name)}を整理スペースに登録">整理スペースに登録</button></li>`;
     })
     .join("")}</ul>`;
 }
@@ -65,6 +65,9 @@ function savedRooms() {
 }
 const dmPartnerOf = (room) =>
   room.key.split(":").find((id) => id !== state.userId);
+// アーカイブしたチャンネル・案件の部屋か（C-124）。復元すると元に戻る。
+const roomArchived = (room) =>
+  room.source === "channel" ? chArchived(room.ch) : room.source === "case" ? caseArchived(room.item) : false;
 function roomVisible(room) {
   if (room.source === "channel") return canReadChannel(room.ch);
   if (room.source === "dm") {
@@ -105,10 +108,12 @@ const excerpt = (text) => (text.length > 40 ? `${text.slice(0, 40)}…` : text);
 function resolveSaved(entry) {
   const deleted = { status: "deleted" };
   const blocked = { status: "blocked" };
+  const archived = { status: "archived" };
   if (entry.kind === "channel") {
     const ch = prototypeData.channels.find((value) => value.id === entry.refId);
     if (!ch) return deleted;
     const room = { source: "channel", ch };
+    if (roomArchived(room)) return archived;
     if (!roomVisible(room)) return blocked;
     return { status: "ok", room, title: `# ${ch.name}`, sub: deptLabel(ch.dept) };
   }
@@ -125,6 +130,7 @@ function resolveSaved(entry) {
     const item = getCase(entry.refId);
     if (!item) return deleted;
     const room = { source: "case", item };
+    if (roomArchived(room)) return archived;
     if (!roomVisible(room)) return blocked;
     return { status: "ok", room, title: `${item.no} ${item.title}`, sub: caseStatusLabel(item) };
   }
@@ -133,6 +139,7 @@ function resolveSaved(entry) {
     if (!found || !!found.parent !== (entry.kind === "reply")) return deleted;
     // 削除された投稿（お知らせの削除・緊急削除。C-57）は、元の内容を返さない。
     if (found.message.deleted) return deleted;
+    if (roomArchived(found.room)) return archived;
     if (!roomVisible(found.room)) return blocked;
     return {
       status: "ok",
@@ -145,6 +152,7 @@ function resolveSaved(entry) {
   if (entry.kind === "file") {
     const found = findFile(entry.refId);
     if (!found) return deleted;
+    if (roomArchived(found.room)) return archived;
     if (!roomVisible(found.room)) return blocked;
     if (
       found.room.source === "case" &&
@@ -178,8 +186,9 @@ function addSaved(kind, refId) {
     return notify("登録済みです");
   const entry = { id: orgId("sv"), kind, refId, folderId: null };
   // 登録できるのは本人が見られるものだけ。登録によって閲覧範囲は広がらない（2-8 AC-5）。
-  if (resolveSaved(entry).status !== "ok")
-    return refuse("閲覧できないものは登録できません。");
+  const status = resolveSaved(entry).status;
+  if (status === "archived") return refuse(ARCHIVED_MESSAGE);
+  if (status !== "ok") return refuse("閲覧できないものは登録できません。");
   mySaved().push(entry);
   return notify("登録しました");
 }
@@ -239,7 +248,9 @@ function openSaved(entry) {
     return notify(
       result.status === "deleted"
         ? "元の情報は削除されています。"
-        : "元の情報を閲覧できません。",
+        : result.status === "archived"
+          ? "アーカイブされました。"
+          : "元の情報を閲覧できません。",
     );
   }
   goToRoom(result.room);
@@ -268,10 +279,11 @@ function savedRow(entry) {
   const result = resolveSaved(entry);
   const kind = ORG_KIND_LABEL[entry.kind];
   const ok = result.status === "ok";
-  const target = ok ? result.title : `${kind}（${result.status === "deleted" ? "削除済み" : "閲覧できません"}）`;
+  const stateLabel = { deleted: "削除済み", archived: "アーカイブされました", blocked: "閲覧できません" }[result.status];
+  const target = ok ? result.title : `${kind}（${stateLabel}）`;
   const main = ok
     ? `<span class="org-kind">[${e(kind)}]</span> <strong>${e(result.title)}</strong> <span class="subtle">${e(result.sub)}</span>`
-    : `<span class="org-kind">[${e(kind)}]</span> <strong class="org-state">${result.status === "deleted" ? "削除済み" : "閲覧できません"}</strong> <span class="subtle">元の内容は表示しません。登録は残っています。</span>`;
+    : `<span class="org-kind">[${e(kind)}]</span> <strong class="org-state">${stateLabel}</strong> <span class="subtle">元の内容は表示しません。登録は残っています。${result.status === "archived" ? "復元すると元に戻ります。" : ""}</span>`;
   const open = ok
     ? `<button type="button" class="button small primary" data-ui="org-open" data-id="${e(entry.id)}" aria-label="${e(ORG_OPEN_LABEL[entry.kind])}：${e(target)}">${ORG_OPEN_LABEL[entry.kind]}</button>`
     : "";

@@ -1074,3 +1074,11 @@
   color: #6b7280;
   border-style: dashed;
 }
+
+/* サイドバーの独立した「アーカイブ」の項目（管理の外。C-123。色は案）。 */
+.side-archive-block {
+  --archive-menu-color: #d9c8ff;
+}
+.side-archive-block .side-link {
+  color: var(--archive-menu-color);
+}

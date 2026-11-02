@@ -11,12 +11,15 @@ const DRAFT_PREFIX = "internal-system-proto-draft:";
 const DRAFT_TTL = 7 * 24 * 60 * 60 * 1000;
 const draftStatus = { available: true };
 
-function draftStorage() {
+// 保存できない環境では、入力欄の下に「保存できません」と表示し(draftNote)、失敗した事実を警告に残す。
+// strict のとき（後始末など、失敗を呼び出し元へ伝えたいとき）は、例外をそのまま投げる。
+function draftStorage(strict = false) {
   try {
     return window.localStorage;
   } catch (error) {
-    // 保存できない環境では、入力欄の下に「保存できません」と表示する(draftNote)。
     draftStatus.available = false;
+    console.warn("下書きの保存先（localStorage）を取得できません", error);
+    if (strict) throw error;
     return null;
   }
 }
@@ -67,6 +70,11 @@ function saveDraft(key, text) {
 function removeDraft(key) {
   if (!key) return;
   draftStorage()?.removeItem(key);
+}
+// 後始末用。保存先の取得・削除の失敗を例外のまま呼び出し元（runCleanup）へ伝える。
+function removeDraftStrict(key) {
+  if (!key) return;
+  draftStorage(true).removeItem(key);
 }
 function clearUserDrafts(userId) {
   const store = draftStorage();
@@ -190,6 +198,8 @@ const LEAVING_UI = new Set([
   "join-channel",
   "invite-open",
 ]);
+// ステータスの切り替えは S-19 などを描き直すため、未保存の入力があれば破棄の確認を出す(C-136)。
+["header-status-set", "header-status-return", "set-status"].forEach((name) => LEAVING_UI.add(name));
 const LEAVING_ACTION = new Set([
   "nav",
   "open-case",
@@ -306,6 +316,69 @@ document.addEventListener(
 
 /* ---------- アバターメニュー: ステータスの変更(C-79) ---------- */
 const STATUS_CHOICES = ["在席", "外出", "欠席", "休暇", "会議中"];
+const STATUS_DOT_CLASS = { 在席: "present", 外出: "away", 欠席: "absent", 休暇: "leave", 会議中: "meeting" };
+const RETURN_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+// ステータスと戻り予定の保存は、この関数だけが行う（ヘッダー・アバターメニュー・プロフィール S-19 の共通）。
+// 検証してから 1 回だけ書く。在席のときは戻り予定を持たない。
+function setMyStatus(status, returnAt) {
+  // 外部の値は 1 回だけ読み、文字列でなければ変換せずに拒否する(オブジェクト・getter・Proxy 対策)。
+  if (typeof status !== "string") return refuse("ステータスが正しくありません。");
+  if (returnAt !== undefined && returnAt !== null && typeof returnAt !== "string")
+    return refuse("戻り予定が正しくありません。");
+  const time = (returnAt ?? "").trim();
+  if (!STATUS_CHOICES.includes(status)) return refuse("ステータスが正しくありません。");
+  if (time && !RETURN_TIME_PATTERN.test(time)) return refuse("戻り予定は「時:分」の形式で入力してください。");
+  // 保存先を直接書き換えない。現在の社員の値から通常オブジェクトの複製を作り、検証した値を差し替えて、配列の要素を 1 回の代入で置き換える。
+  // 途中で失敗しても部分更新は残らない。複製は新しい通常オブジェクトなので、元が Proxy でも accessor でも、以後はその影響を受けない。
+  // id も直接読まず、データプロパティのときだけ比較する(accessor の id は一致扱いにしない)。
+  const index = employees.findIndex((person) => {
+    const idDescriptor = Object.getOwnPropertyDescriptor(person, "id");
+    return !!idDescriptor && "value" in idDescriptor && idDescriptor.value === state.userId;
+  });
+  if (index < 0) return refuse();
+  const source = employees[index];
+  if (Object.getPrototypeOf(source) !== Object.prototype) return refuse("ステータスを保存できません。");
+  const descriptors = Object.getOwnPropertyDescriptors(source);
+  const copy = Object.create(Object.prototype);
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable) continue;
+    if (!("value" in descriptor)) return refuse("ステータスを保存できません。");
+    // 代入せず定義する(自身の __proto__ や継承の setter を動かさない)。
+    Object.defineProperty(copy, key, { value: descriptor.value, writable: true, enumerable: true, configurable: true });
+  }
+  if (copy.id !== state.userId) return refuse("ステータスを保存できません。");
+  Object.defineProperty(copy, "status", { value: status, writable: true, enumerable: true, configurable: true });
+  Object.defineProperty(copy, "returnAt", { value: status === "在席" ? "" : time, writable: true, enumerable: true, configurable: true });
+  employees[index] = copy;
+  return true;
+}
+// 他の画面の表示用（社員一覧・DM・プロフィールカード）。在席以外で戻り予定があれば添える。
+const statusText = (person) =>
+  `${person.status || "在席"}${person.returnAt && person.status && person.status !== "在席" ? `（戻り ${person.returnAt}）` : ""}`;
+// ステータスを変えたあと、見えている画面を描き直す。ヘッダーのボタンも更新する。
+function afterMyStatusChange() {
+  renderHeaderStatus();
+  if (["S06", "S19", "S20", "S27"].includes(state.page)) render();
+}
+// ヘッダーのステータスボタン(C-136)。既存の「⋯」メニューの作法(role=menu・Esc・矢印・フォーカスを戻す)に合わせる。
+function renderHeaderStatus() {
+  const box = document.querySelector("#header-status");
+  if (!box) return;
+  const user = currentUser();
+  if (!user) return;
+  const current = user.status || "在席";
+  const returnAt = user.returnAt || "";
+  const tail = returnAt && current !== "在席" ? `（戻り ${returnAt}）` : "";
+  const items = STATUS_CHOICES.map(
+    (value) =>
+      `<button type="button" role="menuitem" data-ui="header-status-set" data-value="${e(value)}"${value === current ? ' aria-current="true"' : ""}><span class="status-dot ${STATUS_DOT_CLASS[value]}" aria-hidden="true"></span>${e(value)}${value === current ? "（現在）" : ""}</button>`,
+  ).join("");
+  // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで、利用者の入力をそのまま入れない
+  box.innerHTML = `<button type="button" class="button small status-toggle" data-ui="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="ステータス: ${e(current)}${e(tail)}。変更する"><span class="status-dot ${STATUS_DOT_CLASS[current]}" aria-hidden="true"></span><span class="status-text">${e(current)}</span></button><div class="kebab-menu status-menu" role="menu" aria-label="ステータスの変更" hidden>${items}<div class="status-return" role="none"><label for="header-status-time">戻り予定（任意）</label><input id="header-status-time" type="time" value="${e(returnAt)}"></div><button type="button" role="menuitem" data-ui="header-status-return">戻り予定だけ更新</button></div>`;
+}
+function headerStatusTime(element) {
+  return element.closest(".kebab-menu")?.querySelector("input[type=time]")?.value ?? "";
+}
 function openAvatarMenu() {
   const dialog = document.querySelector("#avatar-dialog");
   const current = currentUser().status || "在席";
@@ -345,14 +418,14 @@ function collectThreads() {
   };
   // 閲覧できない部屋(参加していないチャンネル、見えない案件など)のスレッドは出さない。
   prototypeData.channels
-    .filter(isChannelMember)
+    .filter((channel) => isChannelMember(channel) && !chArchived(channel))
     .forEach((channel) =>
       channel.messages.forEach((message) =>
         consider("channel", { channelId: channel.id }, `# ${channel.name}`, message),
       ),
     );
   state.cases
-    .filter((item) => canSeeContent(item))
+    .filter((item) => !caseArchived(item) && canSeeContent(item))
     .forEach((item) =>
       item.messages.forEach((message) =>
         consider("case", { caseId: item.id }, `${item.no} ${item.title}`, message),
@@ -420,8 +493,25 @@ function pickThread(element) {
 const normalizeName = (value) => value.trim().toLowerCase();
 const clientCaseCount = (code) =>
   state.cases.filter((item) => item.clientCode === code).length;
-function clientsScreen() {
-  const rows = state.clients
+// 取引先の一覧の絞り込み（C-125）。検索は取引先名とコードの部分一致（案。方式は未決定）、状態は すべて・有効・無効。
+// 並び順はコード順（文字列の単純な比較）。無効にした取引先を有効に戻す操作は作らない。
+const CLIENT_STATE_OPTIONS = [
+  ["all", "すべて"],
+  ["active", "有効"],
+  ["inactive", "無効"],
+];
+function visibleClients() {
+  const term = compareKey(ui.clientQuery);
+  return state.clients
+    .filter((client) => ui.clientState === "all" || (ui.clientState === "active") === client.active)
+    .filter((client) => !term || compareKey(client.name).includes(term) || compareKey(client.code).includes(term))
+    .slice()
+    .sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+}
+// 一覧の表と件数。検索・絞り込みのたびに、この部分だけを描き直す（入力欄は描き直さない。日本語の入力の途中でも崩れない）。
+function clientResultsHtml() {
+  const shown = visibleClients();
+  const rows = shown
     .map((client) => {
       const reserved = client.code === "INT";
       const operations = client.active
@@ -433,6 +523,15 @@ function clientsScreen() {
       return `<tr><td data-label="コード">${e(client.code)}</td><td data-label="取引先名">${e(client.name)}${reserved ? "(初期データ)" : ""}</td><td data-label="状態">${client.active ? "有効" : "無効"}</td><td data-label="案件数">${clientCaseCount(client.code)}件</td><td data-label="操作"><span class="inline-actions">${operations}</span></td></tr>`;
     })
     .join("");
+  return `${shown.length ? `<table class="client-table"><caption class="visually-hidden">取引先の一覧</caption><thead><tr><th scope="col">コード</th><th scope="col">取引先名</th><th scope="col">状態</th><th scope="col">案件数</th><th scope="col">操作</th></tr></thead><tbody>${rows}</tbody></table>` : '<p id="client-empty">該当する取引先はありません。</p>'}<p class="form-hint" role="status">${shown.length}件を表示（コード順）</p>`;
+}
+function refreshClientResults() {
+  const box = document.querySelector("#client-results");
+  if (!box) return;
+  // nosemgrep: insecure-innerhtml, insecure-document-method 取引先の一覧の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、取引先名などの入力をそのまま入れない
+  box.innerHTML = clientResultsHtml();
+}
+function clientsScreen() {
   return screenFrame(
     "S36",
     "取引先の管理",
@@ -440,12 +539,12 @@ function clientsScreen() {
     shellCard(
       "取引先の一覧",
       state.clients.length
-        ? `<table class="client-table"><caption class="visually-hidden">取引先の一覧</caption><thead><tr><th scope="col">コード</th><th scope="col">取引先名</th><th scope="col">状態</th><th scope="col">案件数</th><th scope="col">操作</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<div class="directory-toolbar"><div class="form-field"><label for="client-search">取引先名・コードで検索（部分一致。方式は案）</label><input id="client-search" type="search" autocomplete="off" value="${e(ui.clientQuery)}"></div>${selectField("状態", "client-state", CLIENT_STATE_OPTIONS, ui.clientState)}</div><div id="client-results">${clientResultsHtml()}</div>`
         : "<p>取引先はありません。</p>",
       protoButton("＋ 取引先を登録", "client-add", "", true),
     ) +
       hint(
-        "無効にした後は、既存の案件に取引先名を出して「（無効）」の印を付けます（C-117）。新しい案件の申請では選べません。未決定: 一覧の並び・絞り込み。",
+        "無効にした後は、既存の案件に取引先名を出して「（無効）」の印を付けます（C-117）。新しい案件の申請では選べません。一覧はコード順で、検索と状態の絞り込みができます（C-125）。無効にした取引先は、有効に戻せません（再び使うときは、新しいコードで登録し直します）。未決定: 1ページの件数・ページ送り・検索の方式（部分一致は案）。",
       ),
   );
 }
@@ -550,6 +649,7 @@ function sidebarStorage() {
   } catch (error) {
     // 保存できない環境では、開けるか閉じるかはメモリの状態だけで動かし、サイドバーの下に知らせる。
     sidebarStatus.available = false;
+    console.warn("サイドバーの開閉の保存先（localStorage）を取得できません", error);
     return null;
   }
 }
@@ -561,6 +661,7 @@ function loadSidebarState(userId) {
     raw = store.getItem(sidebarKey(userId));
   } catch (error) {
     sidebarStatus.available = false;
+    console.warn("サイドバーの開閉の状態を読み込めません", error);
     return [];
   }
   if (raw === null) return [];
@@ -583,6 +684,7 @@ function discardSidebarState(userId) {
     sidebarStorage()?.removeItem(sidebarKey(userId));
   } catch (error) {
     sidebarStatus.available = false;
+    console.warn("サイドバーの開閉の状態を消せません", error);
   }
 }
 function saveSidebarState(userId, collapsed) {
@@ -592,6 +694,7 @@ function saveSidebarState(userId, collapsed) {
     store.setItem(sidebarKey(userId), JSON.stringify([...collapsed]));
   } catch (error) {
     sidebarStatus.available = false;
+    console.warn("サイドバーの開閉の状態を保存できません", error);
   }
 }
 // 社員を替えたときは、その社員の保存した状態を読み直す。保存がなければ、すべて開く。
@@ -636,10 +739,27 @@ const EXTRA_UI = {
     proceedTo("S06");
   },
   "set-status": (element) => {
-    currentUser().status = element.dataset.value;
+    if (!setMyStatus(element.dataset.value, currentUser().returnAt)) return;
     openAvatarMenu();
-    if (["S06", "S20", "S27"].includes(state.page)) render();
+    afterMyStatusChange();
     notify(`ステータスを「${currentUser().status}」にしました。`);
+  },
+  "header-status-set": (element) => {
+    // メニューを閉じたあとに描き直すため、入力の時刻は先に読む(単一読み取り)。
+    const time = headerStatusTime(element);
+    if (!setMyStatus(element.dataset.value, time)) return;
+    afterMyStatusChange();
+    document.querySelector("#header-status .status-toggle")?.focus();
+    notify(`ステータスを「${currentUser().status}」にしました。`);
+  },
+  "header-status-return": (element) => {
+    const time = headerStatusTime(element);
+    const status = currentUser().status || "在席";
+    if (status === "在席") return refuse("在席のときは戻り予定を設定できません。先に在席以外を選んでください。");
+    if (!setMyStatus(status, time)) return;
+    afterMyStatusChange();
+    document.querySelector("#header-status .status-toggle")?.focus();
+    notify(time ? `戻り予定を ${time} にしました。` : "戻り予定を消しました。");
   },
   "thread-pick": pickThread,
   "client-add": () => openClientForm(null),
@@ -721,6 +841,18 @@ document.addEventListener("input", (event) => {
   if (el.dataset?.counterId) updateCounter(el);
   if (el.getAttribute?.("aria-invalid")) el.removeAttribute("aria-invalid");
   if (el.dataset?.draftKey) saveDraft(el.dataset.draftKey, el.value);
+  if (el.id === "chadm-search") {
+    ui.chAdmQuery = el.value;
+    refreshChannelAdmin();
+  }
+  if (el.id === "caadm-search") {
+    ui.caAdmQuery = el.value;
+    refreshCaseAdmin();
+  }
+  if (el.id === "client-search") {
+    ui.clientQuery = el.value;
+    refreshClientResults();
+  }
   if (el.id === "dm-search") {
     const term = el.value.trim().toLowerCase();
     let shown = 0;
@@ -731,6 +863,23 @@ document.addEventListener("input", (event) => {
     });
     document.querySelector("#dm-search-empty").hidden = shown > 0;
   }
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target.id === "chadm-state" && ADMIN_STATE_FILTERS.channel.some(([value]) => value === event.target.value)) {
+    ui.chAdmState = event.target.value;
+    refreshChannelAdmin();
+    return;
+  }
+  if (event.target.id === "caadm-state" && ADMIN_STATE_FILTERS.case.some(([value]) => value === event.target.value)) {
+    ui.caAdmState = event.target.value;
+    refreshCaseAdmin();
+    return;
+  }
+  if (event.target.id !== "client-state") return;
+  if (!CLIENT_STATE_OPTIONS.some(([value]) => value === event.target.value)) return;
+  ui.clientState = event.target.value;
+  refreshClientResults();
 });
 
 purgeExpiredDrafts();
