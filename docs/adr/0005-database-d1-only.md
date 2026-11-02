@@ -63,4 +63,8 @@ PostgreSQLに一本化する案は**採用しない**。理由は、追加費用
 
 - 次の事項は**実装の前または最初のIssueで確かめる**（本番のD1ではなく、テスト専用のD1と架空データで。調査メモ[db-d1-vs-postgres.md](../research/db-d1-vs-postgres.md)の10章）：本番D1でのFTS5 trigramの動作、FTS5を含むDBでのTime Travel復元、30万件規模の検索性能、案件番号の採番の同時実行、CSV100人の一括登録の取り消し、Workerと本番D1の往復時間
 - D1の書き込みは1つのDBへ直列になる。50人程度の同時利用で足りる見込みだが、実測していない。負荷テスト（k6）で確かめる
-- **後続の作業（別Issue）**：ひな形に残るpg（PostgreSQL・Hyperdrive）の経路の整理。`scripts/local-env.ts`・`scripts/db-local.ts`の`DATABASE_URL`・`HYPERDRIVE`の経路、`docs/tech-stack.md`のpgの注記、Skill・`infra/hyperdrive.tf`などが対象。ハーネスが管理するファイルを含むため、別のIssue（またはハーネスの改善の提案）にする。このIssueでは変更しない
+- **後続の作業（別Issue）**：ひな形に残るpg（PostgreSQL・Hyperdrive）の経路の整理。`scripts/local-env.ts`・`scripts/db-local.ts`の`DATABASE_URL`・`HYPERDRIVE`の経路、`docs/tech-stack.md`のpgの注記、Skill・`infra/hyperdrive.tf`などが対象（`infra/hyperdrive.tf`の記述は実態と異なる。下の「訂正」を参照）。ハーネスが管理するファイルを含むため、別のIssue（またはハーネスの改善の提案）にする。このIssueでは変更しない
+
+## 訂正（2026-11-02、Issue #114）
+
+「後続の作業」にある`infra/hyperdrive.tf`は、現在の`infra/`に存在しない（あるのは`d1.tf`・`outputs.tf`・`providers.tf`・`variables.tf`・`versions.tf`・`README.md`）。`infra/README.md`が、回答で決まるファイルの例として`hyperdrive.tf`（PostgreSQL）を挙げているだけである。このアプリは`infra/hyperdrive.tf`を作らない。ひな形の`infra/README.md`・`scripts/`・Skillに残るpgの記述は、ハーネス由来のため直さず、ハーネスの改善の提案で扱う。決定と状態（採用）は変えない。
