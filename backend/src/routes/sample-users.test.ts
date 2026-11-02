@@ -2,7 +2,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../config";
-import app from "../index";
+import { app } from "../index";
 
 const USERNAME = "testuser_route_test";
 // 一覧の上限（100件）より多い件数。routes は db/ を読まないため、数を直接書く

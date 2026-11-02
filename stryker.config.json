@@ -1,6 +1,9 @@
 {
   "testRunner": "vitest",
-  "mutate": ["backend/src/services/**/*.ts"],
+  "mutate": [
+    "backend/src/services/**/*.ts",
+    "backend/src/lib/authorization.ts"
+  ],
   "reporters": ["clear-text", "html"],
   "thresholds": { "break": 80 }
 }
