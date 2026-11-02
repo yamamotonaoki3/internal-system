@@ -38,6 +38,7 @@ Cloudflare Workers（Hono）
 | 管理者のMFA | 全体管理者だけTOTP（RFC 6238。WebCryptoで自作）を必須にする。細部は未決定 | [0009](../adr/0009-admin-mfa-totp.md) |
 | 日本語の全文検索 | D1のFTS5 trigram（3文字以上は`MATCH`、1〜2文字は`LIKE`）。性能は実装時に実測 | [0010](../adr/0010-japanese-search-fts5-trigram.md) |
 | 添付の検査 | Office新形式はzip構造を自前で確認。ウイルススキャンは別のIssueで調べてから決める | [0011](../adr/0011-attachment-inspection-and-virus-scan.md) |
+| セキュリティの原則 | ゼロトラスト（毎回、サーバー側で本人と権限を確認する）。既存の決定との対応表と、未決定の点を載せる | [0012](../adr/0012-zero-trust-principle.md) |
 
 ## DBの設計の型
 
