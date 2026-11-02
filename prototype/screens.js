@@ -39,6 +39,9 @@ const screenCatalog = [
   ["S35", "スレッド一覧"],
   ["S36", "取引先の管理"],
   ["S37", "緊急削除の申請一覧"],
+  ["S38", "アーカイブ"],
+  ["S39", "チャンネル管理"],
+  ["S40", "案件管理"],
 ];
 // 会社のワークスペースは1つ（C-93）。チャンネルの置き場は「部署」か「会社直属」のどちらか。
 // dept が COMPANY のチャンネルは会社直属（全部署に属さない）。部署の専用チャンネルは、部署名と同じ名前の公開チャンネル（C-95）。
@@ -48,6 +51,7 @@ const prototypeData = {
     {
       id: "general",
       name: "全社連絡",
+      description: "全社員向けの連絡用チャンネルです（架空）。",
       dept: COMPANY,
       folder: "共通連絡",
       private: false,
@@ -84,6 +88,7 @@ const prototypeData = {
     {
       id: "sales",
       name: "営業部",
+      description: "営業部の専用チャンネルです（架空）。",
       dept: "営業部",
       folder: "共通連絡",
       private: false,
@@ -132,6 +137,7 @@ const prototypeData = {
     {
       id: "lunch",
       name: "lunch",
+      description: "ランチの相談用です（架空）。",
       dept: COMPANY,
       folder: "雑談",
       private: false,
@@ -143,11 +149,20 @@ const prototypeData = {
           at: "12:30",
           replies: [],
         },
+        // 書式の見本（C-128。架空）。画像記法・表・タスクリスト・脚注・HTML・許可しない形式のリンクは、描画せず原文の文字のまま出る。
+        {
+          mid: "m-lunch-md",
+          by: "u3",
+          text: "**太字**・*斜体*・~~取り消し線~~ の見本です。\n- 箇条書き1\n- 箇条書き2\n> 引用の見本です\n`インラインコード` と、コードブロック：\n```\nconst a = \"<b>x</b> **そのまま**\";\n```\nリンク：[例](https://example.com/)　自動リンク：https://example.com/a?b=1&c=2\n画像記法：![画像](https://example.com/a.png)\n| 表 | 見出し |\n- [ ] タスク\n脚注の参照[^1]\n<script>alert(1)</script> &lt;b&gt;\n[危険なリンク](javascript:alert(1))　@testuser_001",
+          at: "12:40",
+          replies: [],
+        },
       ],
     },
     {
       id: "planning",
       name: "企画共有",
+      description: "企画案の共有用です（架空）。",
       dept: "営業部",
       folder: "案件系",
       private: true,
@@ -447,10 +462,23 @@ const ui = {
   screenBeforeAuth: "S01",
   drawerReturn: null,
   threadReturn: null,
+  // 送信前の添付の一覧（C-126）。送る場所の鍵（channel:{id}・dm:{相手のID}・case:{id}）ごとの { name, size, type, scope? } の配列。
+  // ファイルの中身は読まず・送らず・保存しない。再読み込みで消える。
+  pendingAttachments: {},
+  // 取引先の一覧（S-36）の検索語と状態の絞り込み（all・active・inactive）。再読み込みで初期化される。
+  clientQuery: "",
+  clientState: "all",
+  // S-39・S-40 の検索語と状態の絞り込み。再読み込みで初期化される。
+  chAdmQuery: "",
+  chAdmState: "all",
+  caAdmQuery: "",
+  caAdmState: "all",
 };
 // 部署のデータから作る。会社直属は部署ではなく、案件の担当部署にもしない（C-98）。
 // 無効にした部署（C-103）は、重複の判定（allDepartmentNames）には残し、選択肢（departmentNames）からは外す。
 prototypeData.disabledDepartments = [];
+// 物理削除したチャンネル・案件のID。過去の通知・整理スペースで「削除されました」を出すために残す（案件番号は state.purgedCaseNos に残し、再利用しない）。
+prototypeData.purged = [];
 const allDepartmentNames = () => [...prototypeData.departments];
 const isDeptDisabled = (name) => prototypeData.disabledDepartments.includes(name);
 const departmentNames = () =>
@@ -485,8 +513,40 @@ const manageDeptNow = () => pickTarget(managedDepts(), ui.manageDept);
 const folderTargetNow = () => pickTarget(folderTargets(), ui.manageDept);
 const deptLabel = (name) => (name === COMPANY ? "会社直属" : name);
 // 公開チャンネルは参加しなくても読める。非公開は参加者だけ（C-94）。投稿・リアクションは参加者のみ。
+// アーカイブしたチャンネルは、誰も開けない（Q-70の案）。
 const canReadChannel = (channel) =>
-  !!channel && (!channel.private || isChannelMember(channel));
+  !!channel && !channel.deletedAt && (!channel.private || isChannelMember(channel));
+// アーカイブ（旧：論理削除。C-123・C-124）。案件の status の "archived" は「終了」で、deletedAt を持つものが「アーカイブ」。取り違えないこと。
+const chArchived = (channel) => !!channel?.deletedAt;
+const caseArchived = (item) => !!item?.deletedAt;
+// チャンネルの種類。全社連絡・部署の専用・お知らせ専用は、名前の変更もアーカイブもできない（C-124(11)）。
+const channelKind = (channel) =>
+  channel.id === "general"
+    ? "general"
+    : channel.announce
+      ? "announce"
+      : channel.dept !== COMPANY && channel.name === channel.dept
+        ? "dedicated"
+        : "normal";
+const CHANNEL_KIND_LABEL = {
+  general: "全社連絡",
+  announce: "お知らせ専用チャンネル",
+  dedicated: "部署の専用チャンネル",
+  normal: "通常のチャンネル",
+};
+const ownsDept = (dept) => currentUser().role === "owner" && currentUser().department === dept;
+// 通常のチャンネルは、全体管理者（全部）と、自部署のオーナー（自部署のもの。会社直属・他部署は不可）が管理できる。
+const channelManager = (channel) => adminOnly() || ownsDept(channel.dept);
+const canRenameChannel = (channel) => !chArchived(channel) && channelKind(channel) === "normal" && channelManager(channel);
+const canArchiveChannel = canRenameChannel;
+// 説明は、専用・お知らせ専用も自部署のオーナーと全体管理者が変えられる。全社連絡は全体管理者だけ（C-124(11)）。
+const canDescribeChannel = (channel) =>
+  !chArchived(channel) && (channelKind(channel) === "general" ? adminOnly() : channelManager(channel));
+// 復元できるのは、全体管理者と、自部署のチャンネルのオーナー（誰がアーカイブしたものでも。C-132(2)。#95 のQ-73の案を置き換え）。
+const canRestoreChannel = (channel) =>
+  chArchived(channel) && (adminOnly() || ownsDept(channel.dept));
+// 物理削除は全体管理者だけで、アーカイブした後だけ（C-123）。
+const canPurge = (target) => adminOnly() && !!target?.deletedAt;
 // お知らせ専用チャンネル（C-108）の投稿は、自部署のオーナーと全体管理者だけ（C-96・7-2 AC-1）。
 // ほかの人は、参加しても投稿できない。リアクションと返信は、参加者なら通常どおり使える。
 const canPostAnnounce = (channel) =>
@@ -679,6 +739,7 @@ function renderShell() {
     .join("");
   document.querySelector("#avatar-menu-button").textContent =
     currentUser().name.slice(-2);
+  renderHeaderStatus();
   const jump = document.querySelector("#screen-catalog");
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   jump.innerHTML = screenCatalog
@@ -828,6 +889,13 @@ function sidebarContent(prefix) {
             ]
           : []),
         ...(ownerHere() ? [["S13", "部署管理（オーナー）"]] : []),
+        // チャンネル管理（S-39）・案件管理（S-40）は、全体管理者とオーナー向け。置き場所は案（Q-105）。
+        ...(adminOnly() || currentUser().role === "owner"
+          ? [
+              ["S39", "チャンネル管理"],
+              ["S40", "案件管理"],
+            ]
+          : []),
       ],
     ],
     [
@@ -841,6 +909,11 @@ function sidebarContent(prefix) {
         : [],
     ],
   ].filter(([, , items]) => items.length);
+  // 「アーカイブ」は管理の外の、独立した項目（C-123）。全体管理者とオーナーに出す。色は案。
+  const archiveBlock =
+    adminOnly() || currentUser().role === "owner"
+      ? '<div class="side-section side-archive-block"><button type="button" class="side-link side-archive" data-ui="go" data-page="S38">▤ アーカイブ（案）</button></div>'
+      : "";
   const manageBlock = manageGroups.length
     ? `<nav class="side-section side-admin" aria-label="管理"><strong>管理</strong><p class="side-empty">まとまりと開閉は決定済み（C-118）</p>${manageGroups
         .map(([key, label, items]) =>
@@ -862,7 +935,7 @@ function sidebarContent(prefix) {
     : "";
   // 案件専用チャンネルは「案件」の見出しの下にまとめる。参加者だけに出し、通常のチャンネル一覧には出さない（C-83）。
   const caseChannels = state.cases
-    .filter((item) => isMember(item))
+    .filter((item) => isMember(item) && !caseArchived(item))
     .map(
       (item) =>
         `<button type="button" class="side-link" data-ui="case-open" data-id="${e(item.id)}">▣ ${e(item.no)} ${e(item.title)}${item.status === "archived" ? "（終了）" : ""}</button>`,
@@ -887,7 +960,7 @@ function sidebarContent(prefix) {
   const saveNote = sidebarStatus.available
     ? ""
     : '<p class="side-empty" role="status">この端末では開閉の状態を覚えられません</p>';
-  return `<div class="side-content">${channelBlock}${section("dm", "ダイレクトメッセージ", dmBody)}<div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div>${section("case", "案件", caseBody)}${section("org", "整理スペース", orgBody)}<div class="side-section"><strong>共通</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button></div>${manageBlock}${saveNote}</div>`;
+  return `<div class="side-content">${channelBlock}${section("dm", "ダイレクトメッセージ", dmBody)}<div class="side-section"><strong>スレッド</strong><button type="button" class="side-link" data-ui="go" data-page="S35">スレッド一覧${unreadThreads ? `<span class="unread-mark">● 未読 ${unreadThreads}件</span>` : ""}</button></div>${section("case", "案件", caseBody)}${section("org", "整理スペース", orgBody)}<div class="side-section"><strong>共通</strong><button type="button" class="side-link" data-ui="go" data-page="S20">社員一覧</button></div>${archiveBlock}${manageBlock}${saveNote}</div>`;
 }
 function showNoPermission() {
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
@@ -908,6 +981,7 @@ function renderExtraPage(page) {
     return showNoPermission();
   if (page === "S11" && !(currentUser().role === "owner" || adminOnly()))
     return showNoPermission();
+  if (["S38", "S39", "S40"].includes(page) && !(currentUser().role === "owner" || adminOnly())) return showNoPermission();
   if (page === "S13" && !ownerHere()) return showNoPermission();
   if (page === "S32" && !folderTargets().length) return showNoPermission();
   if (
@@ -963,6 +1037,9 @@ function renderExtraPage(page) {
     S35: threadsScreen,
     S36: clientsScreen,
     S37: emergencyListScreen,
+    S38: archiveScreen,
+    S39: channelAdminScreen,
+    S40: caseAdminScreen,
   };
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
   screen.innerHTML = (renderers[page] || homeScreen)();
@@ -998,29 +1075,609 @@ function changePasswordScreen() {
     ),
   );
 }
+/* ---------- 書式（マークダウンの最小実装。C-128(1)。外部ライブラリなし）---------- */
+// 元の文字列（エスケープ前）を先に解析し、トークンにしてから組み立てる。生成した HTML を再び解析しない。
+// 組み立てでは、タグは固定、中身はすべて e()（escapeHtml）を通す。URL は元の値で http・https・mailto だけを許可し、属性に出すときにエスケープする。
+// 対応：太字（**）・斜体（* と _）・取り消し線（~~ だけ）・インラインコード・コードブロック・引用・箇条書き・リンク・URL の自動リンク。メンションは強調表示だけ。
+// 描画しない（原文の文字のまま出す。見せ方は未決定で案。Q-79）：画像記法・表・タスクリスト・脚注・許可しない形式のリンク・HTML。
+const MD_PROTOCOLS = ["http:", "https:", "mailto:"];
+function mdSafeUrl(url) {
+  if (typeof url !== "string" || !url || /[\s\u0000-\u001f]/.test(url)) return false;
+  // 解析できない値は、リンクにしない（検査の結果であり、エラーの握りつぶしではない）。古いブラウザで canParse がないときも、リンクにしない。
+  if (typeof URL.canParse !== "function" || !URL.canParse(url)) return false;
+  return MD_PROTOCOLS.includes(new URL(url).protocol);
+}
+const mdWordChar = (ch) => !!ch && /[A-Za-z0-9_぀-ヿ一-鿿]/.test(ch);
+function mdTokens(src, depth) {
+  const out = [];
+  let buf = "";
+  const flush = () => {
+    if (buf) out.push({ t: "text", v: buf });
+    buf = "";
+  };
+  const names = employees.map((person) => `@${person.name}`).sort((a, b) => b.length - a.length);
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    const rest = src.slice(i);
+    if (ch === "`") {
+      const end = src.indexOf("`", i + 1);
+      if (end > i + 1) {
+        flush();
+        out.push({ t: "code", v: src.slice(i + 1, end) });
+        i = end + 1;
+        continue;
+      }
+    }
+    // 画像記法は、範囲全体を原文の文字にする（描画しない。Q-79の案）。
+    if (ch === "!" && src[i + 1] === "[") {
+      const image = /^!\[[^\]]*\]\([^)]*\)/.exec(rest);
+      if (image) {
+        buf += image[0];
+        i += image[0].length;
+        continue;
+      }
+    }
+    if (ch === "[") {
+      const link = /^\[([^\]]*)\]\(([^)\s]*)\)/.exec(rest);
+      if (link) {
+        if (mdSafeUrl(link[2])) {
+          flush();
+          out.push({ t: "link", v: link[1] || link[2], href: link[2] });
+        } else buf += link[0];
+        i += link[0].length;
+        continue;
+      }
+    }
+    if ((ch === "h" || ch === "m" || ch === "H" || ch === "M") && !mdWordChar(src[i - 1])) {
+      const auto = /^(?:https?:\/\/|mailto:)[^\s<>"'`]+/i.exec(rest);
+      if (auto) {
+        const url = auto[0].replace(/[.,;:!?)）」』、。]+$/, "");
+        if (mdSafeUrl(url)) {
+          flush();
+          out.push({ t: "link", v: url, href: url });
+          i += url.length;
+          continue;
+        }
+      }
+    }
+    if (ch === "@") {
+      const name = names.find((value) => rest.startsWith(value));
+      if (name) {
+        flush();
+        out.push({ t: "mention", v: name });
+        i += name.length;
+        continue;
+      }
+    }
+    let matched = false;
+    for (const [mark, type] of [["**", "strong"], ["~~", "del"]]) {
+      if (!rest.startsWith(mark)) continue;
+      const end = src.indexOf(mark, i + 2);
+      const inner = end > i + 2 ? src.slice(i + 2, end) : "";
+      if (!inner.trim()) continue;
+      flush();
+      out.push({ t: type, c: depth < 2 ? mdTokens(inner, depth + 1) : [{ t: "text", v: inner }] });
+      i = end + 2;
+      matched = true;
+      break;
+    }
+    if (matched) continue;
+    if (ch === "*" && src[i + 1] !== "*") {
+      const end = src.indexOf("*", i + 1);
+      const inner = end > i + 1 && src[end + 1] !== "*" ? src.slice(i + 1, end) : "";
+      if (inner && inner.trim() === inner) {
+        flush();
+        out.push({ t: "em", c: depth < 2 ? mdTokens(inner, depth + 1) : [{ t: "text", v: inner }] });
+        i = end + 1;
+        continue;
+      }
+    }
+    if (ch === "_" && !mdWordChar(src[i - 1])) {
+      const end = src.indexOf("_", i + 1);
+      const inner = end > i + 1 && !mdWordChar(src[end + 1]) ? src.slice(i + 1, end) : "";
+      if (inner && inner.trim() === inner) {
+        flush();
+        out.push({ t: "em", c: depth < 2 ? mdTokens(inner, depth + 1) : [{ t: "text", v: inner }] });
+        i = end + 1;
+        continue;
+      }
+    }
+    buf += ch;
+    i += 1;
+  }
+  flush();
+  return out;
+}
+function mdHtml(tokens) {
+  return tokens
+    .map((token) => {
+      if (token.t === "code") return `<code>${e(token.v)}</code>`;
+      if (token.t === "strong") return `<strong>${mdHtml(token.c)}</strong>`;
+      if (token.t === "em") return `<em>${mdHtml(token.c)}</em>`;
+      if (token.t === "del") return `<del>${mdHtml(token.c)}</del>`;
+      if (token.t === "mention") return `<span class="mention">${e(token.v)}</span>`;
+      if (token.t === "link") return `<a href="${e(token.href)}" target="_blank" rel="noopener noreferrer">${e(token.v)}</a>`;
+      return e(token.v);
+    })
+    .join("");
+}
+// 本文を、ブロック（コードブロック・引用・箇条書き・段落）に分けて組み立てる。文字列だけを返す（描画は呼び出し側）。
+function renderMarkdown(text) {
+  const lines = String(text ?? "").split(/\r\n|\r|\n/);
+  // 表・脚注の定義・タスクリストの行は、整形せず原文の文字のまま出す。
+  const raw = (line) => /^\s*\|/.test(line) || /^\s*\[\^[^\]]+\]:/.test(line) || /^\s*[-*]\s+\[[ xX]\]/.test(line);
+  const item = (line) => /^\s*[-*]\s+/.test(line) && !raw(line);
+  const fence = (line) => /^\s*```/.test(line);
+  const quote = (line) => /^\s*>/.test(line);
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i += 1;
+    } else if (fence(line)) {
+      const code = [];
+      i += 1;
+      while (i < lines.length && !fence(lines[i])) code.push(lines[i++]);
+      i += 1;
+      blocks.push(`<pre><code>${e(code.join("\n"))}</code></pre>`);
+    } else if (quote(line)) {
+      const group = [];
+      while (i < lines.length && quote(lines[i])) group.push(lines[i++].replace(/^\s*>\s?/, ""));
+      blocks.push(`<blockquote>${group.map((value) => mdHtml(mdTokens(value, 0))).join("<br>")}</blockquote>`);
+    } else if (item(line)) {
+      const group = [];
+      while (i < lines.length && item(lines[i])) group.push(lines[i++].replace(/^\s*[-*]\s+/, ""));
+      blocks.push(`<ul>${group.map((value) => `<li>${mdHtml(mdTokens(value, 0))}</li>`).join("")}</ul>`);
+    } else {
+      const group = [];
+      while (i < lines.length && lines[i].trim() && !fence(lines[i]) && !quote(lines[i]) && !item(lines[i])) group.push(lines[i++]);
+      blocks.push(`<p>${group.map((value) => (raw(value) ? e(value) : mdHtml(mdTokens(value, 0)))).join("<br>")}</p>`);
+    }
+  }
+  return `<div class="message-text">${blocks.join("")}</div>`;
+}
+
+/* ---------- 絵文字・スタンプ・リアクション（C-128(2)(3)。外部ライブラリなし）---------- */
+// 絵文字は端末の絵文字をそのまま表示する（native 表示）固定の見本の一覧。読みは日本語の検索の見せ方の見本（ひらがな・カタカナの違いは吸収する。
+// 表記ゆれ・別の漢字・読みの網羅は足りない。ひらがな検索の取りこぼしは案で、本番の部品の検証で確かめる）。
+const REACTION_EMOJI = [
+  ["thumbsup", "👍", "いいね", "いいね good ok りょうかい"],
+  ["clap", "👏", "拍手", "はくしゅ すごい"],
+  ["pray", "🙏", "お願い・感謝", "おねがい ありがとう"],
+  ["tada", "🎉", "お祝い", "おいわい おめでとう"],
+  ["grin", "😀", "笑顔", "えがお にこにこ"],
+  ["joy", "😂", "大笑い", "おおわらい ばくしょう"],
+  ["smile", "😊", "にっこり", "にっこり ほほえみ"],
+  ["heart_eyes", "😍", "大好き", "だいすき"],
+  ["thinking", "🤔", "考え中", "かんがえちゅう うーん"],
+  ["cry", "😢", "悲しい", "かなしい なみだ"],
+  ["wow", "😮", "驚き", "おどろき びっくり"],
+  ["sweat", "😅", "苦笑い", "にがわらい あせ"],
+  ["eyes", "👀", "見ています", "みています ちぇっく"],
+  ["muscle", "💪", "がんばる", "がんばる ちから"],
+  ["check", "✅", "完了", "かんりょう ちぇっく"],
+  ["cross", "❌", "ばつ", "ばつ だめ"],
+  ["star", "⭐", "星", "ほし すたー"],
+  ["heart", "❤️", "ハート", "はーと あい"],
+  ["fire", "🔥", "炎", "ほのお もえる"],
+  ["rocket", "🚀", "ロケット", "ろけっと はっしゃ"],
+  ["bulb", "💡", "アイデア", "あいであ ひらめき"],
+  ["memo", "📝", "メモ", "めも きろく"],
+  ["onigiri", "🍙", "おにぎり", "おにぎり ごはん"],
+  ["ramen", "🍜", "ラーメン", "らーめん めん"],
+  ["coffee", "☕", "コーヒー", "こーひー きゅうけい"],
+  ["cat", "🐱", "猫", "ねこ ねこちゃん cat"],
+  ["dog", "🐶", "犬", "いぬ いぬちゃん dog"],
+  ["sakura", "🌸", "桜", "さくら はな"],
+  ["sun", "☀️", "晴れ", "はれ たいよう"],
+  ["bow", "🙇", "お辞儀", "おじぎ すみません もうしわけ"],
+];
+// スタンプは画像だけ。この試作では仮の画像（インラインの SVG。固定の文字列で、ファイルは足さない）。素材の出どころ・件数は未決定。
+const STAMPS = [
+  ["ok", "了解", "#0b6b5f"],
+  ["thanks", "ありがとう", "#7a3e00"],
+  ["good", "いいね", "#2b4f9e"],
+  ["tired", "お疲れさま", "#5a2f77"],
+  ["confirm", "確認します", "#1f5f73"],
+  ["wow", "すごい", "#8a2b2b"],
+];
+const stampSvg = (stamp, size = 1) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 40" width="${Math.round(72 * size)}" height="${Math.round(30 * size)}" role="img" aria-label="スタンプ：${e(stamp[1])}（仮の画像）"><rect width="96" height="40" rx="8" fill="${e(stamp[2])}"/><text x="48" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff" font-family="sans-serif">${e(stamp[1])}</text></svg>`;
+// 鍵は、固定の一覧から作った正規の鍵と完全に一致するものだけを許す（末尾に余分な文字がある鍵は拒否する）。
+// 検査のあとは、返した key（正規の鍵）を、重複の判定・保存・表示のすべてに使う。
+const reactionInfo = (key) => {
+  if (typeof key !== "string") return null;
+  const emoji = REACTION_EMOJI.find((entry) => `emoji:${entry[0]}` === key);
+  if (emoji) return { key, kind: "emoji", label: emoji[2], html: e(emoji[1]), glyph: emoji[1] };
+  const stamp = STAMPS.find((entry) => `stamp:${entry[0]}` === key);
+  if (stamp) return { key, kind: "stamp", label: `スタンプ：${stamp[1]}（仮の画像）`, html: stampSvg(stamp, 0.6) };
+  return null;
+};
+// 1つのメッセージに付けられるリアクションの種類は20種類まで。同じ人の同じリアクションは1回だけ（C-90）。
+const REACTION_MAX_KINDS = 20;
+// リアクションを付ける・取り消す実行する関数（コンソールから呼べる）。target は postMessage と同じ形（返信は対象外）。
+// mid は、その部屋の親メッセージの ID（配列の位置は使わない）。key は固定の一覧の鍵（emoji:thumbsup・stamp:ok など）。
+// 現在の画面（activeChannel・state.selectedId・ui.dmUserId）に依存せず、実行のたびに対象・権限・状態を検査する。
+function toggleReaction(target, mid, key) {
+  if (!target || typeof target !== "object" || Array.isArray(target)) return refuse("リアクションの対象が正しくありません。");
+  target = { source: target.source, id: target.id, userId: target.userId };
+  if (typeof mid !== "string" || !mid) return refuse("元の投稿が見つかりません。");
+  const info = reactionInfo(key);
+  if (!info) return refuse("使えないリアクションです。");
+  const reactionKey = info.key;
+  let list;
+  if (target.source === "channel") {
+    if (typeof target.id !== "string") return refuse("リアクションの対象が正しくありません。");
+    const channel = prototypeData.channels.find((value) => value.id === target.id);
+    if (!channel) return refuse("チャンネルが見つかりません。");
+    if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
+    if (!canReadChannel(channel)) return refuse();
+    if (!isChannelMember(channel)) return refuse("参加すると使えます。");
+    if (channel.readOnly) return refuse("この部署は無効化されたため、読み取り専用です。");
+    list = channel.messages;
+  } else if (target.source === "dm") {
+    if (typeof target.userId !== "string") return refuse("リアクションの対象が正しくありません。");
+    const partner = employees.find((person) => person.id === target.userId);
+    if (!partner || !partner.active || partner.id === state.userId) return refuse("相手が見つかりません。");
+    list = prototypeData.dm[dmKey(state.userId, partner.id)] || [];
+  } else if (target.source === "case") {
+    if (typeof target.id !== "string") return refuse("リアクションの対象が正しくありません。");
+    const item = getCase(target.id);
+    if (!item) return refuse("案件が見つかりません。");
+    if (caseArchived(item)) return refuse(ARCHIVED_MESSAGE);
+    if (item.status !== "active") return refuse("終了した案件では、リアクションを使えません。");
+    if (!isMember(item)) return refuse();
+    list = item.messages;
+  } else return refuse("リアクションの対象が正しくありません。");
+  // 親投稿は、すでに付いている mid で探す（拒否のときにデータを変えない）。
+  const message = list.find((value) => value.mid === mid);
+  if (!message) return refuse("元の投稿が見つかりません。");
+  if (message.deleted) return refuse("この投稿はすでに削除されています。");
+  const reactions = message.reactions || [];
+  const found = reactions.find((value) => value.key === reactionKey);
+  if (found?.users.includes(state.userId)) {
+    found.users = found.users.filter((id) => id !== state.userId);
+    message.reactions = reactions.filter((value) => value.users.length);
+    return true;
+  }
+  if (!found && reactions.length >= REACTION_MAX_KINDS)
+    return refuse(`リアクションの種類は${REACTION_MAX_KINDS}種類までです。`);
+  if (found) found.users.push(state.userId);
+  else (message.reactions ||= []).push({ key: reactionKey, users: [state.userId] });
+  return true;
+}
+// メッセージの下のリアクションの表示。数と付けた人が分かり（title・aria-label）、押すと付ける・取り消す。既存の「👍」の入口は emoji:thumbsup に結び付ける。
+function reactionBarHtml(message, source, roomId, mode) {
+  const thumbs = (message.reactions || []).find((value) => value.key === "emoji:thumbsup");
+  const others = (message.reactions || []).filter((value) => value.key !== "emoji:thumbsup");
+  const mine = (reaction) => !!reaction?.users.includes(state.userId);
+  const people = (reaction) => (reaction?.users.length ? reaction.users.map(nameOf).join("、") : "まだいません");
+  const attrs = (key) => `data-ui="reaction" data-source="${e(source)}" data-room="${e(roomId)}" data-mid="${e(midOf(message))}" data-key="${e(key)}"`;
+  const locked = mode === "readonly" ? "読み取り専用" : mode === "notJoined" ? "参加すると使えます" : "";
+  const button = (key, reaction, labelHtml, label) =>
+    `<button type="button" ${locked ? "disabled" : attrs(key)} aria-pressed="${mine(reaction)}" title="${e(label)}: ${e(people(reaction))}" aria-label="${e(label)} ${reaction?.users.length || 0}人（${e(people(reaction))}）${locked ? `。${locked}` : mine(reaction) ? "。押すと取り消します" : ""}">${labelHtml} ${reaction?.users.length || 0}</button>`;
+  return (
+    button("emoji:thumbsup", thumbs, "👍", "いいね") +
+    others.map((reaction) => button(reaction.key, reaction, reactionInfo(reaction.key)?.html || "", reactionInfo(reaction.key)?.label || "")).join("") +
+    (locked
+      ? `<span class="subtle">${locked}</span>`
+      : `<button type="button" data-ui="picker-open" data-mode="message" data-source="${e(source)}" data-room="${e(roomId)}" data-mid="${e(midOf(message))}" aria-haspopup="dialog">＋ リアクション</button>`)
+  );
+}
+// 選択画面（同じ枠の中のタブ「絵文字」「スタンプ」）。開くときに対象（target・mid）を ui.pickerFor に保持し、押したときにその対象で toggleReaction を呼ぶ。
+// 画面を移動したら閉じる。入力欄の「😀」から開いたときは、絵文字を入力欄のカーソル位置に挿入し、スタンプはリアクションとして付ける案内だけを出す（Q-80の案）。
+ui.pickerFor = null;
+ui.picker = null;
+const pickerEl = document.createElement("div");
+pickerEl.id = "emoji-picker";
+pickerEl.className = "emoji-picker";
+pickerEl.hidden = true;
+pickerEl.setAttribute("role", "dialog");
+pickerEl.setAttribute("aria-label", "絵文字とスタンプ");
+document.body.append(pickerEl);
+const kanaToHira = (value) => value.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).toLowerCase();
+function pickerGridHtml() {
+  const picker = ui.picker;
+  if (picker.tab === "stamp") {
+    if (picker.mode === "composer")
+      return '<p class="form-hint" role="status">スタンプはメッセージへのリアクションとして付けます（案）。メッセージの「＋ リアクション」から選んでください。</p>';
+    return `<div class="picker-grid stamps">${STAMPS.map((stamp) => `<button type="button" class="picker-item" data-ui="picker-pick" data-key="stamp:${e(stamp[0])}" aria-label="スタンプ：${e(stamp[1])}（仮の画像）">${stampSvg(stamp, 0.8)}</button>`).join("")}</div>`;
+  }
+  const term = kanaToHira(picker.query || "").trim();
+  const shown = REACTION_EMOJI.filter((entry) => !term || kanaToHira(`${entry[2]} ${entry[3]}`).includes(term));
+  if (!shown.length) return '<p class="form-hint" role="status">該当する絵文字はありません（検索の見せ方は案。読みの取りこぼしがあります）。</p>';
+  return `<div class="picker-grid">${shown.map((entry) => `<button type="button" class="picker-item" data-ui="picker-pick" data-key="emoji:${e(entry[0])}" aria-label="${e(entry[2])}" title="${e(entry[2])}">${e(entry[1])}</button>`).join("")}</div>`;
+}
+function renderPicker() {
+  const picker = ui.picker;
+  const tab = (id, label) =>
+    `<button type="button" role="tab" id="picker-tab-${id}" data-ui="picker-tab" data-tab="${id}" aria-selected="${picker.tab === id}" aria-controls="picker-panel" tabindex="${picker.tab === id ? 0 : -1}">${label}</button>`;
+  // nosemgrep: insecure-innerhtml, insecure-document-method 選択画面の描画。入れる文字列は、固定の一覧と e()（escapeHtml）を通した値だけで組み立てており、入力をそのまま入れない
+  pickerEl.innerHTML = `<div class="picker-head"><div role="tablist" aria-label="絵文字とスタンプ">${tab("emoji", "絵文字")}${tab("stamp", "スタンプ")}</div><button type="button" data-ui="picker-close" aria-label="選択画面を閉じる">×</button></div><div id="picker-panel" role="tabpanel" aria-labelledby="picker-tab-${picker.tab}">${picker.tab === "emoji" ? `<div class="form-field"><label for="picker-search">絵文字を探す（日本語の名前・読み）</label><input id="picker-search" type="search" autocomplete="off" value="${e(picker.query || "")}"></div>` : ""}<div id="picker-body">${pickerGridHtml()}</div></div><p class="form-hint">端末の絵文字をそのまま表示します。スタンプは仮の画像です（素材は未決定）。</p>`;
+  pickerEl.hidden = false;
+}
+function refreshPickerBody() {
+  const body = document.querySelector("#picker-body");
+  if (!body) return;
+  // nosemgrep: insecure-innerhtml, insecure-document-method 選択画面の一覧の描画。入れる文字列は、固定の一覧と e()（escapeHtml）を通した値だけで組み立てており、入力をそのまま入れない
+  body.innerHTML = pickerGridHtml();
+}
+function openPicker(element) {
+  const mode = element.dataset.mode === "composer" ? "composer" : "message";
+  const picker = { mode, tab: "emoji", query: "", openerSelector: "" };
+  if (mode === "message") {
+    const source = element.dataset.source;
+    const roomId = element.dataset.room || "";
+    ui.pickerFor = {
+      target: source === "dm" ? { source, userId: roomId } : { source, id: roomId },
+      mid: element.dataset.mid || "",
+    };
+    picker.openerSelector = `[data-ui="picker-open"][data-mid="${CSS.escape(ui.pickerFor.mid)}"]`;
+  } else {
+    ui.pickerFor = null;
+    picker.textareaId = element.closest("form")?.querySelector("textarea")?.id || "";
+    picker.openerSelector = '[data-ui="picker-open"][data-mode="composer"]';
+  }
+  ui.picker = picker;
+  renderPicker();
+  pickerEl.querySelector('[role="tab"][aria-selected="true"]')?.focus();
+}
+function closePicker(restoreFocus = false) {
+  if (!ui.picker) return;
+  const selector = ui.picker.openerSelector;
+  ui.picker = null;
+  ui.pickerFor = null;
+  pickerEl.hidden = true;
+  pickerEl.replaceChildren();
+  if (restoreFocus) document.querySelector(selector)?.focus();
+}
+function pickerPick(key) {
+  const picker = ui.picker;
+  if (!picker) return;
+  if (picker.mode === "message") {
+    const ok = ui.pickerFor ? toggleReaction(ui.pickerFor.target, ui.pickerFor.mid, key) : false;
+    closePicker(true);
+    if (ok) render();
+    return;
+  }
+  const info = reactionInfo(key);
+  const area = document.getElementById(picker.textareaId);
+  if (!info?.glyph || !area) return;
+  area.setRangeText(info.glyph, area.selectionStart, area.selectionEnd, "end");
+  area.dispatchEvent(new Event("input", { bubbles: true }));
+  closePicker(false);
+  area.focus();
+}
+pickerEl.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    return closePicker(true);
+  }
+  if (!ui.picker || !event.target.matches?.('[role="tab"]') || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  ui.picker.tab = ui.picker.tab === "emoji" ? "stamp" : "emoji";
+  renderPicker();
+  pickerEl.querySelector('[role="tab"][aria-selected="true"]')?.focus();
+});
+pickerEl.addEventListener("input", (event) => {
+  if (event.target.id !== "picker-search" || !ui.picker) return;
+  ui.picker.query = event.target.value;
+  refreshPickerBody();
+});
 function messageRows(messages, source) {
   if (!messages.length)
     return '<div class="empty-screen"><h2>まだメッセージがありません</h2><p>最初の投稿をしましょう。</p></div>';
   const readonlyCase =
-    source === "case" && getCase(state.selectedId)?.status === "archived";
+    source === "case" && (getCase(state.selectedId)?.status === "archived" || caseArchived(getCase(state.selectedId)));
   // 未参加の公開チャンネルでは本文は読めるが、リアクションは参加者だけが使える（C-94）。
   const notJoined = source === "channel" && !isChannelMember(activeChannel());
   const announce = source === "channel" && !!activeChannel()?.announce;
   const readOnlyChannel = source === "channel" && !!activeChannel()?.readOnly;
+  const roomId = source === "channel" ? ui.channelId : source === "dm" ? ui.dmUserId : state.selectedId;
   return messages
     .map(
       (message, index) =>
         message.deleted
           ? announceDeletedRow(message, index)
-          : `<article class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body"><div class="chat-meta">${personButton(message.by)}<time>${e(message.at)}</time>${message.editedAt ? '<span class="subtle">（編集済み）</span>' : ""}</div><p>${e(message.text)}</p>${announce ? announceMarks(activeChannel(), message) : ""}${attachmentList(message, source)}<div class="chat-tools">${readonlyCase ? "" : readOnlyChannel ? `<button type="button" disabled aria-label="リアクションは読み取り専用のため使えません（いいね ${message.likes || 0}人）">👍 ${message.likes || 0} 読み取り専用</button>` : notJoined ? `<button type="button" disabled aria-label="リアクションは参加すると使えます（いいね ${message.likes || 0}人）">👍 ${message.likes || 0} 参加すると使えます</button>` : `<button type="button" data-ui="reaction" data-source="${source}" data-index="${index}" aria-label="いいね ${message.likes || 0}人">👍 ${message.likes || 0}</button>`}<button type="button" data-ui="thread-open" data-source="${source}" data-index="${index}">返信 ${message.replies?.length || 0}件</button><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="${e(nameOf(message.by))}の${e(message.at)}のメッセージを整理スペースに登録">整理スペースに登録</button>${announce ? announceMenu(activeChannel(), message) : ""}</div></div></article>`,
+          : `<article class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body"><div class="chat-meta">${personButton(message.by)}<time>${e(message.at)}</time>${message.editedAt ? '<span class="subtle">（編集済み）</span>' : ""}</div>${renderMarkdown(message.text)}${announce ? announceMarks(activeChannel(), message) : ""}${attachmentList(message, source)}<div class="chat-tools">${readonlyCase ? (message.reactions?.length ? reactionBarHtml(message, source, roomId, "readonly") : "") : reactionBarHtml(message, source, roomId, readOnlyChannel ? "readonly" : notJoined ? "notJoined" : "")}<button type="button" data-ui="thread-open" data-source="${source}" data-index="${index}">返信 ${message.replies?.length || 0}件</button><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="${e(nameOf(message.by))}の${e(message.at)}のメッセージを整理スペースに登録">整理スペースに登録</button>${announce ? announceMenu(activeChannel(), message) : ""}</div></div></article>`,
     )
     .join("");
 }
+/* ---------- 添付の検査・送信前の一覧・投稿（C-126。画面上の検査と案内の再現。ファイルの中身は読まず、送らず、保存しない） ---------- */
+const ATTACH_COUNT_MAX = 10;
+// 単位はMB（10の6乗バイト）で統一する（C-126）。上限ちょうどは可（Q-78の案）。
+const ATTACH_SIZE_MAX = { image: 10000000, document: 25000000, video: 100000000 };
+// 1メッセージの合計容量。【案】（C-126）
+const ATTACH_TOTAL_MAX = 200000000;
+const ATTACH_KIND_LABEL = { image: "画像", document: "文書", video: "動画" };
+// 拡張子 → [種類, 許す MIME]。本番は中身で判定する（Q-77）。試作は、拡張子とブラウザが付けた種類（空は可）で判定する見本。
+// SVG・実行形式・圧縮ファイル（zip など）は表にないので拒否される。
+const ATTACH_EXT = {
+  jpg: ["image", ["image/jpeg"]],
+  jpeg: ["image", ["image/jpeg"]],
+  png: ["image", ["image/png"]],
+  gif: ["image", ["image/gif"]],
+  webp: ["image", ["image/webp"]],
+  pdf: ["document", ["application/pdf"]],
+  doc: ["document", ["application/msword"]],
+  docx: ["document", ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]],
+  xls: ["document", ["application/vnd.ms-excel"]],
+  xlsx: ["document", ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]],
+  ppt: ["document", ["application/vnd.ms-powerpoint"]],
+  pptx: ["document", ["application/vnd.openxmlformats-officedocument.presentationml.presentation"]],
+  txt: ["document", ["text/plain"]],
+  csv: ["document", ["text/csv", "application/vnd.ms-excel"]],
+  mp4: ["video", ["video/mp4"]],
+  webm: ["video", ["video/webm"]],
+};
+let attachSeq = 0;
+const attachExtOf = (name) => {
+  const dot = String(name).lastIndexOf(".");
+  return dot < 0 ? "" : String(name).slice(dot + 1).toLowerCase();
+};
+const attachKindOf = (name) => {
+  const ext = attachExtOf(name);
+  return Object.hasOwn(ATTACH_EXT, ext) ? ATTACH_EXT[ext][0] : null;
+};
+const sizeText = (bytes) =>
+  `${bytes >= 1000000 ? `${(bytes / 1000000).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1000))}KB`}（${bytes.toLocaleString("ja-JP")}バイト）`;
+// 添付の検査と正規化（画面と実行する関数の両方から呼ぶ）。{ error } か { value: [{ id, name, size, kind, scope?, by }] } を返す。
+// files は配列。各要素は { name, size, type, scope? }。size は有限の正の整数。scope は案件の添付（withScope）だけが持ち、
+// "public"・"restricted" のどちらか（省略は参加者限定。C-64）。呼び出し側の id・by・kind は使わず、ここで振り直す。
+function cleanAttachments(files, options = {}) {
+  if (!Array.isArray(files)) return { error: "添付の内容が正しくありません。" };
+  // 疎な配列・独自のイテレーターは拒否する。検査したコピーだけを使う。
+  files = denseList(files);
+  if (!files) return { error: "添付の内容が正しくありません。" };
+  if (!options || typeof options !== "object" || Array.isArray(options)) return { error: "添付の内容が正しくありません。" };
+  const withScope = options.withScope === true;
+  if (files.length > ATTACH_COUNT_MAX)
+    return { error: `添付は1メッセージ${ATTACH_COUNT_MAX}ファイルまでです（現在${files.length}ファイル）。` };
+  let total = 0;
+  const value = [];
+  for (const original of files) {
+    if (!original || typeof original !== "object" || Array.isArray(original)) return { error: "添付の内容が正しくありません。" };
+    // getter・Proxy で検査のあとに値が変わっても影響しないように、各値を1度だけ読んでコピーし、そのコピーを検査・合計・保存のすべてに使う。
+    const file = { name: original.name, type: original.type, size: original.size, scope: original.scope };
+    if (typeof file.name !== "string" || !file.name.trim() || /[\u0000-\u001f\u007f]/.test(file.name) || file.name.length > 255)
+      return { error: "添付のファイル名が正しくありません。" };
+    const name = file.name.trim();
+    if (typeof file.type !== "string") return { error: `「${name}」の種類が正しくありません。` };
+    if (typeof file.size !== "number" || !Number.isSafeInteger(file.size) || file.size <= 0)
+      return { error: `「${name}」のサイズが正しくありません。` };
+    const ext = attachExtOf(name);
+    if (!Object.hasOwn(ATTACH_EXT, ext))
+      return { error: `「${name}」は添付できない形式です（画像は JPEG・PNG・GIF・WebP、文書は PDF・Word・Excel・PowerPoint・テキスト・CSV、動画は MP4・WebM。SVG・実行形式・圧縮ファイルは不可）。` };
+    const [kind, mimes] = ATTACH_EXT[ext];
+    if (file.type !== "" && !mimes.includes(file.type.toLowerCase()))
+      return { error: `「${name}」はファイルの種類が拡張子と合いません。` };
+    if (file.size > ATTACH_SIZE_MAX[kind])
+      return { error: `「${name}」は${ATTACH_KIND_LABEL[kind]}の上限（${ATTACH_SIZE_MAX[kind] / 1000000}MB）を超えています（${sizeText(file.size)}）。` };
+    const item = { id: `att-${Date.now()}-${++attachSeq}`, name, size: file.size, kind, by: state.userId };
+    if (withScope) {
+      const scope = file.scope === undefined ? "restricted" : file.scope;
+      if (scope !== "public" && scope !== "restricted") return { error: `「${name}」の公開可否が正しくありません。` };
+      item.scope = scope;
+    } else if (file.scope !== undefined) return { error: "公開可否を選べるのは、案件の会話の添付だけです。" };
+    total += file.size;
+    value.push(item);
+  }
+  if (total > ATTACH_TOTAL_MAX)
+    return { error: `1メッセージの添付の合計は${ATTACH_TOTAL_MAX / 1000000}MBまでです（案。現在${sizeText(total)}）。` };
+  return { value };
+}
+// 投稿を確定する実行する関数（コンソールから呼べる）。target は { source: "channel", id }・{ source: "dm", userId }・{ source: "case", id }。
+// 保存の直前に、本文・投稿先の存在・状態・権限・添付をすべて検査し、1つでも通らなければ何も保存しない（本文だけが投稿されることはない）。
+// 保存するのは検査・正規化した値だけ。スレッドの返信は別の処理で、添付は付けられない（Q-84）。
+function postMessage(target, text, files = []) {
+  if (!target || typeof target !== "object" || Array.isArray(target)) return refuse("投稿先が正しくありません。");
+  target = { source: target.source, id: target.id, userId: target.userId };
+  if (typeof text !== "string") return refuse("メッセージは文字で入力してください。");
+  const body = text.trim();
+  if (!body) return refuse("メッセージを入力してください。");
+  if ([...body].length > 4000) return refuse("メッセージは1〜4000文字で入力してください。");
+  const cleaned = cleanAttachments(files, { withScope: target.source === "case" });
+  if (cleaned.error) return refuse(cleaned.error);
+  let list;
+  let scope;
+  let item = null;
+  if (target.source === "channel") {
+    if (typeof target.id !== "string") return refuse("投稿先が正しくありません。");
+    const channel = prototypeData.channels.find((value) => value.id === target.id);
+    if (!channel) return refuse("チャンネルが見つかりません。");
+    if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
+    if (!isChannelMember(channel)) return refuse("参加すると使えます。");
+    if (channel.readOnly) return refuse("この部署は無効化されたため、読み取り専用です。");
+    if (!canPostChannel(channel))
+      return refuse(`このチャンネルに投稿できるのは、${channel.dept}のオーナーと全体管理者だけです。`);
+    list = channel.messages;
+    scope = `channel:${channel.id}`;
+  } else if (target.source === "dm") {
+    if (typeof target.userId !== "string") return refuse("投稿先が正しくありません。");
+    const partner = employees.find((person) => person.id === target.userId);
+    if (!partner || !partner.active || partner.id === state.userId) return refuse("相手が見つかりません。");
+    list = prototypeData.dm[dmKey(state.userId, partner.id)] || [];
+    scope = `dm:${partner.id}`;
+  } else if (target.source === "case") {
+    if (typeof target.id !== "string") return refuse("投稿先が正しくありません。");
+    item = getCase(target.id);
+    if (!item) return refuse("案件が見つかりません。");
+    if (caseArchived(item)) return refuse(ARCHIVED_MESSAGE);
+    if (item.status !== "active") return refuse("終了した案件には投稿できません。");
+    if (!isMember(item)) return refuse();
+    list = item.messages;
+    scope = `case:${item.id}`;
+  } else return refuse("投稿先が正しくありません。");
+  const message = { by: state.userId, text: body, at: stamp(), replies: [] };
+  if (cleaned.value.length) message.attachments = cleaned.value;
+  if (target.source === "dm") (prototypeData.dm[dmKey(state.userId, target.userId)] ||= []).push(message);
+  else list.push(message);
+  delete ui.pendingAttachments[scope];
+  if (item) record(item, "メッセージを投稿");
+  // 下書きの消去は後始末。失敗しても、投稿の結果は変えず、失敗を記録する。
+  runCleanup("下書きの消去", scope, () => removeDraftStrict(draftKey(scope)));
+  return true;
+}
+const attachKeyOk = (key) => typeof key === "string" && /^(channel|dm|case):[A-Za-z0-9_-]+$/.test(key);
+const attachWithScope = (key) => key.startsWith("case:");
+// 送信前の添付の一覧（ファイル名・サイズ・取り消し。案件は公開可否）。入れる文字列は e() を通した値と固定のマークアップだけ。
+function attachPendingHtml(key) {
+  const list = ui.pendingAttachments[key] || [];
+  if (!list.length) return "";
+  const withScope = attachWithScope(key);
+  const problem = cleanAttachments(list, { withScope }).error;
+  const total = list.reduce((sum, file) => sum + file.size, 0);
+  const items = list
+    .map((file, index) => {
+      const kind = attachKindOf(file.name);
+      return `<li class="attach-item"><span class="attach-name">${e(file.name)}</span><span class="row-note">${kind ? e(ATTACH_KIND_LABEL[kind]) : "対象外の形式"} ・ ${e(sizeText(file.size))}</span>${withScope ? `<label class="attach-scope">公開可否 <select data-attach-scope data-key="${e(key)}" data-index="${index}"><option value="restricted" ${file.scope === "public" ? "" : "selected"}>参加者限定（初期値）</option><option value="public" ${file.scope === "public" ? "selected" : ""}>公開可能（全社員公開が承認された場合のみ）</option></select></label>` : ""}<button type="button" class="button small" data-ui="attach-remove" data-key="${e(key)}" data-index="${index}" aria-label="${e(file.name)}を取り消す">取り消し</button></li>`;
+    })
+    .join("");
+  return `<p class="form-label">送信前の添付一覧（${list.length}件・合計 ${e(sizeText(total))}）</p><ul class="attach-list">${items}</ul>${problem ? `<p class="form-error" role="alert">${e(problem)}</p>` : ""}`;
+}
+function refreshAttachPending(key) {
+  const box = document.querySelector(`#attach-pending[data-key="${CSS.escape(key)}"]`);
+  if (!box) return;
+  // nosemgrep: insecure-innerhtml, insecure-document-method 送信前の添付の一覧の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、ファイル名などの入力をそのまま入れない
+  box.innerHTML = attachPendingHtml(key);
+}
+// 入力欄の「添付」ボタンと、ファイル選択（非表示）、送信前の一覧の入れ物。
+const attachToolbarHtml = (key) =>
+  `<button type="button" class="button small" data-ui="attach-open" aria-label="ファイルを添付する">添付</button><input type="file" multiple hidden data-attach-key="${e(key)}">`;
+const attachAreaHtml = (key) =>
+  `<p class="form-hint">添付は1メッセージ${ATTACH_COUNT_MAX}ファイル・合計${ATTACH_TOTAL_MAX / 1000000}MBまで（案）。画像${ATTACH_SIZE_MAX.image / 1000000}MB・文書${ATTACH_SIZE_MAX.document / 1000000}MB・動画${ATTACH_SIZE_MAX.video / 1000000}MBまで。この試作では、ファイルの中身は送らず、保存もしません。</p><div id="attach-pending" class="attach-pending" data-key="${e(key)}" aria-live="polite">${attachPendingHtml(key)}</div>`;
+document.addEventListener("change", (event) => {
+  const el = event.target;
+  if (el.matches?.("input[type=file][data-attach-key]")) {
+    const key = el.dataset.attachKey;
+    if (!attachKeyOk(key)) return;
+    const withScope = attachWithScope(key);
+    const list = (ui.pendingAttachments[key] ||= []);
+    Array.from(el.files).forEach((file) => {
+      const entry = { name: file.name, size: file.size, type: file.type };
+      if (withScope) entry.scope = "restricted";
+      list.push(entry);
+    });
+    el.value = "";
+    refreshAttachPending(key);
+    return;
+  }
+  if (el.matches?.("select[data-attach-scope]") && attachKeyOk(el.dataset.key)) {
+    const file = (ui.pendingAttachments[el.dataset.key] || [])[Number(el.dataset.index)];
+    if (file && (el.value === "public" || el.value === "restricted")) file.scope = el.value;
+  }
+});
+// 書式の書き方の案内（入力中のプレビューはない。C-60）。
+const formatHintHtml = '<p class="form-hint">書式（案）：**太字**・*斜体*・~~取り消し線~~・`コード`・「> 」で引用・「- 」で箇条書き。URL は自動でリンクになります。入力中のプレビューはありません。「B」「i」のボタンは配置のみです。</p>';
 function composer(kind) {
   const draft = draftFor(
     kind === "channel" ? `channel:${ui.channelId}` : `dm:${ui.dmUserId}`,
   );
-  return `<form class="chat-composer" data-proto-form="chat" data-kind="${kind}"><label for="chat-text">メッセージを入力</label><textarea id="chat-text" name="text" required placeholder="メッセージを入力" data-min="1" data-max="4000" data-name="メッセージ" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<div class="composer-toolbar"><span class="inline-actions"><button type="button" disabled title="装飾は未再現">B</button><button type="button" disabled title="装飾は未再現"><i>i</i></button><button type="button" disabled title="添付は未再現">添付</button><button type="button" disabled title="メンションは未再現">@</button><button type="button" disabled title="絵文字は未再現">😀</button></span><button type="submit" class="button primary">送信</button></div></form>`;
+  const key = kind === "channel" ? `channel:${ui.channelId}` : `dm:${ui.dmUserId}`;
+  return `<form class="chat-composer" data-proto-form="chat" data-kind="${kind}"><label for="chat-text">メッセージを入力</label><textarea id="chat-text" name="text" required placeholder="メッセージを入力" data-min="1" data-max="4000" data-name="メッセージ" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}${formatHintHtml}${attachAreaHtml(key)}<div class="composer-toolbar"><span class="inline-actions"><button type="button" disabled title="装飾は未再現">B</button><button type="button" disabled title="装飾は未再現"><i>i</i></button>${attachToolbarHtml(key)}<button type="button" disabled title="メンションは未再現">@</button><button type="button" data-ui="picker-open" data-mode="composer" aria-haspopup="dialog" aria-label="絵文字・スタンプを選ぶ">😀</button></span><button type="submit" class="button primary">送信</button></div></form>`;
 }
 function channelScreen() {
   let channel = activeChannel();
@@ -1054,7 +1711,7 @@ function channelScreen() {
   return screenFrame(
     "S05",
     `# ${channel.name}`,
-    `${deptLabel(channel.dept)} ・ ${channel.announce ? "お知らせ専用 ・ " : ""}${channel.private ? "非公開" : "公開"}チャンネル${joined ? "" : " ・ 参加せずに読んでいます"}`,
+    `${deptLabel(channel.dept)} ・ ${channel.announce ? "お知らせ専用 ・ " : ""}${channel.private ? "非公開" : "公開"}チャンネル${joined ? "" : " ・ 参加せずに読んでいます"}${channel.description ? ` ／ 説明: ${channel.description}` : ""}`,
     `<details class="mobile-participants"><summary>参加者 ${channel.members.length}人</summary>${participants || "<p class=\"subtle\">参加者はまだいません</p>"}</details><div class="chat-layout">${shellCard("メッセージ", `${channel.announce ? hint("お知らせの依頼・緊急削除の申請の文言と印は案です（未決定）。") : ""}${messageRows(channel.messages, "channel")}${channel.readOnly ? readOnlyNotice : !joined ? joinNotice : canPostChannel(channel) ? composer("channel") : noPostNotice}`)}<div class="desktop-participants">${shellCard("参加者", participants || '<p class="subtle">参加者はまだいません</p>')}</div></div>`,
     (channel.private && joined
       ? protoButton(
@@ -1063,6 +1720,7 @@ function channelScreen() {
           `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に社員を招待"`,
         )
       : "") +
+      kebabHtml(`# ${channel.name}`, channelMenuItems(channel)) +
       protoButton(
         "整理スペースに登録",
         "org-add",
@@ -1085,7 +1743,7 @@ function dmScreen() {
           .filter((person) => person.active && person.id !== state.userId)
           .map(
             (person) =>
-              `<div class="person-card" data-name="${e(person.name)}"><div>${personButton(person.id)}<p>${e(deptOf(person))} ・ ${e(person.status || "在席")}</p></div>${protoButton("DMを送る", "dm", `data-user="${person.id}"`)}</div>`,
+              `<div class="person-card" data-name="${e(person.name)}"><div>${personButton(person.id)}<p>${e(deptOf(person))} ・ ${e(statusText(person))}</p></div>${protoButton("DMを送る", "dm", `data-user="${person.id}"`)}</div>`,
           )
           .join("")}</div><p id="dm-search-empty" class="subtle" hidden>該当する社員がいません。</p>`,
       ),
@@ -1095,7 +1753,7 @@ function dmScreen() {
   return screenFrame(
     "S06",
     `@ ${partner.name}`,
-    `${deptOf(partner)} ・ ${partner.status || "在席"} ・ 戻り予定: なし`,
+    `${deptOf(partner)} ・ ${partner.status || "在席"} ・ 戻り予定: ${partner.returnAt && partner.status !== "在席" ? partner.returnAt : "なし"}`,
     shellCard(
       "1対1のやり取り",
       `${messageRows(messages, "dm")}${composer("dm")}`,
@@ -1118,7 +1776,7 @@ function threadMessages(thread) {
   );
 }
 const threadDraftScope = (thread) =>
-  `thread:${thread.source}:${thread.caseId || thread.channelId || thread.partnerId}:${threadMessages(thread).indexOf(thread.message)}`;
+  `thread:${thread.source}:${thread.source === "case" ? thread.caseId : thread.source === "channel" ? thread.channelId : thread.partnerId}:${threadMessages(thread).indexOf(thread.message)}`;
 function renderThread() {
   const panel = document.querySelector("#thread-panel");
   const thread = ui.thread;
@@ -1136,7 +1794,7 @@ function renderThread() {
   const draft = draftFor(threadDraftScope(thread));
   panel.dataset.screenId = "S-07";
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
-  panel.innerHTML = `<div class="thread-header"><strong>S-07 スレッド</strong><button type="button" data-ui="thread-close" aria-label="スレッドを閉じる">×</button></div><div class="thread-scroll"><p class="thread-label">${e(thread.label || "")}</p><p class="side-caption">元のメッセージ</p><div class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body">${personButton(message.by)}${message.deleted ? '<p class="deleted-note">削除されました</p>' : `<p>${e(message.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="元のメッセージを整理スペースに登録">整理スペースに登録</button></div>`}</div></div><h3>返信 ${message.replies?.length || 0}件</h3>${message.replies?.length ? message.replies.map((reply) => `<div class="thread-reply" data-mid="${e(midOf(reply))}"><strong>${e(nameOf(reply.by))}</strong> <time>${e(reply.at || "")}</time><p>${e(reply.text)}</p><div class="chat-tools"><button type="button" data-ui="org-add" data-kind="reply" data-ref="${e(midOf(reply))}" aria-label="${e(nameOf(reply.by))}の${e(reply.at || "")}の返信を整理スペースに登録">整理スペースに登録</button></div></div>`).join("") : '<p class="subtle">まだ返信がありません。</p>'}</div>${canReply ? `<form class="thread-form" data-proto-form="reply"><label for="reply-text">返信を入力</label><textarea id="reply-text" name="text" required data-min="1" data-max="4000" data-name="返信" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<button type="submit" class="button primary">返信する</button></form>` : `<p class="prototype-hint">${message.deleted ? "削除された投稿には返信できません。" : thread.source === "channel" ? (prototypeData.channels.find((item) => item.id === thread.channelId)?.readOnly ? "この部署は無効化されたため、読み取り専用です。" : "参加すると返信できます。") : "読み取り専用です。"}</p>`}`;
+  panel.innerHTML = `<div class="thread-header"><strong>S-07 スレッド</strong><button type="button" data-ui="thread-close" aria-label="スレッドを閉じる">×</button></div><div class="thread-scroll"><p class="thread-label">${e(thread.label || "")}</p><p class="side-caption">元のメッセージ</p><div class="chat-message" data-mid="${e(midOf(message))}"><div class="message-avatar">${e(nameOf(message.by).slice(-2))}</div><div class="chat-body">${personButton(message.by)}${message.deleted ? '<p class="deleted-note">削除されました</p>' : `${renderMarkdown(message.text)}<div class="chat-tools"><button type="button" data-ui="org-add" data-kind="message" data-ref="${e(midOf(message))}" aria-label="元のメッセージを整理スペースに登録">整理スペースに登録</button></div>`}</div></div><h3>返信 ${message.replies?.length || 0}件</h3>${message.replies?.length ? message.replies.map((reply) => `<div class="thread-reply" data-mid="${e(midOf(reply))}"><strong>${e(nameOf(reply.by))}</strong> <time>${e(reply.at || "")}</time>${renderMarkdown(reply.text)}<div class="chat-tools"><button type="button" data-ui="org-add" data-kind="reply" data-ref="${e(midOf(reply))}" aria-label="${e(nameOf(reply.by))}の${e(reply.at || "")}の返信を整理スペースに登録">整理スペースに登録</button></div></div>`).join("") : '<p class="subtle">まだ返信がありません。</p>'}</div>${canReply ? `<form class="thread-form" data-proto-form="reply"><label for="reply-text">返信を入力</label><textarea id="reply-text" name="text" required data-min="1" data-max="4000" data-name="返信" data-draft-key="${e(draft.key)}">${e(draft.text)}</textarea>${draftNote(draft)}<button type="submit" class="button primary">返信する</button></form>` : `<p class="prototype-hint">${message.deleted ? "削除された投稿には返信できません。" : thread.source === "channel" ? (prototypeData.channels.find((item) => item.id === thread.channelId)?.readOnly ? "この部署は無効化されたため、読み取り専用です。" : "参加すると返信できます。") : "読み取り専用です。"}</p>`}`;
 }
 function renderReauthDemo() {
   // nosemgrep: insecure-innerhtml, insecure-document-method プロトタイプの画面の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、利用者の入力をそのまま入れない
@@ -1194,7 +1852,7 @@ function channelDirectoryScreen() {
     const dedicated = channel.dept !== COMPANY && channel.name === channel.dept;
     // お知らせ専用の区別の出し方は未決定（screens.md S-09）。ここでは案として文字のタグを付ける。
     const tag = channel.announce ? "（お知らせ専用）" : dedicated ? "（部署の専用チャンネル）" : "";
-    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${locationBadge(channel.dept)}${tag} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p></div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
+    return `<div class="directory-row" data-channel-name="${e(channel.name)}"><div><strong># ${e(channel.name)}</strong><p class="subtle">${e(deptLabel(channel.dept))}${locationBadge(channel.dept)}${tag} ・ ${channel.private ? "非公開" : "公開"} ・ ${channel.members.length}人が参加 ・ ${joined ? "参加済み" : "未参加（参加せずに読めます）"}</p>${channel.description ? `<p class="subtle">説明: ${e(channel.description)}</p>` : ""}</div><div class="inline-actions">${protoButton(joined ? "開く" : "読む", "channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を${joined ? "開く" : "参加せずに読む"}"`)}${joined ? "" : protoButton("参加する", "join-channel", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}に参加する"`)}</div></div>`;
   };
   return screenFrame(
     "S09",
@@ -1207,15 +1865,275 @@ function channelDirectoryScreen() {
     ),
   );
 }
+/* ---------- 「⋯」メニュー・S-39 チャンネル管理・S-40 案件管理（C-131。#99 段階2）---------- */
+// どの入口（ヘッダー・S-39・S-40・S-38）も、既存のダイアログと実行する関数だけを呼ぶ（新しい実行経路は作らない）。項目は既存の権限関数で出し分ける。
+// メッセージ・TODO・説明（非参加の案件）は出さない（C-131(4)）。物理削除は置かない（S-38 だけ）。右クリックの処理は足さない。
+function menuItemHtml(item) {
+  const trigger = item.action ? `data-action="${e(item.action)}"` : `data-ui="${e(item.ui)}"`;
+  return `<button type="button" role="menuitem" ${trigger} data-id="${e(item.id)}"${item.kind ? ` data-kind="${e(item.kind)}"` : ""}>${e(item.text)}</button>`;
+}
+// items が空のときは「⋯」を出さない。label は読み上げ用（対象の名前）。
+function kebabHtml(label, items) {
+  if (!items.length) return "";
+  return `<span class="kebab"><button type="button" class="button small" data-ui="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="${e(label)}の操作">⋯</button><div class="kebab-menu" role="menu" hidden>${items.map(menuItemHtml).join("")}</div></span>`;
+}
+function channelMenuItems(channel) {
+  const items = [];
+  if (canRenameChannel(channel)) items.push({ ui: "channel-manage", id: channel.id, text: "名前・説明を編集" });
+  else if (canDescribeChannel(channel)) items.push({ ui: "channel-manage", id: channel.id, text: "説明を編集" });
+  if (canArchiveChannel(channel)) items.push({ action: "archive-open", id: channel.id, kind: "channel", text: "アーカイブ" });
+  if (canRestoreChannel(channel)) items.push({ ui: "archive-restore", id: channel.id, kind: "channel", text: "復元" });
+  return items;
+}
+function caseMenuItems(item, editText = "編集") {
+  const items = [];
+  if (canEditCase(item)) items.push({ action: "edit-case", id: item.id, text: editText });
+  if (canChangeDue(item)) items.push({ ui: "case-due-open", id: item.id, text: "納期を変更" });
+  if (canArchiveCase(item)) items.push({ action: "archive-open", id: item.id, kind: "case", text: "アーカイブ" });
+  if (canRestoreCase(item)) items.push({ ui: "archive-restore", id: item.id, kind: "case", text: "復元" });
+  if (canViewArchivedCase(item) && !(state.page === "S17" && state.selectedId === item.id)) items.push({ ui: "case-open", id: item.id, text: "中身を見る（全体管理者）" });
+  return items;
+}
+function closeKebabs() {
+  document.querySelectorAll(".kebab-menu:not([hidden])").forEach((menu) => {
+    menu.hidden = true;
+    menu.previousElementSibling?.setAttribute("aria-expanded", "false");
+  });
+}
+// 「⋯」を開いた入口（見出し・S-39・S-40 の行）。ダイアログを閉じて再描画したあと、フォーカスをそこへ戻すために覚える（画面を移動したら忘れる）。
+function refocusMenuOrigin() {
+  const origin = ui.menuOrigin;
+  if (!origin) return;
+  const toggle = document.querySelector(`${origin.selector} [data-ui="menu-toggle"]`);
+  if (toggle && toggle.offsetParent !== null) return toggle.focus();
+  // 行が消えたとき（担当部署の変更・アーカイブなど）は、一覧の検索欄か、画面へ戻す。
+  const fallback = document.querySelector("#caadm-search, #chadm-search");
+  if (fallback) return fallback.focus();
+  screen.focus();
+}
+function toggleKebab(button) {
+  const row = button.closest("[data-admin-case], [data-admin-channel]");
+  ui.menuOrigin = {
+    selector: row
+      ? row.hasAttribute("data-admin-case")
+        ? `[data-admin-case="${CSS.escape(row.getAttribute("data-admin-case"))}"]`
+        : `[data-admin-channel="${CSS.escape(row.getAttribute("data-admin-channel"))}"]`
+      : ".heading-actions",
+  };
+  const menu = button.nextElementSibling;
+  const willOpen = menu?.hidden;
+  closeKebabs();
+  if (!menu || !willOpen) return;
+  menu.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  menu.querySelector('[role="menuitem"]')?.focus();
+}
+// 項目を押したときは、先にメニューを閉じて「⋯」のボタンへフォーカスを戻す（ダイアログを閉じたあとの戻り先にする）。メニューの外を押したときも閉じる。
+window.addEventListener(
+  "click",
+  (event) => {
+    const item = event.target.closest?.('[role="menuitem"]');
+    if (item) {
+      const toggle = item.closest(".kebab")?.querySelector('[data-ui="menu-toggle"]');
+      closeKebabs();
+      toggle?.focus();
+      return;
+    }
+    if (!event.target.closest?.(".kebab")) closeKebabs();
+  },
+  true,
+);
+document.addEventListener("keydown", (event) => {
+  const open = document.querySelector(".kebab-menu:not([hidden])");
+  if (!open) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    const toggle = open.previousElementSibling;
+    closeKebabs();
+    toggle?.focus();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const items = [...open.querySelectorAll('[role="menuitem"]')];
+    const index = items.indexOf(document.activeElement);
+    if (index < 0) return;
+    event.preventDefault();
+    items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+  }
+});
+const ADMIN_STATE_FILTERS = {
+  channel: [["all", "すべて"], ["active", "有効"], ["archived", "アーカイブ中"]],
+  case: [["all", "すべて"], ["active", "進行中"], ["ended", "終了"], ["archived", "アーカイブ中"]],
+};
+// S-39：全体管理者は全チャンネル、オーナーは自部署のチャンネル。案件専用チャンネルは出さない（案。Q-104）。名前の検索と、状態（有効／アーカイブ中）の絞り込み。
+function visibleAdminChannels() {
+  const term = compareKey(ui.chAdmQuery);
+  return prototypeData.channels
+    .filter((channel) => adminOnly() || ownsDept(channel.dept))
+    .filter((channel) => ui.chAdmState === "all" || (ui.chAdmState === "archived") === chArchived(channel))
+    .filter((channel) => !term || compareKey(channel.name).includes(term));
+}
+function channelAdminResultsHtml() {
+  const shown = visibleAdminChannels();
+  const rows = shown
+    .map(
+      (channel) =>
+        `<tr data-admin-channel="${e(channel.id)}"><td data-label="名前"># ${e(channel.name)}</td><td data-label="説明">${e(channel.description || "なし")}</td><td data-label="種類">${e(CHANNEL_KIND_LABEL[channelKind(channel)])}（${e(deptLabel(channel.dept))}）</td><td data-label="公開範囲">${channel.private ? "非公開" : "公開"}</td><td data-label="参加者">${channel.members.length}人</td><td data-label="状態">${chArchived(channel) ? '<span class="badge shelved">アーカイブ中</span>' : "有効"}</td><td data-label="操作">${kebabHtml(`# ${channel.name}`, channelMenuItems(channel)) || '<span class="subtle">操作なし</span>'}</td></tr>`,
+    )
+    .join("");
+  return `${shown.length ? `<table class="client-table"><caption class="visually-hidden">チャンネルの一覧</caption><thead><tr><th scope="col">名前</th><th scope="col">説明</th><th scope="col">種類</th><th scope="col">公開範囲</th><th scope="col">参加者</th><th scope="col">状態</th><th scope="col">操作</th></tr></thead><tbody>${rows}</tbody></table>` : '<p id="chadm-empty">該当するチャンネルはありません。</p>'}<p class="form-hint" role="status">${shown.length}件を表示</p>`;
+}
+function refreshChannelAdmin() {
+  const box = document.querySelector("#chadm-results");
+  if (!box) return;
+  // nosemgrep: insecure-innerhtml, insecure-document-method チャンネル管理の一覧の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、名前・説明などの入力をそのまま入れない
+  box.innerHTML = channelAdminResultsHtml();
+}
+function channelAdminScreen() {
+  return screenFrame(
+    "S39",
+    "チャンネル管理",
+    adminOnly()
+      ? "全体管理者は、全チャンネルを管理できます（案件専用チャンネルは出しません。案）。メッセージの中身は出しません。"
+      : "オーナーは、自部署のチャンネルを管理できます。メッセージの中身は出しません。",
+    shellCard(
+      "チャンネルの一覧",
+      `<div class="directory-toolbar"><div class="form-field"><label for="chadm-search">名前で検索</label><input id="chadm-search" type="search" autocomplete="off" value="${e(ui.chAdmQuery)}"></div>${selectField("状態", "chadm-state", ADMIN_STATE_FILTERS.channel, ui.chAdmState)}</div><div id="chadm-results">${channelAdminResultsHtml()}</div>`,
+    ) +
+      hint("列・並び順・ページ送り・スマートフォンでの見え方・「⋯」の項目の並びは案です（未決定。Q-105）。物理削除はアーカイブ画面（S-38）だけにあります。"),
+  );
+}
+// S-40：全体管理者は全件、オーナーは自部署が担当部署の一つである案件。件名・番号の検索と、状態（進行中／終了／アーカイブ中）の絞り込み。説明・メッセージ・TODO は出さない。
+const caseAdminState = (item) => (caseArchived(item) ? "archived" : item.status === "active" ? "active" : "ended");
+function visibleAdminCases() {
+  const term = compareKey(ui.caAdmQuery);
+  return state.cases
+    .filter((item) => adminOnly() || ownsAnyDept(item.departments))
+    .filter((item) => ui.caAdmState === "all" || caseAdminState(item) === ui.caAdmState)
+    .filter((item) => !term || compareKey(item.title).includes(term) || caseNoMatches(item, ui.caAdmQuery));
+}
+function caseAdminResultsHtml() {
+  const shown = visibleAdminCases();
+  const stateLabel = { active: "進行中", ended: "終了", archived: "アーカイブ中" };
+  const rows = shown
+    .map(
+      (item) =>
+        `<tr data-admin-case="${e(item.id)}"><td data-label="案件番号"><span class="case-id">${e(item.no)}</span></td><td data-label="件名">${e(item.title)}</td><td data-label="取引先">${e(clientLabelOf(item.clientCode))}</td><td data-label="担当部署">${e(deptsText(item))}</td><td data-label="状態">${caseArchived(item) ? '<span class="badge shelved">アーカイブ中</span>' : e(stateLabel[caseAdminState(item)])}</td><td data-label="納期">${dueText(item.due) ? e(dueText(item.due)) : "なし"}</td><td data-label="参加者">${item.members.length}人</td><td data-label="操作">${kebabHtml(item.no, caseMenuItems(item, isMember(item) ? "案件を編集" : "案件を編集（管理者）")) || '<span class="subtle">操作なし</span>'}</td></tr>`,
+    )
+    .join("");
+  return `${shown.length ? `<table class="client-table"><caption class="visually-hidden">案件の一覧</caption><thead><tr><th scope="col">案件番号</th><th scope="col">件名</th><th scope="col">取引先</th><th scope="col">担当部署</th><th scope="col">状態</th><th scope="col">納期</th><th scope="col">参加者</th><th scope="col">操作</th></tr></thead><tbody>${rows}</tbody></table>` : '<p id="caadm-empty">該当する案件はありません。</p>'}<p class="form-hint" role="status">${shown.length}件を表示</p>`;
+}
+function refreshCaseAdmin() {
+  const box = document.querySelector("#caadm-results");
+  if (!box) return;
+  // nosemgrep: insecure-innerhtml, insecure-document-method 案件管理の一覧の描画。入れる文字列は、固定のマークアップと e()（escapeHtml）を通した値だけで組み立てており、件名などの入力をそのまま入れない
+  box.innerHTML = caseAdminResultsHtml();
+}
+function caseAdminScreen() {
+  return screenFrame(
+    "S40",
+    "案件管理",
+    adminOnly()
+      ? "全体管理者は、全件の案件を管理できます。説明・メッセージ・TODO は出しません。"
+      : "オーナーは、自部署が担当部署の一つである案件を管理できます。説明・メッセージ・TODO は出しません。",
+    shellCard(
+      "案件の一覧",
+      `<div class="directory-toolbar"><div class="form-field"><label for="caadm-search">件名・案件番号で検索</label><input id="caadm-search" type="search" autocomplete="off" value="${e(ui.caAdmQuery)}"></div>${selectField("状態", "caadm-state", ADMIN_STATE_FILTERS.case, ui.caAdmState)}</div><div id="caadm-results">${caseAdminResultsHtml()}</div>`,
+    ) +
+      hint("列・並び順・ページ送り・スマートフォンでの見え方・「⋯」の項目の並びは案です（未決定。Q-105）。担当部署での絞り込みは作っていません（Q-101）。物理削除はアーカイブ画面（S-38）だけにあります。"),
+  );
+}
+// アーカイブ画面 S-38（C-123・C-124）。見出しで「アーカイブしたチャンネル」「アーカイブした案件」に分ける（見出しの細部は案）。
+// 全体管理者は全件、オーナーは自部署の範囲のアーカイブ済みすべて。中身は出さない（Q-70の案）。
+// 並び順は、アーカイブした日時の新しい順（案）。絞り込みは作らない（未決定）。
+function archivedItems() {
+  // 全体管理者は全件、オーナーは自部署の範囲のすべて（誰がアーカイブしたものでも。チャンネルは自部署、案件は担当部署のどれか。C-132(3)）。
+  const mine = (target, owns) => adminOnly() || owns;
+  const byNew = (a, b) => b.deletedAt - a.deletedAt;
+  return {
+    channels: prototypeData.channels.filter((channel) => chArchived(channel) && mine(channel, ownsDept(channel.dept))).sort(byNew),
+    cases: state.cases.filter((item) => caseArchived(item) && mine(item, ownsAnyDept(item.departments))).sort(byNew),
+  };
+}
+function archiveScreen() {
+  const { channels, cases } = archivedItems();
+  const meta = (target) =>
+    `アーカイブした人: ${e(nameOf(target.deletedBy))} ・ ${e(archiveTime(target.deletedAt))} ・ 理由: ${target.deleteReason ? e(target.deleteReason) : "なし"}`;
+  const channelRow = (channel) =>
+    `<div class="directory-row" data-archived-channel="${e(channel.id)}"><div><strong># ${e(channel.name)}</strong> <span class="badge shelved">アーカイブ済み</span><p class="subtle">チャンネル ・ ${e(deptLabel(channel.dept))} ・ 参加者${channel.members.length}人</p><p class="subtle">${meta(channel)}</p></div><div class="inline-actions">${canRestoreChannel(channel) ? protoButton("復元", "archive-restore", `data-kind="channel" data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を復元"`) : ""}${canPurge(channel) ? protoButton("物理削除", "archive-purge", `data-kind="channel" data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を物理削除"`) : ""}</div></div>`;
+  const caseRow = (item) =>
+    `<div class="directory-row" data-archived-case="${e(item.id)}"><div><strong><span class="case-id">${e(item.no)}</span>${e(item.title)}</strong> <span class="badge shelved">アーカイブ済み</span><p class="subtle">案件 ・ ${e(deptsText(item))} ・ 取引先 ${e(clientLabelOf(item.clientCode))} ・ ${e(caseStatusLabel(item))} ・ 参加者${item.members.length}人</p><p class="subtle">${meta(item)}</p></div><div class="inline-actions">${canViewArchivedCase(item) ? protoButton("中身を見る", "case-open", `data-id="${e(item.id)}" aria-label="${e(item.no)}の中身を見る"`) : ""}${canRestoreCase(item) ? protoButton("復元", "archive-restore", `data-kind="case" data-id="${e(item.id)}" aria-label="${e(item.no)}を復元"`) : ""}${canPurge(item) ? protoButton("物理削除", "archive-purge", `data-kind="case" data-id="${e(item.id)}" aria-label="${e(item.no)}を物理削除"`) : ""}</div></div>`;
+  const none = '<p class="empty-note" role="status">アーカイブしたものはありません</p>';
+  return screenFrame(
+    "S38",
+    "アーカイブ（案）",
+    "アーカイブしたチャンネルと案件を確認し、復元できます。中身（メッセージ・TODOなど）は出しません（案件の中身は、強制参加の全体管理者だけが「中身を見る」で読み取り専用で見られます）。物理削除は全体管理者だけで、元に戻せません。",
+    shellCard("アーカイブしたチャンネル", channels.length ? channels.map(channelRow).join("") : none) +
+      shellCard("アーカイブした案件", cases.length ? cases.map(caseRow).join("") : none) +
+      hint("見出し・並び順（新しい順）・文言は案です（未決定）。絞り込みは作っていません。全体管理者は全件、オーナーは自部署の範囲のアーカイブ済みすべてが出ます。"),
+  );
+}
 // チャンネル名の使用可能文字（C-117(1)、V-25）。「日本語」の範囲は未定義のため、判定は案（Q-1）。
 const channelNameCharsOk = (name) =>
   /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}ー々〆a-zA-Z0-9０-９Ａ-Ｚａ-ｚ_-]+$/u.test(name);
+// チャンネル名の検査（整形済みの名前を渡す）。問題がなければ空文字、あれば理由を返す。チャンネル名の申請と、名前の変更で共通。
+// 重複は、既存のチャンネル（アーカイブしたものを含む。物理削除すると配列から消えるので比較に入らない）と、承認待ちの申請の名前と比べる。
+// exceptId は、名前を変えるチャンネル自身（自分の名前とは比べない）。
+function channelNameProblem(name, exceptId = null) {
+  if (typeof name !== "string" || !name) return "チャンネル名を入力してください。";
+  if ([...name].length > 50) return "チャンネル名は1〜50文字で入力してください（整形後の文字数）。";
+  if (!channelNameCharsOk(name))
+    return "使えない文字が含まれています（使えるのは、日本語・英数字・ハイフン・アンダースコア）。";
+  const taken =
+    prototypeData.channels.some((channel) => channel.id !== exceptId && compareKey(channel.name) === compareKey(name)) ||
+    prototypeData.channelRequests.some(
+      (request) => request.status === "pending" && compareKey(request.name) === compareKey(name),
+    );
+  if (taken)
+    return "同じ名前のチャンネル（または承認待ちの申請）が会社内にあります（大文字・小文字の違いは区別しません。アーカイブしたチャンネルも含みます）。";
+  return "";
+}
 // 案件作成の申請の入力の検査と正規化（画面の送信と実行する関数の両方から呼ぶ）。{ error } か { value } を返す。
 // 保存する値は、ここで検査・正規化した値だけを使う。文字列でない値は、未指定として許す項目（納期・説明・参加候補・再申請元）の
 // undefined・null を除いて拒否する。件名は整形後の文字数、担当部署は一般社員・オーナーが自部署のみ・全体管理者は有効な全部署、
 // 取引先は有効なもの、納期は存在する日付で今日（日本時間）以降。
-function cleanCaseRequest(values) {
-  if (!values || typeof values !== "object" || Array.isArray(values)) return { error: "申請の内容が正しくありません。" };
+// 件名と説明の検査と正規化（申請と案件の再編集の両方から呼ぶ。C-122）。{ error } か { value: { title, changed, description } } を返す。
+// 件名は文字列で、整形後1〜100文字。説明は未指定（undefined・null）なら空、指定するなら文字列で前後の空白を除いて2000文字以内。
+// 文字列の配列を検査して、コピーを返す。配列でない・要素が文字列でない（疎な配列の空きを含む）ときは null。
+// 疎な配列・独自のイテレーター・継承した添字（Array.prototype に定義した値）を受理しないように、length を1度だけ取得し、
+// 各添字が自身のプロパティとして存在するか（Object.hasOwn）を確かめてから、値を1度だけ読んでコピーする。Array.from・スプレッドは使わない。
+function denseList(value) {
+  if (!Array.isArray(value)) return null;
+  // length は1度だけ読み、数値・安全な整数・配列として取りうる範囲かを検査する（Proxy・valueOf で比較のたびに変わる値や NaN・負・小数・文字列を拒否）。
+  // 以降は、このローカルの数値だけを使い、再取得・型変換をしない。
+  const length = value.length;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 || length > 0xffffffff) return null;
+  const copy = [];
+  for (let index = 0; index < length; index += 1) {
+    if (!Object.hasOwn(value, index)) return null;
+    copy.push(value[index]);
+  }
+  return copy;
+}
+function denseStrings(value) {
+  const copy = denseList(value);
+  return copy && copy.every((item) => typeof item === "string") ? copy : null;
+}
+// 担当部署（配列）の検査と正規化。{ error } か { value: 新しい配列 } を返す。密な文字列の配列（疎な配列の空きは拒否）・重複は1つにまとめる・
+// 1件以上・すべて有効な部署（完全一致）。誰でも全部署から選べる（C-132(1)）。保存には、ここが返したコピーだけを使う。
+function cleanDepartments(list) {
+  const copy = denseStrings(list);
+  if (!copy) return { error: "担当部署の指定が正しくありません。" };
+  const value = [...new Set(copy)];
+  if (!value.length) return { error: "担当部署を1つ以上選んでください。" };
+  const valid = departmentNames();
+  if (value.some((name) => !valid.includes(name))) return { error: "担当部署には、有効な部署を選んでください。" };
+  return { value };
+}
+function cleanCaseText(values) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return { error: "入力の内容が正しくありません。" };
+  // 各値を1度だけ読んでコピーし、検査と保存に同じ値を使う（getter・Proxy で値が変わる入力への対策）。
+  values = { title: values.title, description: values.description };
   const missing = (v) => v === undefined || v === null;
   if (typeof values.title !== "string") return { error: "件名を入力してください。" };
   const title = normalizeInput(values.title);
@@ -1224,32 +2142,50 @@ function cleanCaseRequest(values) {
   if (!missing(values.description) && typeof values.description !== "string") return { error: "説明は文字で入力してください。" };
   const description = missing(values.description) ? "" : values.description.trim();
   if ([...description].length > 2000) return { error: "説明は2000文字以内で入力してください。" };
+  return { value: { title, changed: values.title.trim() !== title, description } };
+}
+function cleanCaseRequest(values) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return { error: "申請の内容が正しくありません。" };
+  // 各値を1度だけ読んでコピーし、検査と保存に同じ値を使う。
+  values = {
+    title: values.title,
+    description: values.description,
+    due: values.due,
+    legacyDepartment: values.department,
+    departments: values.departments,
+    clientCode: values.clientCode,
+    candidates: values.candidates,
+    previous: values.previous,
+    draftKey: values.draftKey,
+  };
+  const missing = (v) => v === undefined || v === null;
+  const text = cleanCaseText(values);
+  if (text.error) return text;
+  const { title, description } = text.value;
   if (!missing(values.due) && typeof values.due !== "string") return { error: "納期は日付で入力してください。" };
   const due = missing(values.due) ? "" : values.due.trim();
   if (due && !isRealDate(due)) return { error: "納期は日付で入力してください。" };
   if (due && due < todayText()) return { error: "今日以降の日付を選んでください。" };
-  if (
-    typeof values.department !== "string" ||
-    (currentUser().role !== "admin" && values.department !== currentUser().department) ||
-    !departmentNames().includes(values.department)
-  )
-    return { error: "担当部署を選んでください（一般社員は自部署のみ）。" };
+  // 旧形式（department の文字列）は拒否する。担当部署は departments（配列）で指定する。
+  if (values.legacyDepartment !== undefined) return { error: "担当部署は departments で指定してください。" };
+  const depts = cleanDepartments(values.departments);
+  if (depts.error) return depts;
   if (typeof values.clientCode !== "string" || !clientByCode(values.clientCode)?.active)
     return { error: "取引先を一覧から選んでください。" };
-  if (!missing(values.candidates) && (!Array.isArray(values.candidates) || values.candidates.some((id) => typeof id !== "string")))
-    return { error: "参加候補が正しくありません。" };
-  const candidates = (values.candidates || []).filter(
+  const candidateList = missing(values.candidates) ? [] : denseStrings(values.candidates);
+  if (!candidateList) return { error: "参加候補が正しくありません。" };
+  const candidates = candidateList.filter(
     (id) => id !== state.userId && employees.some((person) => person.id === id && person.active),
   );
   if (!missing(values.previous) && typeof values.previous !== "string") return { error: "再申請の元が正しくありません。" };
   return {
     value: {
       title,
-      changed: values.title.trim() !== title,
+      changed: text.value.changed,
       clientCode: values.clientCode,
       due,
       description,
-      department: values.department,
+      departments: depts.value,
       candidates: [...new Set(candidates)],
       previous: values.previous || null,
       draftKey: typeof values.draftKey === "string" ? values.draftKey : undefined,
@@ -1278,7 +2214,7 @@ function createCaseRequest(values) {
     due: clean.due,
     description: clean.description,
     caseNo: "",
-    department: clean.department,
+    departments: [...clean.departments],
     applicant: state.userId,
     candidates: clean.candidates,
     added: [],
@@ -1287,7 +2223,7 @@ function createCaseRequest(values) {
     previous: previous?.id || null,
   });
   // 申請を送ったら、説明の下書きを消す。
-  removeDraft(clean.draftKey);
+  runCleanup("下書きの消去", "案件の申請", () => removeDraftStrict(clean.draftKey));
   state.reapplySource = null;
   state.caseTab = "my";
   proceedTo("S16");
@@ -1339,7 +2275,7 @@ function channelApprovalsScreen() {
 }
 // 招待は通常チャンネルだけ。再認証して確定すると同時に参加者へ追加する（C-51）。部署への招待・申込・許可は設けない（C-37）。
 function invitableChannels() {
-  return prototypeData.channels.filter(isChannelMember);
+  return prototypeData.channels.filter((channel) => isChannelMember(channel) && !chArchived(channel));
 }
 function invitationScreen() {
   const channels = invitableChannels();
@@ -1413,10 +2349,10 @@ function departmentManageScreen() {
       `<div class="guide-grid">${shellCard("メンバー", members)}${shellCard(
         "チャンネル",
         prototypeData.channels
-          .filter((channel) => channel.dept === dept)
+          .filter((channel) => channel.dept === dept && !chArchived(channel))
           .map(
             (channel) =>
-              `<div class="directory-row"># ${e(channel.name)} <span>${channel.private ? "非公開" : "公開"}</span></div>`,
+              `<div class="directory-row"># ${e(channel.name)} <span>${channel.private ? "非公開" : "公開"}</span>${canRenameChannel(channel) || canDescribeChannel(channel) ? protoButton("管理", "channel-manage", `data-id="${e(channel.id)}" aria-label="# ${e(channel.name)}を管理"`) : ""}</div>`,
           )
           .join("") + protoButton("共通フォルダを管理", "go", 'data-page="S32"'),
       )}</div>` +
@@ -1444,7 +2380,7 @@ function notificationsScreen() {
 // 案件の内容（メッセージ・TODO・添付名）を検索できるのは参加者と、公開済みアーカイブの閲覧者だけ（5-1 AC-12）。
 // 審査用の一時閲覧では検索させない。
 const canSearchContent = (item) =>
-  isMember(item) || (item.status === "archived" && item.visibility === "public");
+  !caseArchived(item) && (isMember(item) || (item.status === "archived" && item.visibility === "public"));
 function caseSearchHits(item, has) {
   if (!canSearchContent(item)) return [];
   const hits = [];
@@ -1480,6 +2416,7 @@ function searchScreen() {
         .map((message) => ({ channel, message })),
     );
   const cases = state.cases
+    .filter((item) => !caseArchived(item))
     .map((item) => ({
       item,
       meta:
@@ -1490,7 +2427,7 @@ function searchScreen() {
     }))
     .filter((hit) => hit.meta || hit.inner.length);
   const caseCard = ({ item, inner }) =>
-    `<div class="directory-row search-case"><div><strong><span class="case-id">${e(item.no)}</span>${e(item.title)}</strong><p class="subtle">取引先: ${e(clientLabelOf(item.clientCode))} ・ ${e(item.department)} ・ ${e(caseStatusLabel(item))} ・ 進捗 ${progressHtml(item)} ・ 納期 ${item.due ? e(item.due) : "なし"}</p>${inner.length ? `<ul class="search-inner" aria-label="${e(item.title)}の一致した内容">${inner.map((hit) => `<li><span class="badge archived">${e(hit.type)}</span> ${e(hit.text.slice(0, 60))}${hit.mid ? ` <button type="button" class="button small" data-ui="case-msg-open" data-id="${e(item.id)}" data-mid="${e(hit.mid)}" aria-label="${e(item.title)}の該当の投稿を開く">投稿を開く</button><button type="button" class="button small" data-ui="org-add" data-kind="message" data-ref="${e(hit.mid)}" aria-label="該当の投稿を整理スペースに登録">整理スペースに登録</button>` : ""}</li>`).join("")}</ul>` : ""}</div><div class="inline-actions">${protoButton("概要を開く", "case-open", `data-id="${e(item.id)}"`)}${canSeeContent(item) ? protoButton("整理スペースに登録", "org-add", `data-kind="case" data-ref="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}を整理スペースに登録"`) : ""}</div></div>`;
+    `<div class="directory-row search-case"><div><strong><span class="case-id">${e(item.no)}</span>${e(item.title)}</strong><p class="subtle">取引先: ${e(clientLabelOf(item.clientCode))} ・ ${e(deptsText(item))} ・ ${e(caseStatusLabel(item))} ・ 進捗 ${progressHtml(item)} ・ 納期 ${dueText(item.due) ? e(dueText(item.due)) : "なし"}</p>${inner.length ? `<ul class="search-inner" aria-label="${e(item.title)}の一致した内容">${inner.map((hit) => `<li><span class="badge archived">${e(hit.type)}</span> ${e(hit.text.slice(0, 60))}${hit.mid ? ` <button type="button" class="button small" data-ui="case-msg-open" data-id="${e(item.id)}" data-mid="${e(hit.mid)}" aria-label="${e(item.title)}の該当の投稿を開く">投稿を開く</button><button type="button" class="button small" data-ui="org-add" data-kind="message" data-ref="${e(hit.mid)}" aria-label="該当の投稿を整理スペースに登録">整理スペースに登録</button>` : ""}</li>`).join("")}</ul>` : ""}</div><div class="inline-actions">${protoButton("概要を開く", "case-open", `data-id="${e(item.id)}"`)}${canSeeContent(item) ? protoButton("整理スペースに登録", "org-add", `data-kind="case" data-ref="${e(item.id)}" aria-label="${e(item.no)} ${e(item.title)}を整理スペースに登録"`) : ""}</div></div>`;
   return screenFrame(
     "S15",
     "検索結果",
@@ -1509,22 +2446,21 @@ function caseRequestScreen() {
       `${item.title} ・ 参加者を変更すると専用チャンネルにも反映されます。`,
       shellCard(
         "参加者",
-        `${item.members.map((id) => `<div class="directory-row">${personButton(id)}${protoButton("外す", "case-remove", `data-id="${item.id}" data-user="${id}" aria-label="${e(nameOf(id))}を外す"`)}</div>`).join("")}<div class="inline-actions">${protoButton("参加者を追加", "case-add", `data-id="${item.id}"`)}${protoButton("案件の詳細へ戻る", "case-open", `data-id="${item.id}"`)}</div>`,
+        `${item.members.map((id) => `<div class="directory-row">${personButton(id)}${isForcedMember(item, id) ? `<span class="badge active">${forcedLabel(item, id)}</span>` : protoButton("外す", "case-remove", `data-id="${item.id}" data-user="${id}" aria-label="${e(nameOf(id))}を外す"`)}</div>`).join("")}<div class="inline-actions">${protoButton("参加者を追加", "case-add", `data-id="${item.id}"`)}${protoButton("案件の詳細へ戻る", "case-open", `data-id="${item.id}"`)}</div>`,
       ),
     );
   const prior = state.reapplySource ? getRequest(state.reapplySource) : null;
   // 説明の下書きは端末に一時保存する（C-82・C-117(5)）。新規の申請と、却下後の再申請でキーを分け、件名・個人情報は保存しない。
   const descDraft = draftFor(prior ? `case-request:reapply:${prior.id}` : "case-request:new");
-  // 担当部署は必須。一般社員・オーナーは自部署のみ、全体管理者は全部署から選ぶ（C-98）。
-  const department =
-    currentUser().role === "admin"
-      ? `<div class="form-field"><label for="case-department">担当部署（必須）</label><select id="case-department" name="case-department" required><option value="">担当部署を選んでください</option>${departmentNames()
-          .map(
-            (name) =>
-              `<option value="${e(name)}" ${prior?.department === name ? "selected" : ""}>${e(deptOptionLabel(name))}</option>`,
-          )
-          .join("")}</select></div>`
-      : `<p class="form-label">担当部署（必須。自部署のみ）</p><div class="muted-box">${e(currentUser().department)}</div><input type="hidden" name="case-department" value="${e(currentUser().department)}">`;
+  // 担当部署は必須（1つ以上）。誰でも全部署から複数を選べる（C-132(1)。C-98の「自部署のみ」を置き換え）。再申請は前の選択を引き継ぐ。
+  // 新規の申請の初めの選択は、自分の所属部署（案）。
+  const preset = prior?.departments || [currentUser().department];
+  const department = `<fieldset class="form-field"><legend>担当部署（必須。1つ以上。全部署から選べます）</legend><div class="checkbox-list">${departmentNames()
+    .map(
+      (name) =>
+        `<label class="checkbox-option"><input type="checkbox" name="case-department" value="${e(name)}" ${preset.includes(name) ? "checked" : ""}>${e(deptOptionLabel(name))}</label>`,
+    )
+    .join("")}</div><p class="form-hint">承認できるのは、選んだ担当部署のオーナーのいずれか（または全体管理者）です。</p></fieldset>`;
   const clients = `<div class="form-field"><label for="case-client">取引先（必須）</label><select id="case-client" name="case-client" required><option value="">取引先を選んでください</option>${state.clients
     .filter((client) => client.active)
     .map(
@@ -1552,7 +2488,7 @@ function profileScreen() {
     "表示名・ステータスを変更し、管理者だけが変更できる社員情報を確認します。",
     shellCard(
       "自分のプロフィール",
-      `<form data-proto-form="profile">${field("表示名", "display-name", "text", user.name, true, [1, 30])}<fieldset><legend>ステータス</legend>${["在席", "外出", "欠席", "休暇", "会議中"].map((status) => `<label class="radio-label"><input type="radio" name="status" value="${status}" ${(user.status || "在席") === status ? "checked" : ""}> ${status}</label>`).join("")}</fieldset>${field("戻り予定（任意）", "return-time", "time")}${field("一言メッセージ（任意）", "status-message", "text", user.message || "", false, [0, 100])}<button type="submit" class="button primary">保存する</button></form><div class="readonly-info"><strong>全体管理者だけが変更できる項目</strong><p>部署: ${e(deptOf(user))} / 役職: ${e(titleOf(user))} / メール: ${e(emailOf(user))} / 内線: ${e(extOf(user))}</p><p>本名: テスト社員 ${e(user.id.slice(-1))}（架空）</p><p class="subtle">本名は直接変更できません。変更届を出し、全体管理者が承認すると更新されます。</p></div>${protoButton("本名の変更届を出す", "name-change-request")}${protoButton("パスワードを変更", "go", 'data-page="S04"')}`,
+      `<form data-proto-form="profile">${field("表示名", "display-name", "text", user.name, true, [1, 30])}<fieldset><legend>ステータス</legend>${["在席", "外出", "欠席", "休暇", "会議中"].map((status) => `<label class="radio-label"><input type="radio" name="status" value="${status}" ${(user.status || "在席") === status ? "checked" : ""}> ${status}</label>`).join("")}</fieldset>${field("戻り予定（任意）", "return-time", "time", user.returnAt || "")}${field("一言メッセージ（任意）", "status-message", "text", user.message || "", false, [0, 100])}<button type="submit" class="button primary">保存する</button></form><div class="readonly-info"><strong>全体管理者だけが変更できる項目</strong><p>部署: ${e(deptOf(user))} / 役職: ${e(titleOf(user))} / メール: ${e(emailOf(user))} / 内線: ${e(extOf(user))}</p><p>本名: テスト社員 ${e(user.id.slice(-1))}（架空）</p><p class="subtle">本名は直接変更できません。変更届を出し、全体管理者が承認すると更新されます。</p></div>${protoButton("本名の変更届を出す", "name-change-request")}${protoButton("パスワードを変更", "go", 'data-page="S04"')}`,
     ),
   );
 }
@@ -1577,7 +2513,7 @@ function employeeScreen() {
         "staff-department",
         [["すべて", "すべて"], ...departmentNames().map((name) => [name, deptOptionLabel(name)])],
         ui.staffFilter,
-      )}${selectField("拠点で絞り込む（案）", "staff-location", locationFilterOptions(), ui.staffLocFilter)}<div class="list-cards">${list.map((person) => `<div class="directory-row"><div>${personButton(person.id)}<p class="subtle">${e(person.department)}${locationBadge(person.department)} ・ 内線 ${e(extOf(person))} ・ <a href="mailto:${e(emailOf(person))}">${e(emailOf(person))}</a> ・ ${e(person.status || "在席")}</p></div><div class="inline-actions">${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}${adminOnly() || (currentUser().role === "owner" && currentUser().department === person.department) ? protoButton("代理設定", "delegate-status", `data-user="${person.id}"`) : ""}</div></div>`).join("") || "<p>該当する社員がいません。</p>"}</div>`,
+      )}${selectField("拠点で絞り込む（案）", "staff-location", locationFilterOptions(), ui.staffLocFilter)}<div class="list-cards">${list.map((person) => `<div class="directory-row"><div>${personButton(person.id)}<p class="subtle">${e(person.department)}${locationBadge(person.department)} ・ 内線 ${e(extOf(person))} ・ <a href="mailto:${e(emailOf(person))}">${e(emailOf(person))}</a> ・ ${e(statusText(person))}</p></div><div class="inline-actions">${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}${adminOnly() || (currentUser().role === "owner" && currentUser().department === person.department) ? protoButton("代理設定", "delegate-status", `data-user="${person.id}"`) : ""}</div></div>`).join("") || "<p>該当する社員がいません。</p>"}</div>`,
     ),
   );
 }
@@ -1606,13 +2542,26 @@ function accountRegisterScreen() {
           )),
   );
 }
+// 案件の編集の行（C-122）。件名は全文、説明は先頭40文字に短縮して出し、「全文を見る」で変更前・変更後の全文を出す。
+// 同じ文字数で中身だけが違う変更も、変更前後の全文で区別できる。入れる値はすべて e() を通す。
+function auditDetailHtml(event) {
+  if (!Array.isArray(event.detail) || !event.detail.length) return "";
+  const full = (value) => e(Array.isArray(value) ? value.join("・") : value || "（なし）");
+  return `<div class="audit-detail">${event.detail
+    .map((item) =>
+      ["title", "name", "clientCode", "departments"].includes(item.field)
+        ? `<p><strong>${{ title: "件名", name: "名前", clientCode: "取引先", departments: "担当部署" }[item.field]}</strong>　変更前: ${full(item.before)} → 変更後: ${full(item.after)}</p>`
+        : `<p><strong>説明</strong>　変更前: ${e(excerpt(item.before || "（なし）"))} → 変更後: ${e(excerpt(item.after || "（なし）"))}</p><details><summary>全文を見る</summary><p class="audit-full">変更前: ${full(item.before)}</p><p class="audit-full">変更後: ${full(item.after)}</p></details>`,
+    )
+    .join("")}</div>`;
+}
 // 案件の終了・再開・引き継ぎは、誰が・いつ・どの案件かと、理由・再選定の結果を残す（C-81）。
 function auditScreen() {
   const rows = state.audit.length
     ? state.audit
         .map(
           (event) =>
-            `<div class="directory-row audit-row"><div><strong>${e(event.kind || "操作")}</strong><span class="subtle"> 対象: ${e(event.target || "—")}</span><p>${e(event.text)}</p></div><div class="audit-meta"><time>${e(event.at)}</time><span>操作した人: ${e(event.actor || "—")}</span><span>結果: 成功</span></div></div>`,
+            `<div class="directory-row audit-row"><div><strong>${e(event.kind || "操作")}</strong><span class="subtle"> 対象: ${e(event.target || "—")}</span><p>${e(event.text)}</p>${auditDetailHtml(event)}</div><div class="audit-meta"><time>${e(event.at)}</time><span>操作した人: ${e(event.actor || "—")}</span><span>結果: 成功</span></div></div>`,
         )
         .join("")
     : "<p>この試作で記録された操作はまだありません。案件の終了・再開などを行うと、ここに記録されます。</p>";
@@ -1710,7 +2659,7 @@ function sharedFolderScreen() {
                 prototypeData.channels
                   .filter(
                     (channel) =>
-                      channel.dept === target && channel.folder === folder,
+                      channel.dept === target && channel.folder === folder && !chArchived(channel),
                   )
                   .map((channel) => "# " + e(channel.name))
                   .join("、") || "空"
@@ -1739,7 +2688,7 @@ function openProfile(id) {
   ui.profile = id;
   showModal(
     "S-27 プロフィールカード",
-    `<div class="person-card"><span class="message-avatar">${e(person.name.slice(-2))}</span><div><strong>${e(person.name)}</strong><p>本名: テスト社員 ${e(person.id.slice(-1))}（架空）</p><p>部署: ${e(deptOf(person))} ・ ${e(person.status || "在席")}</p></div></div>${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}`,
+    `<div class="person-card"><span class="message-avatar">${e(person.name.slice(-2))}</span><div><strong>${e(person.name)}</strong><p>本名: テスト社員 ${e(person.id.slice(-1))}（架空）</p><p>部署: ${e(deptOf(person))} ・ ${e(statusText(person))}</p></div></div>${person.id !== state.userId ? protoButton("DMを送る", "dm", `data-user="${person.id}"`) : ""}`,
     "demo-only",
     "",
   );
@@ -1802,6 +2751,17 @@ function threadCanRead(thread) {
   }
   return false;
 }
+// 参加を確定する実行する関数。公開で、アーカイブしておらず、未参加のチャンネルだけ。
+function joinChannel(channelId) {
+  if (typeof channelId !== "string") return refuse("チャンネルが見つかりません。");
+  const channel = prototypeData.channels.find((item) => item.id === channelId);
+  if (!channel) return refuse("チャンネルが見つかりません。");
+  if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
+  if (channel.private) return refuse();
+  if (isChannelMember(channel)) return refuse("すでに参加しています。");
+  channel.members.push(state.userId);
+  return true;
+}
 function threadCanWrite(thread) {
   if (!threadCanRead(thread)) return false;
   // 削除済みの親投稿には新しい返信をつけられない。既存の返信は読める（1-4 AC-2・C-59）。
@@ -1814,7 +2774,7 @@ function threadCanWrite(thread) {
   }
   if (thread.source !== "case") return true;
   const item = getCase(thread.caseId);
-  return item.status === "active" && isMember(item);
+  return !caseArchived(item) && item.status === "active" && isMember(item);
 }
 function openThread(source, index) {
   let messages;
@@ -1872,6 +2832,20 @@ function proceedTo(page) {
   if (page === "S37" && state.page !== "S37") ui.annFilter = "pending";
   navigate(page);
 }
+// 通知の対象がアーカイブ・物理削除されているか。されていれば画面に出す文を返す（されていなければ空文字）。
+function noticeGoneMessage(note) {
+  if (note.channel) {
+    const channel = prototypeData.channels.find((item) => item.id === note.channel);
+    if (!channel) return prototypeData.purged.includes(note.channel) ? "削除されました（案）。" : "";
+    if (chArchived(channel)) return "アーカイブされました。";
+  }
+  if (note.caseId) {
+    const item = getCase(note.caseId);
+    if (!item) return prototypeData.purged.includes(note.caseId) ? "削除されました（案）。" : "";
+    if (caseArchived(item)) return "アーカイブされました。";
+  }
+  return "";
+}
 function uiAction(element) {
   const action = element.dataset.ui;
   if (action === "tool-toggle") {
@@ -1888,6 +2862,7 @@ function uiAction(element) {
   if (action === "logout") {
     // ログアウトのボタンを押したときは、そのユーザーの下書きを消す（C-82）。
     clearUserDrafts(state.userId);
+    ui.pendingAttachments = {};
     return proceedTo("S02");
   }
   if (action === "go") return proceedTo(element.dataset.page);
@@ -1898,7 +2873,7 @@ function uiAction(element) {
   if (action === "case-open") return openCase(element.dataset.id);
   if (action === "case-manage") {
     const item = getCase(element.dataset.id);
-    if (!item || item.status !== "active" || !isMember(item)) return refuse();
+    if (!item || caseArchived(item) || item.status !== "active" || !isMember(item)) return refuse();
     state.caseManage = true;
     return navigate("S18", true);
   }
@@ -1911,13 +2886,9 @@ function uiAction(element) {
     return proceedTo("S05");
   }
   if (action === "join-channel") {
-    const channel = prototypeData.channels.find(
-      (item) => item.id === element.dataset.id,
-    );
-    // 公開チャンネルには、部署を問わず自分で参加できる（C-94）。非公開は招待による。
-    if (!channel || channel.private) return refuse();
-    if (!channel.members.includes(state.userId))
-      channel.members.push(state.userId);
+    // 参加は実行する関数（joinChannel）に任せる。公開チャンネルには部署を問わず自分で参加できる（C-94）。非公開は招待による。
+    const channel = prototypeData.channels.find((item) => item.id === element.dataset.id);
+    if (!joinChannel(element.dataset.id)) return;
     ui.channelId = channel.id;
     notify(`#${channel.name} に参加しました。`);
     return proceedTo("S05");
@@ -1939,6 +2910,21 @@ function uiAction(element) {
   if (action === "thread-open")
     return openThread(element.dataset.source, element.dataset.index);
   if (action === "thread-close") return closeThread();
+  if (action === "menu-toggle") return toggleKebab(element);
+  if (action === "attach-open") {
+    element.closest("form")?.querySelector('input[type="file"]')?.click();
+    return;
+  }
+  if (action === "attach-remove") {
+    const list = attachKeyOk(element.dataset.key) ? ui.pendingAttachments[element.dataset.key] : null;
+    const index = Number(element.dataset.index);
+    if (!list || !Number.isInteger(index) || index < 0 || index >= list.length) return refuse();
+    list.splice(index, 1);
+    if (!list.length) delete ui.pendingAttachments[element.dataset.key];
+    refreshAttachPending(element.dataset.key);
+    document.querySelector('[data-ui="attach-open"]')?.focus();
+    return;
+  }
   if (action === "toggle-password") {
     const input = document.getElementById(element.dataset.target);
     if (input) {
@@ -1948,34 +2934,29 @@ function uiAction(element) {
     }
     return;
   }
+  // 既存の「👍」と、付いているリアクションのボタン。処理は toggleReaction（実行する関数）に任せる。対象は、ボタンが持つ部屋の ID と mid で明示する。
   if (action === "reaction") {
-    const source = element.dataset.source,
-      index = Number(element.dataset.index);
-    if (
-      source === "case" &&
-      (getCase(state.selectedId)?.status !== "active" ||
-        !isMember(getCase(state.selectedId)))
-    )
-      return refuse();
-    if (source === "channel" && !isChannelMember(activeChannel()))
-      return refuse();
-    // 無効にした部署のお知らせ専用チャンネル（読み取り専用）では、リアクションも受け付けない。
-    if (source === "channel" && activeChannel()?.readOnly)
-      return refuse("この部署は無効化されたため、読み取り専用です。");
-    const message =
-      source === "channel"
-        ? activeChannel()?.messages[index]
-        : source === "dm"
-          ? (prototypeData.dm[dmKey(state.userId, ui.dmUserId)] || [])[index]
-          : getCase(state.selectedId)?.messages[index];
-    if (!message) return refuse();
-    if (message.deleted) return refuse("この投稿はすでに削除されています。");
-    message.likes = (message.likes || 0) + 1;
+    const source = element.dataset.source;
+    const roomId = element.dataset.room || "";
+    const target = source === "dm" ? { source, userId: roomId } : { source, id: roomId };
+    if (!toggleReaction(target, element.dataset.mid || "", element.dataset.key || "emoji:thumbsup")) return;
     return render();
   }
+  if (action === "picker-open") return openPicker(element);
+  if (action === "picker-close") return closePicker(true);
+  if (action === "picker-tab") {
+    if (!ui.picker || !["emoji", "stamp"].includes(element.dataset.tab)) return;
+    ui.picker.tab = element.dataset.tab;
+    renderPicker();
+    return pickerEl.querySelector('[role="tab"][aria-selected="true"]')?.focus();
+  }
+  if (action === "picker-pick") return pickerPick(element.dataset.key || "");
   if (action === "notification-open") {
     const note = ownNotices().find((item) => item.id === element.dataset.id);
     if (!note) return refuse();
+    // 対象がアーカイブされた・物理削除されたときは、移動せず、その旨を出す（C-124。Q-72の案）。
+    const gone = noticeGoneMessage(note);
+    if (gone) return notify(gone);
     if (note.announce) return announceOpenNotice(note);
     if (note.channel) {
       const channel = prototypeData.channels.find(
@@ -2063,19 +3044,7 @@ function uiAction(element) {
     );
   }
   if (action === "case-remove") {
-    const item = getCase(element.dataset.id),
-      user = element.dataset.user;
-    if (
-      !item ||
-      item.status !== "active" ||
-      !isMember(item) ||
-      !item.members.includes(user) ||
-      item.members.length <= 1
-    )
-      return refuse("最後の参加者は外せません。");
-    item.members = item.members.filter((id) => id !== user);
-    releaseAssignee(item, [user]);
-    record(item, `${nameOf(user)} を参加者から外しました`);
+    if (!removeCaseMember(element.dataset.id, element.dataset.user)) return;
     notify("参加者を更新しました。");
     return render();
   }
@@ -2246,19 +3215,8 @@ document.addEventListener(
         return notify("申請を却下しました。");
       }
       if (action === "case-add") {
-        const item = getCase(data.get("id")),
-          member = String(data.get("case-new-member") || "");
-        if (
-          !item ||
-          item.status !== "active" ||
-          !isMember(item) ||
-          item.members.includes(member)
-        )
-          return refuse();
-        if (!employees.some((person) => person.id === member && person.active))
-          return modalError("有効な社員を選んでください。");
-        item.members.push(member);
-        record(item, `${nameOf(member)} を参加者に追加`);
+        if (!addCaseMember(String(data.get("id") || ""), String(data.get("case-new-member") || "")))
+          return modalError(lastRefusal);
         closeModal();
         render();
         return notify("参加者を追加しました。");
@@ -2316,64 +3274,27 @@ document.addEventListener(
       return notify("変更の画面を確認しました。入力値は保存していません。");
     }
     if (kind === "chat") {
-      const text = String(data.get("text") || "").trim();
-      if (!text) return notify("メッセージを入力してください。");
-      if (form.dataset.kind === "channel") {
-        const channel = activeChannel();
-        if (!isChannelMember(channel)) return refuse("参加すると使えます。");
-        if (channel.readOnly) return refuse("この部署は無効化されたため、読み取り専用です。");
-        if (!canPostChannel(channel))
-          return refuse(
-            `このチャンネルに投稿できるのは、${channel.dept}のオーナーと全体管理者だけです。`,
-          );
-        channel.messages.push({
-          by: state.userId,
-          text,
-          at: stamp(),
-          replies: [],
-        });
-        removeDraft(form.querySelector("[data-draft-key]")?.dataset.draftKey);
-      } else {
-        if (
-          !ui.dmUserId ||
-          !employees.some(
-            (person) => person.id === ui.dmUserId && person.active,
-          )
-        )
-          return refuse();
-        (prototypeData.dm[dmKey(state.userId, ui.dmUserId)] ||= []).push({
-          by: state.userId,
-          text,
-          at: stamp(),
-          replies: [],
-        });
-        removeDraft(form.querySelector("[data-draft-key]")?.dataset.draftKey);
-      }
+      // 送信は、投稿を確定する実行する関数（postMessage）に任せる。本文・権限・状態・添付をそこで検査し、通らなければ何も投稿しない。
+      const channelForm = form.dataset.kind === "channel";
+      const target = channelForm
+        ? { source: "channel", id: ui.channelId }
+        : { source: "dm", userId: ui.dmUserId };
+      const key = channelForm ? `channel:${ui.channelId}` : `dm:${ui.dmUserId}`;
+      if (!postMessage(target, String(data.get("text") || ""), ui.pendingAttachments[key] || [])) return;
       render();
       return notify("メッセージを表示しました。");
     }
     if (kind === "reply") {
-      if (!threadCanWrite(ui.thread))
-        return refuse("この返信を投稿できません。");
-      const text = String(data.get("text") || "").trim();
-      if (!text) return notify("返信を入力してください。");
+      // 返信は実行する関数（postThreadReply）に任せる。親投稿の部屋・アーカイブ・権限・読み取り専用をそこで検査する。
       const thread = ui.thread;
-      // 返信の相手には未読の印が付く。元の投稿者・これまでの返信者・メンションされた人が対象（C-91）。
-      const recipients = [
-        ...new Set([
-          thread.message.by,
-          ...(thread.message.mentions || []),
-          ...(thread.message.replies || []).map((reply) => reply.by),
-        ]),
-      ].filter((id) => id !== state.userId);
-      (thread.message.replies ||= []).push({
-        by: state.userId,
-        text,
-        at: stamp(),
-        ts: Date.now(),
-        unreadFor: recipients,
-      });
-      removeDraft(form.querySelector("[data-draft-key]")?.dataset.draftKey);
+      if (!thread || thread.viewerId !== state.userId) return refuse("この返信を投稿できません。");
+      const target =
+        thread.source === "channel"
+          ? { source: "channel", id: thread.channelId }
+          : thread.source === "dm"
+            ? { source: "dm", userId: thread.partnerId }
+            : { source: "case", id: thread.caseId };
+      if (!postThreadReply(target, midOf(thread.message), String(data.get("text") || ""))) return;
       renderShell();
       return notify("返信を表示しました。");
     }
@@ -2384,8 +3305,8 @@ document.addEventListener(
     if (kind === "profile") {
       const name = String(data.get("display-name") || "").trim();
       if (!name) return notify("表示名を入力してください。");
+      if (!setMyStatus(data.get("status"), data.get("return-time"))) return;
       currentUser().name = name;
-      currentUser().status = String(data.get("status"));
       currentUser().message = String(data.get("status-message") || "");
       render();
       return notify("プロフィールを保存しました。");
@@ -2394,33 +3315,13 @@ document.addEventListener(
       // チャンネル名は保存時に自動整形する（C-121【案】）。長さ・使用可能文字・重複は整形後の値で判定する。
       const rawName = String(data.get("channel-name") || "");
       const name = normalizeInput(rawName);
-      if (!name)
-        return fieldError("channel-name", "チャンネル名を入力してください。");
-      if ([...name].length > 50)
-        return fieldError("channel-name", "チャンネル名は1〜50文字で入力してください（整形後の文字数）。");
-      if (!channelNameCharsOk(name))
-        return fieldError(
-          "channel-name",
-          "使えない文字が含まれています（使えるのは、日本語・英数字・ハイフン・アンダースコア）。",
-        );
+      // 名前の検査は channelNameProblem（名前の変更 editChannel と共通）。アーカイブしたチャンネルの名前も重複の比較に入る（C-124(9)）。
+      const nameProblem = channelNameProblem(name);
+      if (nameProblem) return fieldError("channel-name", nameProblem);
       // 作る場所は自部署か会社直属だけ（他部署は不可）。名前は会社内で一意。大文字・小文字は区別せず、
       // 承認待ちの申請の名前も対象にする（C-105、2-2 AC-13）。却下された申請の名前は数えない。
       const dept =
         data.get("place") === "company" ? COMPANY : currentUser().department;
-      const taken =
-        prototypeData.channels.some(
-          (channel) => compareKey(channel.name) === compareKey(name),
-        ) ||
-        prototypeData.channelRequests.some(
-          (request) =>
-            request.status === "pending" &&
-            compareKey(request.name) === compareKey(name),
-        );
-      if (taken)
-        return fieldError(
-          "channel-name",
-          "同じ名前のチャンネル（または承認待ちの申請）が会社内にあります（大文字・小文字の違いは区別しません）。",
-        );
       prototypeData.channelRequests.push({
         id: `CH-${Date.now()}`,
         name,
@@ -2437,12 +3338,12 @@ document.addEventListener(
       // 件名は保存時に自動整形する（C-121【案】）。長さは整形後の文字数で検査する。
       const titleRaw = String(data.get("case-title") || ""),
         title = normalizeInput(titleRaw),
-        department = String(data.get("case-department") || ""),
+        departments = data.getAll("case-department").map(String),
         clientCode = String(data.get("case-client") || ""),
         due = String(data.get("case-due") || ""),
         description = String(data.get("case-description") || "").trim();
       // 入力の検査は実行する関数（createCaseRequest）と共通の caseRequestProblem で行う。
-      const problem = caseRequestProblem({ title, department, clientCode, due, description });
+      const problem = caseRequestProblem({ title, departments, clientCode, due, description });
       if (problem) return notify(problem);
       const previous = state.reapplySource
         ? getRequest(state.reapplySource)
@@ -2459,7 +3360,7 @@ document.addEventListener(
         clientCode,
         due,
         description,
-        department,
+        departments,
         candidates: data.getAll("candidates").map(String),
         previous: previous?.id || null,
         draftKey: form.querySelector("[data-draft-key]")?.dataset.draftKey,

@@ -194,3 +194,285 @@
 .heading-actions .button {
   white-space: nowrap;
 }
+
+/* 送信前の添付の一覧（C-126）と、監査ログの変更前後の全文（C-122）。 */
+.attach-pending:empty {
+  display: none;
+}
+.attach-list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.attach-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  background: #f5f8f9;
+  border: 1px solid #e3ebee;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.attach-name {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.attach-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  white-space: nowrap;
+}
+.attach-scope select {
+  width: auto;
+  max-width: 100%;
+  flex: 1 1 12rem;
+}
+.audit-detail {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.audit-detail p {
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+.audit-full {
+  white-space: pre-wrap;
+  background: #f5f8f9;
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+
+/* 書式（C-128）。本文は .message-text の中にブロック要素で出る。色の対比は README の配色の表（案）。 */
+.message-text {
+  overflow-wrap: anywhere;
+}
+.message-text p,
+.message-text ul,
+.message-text blockquote,
+.message-text pre {
+  margin: 0 0 6px;
+}
+.message-text ul {
+  padding-left: 22px;
+}
+.message-text blockquote {
+  border-left: 4px solid #8fb0be;
+  padding: 2px 10px;
+  color: #35525f;
+  background: #f1f6f8;
+}
+.message-text code {
+  background: #eef2f4;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92em;
+}
+.message-text pre {
+  background: #eef2f4;
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.message-text pre code {
+  background: transparent;
+  padding: 0;
+}
+.message-text a {
+  color: #0b5a8a;
+  text-decoration: underline;
+}
+.mention {
+  background: #dcebf3;
+  color: #0b3c57;
+  border-radius: 4px;
+  padding: 0 3px;
+  font-weight: 700;
+}
+/* リアクションの表示と、絵文字・スタンプの選択画面（C-128）。 */
+.chat-tools button[aria-pressed="true"] {
+  background: #d8f0ea;
+  border-color: #0b6b5f;
+  color: #08493f;
+  font-weight: 700;
+}
+.chat-tools button svg {
+  vertical-align: middle;
+}
+.emoji-picker {
+  position: fixed;
+  right: 16px;
+  bottom: 72px;
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  background: #ffffff;
+  color: #1c3340;
+  border: 1px solid #8fa9b5;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(16, 40, 59, 0.3);
+  padding: 10px;
+}
+.emoji-picker[hidden] {
+  display: none;
+}
+.picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.picker-head [role="tablist"] {
+  display: flex;
+  gap: 4px;
+}
+.picker-head [role="tab"] {
+  border: 1px solid #8fa9b5;
+  background: #f1f6f8;
+  color: #1c3340;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.picker-head [role="tab"][aria-selected="true"] {
+  background: #0b6b5f;
+  border-color: #0b6b5f;
+  color: #ffffff;
+  font-weight: 700;
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 4px;
+}
+.picker-grid.stamps {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+}
+.picker-item {
+  border: 1px solid #d5e1e6;
+  background: #ffffff;
+  border-radius: 6px;
+  min-height: 40px;
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px;
+}
+.picker-item:hover,
+.picker-item:focus-visible {
+  background: #e6f2ef;
+  border-color: #0b6b5f;
+}
+
+/* 「⋯」メニュー（C-131(6)。#99 段階2）。項目は文字で示し、色だけに頼らない。 */
+.kebab {
+  position: relative;
+  display: inline-block;
+}
+.kebab-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 45;
+  min-width: 12em;
+  display: grid;
+  background: #ffffff;
+  color: #1c3340;
+  border: 1px solid #8fa9b5;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(16, 40, 59, 0.25);
+  padding: 4px;
+}
+.kebab-menu[hidden] {
+  display: none;
+}
+.kebab-menu [role="menuitem"] {
+  border: 0;
+  background: transparent;
+  color: #1c3340;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.kebab-menu [role="menuitem"]:hover,
+.kebab-menu [role="menuitem"]:focus-visible {
+  background: #e6f2ef;
+  outline: 2px solid #0b6b5f;
+}
+@media (max-width: 767px) {
+  .kebab-menu {
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 48px);
+  }
+  .kebab-menu [role="menuitem"] {
+    white-space: normal;
+  }
+}
+
+/* ヘッダーのステータスボタン（C-136）。丸の色だけに頼らず、文字（スマホでは読み上げ名）でも示す。 */
+.status-kebab {
+  align-self: center;
+}
+.status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  white-space: nowrap;
+}
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+.status-toggle .status-dot {
+  margin-right: 0;
+}
+.status-dot.present { background: #2e9d5b; }
+.status-dot.away { background: #e0a21a; }
+.status-dot.absent { background: #d0453a; }
+.status-dot.leave { background: #4a7fc7; }
+.status-dot.meeting { background: #8a5cc0; }
+.status-menu {
+  right: 0;
+  left: auto;
+}
+.status-return {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid #d6e2e7;
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .status-toggle {
+    height: 33px;
+    padding: 0 9px;
+  }
+  .status-toggle .status-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .kebab-menu.status-menu {
+    right: 0;
+    left: auto;
+  }
+}

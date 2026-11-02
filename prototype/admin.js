@@ -42,6 +42,33 @@ const reauthField = (id) =>
   `<div class="form-field"><label for="${id}">パスワードを再入力（再認証）</label><input id="${id}" name="reauth" type="password" autocomplete="off" required></div><p class="subtle">重要な操作の前の再認証の見本です。入力値は保存せず、実際の本人確認はしません。</p>`;
 const reauthMissing = (data) =>
   String(data.get("reauth") || "") ? null : "パスワードを入力してください。";
+// 再認証の票（試作の見本。段階2）。ダイアログで再認証欄が空でないときだけ、送信の処理が票を作って実行する関数へ渡す。
+// 入力した文字は保存せず、本人確認もしない。実行する関数は、ほかの検査がすべて通ったあと、データを変える直前に票を1回だけ消費する。
+// 票は、操作の種類・対象・社員が合うときだけ通り、1回しか使えず、発行から5分（案。Q-85）で切れる。メモリだけにあり、再読み込みで消える。
+// 試作には実際の認証もサーバーもないため、票を作る関数もコンソールから呼べる（限界。実行する関数が票なしの呼び出しを拒否することだけを確かめる）。
+const REAUTH_TTL_MS = 5 * 60 * 1000;
+let reauthSeq = 0;
+function issueReauthTicket(action, targetId) {
+  if (typeof action !== "string" || !action || typeof targetId !== "string" || !targetId) return null;
+  const id = `rt-${++reauthSeq}`;
+  state.reauthTickets.push({ id, action, targetId, userId: state.userId, issuedAt: Date.now(), used: false });
+  return id;
+}
+// 通れば票を使用済みにして true。通らなければ、票は消費せずに拒否する（false）。
+function consumeReauthTicket(ticketId, action, targetId) {
+  const ticket = typeof ticketId === "string" ? state.reauthTickets.find((value) => value.id === ticketId) : null;
+  if (
+    !ticket ||
+    ticket.used ||
+    ticket.action !== action ||
+    ticket.targetId !== targetId ||
+    ticket.userId !== state.userId ||
+    Date.now() - ticket.issuedAt > REAUTH_TTL_MS
+  )
+    return refuse("再認証が必要です。");
+  ticket.used = true;
+  return true;
+}
 // 初期パスワードは再発行のときにシステムが生成し、一度だけ表示する（C-34）。試作の見本の文字列。
 const sampleInitialPassword = () =>
   `Tmp-${Math.random().toString(36).slice(2, 8)}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -267,6 +294,8 @@ function createDepartment(data) {
   } else {
     admin.ownerOf = [...(admin.ownerOf || []), name];
   }
+  // オーナーが替わった部署が担当の案件に、新しいオーナーが自動で参加する（前のオーナーは一般の参加者として残る。C-133）。全体管理者は常に全案件へ参加済み（C-134。管理者の任命・解除・退職の画面は洗い出しにないため、この再計算が呼ばれる箇所はここだけ）。
+  syncAllForcedMembers();
   // 専用チャンネルは公開。部署の社員（この時点では移ってきたオーナーだけ）を自動参加させる（C-95）。
   // お知らせ専用チャンネル（C-108）も公開で、参加者は同じ式にする（自動参加かどうかは C-108(3) で未決定の見本）。
   const createdAt = Date.now();
@@ -315,7 +344,7 @@ function disableBlockers(name) {
   if (employees.some((p) => p.active && p.role === "owner" && p.department === name))
     blockers.push("オーナーが引き継がれていません（全体管理者の兼任になっていません）");
   // 付け替えの対象は、案件（進行中・終了）と申請中の案件作成の申請（C-120(1)）。
-  const used = state.cases.filter((c) => c.department === name).length;
+  const used = state.cases.filter((c) => !caseArchived(c) && c.departments.includes(name)).length;
   const pending = pendingRequestCount(name);
   if (used) blockers.push(`担当部署に指定された案件が${used}件あります（先に付け替えてください）`);
   if (pending) blockers.push(`担当部署に指定された申請中の案件作成の申請が${pending}件あります（先に付け替えてください）`);
@@ -326,7 +355,7 @@ function disableBlockers(name) {
   return blockers;
 }
 const pendingRequestCount = (name) =>
-  state.requests.filter((c) => c.department === name && c.status === "pending").length;
+  state.requests.filter((c) => c.departments.includes(name) && c.status === "pending").length;
 function departmentAdminScreen() {
   const rows = allDepartmentNames()
     .map((name) => {
@@ -334,7 +363,7 @@ function departmentAdminScreen() {
       const channel = dedicatedChannel(name);
       const disabled = isDeptDisabled(name);
       const blockers = disabled ? [] : disableBlockers(name);
-      const caseCount = state.cases.filter((c) => c.department === name).length;
+      const caseCount = state.cases.filter((c) => !caseArchived(c) && c.departments.includes(name)).length;
       const pendingCount = pendingRequestCount(name);
       return `<div class="directory-row"><div><strong>${e(name)}</strong>${locationOf(name) ? locationBadge(name) : ' <span class="loc-badge none" title="拠点ラベル（案）">拠点なし</span>'}${disabled ? ' <span class="badge archived">無効</span>' : ""}<p class="subtle">${departmentSize(name)}人 ・ オーナー: ${owner ? e(owner.name) + (owner.role === "admin" ? "（全体管理者が兼任）" : "") : "未設定"} ・ 専用チャンネル: ${channel ? "# " + e(channel.name) + "（公開）" : "なし"}</p>${disabled ? '<p class="subtle">無効化済みです。専用チャンネルとお知らせ専用チャンネルは読み取り専用です。</p>' : blockers.length ? `<p class="subtle">無効化できない理由: ${e(blockers.join("／"))}</p>` : '<p class="subtle">無効化の条件を満たしています（案）</p>'}${pendingCount && !disabled ? `<p class="subtle">申請中の案件作成の申請が${pendingCount}件（付け替えの対象です）</p>` : ""}</div><div class="inline-actions">${disabled ? "" : protoButton("拠点を設定（案）", "dept-location", `data-dept="${e(name)}" aria-label="${e(name)}の拠点ラベルを設定（案）"`)}${protoButton("オーナーを任命・交代", "owner-handover", `data-dept="${e(name)}" aria-label="${e(name)}のオーナーを任命・交代"`)}${(caseCount || pendingCount) && !disabled ? protoButton("担当部署を付け替える", "dept-reassign", `data-dept="${e(name)}" aria-label="${e(name)}の担当部署を付け替える（案件${caseCount}件・申請中${pendingCount}件）"`) : ""}<button type="button" class="button" data-ui="dept-disable" data-dept="${e(name)}" aria-label="${e(name)}を無効化（案）" ${blockers.length || disabled ? "disabled" : ""}>無効化（案）</button></div></div>`;
     })
@@ -392,8 +421,9 @@ function reassignDepartmentCases(from, bulkTo, individual = {}) {
   if (!adminOnly()) return refuse();
   if (typeof from !== "string" || !allDepartmentNames().includes(from)) return refuse();
   // 対象は、同じ部署の案件（進行中・終了）と申請中の案件作成の申請（C-120(1)）。個別指定のキーは "case:<id>"・"request:<id>"。
-  const cases = state.cases.filter((item) => item.department === from);
-  const requests = state.requests.filter((item) => item.department === from && item.status === "pending");
+  // アーカイブ（非表示）した案件は、付け替えの対象にしない（変更・参加者の追加・履歴を残さない。復元後に必要なら付け替える）。
+  const cases = state.cases.filter((item) => !caseArchived(item) && item.departments.includes(from));
+  const requests = state.requests.filter((item) => item.departments.includes(from) && item.status === "pending");
   if (!cases.length && !requests.length) return refuse("付け替える案件・申請がありません。");
   const valid = (to) => departmentNames().includes(to) && to !== from;
   const plan = [
@@ -403,7 +433,10 @@ function reassignDepartmentCases(from, bulkTo, individual = {}) {
   if (!plan.every(({ to }) => typeof to === "string" && valid(to)))
     return refuse("付け替え先には、有効な他の部署を選んでください。");
   plan.forEach(({ item, kind, to }) => {
-    item.department = to;
+    // 担当部署が複数のときは、from を to に置き換えたあと、重複を除く（手順は案。Q-103）。
+    item.departments = [...new Set(item.departments.map((dept) => (dept === from ? to : dept)))];
+    // 付け替え先の部署のオーナーが、案件に自動で参加する（C-133）。申請には参加者がまだない。
+    if (kind === "case") syncForcedMembers(item);
     if (kind === "case") record(item, `担当部署を ${from} から ${to} に付け替え`);
   });
   auditLog(
@@ -416,8 +449,8 @@ function reassignDepartmentCases(from, bulkTo, individual = {}) {
 }
 function openDeptReassign(name) {
   if (!adminOnly() || !departmentNames().includes(name)) return refuse();
-  const items = state.cases.filter((item) => item.department === name);
-  const pendings = state.requests.filter((item) => item.department === name && item.status === "pending");
+  const items = state.cases.filter((item) => !caseArchived(item) && item.departments.includes(name));
+  const pendings = state.requests.filter((item) => item.departments.includes(name) && item.status === "pending");
   if (!items.length && !pendings.length) return refuse("付け替える案件・申請がありません。");
   const targets = departmentNames().filter((value) => value !== name);
   if (!targets.length) return refuse("付け替え先の有効な部署がありません。");
@@ -571,7 +604,7 @@ function seedPlanningDept() {
     due: "",
     description: "企画部の見本の案件です（架空）。",
     title: "企画部の見本の案件",
-    department: "企画部",
+    departments: ["企画部"],
     status: "active",
     visibility: "restricted",
     members: ["u9"],
@@ -580,6 +613,8 @@ function seedPlanningDept() {
     publication: null,
     events: [],
   });
+  // 見本の案件にも強制参加者（全体管理者・担当部署のオーナー）を含める（デモデータの追加なので監査ログは出さない）。
+  syncForcedMembers(state.cases[state.cases.length - 1], true);
   // 申請中の案件作成の申請の見本（付け替えの対象。C-120(1)）。申請者は企画部のオーナー。
   state.requests.push({
     id: "R-201",
@@ -588,7 +623,7 @@ function seedPlanningDept() {
     due: "",
     description: "企画部の見本の申請です（架空）。",
     caseNo: "",
-    department: "企画部",
+    departments: ["企画部"],
     applicant: "u9",
     candidates: [],
     added: [],
@@ -626,6 +661,7 @@ function submitInviteForm(data) {
     status.hidden = false;
   };
   if (!channel || !isChannelMember(channel)) return refuse();
+  if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
   if (!person) return say("有効な社員を選んでください。");
   if (channel.members.includes(person.id))
     return say(
@@ -645,6 +681,7 @@ function inviteReauth(data) {
   const channel = prototypeData.channels.find((c) => c.id === data.get("channel"));
   const person = employees.find((p) => p.id === data.get("person") && p.active);
   if (!channel || !person || !isChannelMember(channel)) return refuse();
+  if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
   closeModal();
   showModal(
     "招待の確認",
@@ -657,6 +694,7 @@ function inviteConfirm(data) {
   const channel = prototypeData.channels.find((c) => c.id === data.get("channel"));
   const person = employees.find((p) => p.id === data.get("person") && p.active);
   if (!channel || !person || !isChannelMember(channel)) return refuse();
+  if (chArchived(channel)) return refuse(ARCHIVED_MESSAGE);
   if (channel.members.includes(person.id)) {
     closeModal();
     return notify(`${person.name} は参加済みです。`);
