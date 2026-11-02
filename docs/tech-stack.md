@@ -54,7 +54,7 @@
 
 | 項目 | 方式 | 追加するライブラリ | ADR |
 | --- | --- | --- | --- |
-| DB | D1のみ（本番・ローカル・テストとも）。DrizzleもD1（方言 sqlite、ドライバ drizzle-orm/d1）。**以下のpg（PostgreSQL・Hyperdrive）の記述は、D1のみ（ADR-0005）の決定により使わない。pg経路の整理は別のIssue** | なし | [0005](adr/0005-database-d1-only.md) |
+| DB | D1のみ（本番・ローカル・テストとも）。DrizzleもD1（方言 sqlite、ドライバ drizzle-orm/d1）。pg（PostgreSQL・Hyperdrive）は使わない（ADR-0005）。ハーネスのひな形に残るpg経路の扱いは、Issue #114 とハーネスへの改善の提案で整理した | なし | [0005](adr/0005-database-d1-only.md) |
 | リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue） | なし（Workersの標準機能） | [0004](adr/0004-realtime-polling-then-websocket.md) |
 | ID | 時刻順のULID相当のテキスト。自前で生成する | なし（Web Crypto） | [0006](adr/0006-id-cursor-unread.md) |
 | パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。本番（Workers Paid）で確認して最終決定。`argon2id`（1.0.1）は更新が止まっているため使わない。互換性日付2026-08-04以降または`nodejs_compat`が要る | なし | [0007](adr/0007-password-hash-scrypt.md) |
@@ -102,7 +102,7 @@
 ### Vitest・Playwright ほか（test-framework/vitest-playwright）
 
 - @cloudflare/vitest-pool-workers は Vitest 4系にだけ対応する（5系は不可）
-- vitest-pool-workers の中では pg（PostgreSQLのドライバ）を読み込めない。Workers＋PostgreSQL は wrangler dev に対するAPIのテストで確かめる（D1のみ（ADR-0005）の決定により、pgは使わない。pg経路の整理は別のIssue）
+- このアプリはD1のみ（ADR-0005）のため、Workers の結合テストも `@cloudflare/vitest-pool-workers` の中でD1に対して行う。pg（PostgreSQLのドライバ）はこのアプリでは使わない（ひな形の注意書きは Drizzle ORM の節の末尾を参照）
 - msw はバージョンを明示する（指定しないと古い版が入ることがある）
 - jsdom の画面の場所と、テストで呼ぶAPIのドメインをそろえる（別のドメインだと通信の制限で失敗する）
 - k6 と OWASP ZAP は npm ではなく、手順書（docs/testing/）に沿って導入する
@@ -115,10 +115,9 @@
 
 ### Drizzle ORM（data-access/drizzle）
 
-- **このアプリはD1のみ（ADR-0005）。次の2行のpg（PostgreSQL）の記述は、ハーネスのひな形に残る経路の記録で、このアプリでは使わない。pg経路の整理は別のIssue**
-- PostgreSQLのドライバは pg（node-postgres 8.13.0 以上）。2026-09-30 に pg 8.23.0・PostgreSQL 18.6 で確認
-- vitest-pool-workers の中では pg を読み込めない。Workers＋PostgreSQL は wrangler dev に対するAPIのテストで確かめる
-- D1では db.transaction() を使わず db.batch() を使う
+- **このアプリはDBがD1のみ**（ADR-0005）。Drizzle は方言 sqlite、ドライバ `drizzle-orm/d1` で使う。本番・ローカル・テストとも同じ
+- D1では db.transaction() を使わず db.batch() を使う（詳しい型は設計書 `docs/design/overview.md` の「DBの設計の型」）
+- **pg（PostgreSQL・Hyperdrive）は、このアプリでは使わない**。ADR-0005 で PostgreSQL に一本化する案を採らないと決めたため。ハーネスのひな形（`scripts/`・Skill・`infra/README.md`）にはpg向けの記述が残るが、ハーネス由来のため直さない（参照箇所の一覧は Issue #114）。PostgreSQL へ切り替える条件は ADR-0005 に書いてある
 
 ## 動作確認
 

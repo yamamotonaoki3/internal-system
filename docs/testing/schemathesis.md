@@ -64,7 +64,7 @@ docker run --rm --network host -v "$(pwd)/docs/api:/api:ro" schemathesis/schemat
 
 - 開発サーバーを止める（起動したターミナルで Ctrl+C）。止めた後、ポート（5173）が解放されたことを確かめる
 - Schemathesis のコンテナは、`--rm` で実行しているため、終わると消える
-- Schemathesis は、`POST` の API で、開発用の DB に、ランダムな値のデータを足す。`npm run db:reset:local`（D1・PostgreSQL。開発用の DB を作り直す）で戻す。テスト用の接頭辞（`testuser_`）のデータだけを消す `npm run db:cleanup` では、消えない
+- Schemathesis は、`POST` の API で、開発用の DB に、ランダムな値のデータを足す。`npm run db:reset:local`（D1。開発用の DB を作り直す）で戻す。テスト用の接頭辞（`testuser_`）のデータだけを消す `npm run db:cleanup` では、消えない
 
 ## 6. よくある失敗と対処
 

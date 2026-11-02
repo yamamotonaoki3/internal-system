@@ -31,7 +31,7 @@ Cloudflare Workers（Hono）
 | 項目 | 方針 | ADR |
 | --- | --- | --- |
 | リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue）。「最後のID以降を取るAPI」を共通の土台にする | [0004](../adr/0004-realtime-polling-then-websocket.md) |
-| DB | D1のみ（本番・ローカル・テストとも）。PostgreSQLへの一本化は採らない。pgの経路の整理は別のIssue | [0005](../adr/0005-database-d1-only.md) |
+| DB | D1のみ（本番・ローカル・テストとも）。PostgreSQLへの一本化は採らない | [0005](../adr/0005-database-d1-only.md) |
 | ID・ページ送り・未読 | 時刻順のULID相当のテキストID（自前生成）。一覧はすべてカーソル方式。未読は既読位置から上限つきで数え直す | [0006](../adr/0006-id-cursor-unread.md) |
 | パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。PHC形式の自己記述の文字列。ログイン成功時に再ハッシュ。本番で確認して最終決定 | [0007](../adr/0007-password-hash-scrypt.md) |
 | セッション・試行制限 | セッションはD1の`sessions`。ログインの試行制限は接続元単位（D1の`login_attempts`）。社員ID単位はロックせず待ち時間を増やす | [0003](../adr/0003-auth-cookie-session.md)・[0008](../adr/0008-session-and-login-throttle.md) |
