@@ -46,6 +46,25 @@
 - 検証済み：ハーネスのひな形で、動作を確かめたバージョン
 - 確認した最新の安定版：調べた日に、登録情報にあった最新の安定版（試験版を除く。範囲の条件があるものは、その範囲の中）
 - 未確認：登録情報を取得できず、最新の安定版を調べられなかったもの
+- **この表のバージョンは、`package.json`と21行（21パッケージ）で食い違っている**（調査メモ`design-foundation.md`では、reactとreact-domをまとめて20行と数えている）（`package.json`のほうが新しい。@hookform/resolvers・@tanstack/react-query・react・react-dom・react-hook-form・react-router・zod・@cloudflare/vite-plugin・@playwright/test・@testing-library/user-event・@types/node・dependency-cruiser・eslint・jscpd・jsdom・msw・prettier・typescript-eslint・vite・vitest・wrangler。差の一覧は[調査メモ](research/design-foundation.md)の8-3）。Issue #105では解消せず、**別のIssueで更新する**（文書だけを変更するIssueで、`package.json`は変更しないため）
+
+## 全体に関わる方式（ADRで決定。2026-11-02、Issue #105）
+
+新しいライブラリは追加しない（バージョンの固定が要るものは、追加するときにこの表に足す）。
+
+| 項目 | 方式 | 追加するライブラリ | ADR |
+| --- | --- | --- | --- |
+| DB | D1のみ（本番・ローカル・テストとも）。DrizzleもD1（方言 sqlite、ドライバ drizzle-orm/d1）。**以下のpg（PostgreSQL・Hyperdrive）の記述は、D1のみ（ADR-0005）の決定により使わない。pg経路の整理は別のIssue** | なし | [0005](adr/0005-database-d1-only.md) |
+| リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue） | なし（Workersの標準機能） | [0004](adr/0004-realtime-polling-then-websocket.md) |
+| ID | 時刻順のULID相当のテキスト。自前で生成する | なし（Web Crypto） | [0006](adr/0006-id-cursor-unread.md) |
+| パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。本番（Workers Paid）で確認して最終決定。`argon2id`（1.0.1）は更新が止まっているため使わない。互換性日付2026-08-04以降または`nodejs_compat`が要る | なし | [0007](adr/0007-password-hash-scrypt.md) |
+| セッション・試行制限 | D1の`sessions`・`login_attempts`。期限切れの掃除はCron Triggers | なし | [0008](adr/0008-session-and-login-throttle.md) |
+| 管理者のMFA | 全体管理者だけTOTP（RFC 6238）。WebCryptoで自作 | なし | [0009](adr/0009-admin-mfa-totp.md) |
+| 日本語の全文検索 | D1のFTS5 trigram（1〜2文字は`LIKE`） | なし | [0010](adr/0010-japanese-search-fts5-trigram.md) |
+| 添付の検査 | Office新形式のzip構造を自前で確認 | なし | [0011](adr/0011-attachment-inspection-and-virus-scan.md) |
+
+- 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）、emoji-picker-react 5.1.4（C-128。条件つき）
+- `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）
 
 ## インフラ（Terraform、infra/）
 
@@ -83,7 +102,7 @@
 ### Vitest・Playwright ほか（test-framework/vitest-playwright）
 
 - @cloudflare/vitest-pool-workers は Vitest 4系にだけ対応する（5系は不可）
-- vitest-pool-workers の中では pg（PostgreSQLのドライバ）を読み込めない。Workers＋PostgreSQL は wrangler dev に対するAPIのテストで確かめる
+- vitest-pool-workers の中では pg（PostgreSQLのドライバ）を読み込めない。Workers＋PostgreSQL は wrangler dev に対するAPIのテストで確かめる（D1のみ（ADR-0005）の決定により、pgは使わない。pg経路の整理は別のIssue）
 - msw はバージョンを明示する（指定しないと古い版が入ることがある）
 - jsdom の画面の場所と、テストで呼ぶAPIのドメインをそろえる（別のドメインだと通信の制限で失敗する）
 - k6 と OWASP ZAP は npm ではなく、手順書（docs/testing/）に沿って導入する
@@ -96,6 +115,7 @@
 
 ### Drizzle ORM（data-access/drizzle）
 
+- **このアプリはD1のみ（ADR-0005）。次の2行のpg（PostgreSQL）の記述は、ハーネスのひな形に残る経路の記録で、このアプリでは使わない。pg経路の整理は別のIssue**
 - PostgreSQLのドライバは pg（node-postgres 8.13.0 以上）。2026-09-30 に pg 8.23.0・PostgreSQL 18.6 で確認
 - vitest-pool-workers の中では pg を読み込めない。Workers＋PostgreSQL は wrangler dev に対するAPIのテストで確かめる
 - D1では db.transaction() を使わず db.batch() を使う
