@@ -15,6 +15,20 @@
       "when": 1793660178192,
       "tag": "0001_add_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793670361994,
+      "tag": "0002_add_roles_company_users_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793670370433,
+      "tag": "0003_seed_initial_roles",
+      "breakpoints": true
     }
   ]
 }

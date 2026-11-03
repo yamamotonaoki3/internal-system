@@ -23,3 +23,4 @@
 | [0010](0010-japanese-search-fts5-trigram.md) | 日本語の全文検索はFTS5 trigramで行い、1〜2文字はLIKEで補う | 採用 |
 | [0011](0011-attachment-inspection-and-virus-scan.md) | 添付の検査は自前で行い、ウイルススキャンは別Issueで決める | 採用 |
 | [0012](0012-zero-trust-principle.md) | ゼロトラストを設計の原則とする | 採用 |
+| [0013](0013-initial-setup-auth-and-pii-encryption.md) | 初回セットアップの認証は環境のシークレットで行い、本名はAES-256-GCMで暗号化して保存する | 採用 |

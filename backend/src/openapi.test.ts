@@ -5,12 +5,17 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { sampleUserRoutes } from "./routes/sample-users";
+import { setupRoutes } from "./routes/setup";
 
 // DB につなぐ処理は使わない代役（このテストは、ルートの組み立てだけを確かめる）
 const unusedDb = () => Promise.reject(new Error("DB は使いません"));
 
 const app = createApp({
-  routes: [{ path: "/api/sample-users", app: sampleUserRoutes(unusedDb) }],
+  routes: [
+    { path: "/api/sample-users", app: sampleUserRoutes(unusedDb) },
+    // #119：初回セットアップ。index.ts と同じパスに組み込む
+    { path: "/api/setup", app: setupRoutes(unusedDb) },
+  ],
 });
 
 const METHODS = ["get", "post", "put", "patch", "delete"];
@@ -56,5 +61,19 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
       .filter(({ operation }) => !("401" in operation.responses))
       .map(({ name }) => name);
     expect(missing).toEqual([]);
+  });
+
+  it("#119 AC-4: 初回セットアップの GET /api/setup/status と POST /api/setup が書かれている", () => {
+    const names = operations.map((o) => o.name);
+    expect(names).toContain("GET /api/setup/status");
+    expect(names).toContain("POST /api/setup");
+  });
+
+  it("#119 AC-1・AC-4: POST /api/setup は 201・403・409・422・503 を書き、401 は書かない（未認証で呼ぶ初回専用の API）", () => {
+    const setup = operations.find((o) => o.name === "POST /api/setup");
+    const codes = Object.keys(setup?.operation.responses ?? {});
+    for (const code of ["201", "403", "409", "422", "503"])
+      expect(codes).toContain(code);
+    expect(codes).not.toContain("401");
   });
 });

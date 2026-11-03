@@ -101,6 +101,110 @@
           }
         }
       }
+    },
+    "/api/setup/status": {
+      "get": {
+        "operationId": "getSetupStatus",
+        "summary": "初回セットアップが必要か（未認証で呼べる。全体管理者がいない間は true）",
+        "responses": {
+          "200": {
+            "description": "状態（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "setupRequired"
+                  ],
+                  "properties": {
+                    "setupRequired": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup": {
+      "post": {
+        "operationId": "completeSetup",
+        "summary": "初代全体管理者を登録する（初回専用の認証。全体管理者がいない間に一度だけ成功する）",
+        "description": "未認証で呼ぶ初回専用の API のため、401 は返さない。認証はセットアップ用のトークン（環境のシークレット）で行い、順序は 503（トークン・暗号鍵が未設定または不正）→ 403（トークンが誤り・欠落）→ 422（入力）→ 409（完了済み・同時に先を越された）。トークンの失敗は監査の記録（ログ）にだけ残る。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "登録した。初期パスワードはこの応答でだけ返す（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、またはセットアップ用のトークンが誤り・欠落している（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに完了している、または社員ID・メールアドレス・部署名が重複している（CONFLICT）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "description": "初回セットアップを使えない（トークンまたは暗号鍵が未設定・不正。SERVICE_UNAVAILABLE）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -169,6 +273,103 @@
             "maxLength": 50,
             "pattern": "^[A-Za-z0-9_]+$",
             "description": "英数字と _ だけ（backend/src/routes/sample-users.ts の zod の検証と同じ）"
+          }
+        }
+      },
+      "SetupInput": {
+        "type": "object",
+        "required": [
+          "setupToken",
+          "companyName",
+          "departmentName",
+          "loginId",
+          "legalName",
+          "email",
+          "emailConfirmed"
+        ],
+        "additionalProperties": true,
+        "description": "文字数は前後の空白（全角空白を含む）を除いて数える。制御文字は使えない。backend/src/routes/setup.ts の zod の検証と同じ",
+        "properties": {
+          "setupToken": {
+            "type": "string",
+            "description": "セットアップ用のトークン（43文字の base64url）"
+          },
+          "companyName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "departmentName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "loginId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 32,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "legalName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "本名。初期表示名にも使う"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "emailConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "会社が発行した自分のメールアドレスだと確認した（初代管理者は自己確認）"
+          },
+          "extension": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10,
+            "pattern": "^[0-9-]+$",
+            "description": "内線番号（任意）"
+          },
+          "jobTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "役職（任意）"
+          }
+        }
+      },
+      "SetupResult": {
+        "type": "object",
+        "required": [
+          "user",
+          "initialPassword"
+        ],
+        "properties": {
+          "user": {
+            "type": "object",
+            "required": [
+              "id",
+              "loginId",
+              "displayName"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "loginId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "initialPassword": {
+            "type": "string",
+            "description": "初期パスワード（16文字）。一度だけ返し、保存しない。初回のログインで変更が必要"
           }
         }
       }
