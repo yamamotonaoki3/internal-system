@@ -2,12 +2,15 @@
 // fetch（HTTP）と scheduled（Cron Triggers）の両方を公開する。Cronのジョブは、機能のIssueが一覧に足す。
 import { createApp } from "./app";
 import { withSampleUsers } from "./db/sample-user.repository";
+import { withSetup } from "./db/setup.repository";
 import { sampleUserRoutes } from "./routes/sample-users";
+import { setupRoutes } from "./routes/setup";
 import { createScheduledHandler } from "./scheduled";
 
 export const app = createApp({
   routes: [
     { path: "/api/sample-users", app: sampleUserRoutes(withSampleUsers) },
+    { path: "/api/setup", app: setupRoutes(withSetup) },
   ],
 });
 

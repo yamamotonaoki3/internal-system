@@ -11,7 +11,7 @@
 
 1. 必要なものを入れる：Node.js（`.node-version` の版）と **Docker**。品質チェック（`npm run check`）のセキュリティのテスト（Semgrep・gitleaks・OSV-Scanner）が、Docker のイメージで動くため、D1・DB なしでも Docker が要ります。Windows・macOS は Docker Desktop、Linux は Docker Engine を入れて、起動しておきます（`docker info` で確かめる）。**Docker Desktop は、従業員250人以上または年間売上1000万ドル以上の会社が業務で使うときは有料です**（個人・小規模・教育・非営利は無料。条件は公式で確かめる）。導入と注意は `docs/testing/security.md`
 1. 依存を入れる：`npm install`
-1. 開発用の環境変数を用意する：`.env.example` を `.env.development` にコピーして、`APP_ENV=development` と手元の値を入れる（Gitには入りません。項目の説明は `docs/secrets.md`）。不足は `npm run env:check` で確かめられます
+1. 開発用の環境変数を用意する：`.env.example` を `.env.development` にコピーして、`APP_ENV=development` と手元の値を入れる（Gitには入りません。項目の説明は `docs/secrets.md`）。不足は `npm run env:check` で確かめられます。初代全体管理者の初回セットアップ（`/setup`）を試すには、`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` も自分で作って入れます（作り方は `docs/secrets.md` の「初回セットアップ用の項目」）
 1. DB（手元の D1）を用意する：`.env.example`を`.env.development`へコピーして`APP_ENV=development`を設定し、`npm run db:migrate:local`でテーブルを作り、`npm run db:seed:local`で開発用の架空のデータを入れる
 1. 開発サーバーを起動する：`npm run dev`（画面は http://localhost:5173/ 、API は http://localhost:5173/api/health ）
 1. 品質チェックとテストを実行する：`npm run check`（Docker が要る。初回は、セキュリティのテストのイメージを取得するため、通信と時間がかかります）
@@ -23,7 +23,7 @@ GitHub のアカウントとの紐付け（`gh auth login`）は、利用者が�
 1. GitHub にログインする：`gh auth login`
 1. Git を用意して、最初のコミットをする：`git init -b main` のあと `git add -A`、`git commit -m "chore: 生成した初期状態"`
 1. リポジトリを作って push する：`gh repo create internal-system --public --source=. --push`
-1. 品質チェックの環境変数を確かめる：CI は `.env.example` から環境変数のファイルを作るため、Secrets の登録は不要。秘密の項目を足すときは `docs/secrets.md` の CI の節に従う
+1. 品質チェックの環境変数を確かめる：CI は `.env.example` から環境変数のファイルを作るため、Secrets の登録は不要（`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` は CI の中で実行ごとに乱数で生成する）。他の秘密の項目を足すときの扱いは `docs/secrets.md` の CI の節に従う
 1. `main` を保護する：下の「`main` ブランチの保護」の手順で設定する
 1. 仮のアイコンの Issue を作る：下の「仮のアイコン」の手順で作る
 

@@ -14,7 +14,7 @@
 
 1. `npm install`
 1. `npx playwright install --with-deps chromium`
-1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる（手順は `docs/secrets.md`）
+1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる（手順は `docs/secrets.md`）。初回セットアップの E2E（`e2e/setup.spec.ts`）のために、`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` も入れる（作り方は `docs/secrets.md` の「初回セットアップ用の項目」。値は利用者が入れる）
 
 ## 3. 確認の方法
 
@@ -51,4 +51,5 @@
 | ブラウザがないと言われる | `npx playwright install --with-deps chromium` を実行する |
 | ポートが使われていて起動しない | 何が使っているかを確かめる。自分が起動したものでなければ、止めずに利用者に確認する |
 | `.env.test` がないと言われる | `docs/secrets.md` の手順で作る |
+| 初回セットアップの E2E が「SETUP_TOKEN が設定されていません」で失敗する | `.env.test` に `SETUP_TOKEN` と `PII_ENCRYPTION_KEY` を利用者が入れる（`docs/secrets.md`）。環境の不備であり、テストの不具合ではない。値は表示せず、`npm run env:check -- test` で項目の名前だけを確かめる |
 | 失敗の原因が分からない | `playwright-report/` とトレース（`npx playwright show-trace <trace.zip>`）を確かめる |

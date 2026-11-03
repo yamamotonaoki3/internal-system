@@ -32,6 +32,22 @@ describe("共通ロガー（C-30）", () => {
     spy.mockRestore();
   });
 
+  it("#119 AC-1: 本名の項目（legalName・legal_name・LegalNameEncrypted）は伏せ字になる", () => {
+    const redacted = redact({
+      legalName: "テスト太郎",
+      legal_name: "テスト太郎",
+      LegalNameEncrypted: "v1:dummy-iv:dummy-ciphertext",
+      nested: { legalName: "テスト太郎" },
+      displayName: "テスト表示名",
+    }) as Record<string, unknown>;
+    expect(redacted.legalName).toBe("[REDACTED]");
+    expect(redacted.legal_name).toBe("[REDACTED]");
+    expect(redacted.LegalNameEncrypted).toBe("[REDACTED]");
+    expect(JSON.stringify(redacted)).not.toContain("テスト太郎");
+    // 表示名は公開の情報のため、伏せ字にしない
+    expect(redacted.displayName).toBe("テスト表示名");
+  });
+
   it("改行などの制御文字を無害化する（ログインジェクション対策）", () => {
     expect(redact("line1\nFAKE LOG LINE")).not.toContain("\n");
   });

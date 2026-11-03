@@ -82,7 +82,8 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
   ```
 
 - CI の `.env.development`・`.env.test` は、`.env.example` から作る
-- `.env.example` に秘密の項目を足すときは、CI の環境変数ファイルを Secret から渡す方式に変える
+- `SETUP_TOKEN` と `PII_ENCRYPTION_KEY` の2項目は、Secret を使わず、CI の中で実行ごとに乱数で生成して `.env.development`・`.env.test` に入れる（値はログに出さない。空のままなら失敗する。`.github/workflows/check.yml`）
+- 他の秘密の項目を `.env.example` に足すとき、Secret から渡す方式が必要になるかは、足す時点で別途決める
 - 以前の手順で登録した Secret の `ENV_TEST` は不要になった。削除は利用者が行う（`gh secret delete ENV_TEST`。AI は実行しない）
 
 ## Terraform
@@ -110,3 +111,40 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
 | `APP_ENV` | 環境の名前 | development | test | production |
 | `ALLOWED_ORIGINS` | 状態を変える要求を許可する送信元（カンマ区切り） | 手元の画面のURL | 手元の画面のURL | 本番のドメイン（wrangler.jsonc の vars・IaC で設定する） |
 | `APP_PORT` | Docker で動かすときに、手元で開くポート（docker-compose.yml が読む） | 5173（ほかのアプリと重なるときだけ変える。変えたら ALLOWED_ORIGINS も合わせる） | 5173 | 使わない（Cloudflare の Workers で動く） |
+| `SETUP_TOKEN` | 初代全体管理者の初回セットアップ用の認証（ADR-0013）。43文字の乱数 | 利用者が生成して `.env.development` に入れる | 利用者が生成して `.env.test` に入れる（開発と別の値） | 利用者が `wrangler secret put` で入れ、セットアップ完了後に削除する |
+| `PII_ENCRYPTION_KEY` | 本名（個人情報）を暗号化する鍵（AES-256-GCM。ADR-0013）。43文字の乱数 | 利用者が生成して `.env.development` に入れる | 利用者が生成して `.env.test` に入れる（開発と別の値） | 利用者が `wrangler secret put` で入れる。削除しない |
+
+## 初回セットアップ用の項目（SETUP_TOKEN・PII_ENCRYPTION_KEY）
+
+初代全体管理者の登録（画面 S-34）に使う2つの項目。どちらも**32バイトの乱数を base64url にした、ちょうど43文字**の値にする。開発・検証・本番で**別の値**にする。値はチャット・Issue・PR・コミットに貼らない。設計の理由は [ADR-0013](adr/0013-initial-setup-auth-and-pii-encryption.md) にある。
+
+### 値の作り方
+
+利用者が自分のターミナルで実行し、表示された値を、`.env.development`・`.env.test`（手元）または `wrangler secret put` の入力欄（本番）に入れる。2つの項目は、別々に2回実行して、別の値にする。
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+### 本番に入れる（利用者が実施。AI は実行しない）
+
+```bash
+npx wrangler secret put SETUP_TOKEN
+npx wrangler secret put PII_ENCRYPTION_KEY
+```
+
+値は、実行後の入力欄に貼る（保管場所から貼り付ける）。足りない・形式が正しくない場合、初回セットアップの API は 503 を返す（アプリ全体は止まらない）。
+
+### セットアップが終わったら SETUP_TOKEN を削除する（利用者が実施）
+
+初代全体管理者の登録が終わったら、入口を閉じるため、本番の `SETUP_TOKEN` を削除する。削除しなくても、登録後は正しいトークンでも 409 になる（完了の判定は DB の状態）が、不要なシークレットを残さない。
+
+```bash
+npx wrangler secret delete SETUP_TOKEN
+```
+
+削除したあと、`npx wrangler secret list` で `SETUP_TOKEN` が消えたことを確かめる。以後、`/api/setup` の POST は 503 を返す。
+
+### PII_ENCRYPTION_KEY を控える
+
+`PII_ENCRYPTION_KEY` を**紛失すると、保存済みの本名を復号できない**。「本番の値を控えておく場所」に、本番の値を控えておく。鍵を別の値に入れ替える（ローテーション）手順と、紛失した場合の復旧手順は**未決定**（ADR-0013）。入れ替えると、すでに保存した本名が復号できなくなるため、手順が決まるまで入れ替えない。

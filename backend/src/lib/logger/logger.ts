@@ -22,13 +22,18 @@ const REDACT_KEYS = [
   "address",
   "name_kana",
   "birthday",
+  // 本名（個人情報。暗号化した値も含める）
+  "legalname",
+  "legal_name",
 ];
+// 項目名に伏せ字の語（email）を含むが、値が固定の分類で、個人情報を含まない項目（完全一致、小文字）
+const SAFE_KEYS = ["emailverification"];
 const REDACTED = "[REDACTED]";
 const MAX_DEPTH = 5;
 
 function shouldRedact(key: string): boolean {
   const k = key.toLowerCase();
-  return REDACT_KEYS.some((r) => k.includes(r));
+  return !SAFE_KEYS.includes(k) && REDACT_KEYS.some((r) => k.includes(r));
 }
 
 // 改行などの制御文字を無害化する（ログインジェクション対策）
