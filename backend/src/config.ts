@@ -5,6 +5,8 @@ import { isValidPiiKey } from "./lib/pii-crypto";
 
 // 32バイトの乱数の base64url（パディングなし）は、ちょうど43文字
 const SETUP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+// 試行制限の HMAC の鍵も、同じ形式（32バイトの乱数の base64url）
+const LOGIN_THROTTLE_KEY_PATTERN = SETUP_TOKEN_PATTERN;
 
 export type AppConfig = {
   /** 環境の名前（development・test・production） */
@@ -15,6 +17,8 @@ export type AppConfig = {
   setupToken: string | null;
   /** 本名の暗号鍵（32バイトの base64url）。未設定・形式不正は null（セットアップだけを 503 にする） */
   piiEncryptionKey: string | null;
+  /** 試行制限のキーを作る HMAC の鍵。未設定・形式不正は null（ログインと初回セットアップの POST だけを 503 にする） */
+  loginThrottleKey: string | null;
 };
 
 type RawEnv = Record<string, unknown>;
@@ -59,5 +63,8 @@ export function loadConfig(env: unknown): AppConfig {
       SETUP_TOKEN_PATTERN.test(v),
     ),
     piiEncryptionKey: optionalSecret(raw, "PII_ENCRYPTION_KEY", isValidPiiKey),
+    loginThrottleKey: optionalSecret(raw, "LOGIN_THROTTLE_KEY", (v) =>
+      LOGIN_THROTTLE_KEY_PATTERN.test(v),
+    ),
   };
 }

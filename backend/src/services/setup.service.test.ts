@@ -1,5 +1,6 @@
 // #119 AC-1・AC-4：初回セットアップの Service（setup.service.ts）の単体テスト。Repository はスタブにする。
 // 503／403 の分岐、監査（logger.audit）の action、409 の理由ごとのメッセージ、返す値を確かめる。
+import { SCRYPT_TEST_TIMEOUT_MS } from "../../test/auth-fixtures";
 import { describe, expect, it, vi } from "vitest";
 import { newPiiKey, randomBase64Url } from "../../test/random-secrets";
 import {
@@ -53,7 +54,7 @@ const input: SetupInput = {
   jobTitle: "代表取締役社長",
 };
 
-describe("getSetupStatus", () => {
+describe("getSetupStatus", { timeout: SCRYPT_TEST_TIMEOUT_MS }, () => {
   it("#119 AC-4: 完了していなければ setupRequired: true", async () => {
     const { repository } = stubRepository({ completed: false });
     expect(await getSetupStatus(repository)).toEqual({ setupRequired: true });
@@ -65,98 +66,102 @@ describe("getSetupStatus", () => {
   });
 });
 
-describe("authenticateSetup（503・403 の分岐）", () => {
-  it("#119 AC-1: トークンと鍵が使えて、トークンが一致すれば、暗号鍵を返し、監査に記録しない", async () => {
-    const token = randomBase64Url(32);
-    const key = newPiiKey();
-    const { logger, audit } = makeLogger();
-    expect(
-      await authenticateSetup(
-        { setupToken: token, piiEncryptionKey: key },
-        token,
-        logger,
-      ),
-    ).toEqual({ piiEncryptionKey: key });
-    expect(audit).not.toHaveBeenCalled();
-  });
-
-  it.each<[string, string | null, string | null]>([
-    ["トークンが未設定", null, "key"],
-    ["鍵が未設定", "token", null],
-    ["両方が未設定", null, null],
-  ])(
-    "#119 AC-1: %s は 503（SERVICE_UNAVAILABLE）で、決まったメッセージ。監査に記録しない",
-    async (_label, setupToken, piiEncryptionKey) => {
-      const { logger, audit } = makeLogger();
-      const err = await errorOf(
-        authenticateSetup(
-          {
-            setupToken: setupToken === null ? null : randomBase64Url(32),
-            piiEncryptionKey: piiEncryptionKey === null ? null : newPiiKey(),
-          },
-          randomBase64Url(32),
-          logger,
-        ),
-      );
-      expect(err).toBeInstanceOf(AppError);
-      expect((err as AppError).code).toBe("SERVICE_UNAVAILABLE");
-      expect((err as AppError).status).toBe(503);
-      expect((err as AppError).userMessage).toBe(
-        "初回セットアップは現在使えません。運用担当者に連絡してください",
-      );
-      expect(audit).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each<[string, unknown]>([
-    ["別のトークン", randomBase64Url(32)],
-    ["空文字", ""],
-    ["undefined", undefined],
-    ["null", null],
-    ["数値", 12345],
-  ])(
-    "#119 AC-1: トークンが誤り（%s）は 403（FORBIDDEN）で、決まったメッセージ。logger.audit に action・対象・failure・理由を記録する",
-    async (_label, given) => {
+describe(
+  "authenticateSetup（503・403 の分岐）",
+  { timeout: SCRYPT_TEST_TIMEOUT_MS },
+  () => {
+    it("#119 AC-1: トークンと鍵が使えて、トークンが一致すれば、暗号鍵を返し、監査に記録しない", async () => {
       const token = randomBase64Url(32);
+      const key = newPiiKey();
+      const { logger, audit } = makeLogger();
+      expect(
+        await authenticateSetup(
+          { setupToken: token, piiEncryptionKey: key },
+          token,
+          logger,
+        ),
+      ).toEqual({ piiEncryptionKey: key });
+      expect(audit).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, string | null, string | null]>([
+      ["トークンが未設定", null, "key"],
+      ["鍵が未設定", "token", null],
+      ["両方が未設定", null, null],
+    ])(
+      "#119 AC-1: %s は 503（SERVICE_UNAVAILABLE）で、決まったメッセージ。監査に記録しない",
+      async (_label, setupToken, piiEncryptionKey) => {
+        const { logger, audit } = makeLogger();
+        const err = await errorOf(
+          authenticateSetup(
+            {
+              setupToken: setupToken === null ? null : randomBase64Url(32),
+              piiEncryptionKey: piiEncryptionKey === null ? null : newPiiKey(),
+            },
+            randomBase64Url(32),
+            logger,
+          ),
+        );
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe("SERVICE_UNAVAILABLE");
+        expect((err as AppError).status).toBe(503);
+        expect((err as AppError).userMessage).toBe(
+          "初回セットアップは現在使えません。運用担当者に連絡してください",
+        );
+        expect(audit).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each<[string, unknown]>([
+      ["別のトークン", randomBase64Url(32)],
+      ["空文字", ""],
+      ["undefined", undefined],
+      ["null", null],
+      ["数値", 12345],
+    ])(
+      "#119 AC-1: トークンが誤り（%s）は 403（FORBIDDEN）で、決まったメッセージ。logger.audit に action・対象・failure・理由を記録する",
+      async (_label, given) => {
+        const token = randomBase64Url(32);
+        const { logger, audit } = makeLogger();
+        const err = await errorOf(
+          authenticateSetup(
+            { setupToken: token, piiEncryptionKey: newPiiKey() },
+            given,
+            logger,
+          ),
+        );
+        expect((err as AppError).code).toBe("FORBIDDEN");
+        expect((err as AppError).status).toBe(403);
+        expect((err as AppError).userMessage).toBe(
+          "セットアップ用のトークンが正しくありません",
+        );
+        expect(audit).toHaveBeenCalledTimes(1);
+        expect(audit.mock.calls[0]).toEqual([
+          "setup.initial_admin.create",
+          "setup",
+          "failure",
+          { reason: "invalid_token" },
+        ]);
+        expect(JSON.stringify(audit.mock.calls)).not.toContain(token);
+      },
+    );
+
+    it("#119 AC-1: 設定の不備（503）は、トークンの照合（403）より先に判定する", async () => {
       const { logger, audit } = makeLogger();
       const err = await errorOf(
         authenticateSetup(
-          { setupToken: token, piiEncryptionKey: newPiiKey() },
-          given,
+          { setupToken: randomBase64Url(32), piiEncryptionKey: null },
+          "wrong",
           logger,
         ),
       );
-      expect((err as AppError).code).toBe("FORBIDDEN");
-      expect((err as AppError).status).toBe(403);
-      expect((err as AppError).userMessage).toBe(
-        "セットアップ用のトークンが正しくありません",
-      );
-      expect(audit).toHaveBeenCalledTimes(1);
-      expect(audit.mock.calls[0]).toEqual([
-        "setup.initial_admin.create",
-        "setup",
-        "failure",
-        { reason: "invalid_token" },
-      ]);
-      expect(JSON.stringify(audit.mock.calls)).not.toContain(token);
-    },
-  );
+      expect((err as AppError).code).toBe("SERVICE_UNAVAILABLE");
+      expect(audit).not.toHaveBeenCalled();
+    });
+  },
+);
 
-  it("#119 AC-1: 設定の不備（503）は、トークンの照合（403）より先に判定する", async () => {
-    const { logger, audit } = makeLogger();
-    const err = await errorOf(
-      authenticateSetup(
-        { setupToken: randomBase64Url(32), piiEncryptionKey: null },
-        "wrong",
-        logger,
-      ),
-    );
-    expect((err as AppError).code).toBe("SERVICE_UNAVAILABLE");
-    expect(audit).not.toHaveBeenCalled();
-  });
-});
-
-describe("completeSetup", () => {
+describe("completeSetup", { timeout: SCRYPT_TEST_TIMEOUT_MS }, () => {
   const context = () => ({
     piiEncryptionKey: newPiiKey(),
     traceId: "trace-unit-setup",

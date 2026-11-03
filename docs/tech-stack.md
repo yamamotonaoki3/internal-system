@@ -57,7 +57,7 @@
 | DB | D1のみ（本番・ローカル・テストとも）。DrizzleもD1（方言 sqlite、ドライバ drizzle-orm/d1）。pg（PostgreSQL・Hyperdrive）は使わない（ADR-0005）。ハーネスのひな形に残るpg経路の扱いは、Issue #114 とハーネスへの改善の提案で整理した | なし | [0005](adr/0005-database-d1-only.md) |
 | リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue） | なし（Workersの標準機能） | [0004](adr/0004-realtime-polling-then-websocket.md) |
 | ID | 時刻順のULID相当のテキスト。自前で生成する | なし（Web Crypto） | [0006](adr/0006-id-cursor-unread.md) |
-| パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。本番（Workers Paid）で確認して最終決定。`argon2id`（1.0.1）は更新が止まっているため使わない。互換性日付2026-08-04以降または`nodejs_compat`が要る | なし | [0007](adr/0007-password-hash-scrypt.md) |
+| パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。本番（Workers Paid）での確認により確定（2026-11-03。`maxmem`の指定が必須）。`argon2id`（1.0.1）は更新が止まっているため使わない。互換性日付2026-08-04以降または`nodejs_compat`が要る | なし | [0007](adr/0007-password-hash-scrypt.md) |
 | セッション・試行制限 | D1の`sessions`・`login_attempts`。期限切れの掃除はCron Triggers | なし | [0008](adr/0008-session-and-login-throttle.md) |
 | 管理者のMFA | 全体管理者だけTOTP（RFC 6238）。WebCryptoで自作 | なし | [0009](adr/0009-admin-mfa-totp.md) |
 | 日本語の全文検索 | D1のFTS5 trigram（1〜2文字は`LIKE`） | なし | [0010](adr/0010-japanese-search-fts5-trigram.md) |

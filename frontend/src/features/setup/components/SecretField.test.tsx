@@ -1,9 +1,10 @@
 // #119 AC-4：S-34 のトークン欄（SecretField）。入力を伏せ、ボタンで表示・非表示を切り替える。
 // 公開形の仮定：SecretField は label と入力欄の属性（React Hook Form の register の戻り値を含む）を受け取り、ref を input に渡す。
+// #120 D-7：SecretField は共通の components/ へ移した。このテストは import の場所だけを変えた（期待値は #119 のまま）。
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { SecretField } from "./SecretField";
+import { SecretField } from "../../../components/SecretField";
 
 const LABEL = "初回セットアップ用のトークン";
 

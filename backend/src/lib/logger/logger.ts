@@ -44,12 +44,27 @@ function sanitizeText(value: string): string {
   );
 }
 
+const DB_ERROR_MESSAGE =
+  "データベースの処理に失敗した（SQL・パラメータは出力しない）";
+
+function isDatabaseQueryError(error: Error): boolean {
+  return (
+    error.message.startsWith("Failed query:") ||
+    ("query" in error && "params" in error)
+  );
+}
+
 export function redact(value: unknown, depth = 0): unknown {
   if (depth > MAX_DEPTH) return "[TRUNCATED]";
   if (typeof value === "string") return sanitizeText(value);
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
-  if (value instanceof Error)
+  if (value instanceof Error) {
+    // DB のエラー（Drizzle の DrizzleQueryError など）は、message に SQL とパラメータ（社員ID・パスワードなど）を含む。
+    // 出さずに、固定の文言にする（原因の調査は、DB 側のエラーの種類と traceId で行う）
+    if (isDatabaseQueryError(value))
+      return { name: value.name, message: DB_ERROR_MESSAGE };
     return { name: value.name, message: sanitizeText(value.message) };
+  }
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Attributes).map(([k, v]) => [

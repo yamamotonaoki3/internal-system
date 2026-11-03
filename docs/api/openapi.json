@@ -3,7 +3,7 @@
   "info": {
     "title": "internal-system API",
     "version": "0.1.0",
-    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。"
+    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。 /api/* は既定で拒否する：公開の許可リスト（GET /api/health・GET /api/setup/status・POST /api/setup・POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session）以外は、ログイン（Cookie __Host-session）が必要で、未ログインは 401（UNAUTHENTICATED）になる。初回パスワードのままの利用者は、許可リスト以外が 403（PASSWORD_CHANGE_REQUIRED）になる。"
   },
   "servers": [
     {
@@ -56,6 +56,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/PasswordChangeRequired"
           }
         }
       },
@@ -84,7 +90,14 @@
             }
           },
           "403": {
-            "$ref": "#/components/responses/ForbiddenOrigin"
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または初回パスワードのままの利用者（PASSWORD_CHANGE_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "409": {
             "description": "同じユーザー名がすでにある（CONFLICT）",
@@ -98,6 +111,9 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
           }
         }
       }
@@ -140,7 +156,7 @@
       "post": {
         "operationId": "completeSetup",
         "summary": "初代全体管理者を登録する（初回専用の認証。全体管理者がいない間に一度だけ成功する）",
-        "description": "未認証で呼ぶ初回専用の API のため、401 は返さない。認証はセットアップ用のトークン（環境のシークレット）で行い、順序は 503（トークン・暗号鍵が未設定または不正）→ 403（トークンが誤り・欠落）→ 422（入力）→ 409（完了済み・同時に先を越された）。トークンの失敗は監査の記録（ログ）にだけ残る。",
+        "description": "未認証で呼ぶ初回専用の API のため、401 は返さない。認証はセットアップ用のトークン（環境のシークレット）で行い、順序は 503（トークン・暗号鍵が未設定または不正）→ 403（トークンが誤り・欠落）→ 422（入力）→ 409（完了済み・同時に先を越された）。トークンの失敗は監査の記録（ログ）にだけ残る。 接続元ごとに、15分の窓で受付30回までに制限する（超えたら15分ロック。429）。",
         "requestBody": {
           "required": true,
           "content": {
@@ -202,6 +218,144 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "ログインする（社員IDとパスワード）",
+        "description": "成功するとセッションの Cookie（__Host-session。HttpOnly・Secure・SameSite=Lax・Path=/・Max-Age=86400）を発行する。社員IDの存在・無効・パスワードの誤りは、応答を区別しない（401 INVALID_CREDENTIALS）。接続元ごとに15分の窓で受付30回までに制限する（成功も数える。超えたら15分ロックして 429）。社員IDごとの失敗が続くと、応答を最大4秒遅らせる。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ログインした（Set-Cookie でセッションを発行。Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "__Host-session=<トークン>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "社員IDまたはパスワードが違う（INVALID_CREDENTIALS。存在しない・無効・誤りで同じ応答）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "description": "ログインを使えない（LOGIN_THROTTLE_KEY が未設定・不正）、または本番で接続元を特定できない（SERVICE_UNAVAILABLE）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "ログアウトする（この端末のセッションだけを失効させる）",
+        "description": "未ログイン・失効済み・偽物の Cookie でも 204 を返し、Cookie を削除する（べき等）。失効の DB 処理が失敗したときは 500 を返し、Cookie は消さない。401 は返さない（未ログインでも呼べる）。",
+        "responses": {
+          "204": {
+            "description": "ログアウトした（Set-Cookie で __Host-session を Max-Age=0 で削除。Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "返さない（未ログインでも 204）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          }
+        }
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "ログイン中の利用者を返す（画面の起動時の確認）",
+        "description": "初回パスワードのままの利用者も呼べる（mustChangePassword: true）。GET は状態を変えない（最終操作の時刻の更新は1分に間引く）。",
+        "responses": {
+          "200": {
+            "description": "ログイン中（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
           }
         }
       }
@@ -372,6 +526,55 @@
             "description": "初期パスワード（16文字）。一度だけ返し、保存しない。初回のログインで変更が必要"
           }
         }
+      },
+      "LoginInput": {
+        "type": "object",
+        "required": [
+          "loginId",
+          "password"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "loginId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "社員ID（大文字・小文字を区別しない）"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "required": [
+          "user",
+          "mustChangePassword"
+        ],
+        "properties": {
+          "user": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "description": "初回パスワードのまま。true の間は、ログアウトとセッションの確認以外が 403（変更の画面は #123）"
+          }
+        }
       }
     },
     "responses": {
@@ -387,6 +590,66 @@
       },
       "ValidationError": {
         "description": "入力が正しくない（VALIDATION_ERROR）",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthenticated": {
+        "description": "ログインしていない（UNAUTHENTICATED）。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "PasswordChangeRequired": {
+        "description": "初回パスワードのままの利用者（PASSWORD_CHANGE_REQUIRED）。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "試行制限（RATE_LIMITED）。Retry-After に、解除までの秒数を入れる。本文には残り時間・どの制限かを出さない",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
