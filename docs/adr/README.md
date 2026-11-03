@@ -24,3 +24,4 @@
 | [0011](0011-attachment-inspection-and-virus-scan.md) | 添付の検査は自前で行い、ウイルススキャンは別Issueで決める | 採用 |
 | [0012](0012-zero-trust-principle.md) | ゼロトラストを設計の原則とする | 採用 |
 | [0013](0013-initial-setup-auth-and-pii-encryption.md) | 初回セットアップの認証は環境のシークレットで行い、本名はAES-256-GCMで暗号化して保存する | 採用 |
+| [0014](0014-ai-may-set-dev-test-secrets.md) | 開発・テスト用の使い捨ての秘密の値は、AIが環境ファイルに書いてよい | 採用 |
