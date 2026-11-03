@@ -26,3 +26,6 @@
 
 - 要件定義書は、`docs/requirements.md`（目次・全体像・全体の未決定事項）と、`docs/requirements/`（機能ごとの詳細・非機能要件・データモデル）に分けて書く。機能の追加・変更は、該当する機能ファイルを直し、番号付きの受け入れ条件（AC-n）を維持する。受け入れ条件は、機能ごとの見出しの下に箇条書き（`- AC-n：…`）で書く。他の文書から参照するときは「0-2 AC-4」のように機能番号を付ける。ER図は Mermaid の erDiagram で書く
 - Issueは、実装する機能の単位で立てる。フロントエンド・バックエンド・DBなどの作業領域では分けない（ADR 0002）。Skill「実装の進め方」の『作業領域ごとに子Issueに分ける』『対象の作業領域を書く』は適用しない。
+- 一覧APIのページ送りは、`backend/src/lib/cursor.ts`（`cursorQuerySchema`・`afterCursor`・`toPage`）を使う。OFFSETは使わず、件数は`PAGE_LIMIT`に従う（メッセージ50・その他20・最大100）
+- 監査ログは、`auditLogInsert`が返す文を、業務の更新と同じ`db.batch([...])`に入れて書く（単独で実行しない）。`detail`には、件数・変更前後の識別子や状態・失敗の分類などの概要だけを入れ、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない
+- 本番の権限IDの一覧とResolverは、`createAuthorizer`を呼ぶ1か所で組む。認可の拒否は、`createAuthorizer`の`authorize`が`logger.audit`で必ず記録する（`logger`は必須）。拒否の記録を省く書き方をしない

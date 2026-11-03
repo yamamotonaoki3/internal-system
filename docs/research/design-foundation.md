@@ -320,7 +320,7 @@ Skill「データアクセス（Drizzle）」の D1 の規則：トランザク�
 
 ## 10. 未確認・要再確認
 
-- Workers の時刻が処理中に進まない件の最新の仕様（ULID の単調増加の実装方針に影響）。
+- Workers の時刻が処理中に進まない件の最新の仕様（ULID の単調増加の実装方針に影響）。→ 2026-11-03 に公式で再確認した。結果は12章。
 - Pseudo IPv4 の有無などゾーン設定（独自ドメインを使う場合）。
 - Time Travel が FTS5 の仮想テーブルを含めて戻せるか（T-03・T-05）。
 - ASVS の該当項目の番号とバージョン。
@@ -335,3 +335,15 @@ Skill「データアクセス（Drizzle）」の D1 の規則：トランザク�
 3. Rate Limiting バインディング：https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/ （窓は10秒・60秒、拠点ごとの近似・結果整合、厳密な制限には Durable Objects）
 4. HTTPヘッダー：https://developers.cloudflare.com/fundamentals/reference/http-headers/ （`CF-Connecting-IP`、Pseudo IPv4）
 5. 内部の文書：`docs/requirements.md` 6・7章、`docs/requirements/00-foundation.md`（0-2・0-3・0-5）、`docs/requirements/api-draft.md`（X-2・X-8・X-9・2.4）、`docs/requirements/data-model.md`（設計-9・`sessions`・`login_attempts`）、`docs/requirements/decision-register.md`（C-41・I-01・I-05・I-09）、`docs/adr/0003-auth-cookie-session.md`、`docs/tech-stack.md`、`backend/`・`wrangler.jsonc`・`drizzle.config.ts`・`vitest.config.ts`、Skill「セキュリティ」「データアクセス（Drizzle）」
+
+## 12. Workers の時刻の仕様の再確認（Issue #118。2026-11-03）
+
+ULID の単調増加（ADR-0006）の実装前に、公式の記載を確認した。
+
+- 確認できたこと：本番の Workers では、コードの実行中は `Date.now()` が進まず、I/O の後に進む（タイミング攻撃への対策。公式のセキュリティモデルの記載）。ローカル（`wrangler dev`・Vitest の実行環境）では時刻が進む。
+- 実装への反映：ULID は、同じ要求の中（同じファクトリ）で単調に増える。同時刻・時計が戻った場合は、直前の乱数に1を足す（`backend/src/lib/ulid.ts`）。別のインスタンス間の順序は保証せず、時刻順になるだけ。
+- 未確認：D1・KV・Durable Objects へのアクセスごとに時刻が更新されるか。進む時刻が I/O の完了時刻か開始時刻か。Vitest の実行環境で時刻がどう進むか。
+- 出典（2026-11-03 に確認）：
+  1. https://developers.cloudflare.com/workers/reference/security-model/
+  2. https://developers.cloudflare.com/workers/runtime-apis/performance/
+  3. https://developers.cloudflare.com/workers/runtime-apis/web-standards/

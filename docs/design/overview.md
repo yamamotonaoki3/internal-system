@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。実装はまだない。ここに書いた内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -80,7 +80,23 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/rules-examples/` | Skillの良い例・悪い例のテスト（ハーネスが管理する。消さない） |
 | `frontend/src/` | 画面（React） |
 
-（追加・変更したファイルを、実装したPRの中で、この表に足す）
+（追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
+
+## 共通部品（Issue #118）
+
+機能のIssueが共通で使う部品。ADR-0006（ID・カーソル）、ADR-0012（権限は毎回サーバー側で確認する）に沿う。コードは書き写さず、ファイル名・関数名で指す。
+
+| 部品 | ファイル | 役割・決まり |
+| --- | --- | --- |
+| ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ。根拠は[調査メモ](../research/design-foundation.md)の12章 |
+| カーソル | `backend/src/lib/cursor.ts` | 一覧はOFFSETを使わず、`(並び替えの値, ID)`の組で続きを取る。`cursorQuerySchema`が`cursor`と`limit`を検証し、`afterCursor`（並び替えの値＋ID）または`afterId`（IDだけ）が条件を作り、`toPage`が`limit+1`件の結果から1ページ分と`nextCursor`を作る。壊れたカーソルは`decodeCursor`が`VALIDATION_ERROR`（422）にする。件数は`PAGE_LIMIT`（メッセージ50・その他20・最大100）。並び替えの値の文字列は128文字まで、カーソル全体は1024文字まで |
+| 監査ログの書き込み | `backend/src/db/audit-log.repository.ts` | `auditLogInsert`は挿入の文を**返すだけ**で実行しない。業務の更新と同じ`db.batch([...])`に入れて、同時に確定・失敗させる（`backend/src/db/database.ts`の`BatchItem`型）。`detail`に入れてよいのは件数・変更前後の識別子や状態・失敗の分類・文字数などの概要で、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない。`redact`は項目名による保険であり、個人情報を取り除く仕組みではない |
+| 監査ログの操作の種類 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`の一覧。このIssueでは空。機能のIssueが操作を足すときにここへ足す |
+| 権限判定 | `backend/src/lib/authorization.ts` | `createAuthorizer(known, resolve, { logger })`が`can`（真偽）と`authorize`（拒否は例外）を返す。範囲（`Scope`）は会社または部署。`known`にない権限IDは、Resolverが許可しても拒否する。未ログインは`UNAUTHENTICATED`、権限なしは`FORBIDDEN`にし、拒否は`logger.audit`で必ず記録する（利用者IDやResolverの権限集合は含めない）。**本番の権限IDの一覧とResolverの実装は、ロールのIssueが、`createAuthorizer`を呼ぶ1か所で組む**（このIssueでは枠だけ） |
+| Cronの枠 | `backend/src/scheduled.ts`、`backend/src/index.ts` | `createScheduledHandler`が、`CronJob`（`cron`式・`name`・`run`）の一覧から、受け取った`controller.cron`と同じ式のジョブを順に実行する。失敗は記録して再スローする。`index.ts`は、名前付きの`app`と、`default`の`fetch`・`scheduled`を公開する。ジョブの一覧はこのIssueでは空で、機能のIssueが足す。`wrangler.jsonc`の`triggers`は未設定で、**本番への適用は利用者が行う**（ADR-0008の掃除などで使う） |
+| `audit_logs`テーブル | `backend/db/schema.ts`、`backend/db/migrations/0001_add_audit_logs.sql` | 列は`id`・`occurred_at`・`actor_id`・`action`・`target_type`・`target_id`・`result`・`trace_id`・`detail`。**外部キーは付けない**（操作者や対象が消えても監査ログを残すため）。索引は`(occurred_at, id)`。`result`は`success`／`failure`だけを許すCHECK制約。`occurred_at`はDBの既定値（UTCのISO形式） |
+
+テストの場所：各ファイルの隣の`*.test.ts`。DBを使うものは`backend/src/db/audit-log.repository.db.test.ts`・`backend/src/db/database.types.db.test.ts`、入口は`backend/src/index.test.ts`、Cronは`backend/src/scheduled.test.ts`。
 
 ## 処理の流れ
 

@@ -218,7 +218,7 @@ erDiagram
     audit_logs {
         text id PK
         text occurred_at
-        text actor_id FK "操作者 ログイン失敗など不明ならnull"
+        text actor_id "操作者 ログイン失敗など不明ならnull。実装は外部キーなし（Issue #118）"
         text action "操作の種類"
         text target_type "対象の種類"
         text target_id "対象のID"
