@@ -5,6 +5,7 @@
 # - OSV-Scanner は外部通信するため、通信失敗は再実行で対応する
 # - docs/* は拡張子を問わず文書扱いにする（docs 配下に実行されるコードを置かない前提）
 # - 文書扱いは docs/*、ルート直下の README.md、LICENSE だけ。.prettierignore の README.md はどの階層にも一致するが、CI の判定では下の階層の README.md や、それ以外の *.md は安全側に倒してコード扱いにする
+# - npm run check の後にビルドと初回表示の大きさの記録（size:report）を行う。大きさは表示するだけで、失敗にはしない（#171）
 # - ジョブ名 check は、ブランチ保護の必須チェックの名前のため変えない
 name: 品質チェック
 
@@ -103,6 +104,11 @@ jobs:
       - name: 品質チェックを実行する
         if: steps.changes.outputs.code == 'true'
         run: npm run check
+      - name: ビルドして、初回表示の大きさを記録する（失敗にはしない）
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          npm run build
+          npm run size:report
       - name: セキュリティのテストだけ実行する（文書のみの変更）
         if: steps.changes.outputs.code == 'false'
         run: npm run security

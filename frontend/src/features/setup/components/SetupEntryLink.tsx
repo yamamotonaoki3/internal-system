@@ -6,5 +6,9 @@ import { useSetupStatus } from "../hooks/useSetupStatus";
 export function SetupEntryLink() {
   const { data } = useSetupStatus();
   if (data?.setupRequired !== true) return null;
-  return <Link to="/setup">初回セットアップへ</Link>;
+  return (
+    <Link to="/setup" className="text-primary underline">
+      初回セットアップへ
+    </Link>
+  );
 }

@@ -1,4 +1,5 @@
 ﻿import { cloudflare } from "@cloudflare/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import {
@@ -21,7 +22,7 @@ export default defineConfig(({ command }) => {
     clearInheritedEnvironment();
     return {
       envDir: "./node_modules/.harness-env-disabled",
-      plugins: [react(), cloudflare({ remoteBindings: false })],
+      plugins: [react(), tailwindcss(), cloudflare({ remoteBindings: false })],
     };
   }
   const environment = process.env.HARNESS_APP_ENV as LocalEnvironment;
@@ -35,6 +36,7 @@ export default defineConfig(({ command }) => {
     envDir: "./node_modules/.harness-env-disabled",
     plugins: [
       react(),
+      tailwindcss(),
       cloudflare({
         config: { vars: bindings },
         persistState: { path: localStatePath(environment) },

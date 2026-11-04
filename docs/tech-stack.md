@@ -11,6 +11,8 @@
 | wrangler | 4.151.3 | 最新の安定版 | 2026-10-10 | 4.149.0 | 4.144.0 |
 | vite | 8.3.5 | 最新の安定版 | 2026-10-10 | 8.3.4 | 8.3.1 |
 | @vitejs/plugin-react | 6.1.2 | 最新の安定版 | 2026-10-10 | 6.1.2 | 6.1.1 |
+| tailwindcss | 4.3.3 | 公開から日数が経った版（Issue #171。最新の4.3.4は公開から2日のため避けた） | 2026-11-04 | 4.3.4 | ひな形の対象外 |
+| @tailwindcss/vite | 4.3.3 | 同上（tailwindcss と同じ版にそろえる） | 2026-11-04 | 4.3.4 | ひな形の対象外 |
 | @cloudflare/vite-plugin | 1.64.0 | 最新の安定版 | 2026-10-10 | 1.63.1 | 1.62.2 |
 | react | 19.3.1 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
 | react-dom | 19.3.1 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
@@ -50,7 +52,7 @@
 
 ## 全体に関わる方式（ADRで決定。2026-11-02、Issue #105）
 
-新しいライブラリは追加しない（バージョンの固定が要るものは、追加するときにこの表に足す）。
+この表の時点（Issue #105）では、新しいライブラリは追加しない方針だった（バージョンの固定が要るものは、追加するときにこの表に足す）。その後、Issue #171で `tailwindcss`・`@tailwindcss/vite` を追加した（「スタイル」の行）。
 
 | 項目 | 方式 | 追加するライブラリ | ADR |
 | --- | --- | --- | --- |
@@ -62,9 +64,23 @@
 | 管理者のMFA | 全体管理者だけTOTP（RFC 6238）。WebCryptoで自作 | なし | [0009](adr/0009-admin-mfa-totp.md) |
 | 日本語の全文検索 | D1のFTS5 trigram（1〜2文字は`LIKE`） | なし | [0010](adr/0010-japanese-search-fts5-trigram.md) |
 | 添付の検査 | Office新形式のzip構造を自前で確認 | なし | [0011](adr/0011-attachment-inspection-and-virus-scan.md) |
+| スタイル | Tailwind CSS 4＋CSS変数のデザイントークン＋自前の共通部品。CSPは変えない（`style-src 'self'`）。UI部品のライブラリ・アイコン・Webフォントは入れない | `tailwindcss`・`@tailwindcss/vite`（2026-11-04、Issue #171で追加。下の「Tailwind CSS」） | [0015](adr/0015-style-foundation.md) |
 
 - 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）、emoji-picker-react 5.1.4（C-128。条件つき）
 - `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）
+
+## Tailwind CSS（Issue #171、ADR-0015）
+
+| 項目 | 内容 |
+| --- | --- |
+| 追加したもの | `tailwindcss` と `@tailwindcss/vite`（どちらも devDependencies。4.3.3 を固定。`^`・`~` なし） |
+| 確認日 | 2026-11-04 |
+| 版の選び方 | 公開から日数が経った版。4.3.3（2026-07-16公開、111日前）。最新の4.3.4（公開から2日）は避けた。公式のリリースノートに、4.3.3・4.3.4ともセキュリティ修正の記載はない |
+| 導入の条件（ADR-0015） | 公式の導入手順（tailwindcss.com の Vite 向け）のパッケージ名との完全な一致、npm の公開者・リポジトリが公式と一致、バージョン固定、`--ignore-scripts` で導入、導入後に**増えたすべての依存**（ネイティブバイナリ・間接依存を含む）を公式情報と照合し、ロックファイルの差分・integrity・`npm audit`・`npm audit signatures`・OSV を確認、結果を Issue #171 に記録 |
+| 増えた依存 | 29件（既存の版の変更・削除はなし）。`tailwindcss`・`@tailwindcss/*`（`@tailwindcss/oxide` とOS別のバイナリを含む）17件、`lightningcss` とOS別のバイナリ12件、`jiti` 1件。導入時に実行されるスクリプトはなし。OS別のバイナリは、手元の Windows 用と CI の Linux 用を含む全OS分がロックファイルに入っている |
+| 出所の証明 | `tailwindcss` 系はあり。`lightningcss` 系と `jiti` はなし（公式のリポジトリ・公開元が一致することを確認し、受け入れた） |
+| `source(none)` | `frontend/src/styles/index.css` で `@import "tailwindcss" source(none)` とし、クラスを探す範囲を `@source "../"`（`frontend/src/`）に限る。既定ではプロジェクトの全体を自動で探すため、意図しないファイルを読まないようにするため |
+| 初回のJS・CSSの大きさ | 導入前：JS 755,222 B（gzip 230,392 B）、CSS 0。導入後：JS 759,072 B（gzip 231,570 B）、CSS 10,513 B（gzip 3,005 B）。測り方と詳細は `docs/design/style-foundation.md` |
 
 ## インフラ（Terraform、infra/）
 
@@ -94,6 +110,7 @@
 - wrangler.jsonc の assets に run_worker_first（/api/*）と not_found_handling（single-page-application）を設定する
 - Viteの起点（root）とローカルのD1の保存先をそろえる。マイグレーションの適用時は --persist-to で同じ保存先を指定する
 - 2026-09-30 の確認で、初回に読み込むJavaScriptは圧縮後161KB（React・React Router・TanStack Query・React Hook Form・Zod・Axios）
+- 2026-11-04（Issue #171）の測定では、このアプリの初回に読み込むJavaScriptは圧縮後（gzip）約231KBで、目標の200KBを超えている。CSSは約3.0KB（gzip）。詳しくは `docs/design/style-foundation.md`
 
 ### TanStack Query＋React Hook Form＋Zod（frontend-state/tanstack-query-rhf-zod）
 

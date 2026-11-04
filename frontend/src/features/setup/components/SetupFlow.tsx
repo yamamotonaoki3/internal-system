@@ -2,6 +2,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { Alert } from "../../../components/Alert";
+import { Button } from "../../../components/Button";
 import { setupKeys } from "../api/query-keys";
 import { useSetupStatus } from "../hooks/useSetupStatus";
 import { InitialPasswordNotice } from "./InitialPasswordNotice";
@@ -29,22 +31,30 @@ export function SetupFlow() {
     );
   }
 
-  if (status.isPending) return <p role="status">読み込み中です</p>;
+  if (status.isPending)
+    return (
+      <p role="status" className="mb-3 text-text-muted">
+        読み込み中です
+      </p>
+    );
 
   if (status.isError)
     return (
-      <div role="alert">
-        <p>状態を確認できませんでした。</p>
-        <button type="button" onClick={() => void status.refetch()}>
+      <Alert tone="error" role="alert">
+        <p className="mb-3">状態を確認できませんでした。</p>
+        <Button variant="secondary" onClick={() => void status.refetch()}>
           再試行
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
 
   if (!status.data.setupRequired)
     return (
-      <p>
-        初回セットアップは完了しています。<Link to="/login">ログイン画面</Link>
+      <p className="mb-3">
+        初回セットアップは完了しています。
+        <Link to="/login" className="text-primary underline">
+          ログイン画面
+        </Link>
         へ進んでください。
       </p>
     );

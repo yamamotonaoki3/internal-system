@@ -1,0 +1,77 @@
+/* 画面全体の見た目の土台。色・文字・角丸・影のトークンはここ（@theme）の1か所だけで定義する */
+@import "tailwindcss" source(none);
+@source "../";
+
+@theme {
+  /* Tailwind の既定色を外し、下のトークンだけを使う */
+  --color-*: initial;
+
+  --color-bg: #f4f7f8;
+  --color-surface: #ffffff;
+  --color-text: #182b40;
+  --color-text-muted: #566b7a;
+  --color-primary: #0b7a71;
+  --color-primary-hover: #0a6e66;
+  --color-on-primary: #ffffff;
+  --color-danger: #ab3b36;
+  --color-danger-bg: #fde8e5;
+  --color-danger-border: #edc4c2;
+  --color-warning-bg: #fff5e4;
+  --color-warning-text: #816127;
+  --color-info-bg: #e7f6f3;
+  --color-info-text: #17645e;
+  --color-border: #d4e1e5;
+  --color-border-strong: #73899a;
+  --color-focus: #a35f00;
+  --color-disabled-bg: #e3e9ec;
+  --color-disabled-text: #566b7a;
+
+  /* 端末に入っているフォントだけを使う（外部フォントは読み込まない） */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI",
+    Meiryo, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.6;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.6;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.35;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.35;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-panel:
+    0 1px 2px rgb(24 43 64 / 0.08), 0 1px 3px rgb(24 43 64 / 0.06);
+  --shadow-float: 0 4px 12px rgb(24 43 64 / 0.16);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    /* 狭い画面で、パネルが画面の端に付かないようにする */
+    padding-inline: 1rem;
+  }
+
+  /* フォーカスの輪郭はここの1か所だけ。部品では上書きしない */
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  /* 画面の移動後に見出しへフォーカスを移すため、マウス操作でも輪郭を出す */
+  h2[tabindex="-1"]:focus {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}

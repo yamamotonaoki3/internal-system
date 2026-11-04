@@ -7,7 +7,7 @@ export function WelcomeMessage() {
   if (data === undefined) return null;
   return (
     <section>
-      <p>ようこそ、{data.user.displayName}さん</p>
+      <p className="mb-3">ようこそ、{data.user.displayName}さん</p>
       <LogoutButton />
     </section>
   );

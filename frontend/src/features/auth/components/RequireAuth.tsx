@@ -2,6 +2,8 @@
 // 初回パスワードの変更が必要な利用者には案内だけを出す。
 import type { ReactNode } from "react";
 import { Navigate } from "react-router";
+import { Alert } from "../../../components/Alert";
+import { Button } from "../../../components/Button";
 import type { ApiError } from "../../../services/api-client";
 import { useSession } from "../hooks/useSession";
 import { PasswordChangePending } from "./PasswordChangePending";
@@ -9,7 +11,12 @@ import { PasswordChangePending } from "./PasswordChangePending";
 export function RequireAuth({ children }: { children: ReactNode }) {
   const session = useSession();
 
-  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isPending)
+    return (
+      <p role="status" className="mb-3 text-text-muted">
+        確認中です
+      </p>
+    );
 
   if (session.isError) {
     // apiClient は失敗を ApiError の形で返す（services/api-client.ts）
@@ -17,12 +24,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     if (error.code === "UNAUTHENTICATED")
       return <Navigate to="/login" replace />;
     return (
-      <div role="alert">
-        <p>ログイン状態を確認できませんでした。</p>
-        <button type="button" onClick={() => void session.refetch()}>
+      <Alert tone="error" role="alert">
+        <p className="mb-3">ログイン状態を確認できませんでした。</p>
+        <Button variant="secondary" onClick={() => void session.refetch()}>
           再試行
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
   }
 
