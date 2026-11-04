@@ -2,10 +2,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router";
+import { createBrowserRouter, RouterProvider } from "react-router";
 import { App } from "./App";
+import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
+import { setUnauthenticatedHandler } from "./services/api-client";
 
 const queryClient = new QueryClient();
+// API 通信の共通部分（画面の外）から移動できるよう、ルーターを部品の外で作る。
+// 画面の振り分けは App の Routes が行う
+const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+
+// 401 の共通の処理は、ここで1回だけ登録する
+setUnauthenticatedHandler(
+  createUnauthenticatedHandler({
+    queryClient,
+    navigate: (to) => void router.navigate(to),
+    currentPath: () => window.location.pathname,
+  }),
+);
+
 const root = document.getElementById("root");
 if (root === null)
   throw new Error("画面の入口（#root）が index.html にありません");
@@ -13,9 +28,7 @@ if (root === null)
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

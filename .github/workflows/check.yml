@@ -1,7 +1,7 @@
 # 品質チェック（F-16）。
 # - 文書だけの変更では npm run security を実行し、それ以外は手元と同じ npm run check を実行する
 # - 環境変数ファイルは、実値を含まない .env.example から作る（C-05。Secrets は使わない）
-#   ただし SETUP_TOKEN と PII_ENCRYPTION_KEY の空欄だけは、実行ごとに乱数で作った値を入れる（CIの中でその場で作って捨てる。ログに出さない）
+#   ただし SETUP_TOKEN・PII_ENCRYPTION_KEY・LOGIN_THROTTLE_KEY の空欄だけは、実行ごとに乱数で作った値を入れる（CIの中でその場で作って捨てる。ログに出さない）
 # - OSV-Scanner は外部通信するため、通信失敗は再実行で対応する
 # - docs/* は拡張子を問わず文書扱いにする（docs 配下に実行されるコードを置かない前提）
 # - 文書扱いは docs/*、ルート直下の README.md、LICENSE だけ。.prettierignore の README.md はどの階層にも一致するが、CI の判定では下の階層の README.md や、それ以外の *.md は安全側に倒してコード扱いにする
@@ -94,7 +94,7 @@ jobs:
           grep -q '^APP_ENV=test$' .env.test || { echo "::error::APP_ENV=test の行が .env.test にない"; exit 1; }
           # 秘密ではない、この実行だけで使う乱数。値は表示しない（echo や set -x をしない）
           for f in .env.development .env.test; do
-            for key in SETUP_TOKEN PII_ENCRYPTION_KEY; do
+            for key in SETUP_TOKEN PII_ENCRYPTION_KEY LOGIN_THROTTLE_KEY; do
               value="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')"
               sed -i "s/^${key}=\$/${key}=${value}/" "$f"
               grep -Eq "^${key}=.+\$" "$f" || { echo "::error::${f} の ${key} の行がない、または空のまま"; exit 1; }

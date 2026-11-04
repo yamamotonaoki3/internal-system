@@ -16,6 +16,11 @@
     "APP_ENV": "production",
     "ALLOWED_ORIGINS": "http://localhost:5173"
   },
+  // Cron Triggers（UTC で書く）。17 18 * * * は毎日 UTC 18:17 = 日本時間 03:17 の auth-cleanup（期限切れのセッション・試行制限の掃除）。
+  // 本番への適用は、利用者がデプロイして行う
+  "triggers": {
+    "crons": ["17 18 * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",

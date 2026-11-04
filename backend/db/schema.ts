@@ -159,3 +159,47 @@ export const userRoleAssignments = sqliteTable(
     index("user_role_assignments_user_id_idx").on(t.userId),
   ],
 );
+
+// ログインのセッション（ADR-0003）。id はトークンの SHA-256（16進）で、トークンそのものは保存しない。時刻は ISO 8601（UTC）の文字列。
+// 失効（revoked_at）・無操作30分・ログインから24時間は、読み取り時に判定する。期限の切れた行は Cron（auth-cleanup）で消す。
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    lastActiveAt: text("last_active_at").notNull().default(nowUtc),
+    // 再認証の時刻（0-5。再認証が必要な操作の機能が使う）
+    reauthenticatedAt: text("reauthenticated_at"),
+    revokedAt: text("revoked_at"),
+  },
+  (t) => [index("sessions_user_id_created_at_idx").on(t.userId, t.createdAt)],
+);
+
+// 試行制限（ADR-0008）。bucket_key は HMAC-SHA256(LOGIN_THROTTLE_KEY, 値) の16進（生のIP・社員IDは保存しない）。
+// 接続元（'source'=ログイン、'setup_source'=初回セットアップ）：attempt_count（受付数。成功も数える）・window_started_at・locked_until を使う。
+// 社員ID（'account'）：failed_count・last_failed_at を使う（ロックはせず、失敗数に応じて遅らせる）。
+// updated_at は最後に更新した時刻で、掃除（auth-cleanup）が使う。
+export const loginAttempts = sqliteTable(
+  "login_attempts",
+  {
+    bucketType: text("bucket_type").notNull(),
+    bucketKey: text("bucket_key").notNull(),
+    attemptCount: integer("attempt_count"),
+    failedCount: integer("failed_count"),
+    windowStartedAt: text("window_started_at"),
+    lockedUntil: text("locked_until"),
+    lastFailedAt: text("last_failed_at"),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    primaryKey({ columns: [t.bucketType, t.bucketKey] }),
+    check(
+      "login_attempts_bucket_type_check",
+      sql`${t.bucketType} in ('source', 'account', 'setup_source')`,
+    ),
+    index("login_attempts_updated_at_idx").on(t.updatedAt),
+  ],
+);

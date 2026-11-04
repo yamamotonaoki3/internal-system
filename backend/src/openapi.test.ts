@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
+import { authRoutes } from "./routes/auth";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 
@@ -15,6 +16,8 @@ const app = createApp({
     { path: "/api/sample-users", app: sampleUserRoutes(unusedDb) },
     // #119：初回セットアップ。index.ts と同じパスに組み込む
     { path: "/api/setup", app: setupRoutes(unusedDb) },
+    // #120：ログイン・ログアウト・セッション。index.ts と同じパスに組み込む
+    { path: "/api/auth", app: authRoutes(unusedDb) },
   ],
 });
 
@@ -75,5 +78,38 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     for (const code of ["201", "403", "409", "422", "503"])
       expect(codes).toContain(code);
     expect(codes).not.toContain("401");
+  });
+
+  it("#120 0-2 AC-1・AC-2: POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session が書かれている", () => {
+    const names = operations.map((o) => o.name);
+    expect(names).toContain("POST /api/auth/login");
+    expect(names).toContain("POST /api/auth/logout");
+    expect(names).toContain("GET /api/auth/session");
+  });
+
+  it("#120 AC-3・0-2 AC-7: POST /api/auth/login は 200・401・403・422・429・503 を書いている", () => {
+    const login = operations.find((o) => o.name === "POST /api/auth/login");
+    const codes = Object.keys(login?.operation.responses ?? {});
+    for (const code of ["200", "401", "403", "422", "429", "503"])
+      expect(codes).toContain(code);
+  });
+
+  it("#120 0-2 AC-2: POST /api/auth/logout は 204 と 403 を書いている", () => {
+    const logout = operations.find((o) => o.name === "POST /api/auth/logout");
+    const codes = Object.keys(logout?.operation.responses ?? {});
+    for (const code of ["204", "403"]) expect(codes).toContain(code);
+  });
+
+  it("#120 0-2 AC-3: 保護された API（/api/sample-users）は、未認証の 401 を書いている", () => {
+    const missing = operations
+      .filter(({ name }) => name.includes(" /api/sample-users"))
+      .filter(({ operation }) => !("401" in operation.responses))
+      .map(({ name }) => name);
+    expect(missing).toEqual([]);
+  });
+
+  it("#120 AC-3: POST /api/setup は、試行制限の 429 を書いている", () => {
+    const setup = operations.find((o) => o.name === "POST /api/setup");
+    expect(Object.keys(setup?.operation.responses ?? {})).toContain("429");
   });
 });

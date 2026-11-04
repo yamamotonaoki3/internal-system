@@ -10,7 +10,7 @@
 ## 2. 構築の手順
 
 1. `npm install`
-1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる。型のテスト（`types:test`）などで `SETUP_TOKEN` と `PII_ENCRYPTION_KEY` が要る場合は、利用者が入れる（作り方は `docs/secrets.md`）。セットアップのテスト自体は、テストの中で乱数から作った値を使う（`backend/test/random-secrets.ts`）
+1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる。型のテスト（`types:test`）などで `SETUP_TOKEN`・`PII_ENCRYPTION_KEY`・`LOGIN_THROTTLE_KEY` が要る場合は、利用者が入れる（作り方は `docs/secrets.md`）。セットアップのテスト自体は、テストの中で乱数から作った値を使う（`backend/test/random-secrets.ts`）
 
 ## 3. 確認の方法
 

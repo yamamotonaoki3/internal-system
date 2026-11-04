@@ -60,7 +60,7 @@ export async function getSetupStatus(
 
 /**
  * 初回専用の認証。設定が使えない（未設定・形式不正）なら 503、トークンが誤り・欠落なら 403。
- * 失敗は logger.audit にだけ記録する（試行制限は #120 で ADR-0008 の仕組みができてから適用する。値は記録しない）。
+ * 失敗は logger.audit にだけ記録する（値は記録しない）。接続元ごとの試行制限は、呼び出し側（Controller）が認証の前にかける（#120）。
  * 使える暗号鍵を返す（呼び出し側が null を再確認しなくてよいように）。
  */
 export async function authenticateSetup(

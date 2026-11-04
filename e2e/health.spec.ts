@@ -1,9 +1,12 @@
 // 最初のシナリオ：画面を開いて、サーバー（API）と通信できることを確かめる。
 // console-guard の test を使うため、コンソールのエラーが出たら失敗になる（C-24）。
 import { expect, test } from "./console-guard";
+import { allowSessionCheck401 } from "./session-console";
 
+// #120（利用者の承認済みの変更）：未ログインで / を開くと /login に移るため、/login を開く。確かめる内容は変えない
 test("画面を開くと、サーバーの状態が表示される", async ({ page }) => {
-  await page.goto("/");
+  allowSessionCheck401(page);
+  await page.goto("/login");
   await expect(page.getByText("サーバーの状態：ok")).toBeVisible();
   await expect(page.getByText("環境：test")).toBeVisible();
   await expect(page.getByText("サーバーにつながりません")).toHaveCount(0);

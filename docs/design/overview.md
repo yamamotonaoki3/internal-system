@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -33,12 +33,12 @@ Cloudflare Workers（Hono）
 | リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue）。「最後のID以降を取るAPI」を共通の土台にする | [0004](../adr/0004-realtime-polling-then-websocket.md) |
 | DB | D1のみ（本番・ローカル・テストとも）。PostgreSQLへの一本化は採らない | [0005](../adr/0005-database-d1-only.md) |
 | ID・ページ送り・未読 | 時刻順のULID相当のテキストID（自前生成）。一覧はすべてカーソル方式。未読は既読位置から上限つきで数え直す | [0006](../adr/0006-id-cursor-unread.md) |
-| パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。PHC形式の自己記述の文字列。ログイン成功時に再ハッシュ。本番で確認して最終決定 | [0007](../adr/0007-password-hash-scrypt.md) |
-| セッション・試行制限 | セッションはD1の`sessions`。ログインの試行制限は接続元単位（D1の`login_attempts`）。社員ID単位はロックせず待ち時間を増やす | [0003](../adr/0003-auth-cookie-session.md)・[0008](../adr/0008-session-and-login-throttle.md) |
+| パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。PHC形式の自己記述の文字列。ログイン成功時に再ハッシュ。本番確認により確定（2026-11-03）。`maxmem`の指定が必須 | [0007](../adr/0007-password-hash-scrypt.md) |
+| セッション・試行制限 | セッションはD1の`sessions`。ログインの試行制限は接続元単位（D1の`login_attempts`）。社員ID単位はロックせず待ち時間を増やす。**Issue #120で実装した**（受付枠はハッシュ計算の前にUPSERT 1文で確保。Cookieは`__Host-session`。`/api/*`は公開の許可リスト6件以外を既定で拒否。詳細は[auth-session.md](auth-session.md)） | [0003](../adr/0003-auth-cookie-session.md)・[0008](../adr/0008-session-and-login-throttle.md) |
 | 管理者のMFA | 全体管理者だけTOTP（RFC 6238。WebCryptoで自作）を必須にする。細部は未決定 | [0009](../adr/0009-admin-mfa-totp.md) |
 | 日本語の全文検索 | D1のFTS5 trigram（3文字以上は`MATCH`、1〜2文字は`LIKE`）。性能は実装時に実測 | [0010](../adr/0010-japanese-search-fts5-trigram.md) |
 | 添付の検査 | Office新形式はzip構造を自前で確認。ウイルススキャンは別のIssueで調べてから決める | [0011](../adr/0011-attachment-inspection-and-virus-scan.md) |
-| 初回セットアップの認証・本名の暗号化 | 初代全体管理者の登録は環境のシークレット`SETUP_TOKEN`で認証し（完了後は常に409、運用者がシークレットを削除）、本名は`PII_ENCRYPTION_KEY`でAES-256-GCMにより暗号化して保存する。`/api/setup`の試行制限は#120で適用。鍵の紛失・ローテーションは未決定 | [0013](../adr/0013-initial-setup-auth-and-pii-encryption.md) |
+| 初回セットアップの認証・本名の暗号化 | 初代全体管理者の登録は環境のシークレット`SETUP_TOKEN`で認証し（完了後は常に409、運用者がシークレットを削除）、本名は`PII_ENCRYPTION_KEY`でAES-256-GCMにより暗号化して保存する。`/api/setup`の試行制限は#120で適用した（接続元単位。[auth-session.md](auth-session.md)）。鍵の紛失・ローテーションは未決定 | [0013](../adr/0013-initial-setup-auth-and-pii-encryption.md) |
 | セキュリティの原則 | ゼロトラスト（毎回、サーバー側で本人と権限を確認する）。既存の決定との対応表と、未決定の点を載せる | [0012](../adr/0012-zero-trust-principle.md) |
 
 ## DBの設計の型
@@ -65,8 +65,8 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `read_positions` | 主キー（ユーザー, ルーム） | 未読の判定。ユーザーの全ルームをまとめて引く |
 | `channel_members` / `case_participants` | （ユーザー, 状態）など | サイドバー、見られる範囲の判定 |
 | `audit_logs` | （発生日時, ID）。絞り込み列は使われ方を見て追加 | 監査ログの絞り込みとページ送り、1年保持の掃除 |
-| `sessions` | 主キー（ID＝トークンのハッシュ）。（ユーザー）。掃除用に（作成日時） | 認証、全端末の失効、掃除 |
-| `login_attempts` | 主キー（種別, キー） | 試行制限 |
+| `sessions` | 主キー（ID＝トークンのハッシュ）。（ユーザー, 作成日時）【Issue #120で確定した索引】 | 認証、全端末の失効、掃除 |
+| `login_attempts` | 主キー（種別, キー）。（最終更新日時）【Issue #120で確定した索引。掃除用】 | 試行制限、掃除 |
 | 通知 | （ユーザー, 状態, ID） | 未読の通知 |
 | 検索 | FTS5の仮想テーブル（ADR-0010） | 日本語の全文検索 |
 
@@ -92,9 +92,12 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ。根拠は[調査メモ](../research/design-foundation.md)の12章 |
 | カーソル | `backend/src/lib/cursor.ts` | 一覧はOFFSETを使わず、`(並び替えの値, ID)`の組で続きを取る。`cursorQuerySchema`が`cursor`と`limit`を検証し、`afterCursor`（並び替えの値＋ID）または`afterId`（IDだけ）が条件を作り、`toPage`が`limit+1`件の結果から1ページ分と`nextCursor`を作る。壊れたカーソルは`decodeCursor`が`VALIDATION_ERROR`（422）にする。件数は`PAGE_LIMIT`（メッセージ50・その他20・最大100）。並び替えの値の文字列は128文字まで、カーソル全体は1024文字まで |
 | 監査ログの書き込み | `backend/src/db/audit-log.repository.ts` | `auditLogInsert`は挿入の文を**返すだけ**で実行しない。業務の更新と同じ`db.batch([...])`に入れて、同時に確定・失敗させる（`backend/src/db/database.ts`の`BatchItem`型）。`detail`に入れてよいのは件数・変更前後の識別子や状態・失敗の分類・文字数などの概要で、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない。`redact`は項目名による保険であり、個人情報を取り除く仕組みではない |
-| 監査ログの操作の種類 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`の一覧。機能のIssueが操作を足すときにここへ足す。Issue #119で`setup.initial_admin.create`を足した |
+| 監査ログの操作の種類 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`の一覧。機能のIssueが操作を足すときにここへ足す。Issue #119で`setup.initial_admin.create`を、Issue #120で`auth.login`・`auth.logout`・`auth.rate_limited`・`setup.rate_limited`を足した。`auditLogInsertForSession`は、セッションがあるときだけ書く条件付きの監査（ログインの成功・ログアウト） |
 | 権限判定 | `backend/src/lib/authorization.ts` | `createAuthorizer(known, resolve, { logger })`が`can`（真偽）と`authorize`（拒否は例外）を返す。範囲（`Scope`）は会社または部署。`known`にない権限IDは、Resolverが許可しても拒否する。未ログインは`UNAUTHENTICATED`、権限なしは`FORBIDDEN`にし、拒否は`logger.audit`で必ず記録する（利用者IDやResolverの権限集合は含めない）。**本番の権限IDの一覧とResolverは、Issue #119で`backend/src/services/authorizer.ts`（`createAppAuthorizer`。`createAuthorizer`を呼ぶ1か所）に組んだ**（[roles-and-setup.md](roles-and-setup.md)） |
-| Cronの枠 | `backend/src/scheduled.ts`、`backend/src/index.ts` | `createScheduledHandler`が、`CronJob`（`cron`式・`name`・`run`）の一覧から、受け取った`controller.cron`と同じ式のジョブを順に実行する。失敗は記録して再スローする。`index.ts`は、名前付きの`app`と、`default`の`fetch`・`scheduled`を公開する。ジョブの一覧はこのIssueでは空で、機能のIssueが足す。`wrangler.jsonc`の`triggers`は未設定で、**本番への適用は利用者が行う**（ADR-0008の掃除などで使う） |
+| Cronの枠 | `backend/src/scheduled.ts`、`backend/src/index.ts` | `createScheduledHandler`が、`CronJob`（`cron`式・`name`・`run`）の一覧から、受け取った`controller.cron`と同じ式のジョブを順に実行する。失敗は記録して再スローする。`index.ts`は、名前付きの`app`と、`default`の`fetch`・`scheduled`を公開する。ジョブの一覧は#118では空で、機能のIssueが足す（**Issue #120で`authCleanupJob`（`auth-cleanup`。毎日UTC 18:17）を足し、`wrangler.jsonc`の`triggers.crons`に同じ式を設定した**。[auth-session.md](auth-session.md)）。**本番への適用は利用者が行う**（ADR-0008の掃除） |
+| 要求の追跡ID | `backend/src/lib/trace-id.ts` | Issue #120で追加。`traceIdOf`が`X-Request-Id`を、形（`[A-Za-z0-9._-]`）と長さ（1〜64文字）を満たすときだけ使い、満たさなければ新しいULIDにする（利用者が送れる値が監査ログの`trace_id`に入るため） |
+| エラー応答の`Retry-After` | `backend/src/lib/error-handler.ts` | Issue #120で追加。`RATE_LIMITED`の`details.retryAfterSeconds`を`Retry-After`ヘッダーにだけ出し、本文には出さない |
+| ログのDBエラーの整形 | `backend/src/lib/logger/logger.ts` | Issue #120で追加。SQLとパラメータを含むDBのエラーは、固定の文言にして出力する |
 | `audit_logs`テーブル | `backend/db/schema.ts`、`backend/db/migrations/0001_add_audit_logs.sql` | 列は`id`・`occurred_at`・`actor_id`・`action`・`target_type`・`target_id`・`result`・`trace_id`・`detail`。**外部キーは付けない**（操作者や対象が消えても監査ログを残すため）。索引は`(occurred_at, id)`。`result`は`success`／`failure`だけを許すCHECK制約。`occurred_at`はDBの既定値（UTCのISO形式） |
 
 テストの場所：各ファイルの隣の`*.test.ts`。DBを使うものは`backend/src/db/audit-log.repository.db.test.ts`・`backend/src/db/database.types.db.test.ts`、入口は`backend/src/index.test.ts`、Cronは`backend/src/scheduled.test.ts`。
@@ -108,6 +111,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | 機能 | 設計書 | 関係するIssue |
 | --- | --- | --- |
 | ロール・権限・会社と部署の土台・初代全体管理者の初回セットアップ（権限ID67種類、固定の3ロール、Resolver、R-45の申し送り、`POST /api/setup`、初期パスワード、本名の暗号化） | [roles-and-setup.md](roles-and-setup.md) | #119（親 #108） |
+| ログイン・ログアウト・セッション・試行制限・掃除・既定拒否・ログイン画面S-02（2段ログインと#122の拡張点、初回パスワードのゲート、公開の許可リスト6件、`__Host-session`、接続元の受付枠と社員IDの待ち時間、時間差対策と既知の限界、Cron） | [auth-session.md](auth-session.md) | #120（親 #108）、依存 #119 |
 
 ## 関係する文書
 

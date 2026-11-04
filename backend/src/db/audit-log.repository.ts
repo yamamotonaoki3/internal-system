@@ -1,4 +1,5 @@
 // 監査ログの書き込み（AC-3）。文を返すだけで実行しない：業務の更新と同じ db.batch([...]) に入れて、同時に確定・失敗させる。
+import { sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { auditLogs } from "../../db/schema";
 import type { AuditAction } from "../lib/audit-actions";
@@ -39,4 +40,29 @@ export function auditLogInsert<A extends string = AuditAction>(
     detail:
       input.detail === undefined ? null : JSON.stringify(redact(input.detail)),
   });
+}
+
+/**
+ * セッションの利用者を操作者・対象として記録する、条件付きの書き込み（ログインの成功・ログアウト）。
+ * 該当するセッションがあるときだけ書く（requireActive のときは、失効前のセッションだけ）。
+ * セッションの作成・失効と同じ db.batch に入れると、セッションが変わったときだけ監査が残る。
+ */
+export function auditLogInsertForSession(
+  db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
+  input: {
+    sessionId: string;
+    requireActive: boolean;
+    action: AuditAction;
+    traceId: string;
+    detail?: AuditDetail;
+  },
+  deps: { newId?: () => Ulid } = {},
+) {
+  const detail =
+    input.detail === undefined ? null : JSON.stringify(redact(input.detail));
+  const active = input.requireActive ? sql` AND s.revoked_at IS NULL` : sql``;
+  // 列は audit_logs の定義の順（id, occurred_at, actor_id, action, target_type, target_id, result, trace_id, detail）
+  return db.insert(auditLogs).select(sql`
+    SELECT ${(deps.newId ?? newUlid)()}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), s.user_id, ${input.action}, 'user', s.user_id, 'success', ${input.traceId}, ${detail}
+    FROM sessions s WHERE s.id = ${input.sessionId}${active}`);
 }
