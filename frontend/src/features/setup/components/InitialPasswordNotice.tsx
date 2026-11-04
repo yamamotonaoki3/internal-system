@@ -1,6 +1,7 @@
 // 登録の成功直後に、社員IDと初期パスワードを一度だけ文字で示す。
 // 初期パスワードは入力欄に入れない。保持と消去は呼び出し側（SetupFlow）が行う。
 import { useEffect, useRef } from "react";
+import { Button } from "../../../components/Button";
 
 type InitialPasswordNoticeProps = {
   loginId: string;
@@ -22,25 +23,28 @@ export function InitialPasswordNotice({
 
   return (
     <section aria-labelledby="initial-password-heading">
-      <h2 id="initial-password-heading" ref={headingRef} tabIndex={-1}>
+      <h2
+        id="initial-password-heading"
+        ref={headingRef}
+        tabIndex={-1}
+        className="mb-3 text-lg font-bold"
+      >
         登録が完了しました
       </h2>
-      <dl>
-        <dt>社員ID</dt>
-        <dd>
-          <code>{loginId}</code>
+      <dl className="mb-4">
+        <dt className="text-xs text-text-muted">社員ID</dt>
+        <dd className="mb-3">
+          <code className="font-mono break-all">{loginId}</code>
         </dd>
-        <dt>初期パスワード</dt>
-        <dd>
-          <code>{initialPassword}</code>
+        <dt className="text-xs text-text-muted">初期パスワード</dt>
+        <dd className="mb-3">
+          <code className="font-mono break-all">{initialPassword}</code>
         </dd>
       </dl>
-      <p>
+      <p className="mb-4">
         初期パスワードは、この画面で一度だけ表示します。別の連絡手段で本人へ伝え、初回ログインで変更してください。表示前に失ったときは、全体管理者が再発行します。
       </p>
-      <button type="button" onClick={onProceed}>
-        ログイン画面へ進む
-      </button>
+      <Button onClick={onProceed}>ログイン画面へ進む</Button>
     </section>
   );
 }

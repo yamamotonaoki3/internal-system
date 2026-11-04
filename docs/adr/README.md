@@ -25,3 +25,4 @@
 | [0012](0012-zero-trust-principle.md) | ゼロトラストを設計の原則とする | 採用 |
 | [0013](0013-initial-setup-auth-and-pii-encryption.md) | 初回セットアップの認証は環境のシークレットで行い、本名はAES-256-GCMで暗号化して保存する | 採用 |
 | [0014](0014-ai-may-set-dev-test-secrets.md) | 開発・テスト用の使い捨ての秘密の値は、AIが環境ファイルに書いてよい | 採用 |
+| [0015](0015-style-foundation.md) | スタイルの方針は、Tailwind CSS 4とCSS変数のデザイントークンと、自前の小さな共通部品にする | 採用 |

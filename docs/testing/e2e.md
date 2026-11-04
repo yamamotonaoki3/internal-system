@@ -43,9 +43,24 @@
 - シナリオは、`e2e/` に `<名前>.spec.ts` として足す。`e2e/console-guard.ts` の `test` を使い、コンソールのエラーを失敗にする
 - シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）
 
+### 表示・アクセシビリティのシナリオ（開発サーバー。Issue #171）
+
+- `e2e/style-foundation.spec.ts`：ログイン・初回セットアップの画面で、Tabの順、フォーカスの輪郭が見えること、エラー時のフォーカスの移動、画面幅 360・767・768・1280px での横スクロールの有無・主操作の高さ・パネルの幅、360pxで文字が切れないことを確かめる。`npm run test:e2e` に含まれる
+- 開発サーバーは CSS を `<style>` で注入し、CSP（`public/_headers`）もかからないため、**CSP のもとで外部 CSS だけが使われること**はここでは確かめられない。次の本番形で確かめる
+
+### 本番形の E2E（Issue #171）
+
+`npm run test:e2e:prod`
+
+- `playwright.prod.config.ts` を使う。Playwright が `npm run build` の後に `npm run preview:test`（`vite preview`。ビルド済みの成果物を、`public/_headers` の CSP をかけて配信する）を起動し、終わると止める。すでに動いているサーバーには向けない
+- 実行の前（`pretest:e2e:prod`）に、`npm run test:e2e` と同じく `.env.test` の確認、検証用 DB の初期化、E2E 用のシードの投入を行う
+- シナリオ（`e2e-prod/csp-style.spec.ts`）：画面の応答に `style-src 'self'` を含み `'unsafe-inline'` を含まない CSP があること、CSS が同一オリジンの `/assets/*.css`（200・`text/css`）として読み込まれること、画面を開いた後・ログインに失敗した後・初回セットアップの各状態で `<style>` 要素と `style` 属性が 0 件であること、CSP 違反がないこと、主ボタンの背景色がトークンの `primary` と同じであること
+- **開発サーバー用の `npm run test:e2e` と同時に実行しない**。配信のポートは、許可するオリジン（`.env.test` の `ALLOWED_ORIGINS`）に合わせて 5173 で、開発サーバー用と同じため、順に実行する
+- `npm run check` には入れない（ブラウザとビルドが要り、時間がかかるため）。マージの前などに、別に実行する
+
 ## 5. 後始末
 
-- テストが終わったら、Playwright が起動した開発サーバーとブラウザが止まり、ポート 5173 が解放されたことを確かめる
+- テストが終わったら、Playwright が起動した開発サーバーとブラウザが止まり、ポート 5173 が解放されたことを確かめる（`npm run test:e2e:prod` の場合は、起動した `vite preview` のサーバー）
 - テストが作ったデータ（`e2euser_` で始まるもの。単体のテストの `testuser_` も）を消す。DB があるプロジェクトでは、`npm run db:cleanup:test` で、識別子のデータだけを消し、残りが 0 件になったことを確かめる
 
 ## 6. よくある失敗と対処
@@ -59,4 +74,6 @@
 | ログインの E2E が `__Host-session` の Cookie を見つけられずに失敗する | Cookie の名前の `__Host-` は `Secure` を必須にする。E2E は `http://localhost` で `Secure` の Cookie が保存されることを前提にしている（Chromium は `localhost` を安全な送信元として扱う想定）。保存されない場合は、ブラウザの版・`APP_ENV`・`ALLOWED_ORIGINS`（`http://localhost:5173`）を確かめる。**Cookie 名を `session` に戻す前に、利用者に相談する**（セキュリティの設計に関わる） |
 | ログインが 503 になる | `.env.test` に `LOGIN_THROTTLE_KEY` がない、または43文字の形式でない。`npm run env:check -- test` で項目の名前だけを確かめる（値は表示しない）。環境の不備であり、テストの不具合ではない |
 | ログインが 429 になる | E2E は接続元（開発・テストでは固定のキー）ごとの受付が15分に30回までのため、短い間に何度も実行すると上限に当たる。`npm run db:reset:test`（`pretest:e2e` が実行する）で、検証用 DB の `login_attempts` を空にしてから再実行する |
+| `npm run db:reset:test` が失敗する（E2E の前処理） | 前回のテストのサーバー（開発サーバー、または `vite preview`）が残っていて、検証用 DB のファイルを掴んでいる可能性がある。何が動いているかを確かめ、**自分が起動したものだけ**を止めてから再実行する。自分が起動したか分からないものは、止めずに利用者に確認する |
+| 本番形の E2E が起動しない、または別のサーバーに向かう | ポート 5173 を別のプロジェクトのサーバーが占有している（`localhost` だけでなく `127.0.0.1:5173` も確かめる。第3章）。開発サーバー用の E2E と同時に実行していないかも確かめる。環境の不備であり、テストの不具合ではない |
 | 失敗の原因が分からない | `playwright-report/` とトレース（`npx playwright show-trace <trace.zip>`）を確かめる |

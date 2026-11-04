@@ -3,6 +3,7 @@
 import { Navigate } from "react-router";
 import { LoginForm } from "../features/auth/components/LoginForm";
 import { useSession } from "../features/auth/hooks/useSession";
+import { PageLayout } from "../components/PageLayout";
 import { HealthStatus } from "../features/health/HealthStatus";
 import { SetupEntryLink } from "../features/setup/components/SetupEntryLink";
 
@@ -12,11 +13,10 @@ export function LoginPage() {
   if (session.isSuccess) return <Navigate to="/" replace />;
 
   return (
-    <main>
-      <h1>ログイン</h1>
+    <PageLayout title="ログイン" width="narrow">
       <LoginForm />
       <HealthStatus />
       <SetupEntryLink />
-    </main>
+    </PageLayout>
   );
 }

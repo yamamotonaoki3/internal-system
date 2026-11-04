@@ -1,10 +1,12 @@
 // S-02 の入力フォーム。送信は onSubmit で直接 await し、失敗の理由は
 // 「どちらが違うか」を示さない文言にする（0-2 AC-7）。
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useId } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
+import { Alert } from "../../../components/Alert";
+import { Button } from "../../../components/Button";
 import { SecretField } from "../../../components/SecretField";
+import { TextField } from "../../../components/TextField";
 import type { ApiError } from "../../../services/api-client";
 import { useLogin } from "../hooks/useLogin";
 import {
@@ -40,8 +42,6 @@ export function LoginForm() {
     resolver: zodResolver(loginFormSchema),
     defaultValues: { loginId: "", password: "" },
   });
-  const loginIdId = useId();
-
   const onSubmit = async (values: LoginFormValues) => {
     try {
       await login(values);
@@ -80,20 +80,13 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
-      <div>
-        <label htmlFor={loginIdId}>ユーザーID</label>
-        <input
-          id={loginIdId}
-          type="text"
-          autoComplete="username"
-          aria-invalid={errors.loginId ? true : undefined}
-          aria-describedby={errors.loginId ? `${loginIdId}-error` : undefined}
-          {...register("loginId")}
-        />
-        {errors.loginId && (
-          <p id={`${loginIdId}-error`}>{errors.loginId.message}</p>
-        )}
-      </div>
+      <TextField
+        label="ユーザーID"
+        type="text"
+        autoComplete="username"
+        error={errors.loginId?.message}
+        {...register("loginId")}
+      />
       <SecretField
         label="パスワード"
         toggleLabels={PASSWORD_TOGGLE_LABELS}
@@ -101,10 +94,14 @@ export function LoginForm() {
         error={errors.password?.message}
         {...register("password")}
       />
-      {errors.root?.server && <p role="alert">{errors.root.server.message}</p>}
-      <button type="submit" disabled={isSubmitting}>
+      {errors.root?.server && (
+        <Alert tone="error" role="alert" as="p">
+          {errors.root.server.message}
+        </Alert>
+      )}
+      <Button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "ログイン中" : "ログイン"}
-      </button>
+      </Button>
     </form>
   );
 }

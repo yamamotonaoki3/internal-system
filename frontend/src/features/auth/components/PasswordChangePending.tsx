@@ -4,7 +4,7 @@ import { LogoutButton } from "./LogoutButton";
 export function PasswordChangePending() {
   return (
     <section>
-      <p>パスワードの変更が必要です。変更画面は準備中です</p>
+      <p className="mb-3">パスワードの変更が必要です。変更画面は準備中です</p>
       <LogoutButton />
     </section>
   );

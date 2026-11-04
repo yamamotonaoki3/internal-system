@@ -19,6 +19,7 @@
     "backend",
     "frontend",
     "e2e",
+    "e2e-prod",
     "scripts",
     "*.ts"
   ]

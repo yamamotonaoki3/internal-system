@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -80,6 +80,8 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/lib/` | 共通の部品（エラー・入力チェック・セキュリティなど。ハーネスが用意） |
 | `backend/src/rules-examples/` | Skillの良い例・悪い例のテスト（ハーネスが管理する。消さない） |
 | `frontend/src/` | 画面（React） |
+| `frontend/src/styles/` | デザインの土台。`index.css`（Tailwindの読み込み・デザイントークン・全体の基本のスタイル）と、色のコントラスト比のテスト（Issue #171。[style-foundation.md](style-foundation.md)） |
+| `frontend/src/components/` | 画面で共通に使う部品。`Button`・`TextField`・`SecretField`・`Alert`・`PageLayout`（`FieldMessages`は内部用）。使い分けと足す手順は [style-foundation.md](style-foundation.md) |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
 
@@ -112,6 +114,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | --- | --- | --- |
 | ロール・権限・会社と部署の土台・初代全体管理者の初回セットアップ（権限ID67種類、固定の3ロール、Resolver、R-45の申し送り、`POST /api/setup`、初期パスワード、本名の暗号化） | [roles-and-setup.md](roles-and-setup.md) | #119（親 #108） |
 | ログイン・ログアウト・セッション・試行制限・掃除・既定拒否・ログイン画面S-02（2段ログインと#122の拡張点、初回パスワードのゲート、公開の許可リスト6件、`__Host-session`、接続元の受付枠と社員IDの待ち時間、時間差対策と既知の限界、Cron） | [auth-session.md](auth-session.md) | #120（親 #108）、依存 #119 |
+| デザインの土台（Tailwind CSS 4・デザイントークン・共通部品5つ・CSPを変えない決まり・クラスの規約・Preflightへの対処・画面幅の決まり・初回JS/CSSの大きさ） | [style-foundation.md](style-foundation.md) | #171（親 #108）、ADR-0015 |
 
 ## 関係する文書
 

@@ -1,9 +1,12 @@
 // S-34 の入力フォーム。送信（submitSetup）は onSubmit で直接 await し、
 // 成功の応答は onRegistered に渡すだけで、このコンポーネントには残さない。
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useId, type ComponentProps } from "react";
+import { useId } from "react";
 import { useForm } from "react-hook-form";
+import { Alert } from "../../../components/Alert";
+import { Button } from "../../../components/Button";
 import { SecretField } from "../../../components/SecretField";
+import { TextField } from "../../../components/TextField";
 import type { ApiError } from "../../../services/api-client";
 import { submitSetup, type SetupRequest } from "../api/setup-api";
 import {
@@ -21,33 +24,6 @@ type SetupFormProps = {
   // 状態を取り直し、まだ未設定なら true を返す
   onConflict: () => Promise<boolean>;
 };
-
-type TextFieldProps = Omit<ComponentProps<"input">, "id"> & {
-  label: string;
-  hint?: string;
-  error?: string;
-};
-
-function TextField({ label, hint, error, ...inputProps }: TextFieldProps) {
-  const id = useId();
-  const describedBy =
-    [hint ? `${id}-hint` : "", error ? `${id}-error` : ""]
-      .filter(Boolean)
-      .join(" ") || undefined;
-  return (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      <input
-        {...inputProps}
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-      />
-      {hint && <p id={`${id}-hint`}>{hint}</p>}
-      {error && <p id={`${id}-error`}>{error}</p>}
-    </div>
-  );
-}
 
 function isApiError(error: unknown): error is ApiError {
   return (
@@ -142,14 +118,16 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
-      <h2>初回セットアップ</h2>
-      <p>
+      <h2 className="mb-3 text-lg font-bold">初回セットアップ</h2>
+      <p className="mb-4">
         この登録は、代表取締役社長本人が行います。本人かどうかは、運用者から受け取ったトークンを持っていることで確かめます。
       </p>
-      <ol>
+      <ol className="list-decimal pl-6 space-y-2">
         <li>
-          <fieldset>
-            <legend>手順1　トークンを入力する</legend>
+          <fieldset className="min-w-0 rounded-md border border-border p-4">
+            <legend className="px-1 text-sm font-bold">
+              手順1　トークンを入力する
+            </legend>
             <SecretField
               label="セットアップ用のトークン"
               error={message("setupToken")}
@@ -158,8 +136,10 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
           </fieldset>
         </li>
         <li>
-          <fieldset>
-            <legend>手順2　会社と部署を入力する</legend>
+          <fieldset className="min-w-0 rounded-md border border-border p-4">
+            <legend className="px-1 text-sm font-bold">
+              手順2　会社と部署を入力する
+            </legend>
             <TextField
               label="会社名"
               autoComplete="off"
@@ -176,8 +156,10 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
           </fieldset>
         </li>
         <li>
-          <fieldset>
-            <legend>手順3　自分の社員アカウントを入力する</legend>
+          <fieldset className="min-w-0 rounded-md border border-border p-4">
+            <legend className="px-1 text-sm font-bold">
+              手順3　自分の社員アカウントを入力する
+            </legend>
             <TextField
               label="社員ID"
               hint="半角英数字と「.」「_」「-」の3〜32文字"
@@ -213,9 +195,10 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
               {...register("jobTitle")}
             />
             <div>
-              <label>
+              <label className="flex items-start gap-2">
                 <input
                   type="checkbox"
+                  className="mt-1 size-5 shrink-0"
                   aria-invalid={errors.emailConfirmed ? true : undefined}
                   aria-describedby={
                     errors.emailConfirmed ? confirmErrorId : undefined
@@ -225,21 +208,25 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
                 会社が発行した自分のメールアドレスだと確認しました
               </label>
               {errors.emailConfirmed && (
-                <p id={confirmErrorId}>{errors.emailConfirmed.message}</p>
+                <p id={confirmErrorId} className="mt-1 text-sm text-danger">
+                  {errors.emailConfirmed.message}
+                </p>
               )}
             </div>
           </fieldset>
         </li>
         <li>
-          <p>
+          <p className="mb-3">
             内容を確かめて登録します。初期パスワードは、登録の成功後に一度だけ表示します。
           </p>
           {errors.root?.server && (
-            <p role="alert">{errors.root.server.message}</p>
+            <Alert tone="error" role="alert" as="p">
+              {errors.root.server.message}
+            </Alert>
           )}
-          <button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting}>
             登録する
-          </button>
+          </Button>
         </li>
       </ol>
     </form>

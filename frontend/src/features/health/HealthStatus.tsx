@@ -1,5 +1,6 @@
 // 部品：サーバーの状態を表示する。サーバーの状態は TanStack Query で扱う。
 import { useQuery } from "@tanstack/react-query";
+import { Alert } from "../../components/Alert";
 import { fetchHealth } from "./api/health";
 
 export function HealthStatus() {
@@ -8,10 +9,15 @@ export function HealthStatus() {
     queryFn: fetchHealth,
   });
 
-  if (isPending) return <p>確認中です</p>;
-  if (error) return <p role="alert">サーバーにつながりません</p>;
+  if (isPending) return <p className="mb-3 text-text-muted">確認中です</p>;
+  if (error)
+    return (
+      <Alert tone="error" role="alert" as="p">
+        サーバーにつながりません
+      </Alert>
+    );
   return (
-    <p>
+    <p className="mb-3 text-text-muted">
       サーバーの状態：{data.status}（環境：{data.appEnv}）
     </p>
   );

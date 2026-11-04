@@ -3,9 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
+import "./lib/zod-config";
 import { App } from "./App";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import { setUnauthenticatedHandler } from "./services/api-client";
+import "./styles/index.css";
 
 const queryClient = new QueryClient();
 // API 通信の共通部分（画面の外）から移動できるよう、ルーターを部品の外で作る。
