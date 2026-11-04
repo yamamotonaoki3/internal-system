@@ -85,7 +85,7 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
   ```
 
 - CI の `.env.development`・`.env.test` は、`.env.example` から作る
-- `SETUP_TOKEN` と `PII_ENCRYPTION_KEY` の2項目は、Secret を使わず、CI の中で実行ごとに乱数で生成して `.env.development`・`.env.test` に入れる（値はログに出さない。空のままなら失敗する。`.github/workflows/check.yml`）
+- `SETUP_TOKEN`・`PII_ENCRYPTION_KEY`・`LOGIN_THROTTLE_KEY` の3項目は、Secret を使わず、CI の中で実行ごとに乱数で生成して `.env.development`・`.env.test` に入れる（値はログに出さない。空のままなら失敗する。`.github/workflows/check.yml`）
 - 他の秘密の項目を `.env.example` に足すとき、Secret から渡す方式が必要になるかは、足す時点で別途決める
 - 以前の手順で登録した Secret の `ENV_TEST` は不要になった。削除は利用者が行う（`gh secret delete ENV_TEST`。AI は実行しない）
 
@@ -116,6 +116,7 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
 | `APP_PORT` | Docker で動かすときに、手元で開くポート（docker-compose.yml が読む） | 5173（ほかのアプリと重なるときだけ変える。変えたら ALLOWED_ORIGINS も合わせる） | 5173 | 使わない（Cloudflare の Workers で動く） |
 | `SETUP_TOKEN` | 初代全体管理者の初回セットアップ用の認証（ADR-0013）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れ、セットアップ完了後に削除する |
 | `PII_ENCRYPTION_KEY` | 本名（個人情報）を暗号化する鍵（AES-256-GCM。ADR-0013）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
+| `LOGIN_THROTTLE_KEY` | ログインと初回セットアップの試行制限で、接続元・社員IDのキーを作る HMAC の鍵（ADR-0008）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
 
 ## 初回セットアップ用の項目（SETUP_TOKEN・PII_ENCRYPTION_KEY）
 
@@ -153,3 +154,30 @@ npx wrangler secret delete SETUP_TOKEN
 `PII_ENCRYPTION_KEY` を**紛失すると、保存済みの本名を復号できない**。「本番の値を控えておく場所」に、本番の値を控えておく。鍵を別の値に入れ替える（ローテーション）手順と、紛失した場合の復旧手順は**未決定**（ADR-0013）。入れ替えると、すでに保存した本名が復号できなくなるため、手順が決まるまで入れ替えない。
 
 この「入れ替えない」は、**本番、および継続して保存するデータ（実データ）を暗号化している鍵**に対するものである。開発・テストでは、使い捨てのデータ（テスト用の架空のデータ）だけを使う。開発・テスト用の鍵（`.env.development`・`.env.test`）は、動作確認の後などに作り直してよい（ADR-0014）。作り直すと、既存の暗号化済みの値は読めなくなるが、テスト用DBは `npm run db:reset:test` で作り直せる。
+
+## ログインの試行制限用の項目（LOGIN_THROTTLE_KEY）
+
+ログイン（`/api/auth/login`）と初回セットアップ（`/api/setup`）の試行制限で、接続元と社員IDを**秘密の鍵つきHMAC**にしてDBに保存するための鍵（生のIP・社員IDは保存しない。[ADR-0008](adr/0008-session-and-login-throttle.md)、設計は [auth-session.md](design/auth-session.md)）。値は**32バイトの乱数を base64url にした、ちょうど43文字**。開発・検証・本番で**別の値**にする。値はチャット・Issue・PR・コミットに貼らない。
+
+### 値の作り方
+
+`SETUP_TOKEN` と同じコマンドで作る。別の項目とは別々に実行して、別の値にする。手元（`.env.development`・`.env.test`）の値は、AIが行ってよい（ADR-0014。値を画面・会話・ログに出さず、生成した値をそのままファイルに書き込む）。本番の値は、利用者が自分のターミナルで実行する。
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+- 手元：表示された値を `.env.development`・`.env.test` の `LOGIN_THROTTLE_KEY=` に入れる（AIが行ってよい。ADR-0014）
+- CI：Secret は使わず、実行ごとに乱数で生成して入れる（上の「CI」の節。`.github/workflows/check.yml`）
+
+### 本番に入れる（利用者が実施。AI は実行しない）
+
+```bash
+npx wrangler secret put LOGIN_THROTTLE_KEY
+```
+
+値は、実行後の入力欄に貼る。未設定・形式不正の場合、ログインと初回セットアップの POST は 503 を返す（アプリ全体は止まらない）。
+
+### 鍵を変えるとき
+
+鍵を変えると、それまでの試行の記録（`login_attempts`）は新しい鍵では参照できなくなり、**試行の数が数え直しになる**（ロック中の接続元の制限も外れる）。ほかの機能が壊れるわけではないが、攻撃を受けている最中の入れ替えは避ける。古い行は、掃除（Cron）が最終更新から1日後に消す。開発・テスト用の鍵を作り直すのは問題ない（ADR-0014）。

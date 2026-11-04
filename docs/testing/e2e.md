@@ -14,12 +14,12 @@
 
 1. `npm install`
 1. `npx playwright install --with-deps chromium`
-1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる（手順は `docs/secrets.md`）。初回セットアップの E2E（`e2e/setup.spec.ts`）のために、`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` も入れる（作り方は `docs/secrets.md` の「初回セットアップ用の項目」。値は利用者が入れる）
+1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる（手順は `docs/secrets.md`）。初回セットアップの E2E（`e2e/setup.spec.ts`）のために、`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` も入れる（作り方は `docs/secrets.md` の「初回セットアップ用の項目」。値は利用者が入れる）。ログインの E2E（`e2e/login.spec.ts`）と、ログインと初回セットアップの試行制限のために、`LOGIN_THROTTLE_KEY` も入れる（`docs/secrets.md` の「ログインの試行制限用の項目」。開発と別の値）
 
 ## 3. 確認の方法
 
 - `npx playwright --version` が `docs/tech-stack.md` の版と同じ
-- ポート 5173 が使われていない
+- ポート 5173 が使われていない。**`localhost` だけでなく `127.0.0.1:5173` も確かめる**（Playwright は `http://localhost:5173` に向けて起動を確認するため、別のプロジェクトのサーバーが `127.0.0.1:5173` を占有していると、起動の確認が失敗する、または別のサーバーに向かう）。Windows では `netstat -ano | findstr :5173`、macOS・Linux では `lsof -i :5173` で確かめる。自分が起動したものでなければ、止めずに利用者に確認する
 
 ## 4. テストの実行方法
 
@@ -36,6 +36,10 @@
 | 画面を開いてサーバーと通信する | `e2e/health.spec.ts` | 画面にサーバーの状態が表示され、コンソールのエラーがなく、`/api/health` が 200 を返す |
 | シードしたデータを読む（DB があるときだけ） | `e2e/sample-users.spec.ts` | シードした `e2euser_health_001` を、API から読める（シードの保存先と、検証用サーバーの読み先が同じ） |
 
+| ログイン・ログアウト（S-02） | `e2e/login.spec.ts` | ログイン→「ようこそ、{表示名}さん」→ログアウト→戻る・進む・直接アクセスで `/login`、誤ったパスワードの文言、初回パスワードの利用者の案内と `403 PASSWORD_CHANGE_REQUIRED`、**`http://localhost` で `__Host-session` の Cookie が保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られる**。シードは `e2e/seeds/login.sql`（架空の `e2euser_login_001`・`e2euser_login_002`）。後始末は `e2e/seeds/login-cleanup.sql` |
+
+- `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
+- 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）
 - シナリオは、`e2e/` に `<名前>.spec.ts` として足す。`e2e/console-guard.ts` の `test` を使い、コンソールのエラーを失敗にする
 - シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）
 
@@ -52,4 +56,7 @@
 | ポートが使われていて起動しない | 何が使っているかを確かめる。自分が起動したものでなければ、止めずに利用者に確認する |
 | `.env.test` がないと言われる | `docs/secrets.md` の手順で作る |
 | 初回セットアップの E2E が「SETUP_TOKEN が設定されていません」で失敗する | `.env.test` に `SETUP_TOKEN` と `PII_ENCRYPTION_KEY` を利用者が入れる（`docs/secrets.md`）。環境の不備であり、テストの不具合ではない。値は表示せず、`npm run env:check -- test` で項目の名前だけを確かめる |
+| ログインの E2E が `__Host-session` の Cookie を見つけられずに失敗する | Cookie の名前の `__Host-` は `Secure` を必須にする。E2E は `http://localhost` で `Secure` の Cookie が保存されることを前提にしている（Chromium は `localhost` を安全な送信元として扱う想定）。保存されない場合は、ブラウザの版・`APP_ENV`・`ALLOWED_ORIGINS`（`http://localhost:5173`）を確かめる。**Cookie 名を `session` に戻す前に、利用者に相談する**（セキュリティの設計に関わる） |
+| ログインが 503 になる | `.env.test` に `LOGIN_THROTTLE_KEY` がない、または43文字の形式でない。`npm run env:check -- test` で項目の名前だけを確かめる（値は表示しない）。環境の不備であり、テストの不具合ではない |
+| ログインが 429 になる | E2E は接続元（開発・テストでは固定のキー）ごとの受付が15分に30回までのため、短い間に何度も実行すると上限に当たる。`npm run db:reset:test`（`pretest:e2e` が実行する）で、検証用 DB の `login_attempts` を空にしてから再実行する |
 | 失敗の原因が分からない | `playwright-report/` とトレース（`npx playwright show-trace <trace.zip>`）を確かめる |

@@ -29,6 +29,13 @@
       "when": 1793670370433,
       "tag": "0003_seed_initial_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793702477357,
+      "tag": "0004_add_sessions_login_attempts",
+      "breakpoints": true
     }
   ]
 }

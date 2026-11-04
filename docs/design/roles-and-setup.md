@@ -40,8 +40,8 @@ Issue #119（親Issue #108）で実装した、ロールと権限、会社・部
 | `frontend/src/features/setup/components/SetupFlow.tsx` | 状態の振り分け（読み込み中・取得失敗で再試行・完了済み・未設定でフォーム）と、登録成功後の初期パスワードの表示 |
 | `frontend/src/features/setup/components/SetupForm.tsx` | 入力フォーム（トークン・会社名・部署名・社員ID・本名・メール・メール確認のチェック・内線・役職）と送信 |
 | `frontend/src/features/setup/components/InitialPasswordNotice.tsx` | 初期パスワードを一度だけ文字で表示する |
-| `frontend/src/features/setup/components/SecretField.tsx` | 秘密の入力欄（表示の切り替え） |
-| `frontend/src/features/setup/components/SetupEntryLink.tsx` | `HomePage`に出す「初回セットアップへ」のリンク。未設定と分かっているときだけ出す |
+| `frontend/src/components/SecretField.tsx` | 秘密の入力欄（表示の切り替え）。ログイン画面（#120）と共通にするため、`features/setup/components/`から移した |
+| `frontend/src/features/setup/components/SetupEntryLink.tsx` | 「初回セットアップへ」のリンク。未設定と分かっているときだけ出す。#120で`HomePage`から`LoginPage`（未ログインでも見える場所）へ移した |
 | `frontend/src/features/setup/api/setup-api.ts` | `fetchSetupStatus`・`submitSetup`。共通の`apiClient`を使う |
 | `frontend/src/features/setup/hooks/useSetupStatus.ts` | 状態の取得 |
 | `frontend/src/features/setup/schemas/setup-form.ts` | 入力チェック（サーバーと同じ長さ・文字種。サーバー側でも検査する） |
@@ -120,15 +120,16 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 
 画面S-34から`POST /api/setup`までの流れ。
 
-1. 画面：`SetupFlow`が`GET /api/setup/status`で状態を取る（未認証・キャッシュしない）。`setupRequired`が`true`のときだけフォームを出す。`HomePage`の`SetupEntryLink`も同じ状態を使い、`true`と分かっているときだけリンクを出す（取得中・取得失敗は出さない）
+1. 画面：`SetupFlow`が`GET /api/setup/status`で状態を取る（未認証・キャッシュしない）。`setupRequired`が`true`のときだけフォームを出す。`LoginPage`の`SetupEntryLink`（#120までは`HomePage`）も同じ状態を使い、`true`と分かっているときだけリンクを出す（取得中・取得失敗は出さない）
 2. 送信：`submitSetup`が`POST /api/setup`を呼ぶ。送信元の確認（`Origin`。許可されていない・欠落は`403 FORBIDDEN_ORIGIN`）は、`/api/*`の共通の処理で行う
 3. サーバーの処理順（認証より前に、入力の検証や完了の状態を知らせない）：
    1. 本文がJSONのオブジェクトであること
-   2. **503**：`SETUP_TOKEN`または`PII_ENCRYPTION_KEY`が未設定・形式不正（`authenticateSetup`）
-   3. **403**：トークンが誤り・欠落。`logger.audit`にだけ記録する
-   4. **422**：入力の検証（`VALIDATION_ERROR`。`fields`に誤った項目名）。`emailConfirmed`が`true`でないときも422
-   5. **409**：すでに完了している、または同時実行に負けた、社員ID・メール・部署名が重複した（`completeSetup`）
-   6. 成功は**201**。応答は`{ user: { id, loginId, displayName }, initialPassword }`で、`Cache-Control: no-store`
+   2. **接続元の試行制限（#120で適用済み）**：`LOGIN_THROTTLE_KEY`が未設定・不正、または本番で接続元を特定できない場合は**503**。接続元の受付枠（`setup_source`。窓15分・30回・ロック15分）を使い切ると**429**と`Retry-After`。トークンの確認より前に行う（総当たりを数えるため）。詳細は[auth-session.md](auth-session.md)
+   3. **503**：`SETUP_TOKEN`または`PII_ENCRYPTION_KEY`が未設定・形式不正（`authenticateSetup`）
+   4. **403**：トークンが誤り・欠落。`logger.audit`にだけ記録する
+   5. **422**：入力の検証（`VALIDATION_ERROR`。`fields`に誤った項目名）。`emailConfirmed`が`true`でないときも422
+   6. **409**：すでに完了している、または同時実行に負けた、社員ID・メール・部署名が重複した（`completeSetup`）
+   7. 成功は**201**。応答は`{ user: { id, loginId, displayName }, initialPassword }`で、`Cache-Control: no-store`
 4. 401は使わない（ログインの前の入口のため）
 
 ### 原子性と同時実行
@@ -165,15 +166,15 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 | 権限判定・JOIN・シードとコードの一致・制約 | `backend/src/services/authorizer.db.test.ts`、`backend/src/db/role-assignment.repository.db.test.ts` |
 | パスワード | `backend/src/lib/password.test.ts`、workerdでのscryptの可否は`backend/src/lib/scrypt-runtime.test.ts` |
 | トークン・暗号・設定 | `backend/src/lib/setup-token.test.ts`、`backend/src/lib/pii-crypto.test.ts`、`backend/src/config.test.ts` |
-| セットアップのService・ルート | `backend/src/services/setup.service.test.ts`、`backend/src/routes/setup.test.ts` |
+| セットアップのService・ルート | `backend/src/services/setup.service.test.ts`、`backend/src/routes/setup.test.ts`、接続元の試行制限（#120）は`backend/src/routes/setup-throttle.test.ts` |
 | ログの伏せ字 | `backend/src/lib/logger/logger.test.ts` |
-| 画面 | `frontend/src/pages/SetupPage.test.tsx`、`frontend/src/pages/HomePage.test.tsx`、`frontend/src/features/setup/`配下の`*.test.ts(x)` |
+| 画面 | `frontend/src/pages/SetupPage.test.tsx`、`frontend/src/pages/LoginPage.test.tsx`（リンクの表示。#120）、`frontend/src/components/SecretField.test.tsx`、`frontend/src/features/setup/`配下の`*.test.ts(x)` |
 | E2E | `e2e/setup.spec.ts`（架空データ`e2euser_`・`@example.com`・`[E2E_TEST]`） |
 | テスト用の部品 | `backend/test/role-fixtures.ts`・`backend/test/random-secrets.ts`（テストごとに乱数のシークレットを作る） |
 
 ## 関係するIssueとADR
 
-- Issue：#119（親 #108）、依存 #118。後続：#120（ログイン。試行制限を`/api/setup`にも適用）、#122（TOTP）、#158・#159（ロールの編集・新規作成）、2-2のIssue（R-45の承認）
+- Issue：#119（親 #108）、依存 #118。後続：#120（ログイン。試行制限を`/api/setup`にも適用した。[auth-session.md](auth-session.md)）、#122（TOTP）、#158・#159（ロールの編集・新規作成）、2-2のIssue（R-45の承認）
 - ADR：[0007](../adr/0007-password-hash-scrypt.md)（パスワードのハッシュ）、[0008](../adr/0008-session-and-login-throttle.md)（試行制限）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回専用の認証と本名の暗号化）
 - 決定記録：C-154〜C-158（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`SETUP_TOKEN`・`PII_ENCRYPTION_KEY`

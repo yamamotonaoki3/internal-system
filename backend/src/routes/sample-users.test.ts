@@ -1,6 +1,18 @@
 // 結合のテスト：本物と同じ実行エンジン（workerd）のローカルの D1 に対して、API（/api/sample-users）を通して確かめる。
+// #120 0-2 AC-3（利用者の承認済みの移行）：/api/sample-users は認証が必要になった。認証済み（セッション）で成功し、未認証は 401（no-store）。
+// セッションは、架空の利用者（testuser_、[UNIT_TEST]）に sessions の行を直接入れて作る。
 import { env } from "cloudflare:workers";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  SESSION_COOKIE,
+  cleanupAuthTestData,
+  insertSession,
+} from "../../test/auth-fixtures";
+import {
+  cleanupRoleTestData,
+  insertDepartment,
+  insertUser,
+} from "../../test/role-fixtures";
 import { loadConfig } from "../config";
 import { app } from "../index";
 
@@ -9,16 +21,42 @@ const USERNAME = "testuser_route_test";
 const BULK_COUNT = 101;
 const ALLOWED_ORIGIN = loadConfig(env).allowedOrigins[0] ?? "";
 
-const post = (body: unknown, origin: string = ALLOWED_ORIGIN) =>
+let token: string;
+
+beforeEach(async () => {
+  const dept = await insertDepartment("見本テスト部");
+  const userId = await insertUser("testuser_sample_001", dept);
+  await env.DB.prepare("UPDATE users SET must_change_password = 0 WHERE id = ?")
+    .bind(userId)
+    .run();
+  token = (await insertSession(userId, { createdAt: new Date().toISOString() }))
+    .token;
+});
+
+const auth = (authenticated: boolean): Record<string, string> =>
+  authenticated ? { Cookie: `${SESSION_COOKIE}=${token}` } : {};
+
+const post = (
+  body: unknown,
+  origin: string = ALLOWED_ORIGIN,
+  authenticated = true,
+) =>
   app.request(
     "/api/sample-users",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: origin },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: origin,
+        ...auth(authenticated),
+      },
       body: JSON.stringify(body),
     },
     env,
   );
+
+const list = (authenticated = true) =>
+  app.request("/api/sample-users", { headers: auth(authenticated) }, env);
 
 afterEach(async () => {
   // このテストが足した行だけを、識別子で消す（C-05）
@@ -28,6 +66,8 @@ afterEach(async () => {
   await env.DB.prepare(
     "DELETE FROM sample_users WHERE username LIKE 'testuser!_route!_bulk!_%' ESCAPE '!'",
   ).run();
+  await cleanupAuthTestData();
+  await cleanupRoleTestData();
 });
 
 describe("/api/sample-users（D1）", () => {
@@ -36,7 +76,7 @@ describe("/api/sample-users（D1）", () => {
     expect(created.status).toBe(201);
     expect(await created.json()).toEqual({ username: USERNAME });
 
-    const listed = await app.request("/api/sample-users", {}, env);
+    const listed = await list();
     expect(listed.status).toBe(200);
     const body = (await listed.json()) as { users: { username: string }[] };
     expect(body.users).toContainEqual({ username: USERNAME });
@@ -54,7 +94,7 @@ describe("/api/sample-users（D1）", () => {
   it("POST：許可していない送信元（Origin）は 403 で、追加されない", async () => {
     const res = await post({ username: USERNAME }, "https://origin.invalid");
     expect(res.status).toBe(403);
-    const listed = await app.request("/api/sample-users", {}, env);
+    const listed = await list();
     const body = (await listed.json()) as { users: { username: string }[] };
     expect(body.users).not.toContainEqual({ username: USERNAME });
   });
@@ -75,10 +115,26 @@ describe("/api/sample-users（D1）", () => {
     );
     await env.DB.batch(bulk);
     const last = `testuser_route_bulk_${String(BULK_COUNT - 1).padStart(4, "0")}`;
-    const listed = await app.request("/api/sample-users", {}, env);
+    const listed = await list();
     const body = (await listed.json()) as { users: { username: string }[] };
     expect(body.users.map((u) => u.username)).not.toContain(last);
     const res = await post({ username: last });
     expect(res.status).toBe(409);
+  });
+
+  it("#120 0-2 AC-3: 未認証の GET は 401（UNAUTHENTICATED）で no-store", async () => {
+    const res = await list(false);
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
+  it("#120 0-2 AC-3: 未認証の POST は 401 で no-store、追加されない", async () => {
+    const res = await post({ username: USERNAME }, ALLOWED_ORIGIN, false);
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const listed = await list();
+    const body = (await listed.json()) as { users: { username: string }[] };
+    expect(body.users).not.toContainEqual({ username: USERNAME });
   });
 });

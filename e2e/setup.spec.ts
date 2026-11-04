@@ -3,6 +3,7 @@
 // トークンは環境変数 SETUP_TOKEN（.env.test。npm run test:e2e が読み込む）から読み、値をファイルに書かない。
 // データはすべて架空（e2euser_001・example.com・[E2E_TEST]）。削除は backend/db/seeds/cleanup.sql の識別子で行う。
 import { expect, test } from "./console-guard";
+import { allowSessionCheck401 } from "./session-console";
 
 const VALID = {
   companyName: "[E2E_TEST]テスト株式会社",
@@ -28,9 +29,10 @@ test("#119 AC-4: 未設定の状態から登録すると初期パスワードが
   page,
 }) => {
   const token = setupToken();
+  allowSessionCheck401(page);
 
-  // 入口：未設定のときだけ HomePage にリンクが出る
-  await page.goto("/");
+  // 入口：未設定のときだけ、ログイン画面（未ログインで / を開くと移る先。#120）にリンクが出る
+  await page.goto("/login");
   await page.getByRole("link", { name: "初回セットアップへ" }).click();
   await expect(page).toHaveURL(/\/setup$/);
 
@@ -82,8 +84,8 @@ test("#119 AC-4: 未設定の状態から登録すると初期パスワードが
   );
   expect(leaked).toBe(false);
 
-  // 離脱して戻る：表示されず「完了済み」
-  await page.goto("/");
+  // 離脱して戻る：表示されず「完了済み」（#120：離脱先はログイン画面。/login → /setup はリンクでの通常の遷移なので、戻ると /setup）
+  await page.goto("/login");
   await expect(
     page.getByRole("link", { name: "初回セットアップへ" }),
   ).toHaveCount(0);

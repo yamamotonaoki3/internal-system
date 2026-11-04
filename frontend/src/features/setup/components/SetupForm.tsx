@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useId, type ComponentProps } from "react";
 import { useForm } from "react-hook-form";
+import { SecretField } from "../../../components/SecretField";
 import type { ApiError } from "../../../services/api-client";
 import { submitSetup, type SetupRequest } from "../api/setup-api";
 import {
@@ -12,7 +13,6 @@ import {
   type SetupFormInput,
   type SetupFormValues,
 } from "../schemas/setup-form";
-import { SecretField } from "./SecretField";
 
 export type Registered = { loginId: string; initialPassword: string };
 

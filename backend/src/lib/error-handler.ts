@@ -12,8 +12,13 @@ export function handleError(err: Error, c: Context) {
       path: c.req.path,
       details: err.details,
     });
+    // retryAfterSeconds は Retry-After ヘッダーにだけ出す（残り時間・どの制限かを本文に出さない）
+    const { retryAfterSeconds, ...publicDetails } = err.details;
+    if (typeof retryAfterSeconds === "number") {
+      c.header("Retry-After", String(retryAfterSeconds));
+    }
     return c.json(
-      { code: err.code, message: err.userMessage, ...err.details },
+      { code: err.code, message: err.userMessage, ...publicDetails },
       err.status,
     );
   }
