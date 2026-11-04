@@ -77,22 +77,22 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.64.0",
+    "@cloudflare/vite-plugin": "1.66.0",
     "@cloudflare/vitest-pool-workers": "0.23.0",
     "@playwright/test": "1.64.1",
-    "@stryker-mutator/core": "10.0.0",
-    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.8",
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
     "dependency-cruiser": "18.7.0",
     "drizzle-kit": "0.31.11",
-    "eslint": "10.13.0",
+    "eslint": "10.14.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "fast-check": "4.10.2",
     "jscpd": "5.4.2",
@@ -100,10 +100,10 @@
     "msw": "3.0.3",
     "prettier": "3.9.10",
     "tailwindcss": "4.3.3",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.72.0",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.72.1",
     "vite": "8.3.5",
-    "vitest": "4.1.12",
-    "wrangler": "4.151.3"
+    "vitest": "5.0.5",
+    "wrangler": "4.156.0"
   }
 }
