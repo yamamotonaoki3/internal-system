@@ -19,6 +19,7 @@
 | ルール | 緩める内容 | ADR |
 | --- | --- | --- |
 | AGENTS.md「作業の流れ」1・「要件定義とIssueへの分割」3、Skill「実装の進め方」3 | 作業領域ごとに子Issueに分けず、実装する機能の単位でIssueを立てる | [0002](adr/0002-issue-by-feature.md) |
+| AGENTS.md「絶対にしないこと」の秘密情報（秘密情報の値は利用者が入力する） | 開発・テスト用の、乱数で作る使い捨ての値に限り、AIが`.env.development`・`.env.test`に書いてよい。本番・実在の認証情報は、これまでどおり利用者が入力する | [0014](adr/0014-ai-may-set-dev-test-secrets.md) |
 
 ## このプロジェクトのルール
 
@@ -29,3 +30,4 @@
 - 一覧APIのページ送りは、`backend/src/lib/cursor.ts`（`cursorQuerySchema`・`afterCursor`・`toPage`）を使う。OFFSETは使わず、件数は`PAGE_LIMIT`に従う（メッセージ50・その他20・最大100）
 - 監査ログは、`auditLogInsert`が返す文を、業務の更新と同じ`db.batch([...])`に入れて書く（単独で実行しない）。`detail`には、件数・変更前後の識別子や状態・失敗の分類などの概要だけを入れ、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない
 - 本番の権限IDの一覧とResolverは、`createAuthorizer`を呼ぶ1か所で組む。認可の拒否は、`createAuthorizer`の`authorize`が`logger.audit`で必ず記録する（`logger`は必須）。拒否の記録を省く書き方をしない
+- 開発・テスト用の使い捨ての秘密の値（ADR 0014）：AIが書いてよいのは、乱数で作った値を`.env.development`・`.env.test`に入れる場合だけ。本番（`wrangler secret put`・GitHub Secrets）と実在の認証情報は利用者が入れる。値を画面・会話・ログに出さず、ファイルを読まない（項目名だけを`npm run env:check`で確認する）。動作確認で使った値は確認後に作り直す（開発・テスト用の鍵だけ。本番と実データの鍵を入れ替えない規則は`docs/secrets.md`のとおり変わらない）。安全装置に止められたら回避せず、利用者に依頼する

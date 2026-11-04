@@ -2,10 +2,13 @@
 
 パスワード・APIキー・トークンなどの秘密情報は、**利用者が自分で入力する**。AIは手順を案内するだけで、値を扱わない。
 
+ただし例外として、**開発・テスト用の、乱数で作る使い捨ての値に限り、AIが`.env.development`・`.env.test`に書いてよい**（[ADR-0014](adr/0014-ai-may-set-dev-test-secrets.md)）。本番の値（`wrangler secret put`・GitHub Secrets）と、外部サービスの実際のキーなど実在の認証情報は、これまでどおり利用者が入力する。
+
 ## 守ること
 
 - 値をチャットに貼らない。スクリーンショットにも写さない
-- 値を入力するコマンドは、AIに実行させず、自分でターミナルで実行する
+- 本番の値を入力するコマンド（`wrangler secret put`・`gh secret set`等）は、AIに実行させず、自分でターミナルで実行する
+- 開発・テスト用の使い捨ての値をAIが書く場合も、値を画面・会話・ログに出さず、ファイルを読んで確認しない。項目の有無は`npm run env:check`（項目名だけが表示される）で確認する。動作確認で使った値は、確認後に作り直す。安全装置に止められたら回避せず、利用者に依頼する
 - `.env.development`・`.env.test`など実際の値が入ったファイルはコミットしない（`.gitignore`で除外済み）
 
 ## 開発・検証（手元のPC）
@@ -111,9 +114,9 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
 | `APP_ENV` | 環境の名前 | development | test | production |
 | `ALLOWED_ORIGINS` | 状態を変える要求を許可する送信元（カンマ区切り） | 手元の画面のURL | 手元の画面のURL | 本番のドメイン（wrangler.jsonc の vars・IaC で設定する） |
 | `APP_PORT` | Docker で動かすときに、手元で開くポート（docker-compose.yml が読む） | 5173（ほかのアプリと重なるときだけ変える。変えたら ALLOWED_ORIGINS も合わせる） | 5173 | 使わない（Cloudflare の Workers で動く） |
-| `SETUP_TOKEN` | 初代全体管理者の初回セットアップ用の認証（ADR-0013）。43文字の乱数 | 利用者が生成して `.env.development` に入れる | 利用者が生成して `.env.test` に入れる（開発と別の値） | 利用者が `wrangler secret put` で入れ、セットアップ完了後に削除する |
-| `PII_ENCRYPTION_KEY` | 本名（個人情報）を暗号化する鍵（AES-256-GCM。ADR-0013）。43文字の乱数 | 利用者が生成して `.env.development` に入れる | 利用者が生成して `.env.test` に入れる（開発と別の値） | 利用者が `wrangler secret put` で入れる。削除しない |
-| `LOGIN_THROTTLE_KEY` | ログインと初回セットアップの試行制限で、接続元・社員IDのキーを作る HMAC の鍵（ADR-0008）。43文字の乱数 | 利用者が生成して `.env.development` に入れる | 利用者が生成して `.env.test` に入れる（開発と別の値） | 利用者が `wrangler secret put` で入れる。削除しない |
+| `SETUP_TOKEN` | 初代全体管理者の初回セットアップ用の認証（ADR-0013）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れ、セットアップ完了後に削除する |
+| `PII_ENCRYPTION_KEY` | 本名（個人情報）を暗号化する鍵（AES-256-GCM。ADR-0013）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
+| `LOGIN_THROTTLE_KEY` | ログインと初回セットアップの試行制限で、接続元・社員IDのキーを作る HMAC の鍵（ADR-0008）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
 
 ## 初回セットアップ用の項目（SETUP_TOKEN・PII_ENCRYPTION_KEY）
 
@@ -121,7 +124,7 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
 
 ### 値の作り方
 
-利用者が自分のターミナルで実行し、表示された値を、`.env.development`・`.env.test`（手元）または `wrangler secret put` の入力欄（本番）に入れる。2つの項目は、別々に2回実行して、別の値にする。
+手元（`.env.development`・`.env.test`）の値は、AIが行ってよい（ADR-0014）。その場合は、値を画面・会話・ログに出さず、生成した値をそのままファイルに書き込む。本番の値は、利用者が自分のターミナルで実行し、表示された値を `wrangler secret put` の入力欄に入れる。2つの項目は、別々に2回実行して、別の値にする。
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
@@ -150,19 +153,21 @@ npx wrangler secret delete SETUP_TOKEN
 
 `PII_ENCRYPTION_KEY` を**紛失すると、保存済みの本名を復号できない**。「本番の値を控えておく場所」に、本番の値を控えておく。鍵を別の値に入れ替える（ローテーション）手順と、紛失した場合の復旧手順は**未決定**（ADR-0013）。入れ替えると、すでに保存した本名が復号できなくなるため、手順が決まるまで入れ替えない。
 
+この「入れ替えない」は、**本番、および継続して保存するデータ（実データ）を暗号化している鍵**に対するものである。開発・テストでは、使い捨てのデータ（テスト用の架空のデータ）だけを使う。開発・テスト用の鍵（`.env.development`・`.env.test`）は、動作確認の後などに作り直してよい（ADR-0014）。作り直すと、既存の暗号化済みの値は読めなくなるが、テスト用DBは `npm run db:reset:test` で作り直せる。
+
 ## ログインの試行制限用の項目（LOGIN_THROTTLE_KEY）
 
 ログイン（`/api/auth/login`）と初回セットアップ（`/api/setup`）の試行制限で、接続元と社員IDを**秘密の鍵つきHMAC**にしてDBに保存するための鍵（生のIP・社員IDは保存しない。[ADR-0008](adr/0008-session-and-login-throttle.md)、設計は [auth-session.md](design/auth-session.md)）。値は**32バイトの乱数を base64url にした、ちょうど43文字**。開発・検証・本番で**別の値**にする。値はチャット・Issue・PR・コミットに貼らない。
 
 ### 値の作り方
 
-`SETUP_TOKEN` と同じコマンドを、利用者が自分のターミナルで実行する。別の項目とは別々に実行して、別の値にする。
+`SETUP_TOKEN` と同じコマンドで作る。別の項目とは別々に実行して、別の値にする。手元（`.env.development`・`.env.test`）の値は、AIが行ってよい（ADR-0014。値を画面・会話・ログに出さず、生成した値をそのままファイルに書き込む）。本番の値は、利用者が自分のターミナルで実行する。
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-- 手元：表示された値を `.env.development`・`.env.test` の `LOGIN_THROTTLE_KEY=` に入れる（利用者が入れる）
+- 手元：表示された値を `.env.development`・`.env.test` の `LOGIN_THROTTLE_KEY=` に入れる（AIが行ってよい。ADR-0014）
 - CI：Secret は使わず、実行ごとに乱数で生成して入れる（上の「CI」の節。`.github/workflows/check.yml`）
 
 ### 本番に入れる（利用者が実施。AI は実行しない）
@@ -175,4 +180,4 @@ npx wrangler secret put LOGIN_THROTTLE_KEY
 
 ### 鍵を変えるとき
 
-鍵を変えると、それまでの試行の記録（`login_attempts`）は新しい鍵では参照できなくなり、**試行の数が数え直しになる**（ロック中の接続元の制限も外れる）。ほかの機能が壊れるわけではないが、攻撃を受けている最中の入れ替えは避ける。古い行は、掃除（Cron）が最終更新から1日後に消す。
+鍵を変えると、それまでの試行の記録（`login_attempts`）は新しい鍵では参照できなくなり、**試行の数が数え直しになる**（ロック中の接続元の制限も外れる）。ほかの機能が壊れるわけではないが、攻撃を受けている最中の入れ替えは避ける。古い行は、掃除（Cron）が最終更新から1日後に消す。開発・テスト用の鍵を作り直すのは問題ない（ADR-0014）。
