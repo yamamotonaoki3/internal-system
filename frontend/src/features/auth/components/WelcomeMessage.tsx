@@ -1,6 +1,5 @@
-// ログイン後の画面の枠（S-01 の共通レイアウトは #121）。ログイン中の利用者の表示名を出す。
+// ログイン後のホームの案内。ログイン中の利用者の表示名と、画面幅に合った操作の案内を出す。
 import { useSession } from "../hooks/useSession";
-import { LogoutButton } from "./LogoutButton";
 
 export function WelcomeMessage() {
   const { data } = useSession();
@@ -8,7 +7,12 @@ export function WelcomeMessage() {
   return (
     <section>
       <p className="mb-3">ようこそ、{data.user.displayName}さん</p>
-      <LogoutButton />
+      <p className="mb-3 text-text-muted md:hidden">
+        メニューからチャンネルやDMを選んでください。
+      </p>
+      <p className="mb-3 hidden text-text-muted md:block">
+        サイドバーからチャンネルやダイレクトメッセージを選んでください。
+      </p>
     </section>
   );
 }

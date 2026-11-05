@@ -42,14 +42,22 @@ beforeEach(() => {
 });
 
 describe("#120 AC-1 HomePage（ログイン済み）", () => {
-  it("#120 AC-1: 「ようこそ、{表示名}さん」とログアウトのボタンを出す", async () => {
+  // #121（利用者の承認済みの変更 N-1）：ログアウトは、画面に直接は出さず、アバターメニュー（表示名のボタンで開く）の中に移った。
+  // 確かめる内容（ようこそ・ログアウトのボタンがあること）は変えない。jsdom には popover がないため、開閉そのものは e2e/app-shell.spec.ts で確かめる
+  it("#120 AC-1: 「ようこそ、{表示名}さん」を出し、アバターメニュー（表示名のボタン）の中にログアウトのボタンを出す", async () => {
     respondLoggedIn();
     respondPublicStatus();
     renderHome();
     expect(
       await screen.findByText(`ようこそ、${TEST_USER.displayName}さん`),
     ).toBeDefined();
-    expect(screen.getByRole("button", { name: "ログアウト" })).toBeDefined();
+    const avatar = screen.getByRole("button", {
+      name: `アカウントメニュー（${TEST_USER.displayName}）`,
+    });
+    const logout = screen.getByRole("button", { name: "ログアウト" });
+    const panel = logout.closest("[popover]");
+    expect(panel).not.toBeNull();
+    expect(avatar.getAttribute("aria-controls")).toBe(panel?.id);
     expect(screen.getByTestId("path").textContent).toBe("/");
   });
 });

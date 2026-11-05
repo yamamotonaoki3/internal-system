@@ -26,6 +26,12 @@ test("#120 AC-1（0-2 AC-1・AC-2）: ログインすると「ようこそ、{�
     page.getByText(`ようこそ、${READY_USER.displayName}さん`),
   ).toBeVisible();
 
+  // #121（利用者の承認済みの変更 N-1）：ログアウトはアバターメニュー（表示名のボタン）の中に移った。開いてから押す。確かめる内容は変えない
+  await page
+    .getByRole("button", {
+      name: `アカウントメニュー（${READY_USER.displayName}）`,
+    })
+    .click();
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page).toHaveURL(/\/login$/);
 

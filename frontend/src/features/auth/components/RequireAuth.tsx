@@ -1,21 +1,27 @@
 // ログイン済みのときだけ中身を出す。未ログイン（401）なら /login へ移り、
 // 初回パスワードの変更が必要な利用者には案内だけを出す。
+// 確認中・確認できない・変更待ちの画面は、共通レイアウト（AppShell）の外なので、自分で画面の枠（main と h1）を持つ。
 import type { ReactNode } from "react";
 import { Navigate } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
+import { PageLayout } from "../../../components/PageLayout";
 import type { ApiError } from "../../../services/api-client";
 import { useSession } from "../hooks/useSession";
 import { PasswordChangePending } from "./PasswordChangePending";
+
+const SESSION_CHECK_TITLE = "ログイン状態の確認";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const session = useSession();
 
   if (session.isPending)
     return (
-      <p role="status" className="mb-3 text-text-muted">
-        確認中です
-      </p>
+      <PageLayout title={SESSION_CHECK_TITLE} width="narrow">
+        <p role="status" className="mb-3 text-text-muted">
+          確認中です
+        </p>
+      </PageLayout>
     );
 
   if (session.isError) {
@@ -24,15 +30,22 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     if (error.code === "UNAUTHENTICATED")
       return <Navigate to="/login" replace />;
     return (
-      <Alert tone="error" role="alert">
-        <p className="mb-3">ログイン状態を確認できませんでした。</p>
-        <Button variant="secondary" onClick={() => void session.refetch()}>
-          再試行
-        </Button>
-      </Alert>
+      <PageLayout title={SESSION_CHECK_TITLE} width="narrow">
+        <Alert tone="error" role="alert">
+          <p className="mb-3">ログイン状態を確認できませんでした。</p>
+          <Button variant="secondary" onClick={() => void session.refetch()}>
+            再試行
+          </Button>
+        </Alert>
+      </PageLayout>
     );
   }
 
-  if (session.data.mustChangePassword) return <PasswordChangePending />;
+  if (session.data.mustChangePassword)
+    return (
+      <PageLayout title="パスワードの変更が必要です" width="narrow">
+        <PasswordChangePending />
+      </PageLayout>
+    );
   return <>{children}</>;
 }

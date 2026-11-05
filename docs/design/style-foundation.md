@@ -8,7 +8,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 - よく使う部品（ボタン・入力欄・通知・画面の枠）を共通にし、各画面で素の要素に直接スタイルを書かない
 - 本番のCSP（`style-src 'self'`）を変えずに、スタイルを使う
 - 初回に読み込むJavaScriptを増やさない（すでに目標を超えているため）
-- 範囲外：共通レイアウト（サイドバー・ヘッダー。#121）、個別の機能画面の作り込み、ダークモード、アイコン、UI部品のライブラリ
+- 範囲外：共通レイアウト（サイドバー・ヘッダー。#121で実装。[app-shell.md](app-shell.md)）、個別の機能画面の作り込み、ダークモード、アイコン、UI部品のライブラリ
 
 ## 方針と判断
 
@@ -32,7 +32,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | --- | --- |
 | `frontend/src/styles/index.css` | Tailwindの読み込み、デザイントークン（`@theme`）、全体の基本のスタイル（`@layer base`：本文・フォーカスの輪郭）。`frontend/src/main.tsx` が読み込む |
 | `frontend/src/styles/tokens.test.ts` | 色の組み合わせのコントラスト比を、`index.css` の値から自動で確かめる |
-| `frontend/src/components/Button.tsx` | ボタン（`variant`：primary・secondary・danger） |
+| `frontend/src/components/Button.tsx` | ボタン（`variant`：primary・secondary・danger・ghost） |
 | `frontend/src/components/TextField.tsx` | ラベル・ヒント・エラーつきのテキスト入力欄 |
 | `frontend/src/components/SecretField.tsx` | 秘密の値（トークン・パスワード）の入力欄。表示・非表示のボタンつき |
 | `frontend/src/components/Alert.tsx` | 通知（`tone`：error・info・warning） |
@@ -98,7 +98,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | 部品 | 使うとき | 主な入力 |
 | --- | --- | --- |
 | `PageLayout` | 画面の一番外側。`main` と画面の `h1` を作る。1画面に1つ | `title`、`width`（`narrow`：入力中心の狭い画面、`default`：既定） |
-| `Button` | 操作のボタン。`type` の既定は `"button"`（フォームを意図せず送信しない）。送信ボタンだけ `type="submit"` を渡す | `variant`（`primary`：主な操作、`secondary`：補助、`danger`：取り消せない操作）、`button` の標準の属性 |
+| `Button` | 操作のボタン。`type` の既定は `"button"`（フォームを意図せず送信しない）。送信ボタンだけ `type="submit"` を渡す | `variant`（`primary`：主な操作、`secondary`：補助、`danger`：取り消せない操作、`ghost`：枠も背景もない控えめな操作。メニューを開くボタンなど。#121）、`button` の標準の属性 |
 | `TextField` | ラベルつきのテキスト入力。ヒントとエラーを `aria-describedby` で結ぶ。`ref` が `input` に渡る（react-hook-form の `register` が使える） | `label`、`hint`、`error`、`input` の標準の属性 |
 | `SecretField` | パスワード・トークンなど、伏せて入力する欄。表示・非表示のボタンが付く | `TextField` に加えて `toggleLabels`（ボタンの読み上げ名） |
 | `Alert` | 画面内の通知。`role` は呼び出し側が渡したものだけ付く（勝手に読み上げさせない） | `tone`（`error`・`info`・`warning`）、`role` |
@@ -138,8 +138,12 @@ Tailwindは、素のHTML要素のブラウザ標準の見た目をリセット�
 
 ## 複雑な部品（ダイアログ・メニューなど）
 
-- 今は無い。必要になった機能のIssueで扱う
-- まずブラウザ標準のネイティブの `<dialog>` で足りるかを確かめる
+- ネイティブで足りるかを、まず確かめる。#121の共通レイアウトでは、次の3つをブラウザ標準のネイティブで作り、ライブラリは足していない（詳しくは [app-shell.md](app-shell.md)）
+  - `<dialog>`（`showModal()`）：スマホのメニューのドロワー（`Drawer.tsx`）
+  - `popover="auto"`＋`popoverTarget`：アバターメニュー（`AvatarMenu.tsx`）
+  - `<details>`：管理メニューのまとまりの開閉（`AdminMenu.tsx`）
+- 3つとも `style` 属性や `<style>` を使わず、外部CSSのクラスだけで動く（本番形のE2Eで確かめる）。jsdomでは再現できない動き（フォーカスの閉じ込め・Esc・外側クリック・メディアクエリ）はE2Eが受け持つ
+- 上の3つで足りないとき（以下は従来の方針）
 - 足りなければ、UI部品のライブラリを、**CSPを有効にしたまま動くことを検証して**、利用者の承認を得てから追加する。インラインの `<style>` を注入し、止める手段のない部品は使わない（ADR-0015）
 
 ## 初回のJS・CSSの大きさ（AC-5）
@@ -161,10 +165,10 @@ Tailwindは、素のHTML要素のブラウザ標準の見た目をリセット�
 | 共通部品の単体テスト | `frontend/src/components/*.test.tsx`（`Button`・`TextField`・`SecretField`・`Alert`・`PageLayout`） |
 | 色のコントラスト比 | `frontend/src/styles/tokens.test.ts` |
 | 表示・アクセシビリティのE2E（開発サーバー） | `e2e/style-foundation.spec.ts` |
-| 本番形のE2E（CSP下で外部CSSだけが使われること） | `e2e-prod/csp-style.spec.ts`（`npm run test:e2e:prod`） |
+| 本番形のE2E（CSP下で外部CSSだけが使われること） | `e2e-prod/csp-style.spec.ts`（`npm run test:e2e:prod`）。#121で、ログイン後の画面（アバターメニュー・ドロワーを開いた状態を含む）の確認を足した |
 
 ## 関係するIssueとADR
 
-- Issue #171（親 #108）。後続：共通レイアウト #121
+- Issue #171（親 #108）。後続：共通レイアウト #121（実装済み。[app-shell.md](app-shell.md)）
 - [ADR-0015](../adr/0015-style-foundation.md)（スタイルの方針）、[ADR-0012](../adr/0012-zero-trust-principle.md)（CSPを理由なく緩めない）
 - 調査：[T-07-style-foundation.md](../research/T-07-style-foundation.md)

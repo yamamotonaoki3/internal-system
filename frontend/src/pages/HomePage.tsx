@@ -1,15 +1,12 @@
-// 画面：部品を組み合わせるだけにする（C-06）。API は features/ の中の api 層が呼ぶ。
-// ログイン後の画面の枠。共通レイアウト（S-01）は #121 で作る。
-import { PageLayout } from "../components/PageLayout";
-import { RequireAuth } from "../features/auth/components/RequireAuth";
+// 画面：部品を組み合わせるだけにする（C-06）。
+// ログイン後の画面の枠（main）と、ログイン済みの確認は、レイアウトルート（App.tsx の RequireAuth → AppShell）が持つ。
 import { WelcomeMessage } from "../features/auth/components/WelcomeMessage";
 
 export function HomePage() {
   return (
-    <PageLayout title="ホーム">
-      <RequireAuth>
-        <WelcomeMessage />
-      </RequireAuth>
-    </PageLayout>
+    <>
+      <h1 className="mb-4 text-2xl font-bold">ホーム</h1>
+      <WelcomeMessage />
+    </>
   );
 }
