@@ -36,12 +36,30 @@
 | 画面を開いてサーバーと通信する | `e2e/health.spec.ts` | 画面にサーバーの状態が表示され、コンソールのエラーがなく、`/api/health` が 200 を返す |
 | シードしたデータを読む（DB があるときだけ） | `e2e/sample-users.spec.ts` | シードした `e2euser_health_001` を、API から読める（シードの保存先と、検証用サーバーの読み先が同じ） |
 
-| ログイン・ログアウト（S-02） | `e2e/login.spec.ts` | ログイン→「ようこそ、{表示名}さん」→ログアウト→戻る・進む・直接アクセスで `/login`、誤ったパスワードの文言、初回パスワードの利用者の案内と `403 PASSWORD_CHANGE_REQUIRED`、**`http://localhost` で `__Host-session` の Cookie が保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られる**。シードは `e2e/seeds/login.sql`（架空の `e2euser_login_001`・`e2euser_login_002`）。後始末は `e2e/seeds/login-cleanup.sql` |
+| ログイン・ログアウト（S-02） | `e2e/login.spec.ts` | ログイン→「ようこそ、{表示名}さん」→ログアウト→戻る・進む・直接アクセスで `/login`、誤ったパスワードの文言、初回パスワードの利用者の案内と `403 PASSWORD_CHANGE_REQUIRED`、**`http://localhost` で `__Host-session` の Cookie が保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られる**。シードは `e2e/seeds/login.sql`（架空の `e2euser_login_001`・`e2euser_login_002`）。後始末は `e2e/seeds/login-cleanup.sql`。ログアウトは、共通レイアウトのアバターメニューを開いてから押す（#121） |
+| 共通レイアウト（S-01） | `e2e/app-shell.spec.ts` | 下の「共通レイアウトのシナリオ」を参照 |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
 - 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）
 - シナリオは、`e2e/` に `<名前>.spec.ts` として足す。`e2e/console-guard.ts` の `test` を使い、コンソールのエラーを失敗にする
 - シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）
+
+### 共通レイアウトのシナリオ（開発サーバー。Issue #121）
+
+`e2e/app-shell.spec.ts`。jsdom（単体テスト）では確かめられない、実ブラウザ（Chromium）の動きを受け持つ。設計は [app-shell.md](../design/app-shell.md)。
+
+- 画面幅は`page.setViewportSize`で指定する：1280px（パソコン）、768px（パソコン表示の境界）、767px、360px（スマホ）
+- 確かめること
+  - 1280px・768px：サイドバー・ヘッダー・アバターが出て、メニューボタンと下部メニューは出ない。360px：サイドバーが出ず、下部メニューとメニューボタンが出る。360・767・768・1280pxで横スクロールがない（ドロワー・アバターメニューを開いても）
+  - 案内文が画面幅で出し分けられる（見えるのは片方だけ）
+  - アバターメニュー（パソコン幅のアバター、スマホ幅の「自分」）：Enterで開く → Tabでログアウトへ → Escで閉じて、開いたボタンにフォーカスが戻る／外側クリックで閉じる／ヘッダー・サイドバー・本文より手前に出る（最前面）／開いたまま768pxの境界を越えると閉じ、フォーカスは`#main-content`に移る（768→767と767→768）
+  - ドロワー：開くと閉じるボタンにフォーカスが移る／Tab・Shift+Tabが`dialog`の中を循環する／背面の要素は押せない・Tabで到達できない／Escと閉じるボタンで閉じて、メニューボタンに戻る／backdropのクリックで閉じ、内側の余白のクリックでは閉じない／項目の選択で閉じる／767pxで開いたまま768pxにすると閉じてフォーカスが`#main-content`に移り、767pxに戻しても閉じたまま
+  - キーボード：最初のTabでスキップリンクが見え、Enterで本文にフォーカスが移る／Tabで進む操作部品の輪郭がすべて見える
+  - 未ログインで`/`を開くと`/login`へ移り、ヘッダー・メニューは出ない／パスワード変更待ちの利用者には枠が出ず、見出し・ログアウトが直接出る／アバターメニュー（「自分」）からログアウトすると`/login`へ移る
+- **ログイン回数の制限に配慮する**：ログインは接続元ごとに15分に30回までの制限がある。ログイン後の画面を見るテストは、ワーカーごとに1回だけログインし、その Cookie（`storageState`）を使い回す。ログアウトまで確かめるテストは、使い回す Cookie のセッションを失効させないよう、別にログインする
+- シードは`e2e/seeds/login.sql`（架空の`e2euser_login_001`「テスト一郎」・`002`）を共用する
+- ドロワーの表示中は背面が`inert`になりロールでの検索から外れるため、背面の要素は`includeHidden`で探す
+- popover・dialogの**実ブラウザでの確認の範囲**はここまで。本番形（CSP）で`style`属性・`<style>`が0件であることは`e2e-prod/csp-style.spec.ts`で確かめる
 
 ### 表示・アクセシビリティのシナリオ（開発サーバー。Issue #171）
 
@@ -55,6 +73,7 @@
 - `playwright.prod.config.ts` を使う。Playwright が `npm run build` の後に `npm run preview:test`（`vite preview`。ビルド済みの成果物を、`public/_headers` の CSP をかけて配信する）を起動し、終わると止める。すでに動いているサーバーには向けない
 - 実行の前（`pretest:e2e:prod`）に、`npm run test:e2e` と同じく `.env.test` の確認、検証用 DB の初期化、E2E 用のシードの投入を行う
 - シナリオ（`e2e-prod/csp-style.spec.ts`）：画面の応答に `style-src 'self'` を含み `'unsafe-inline'` を含まない CSP があること、CSS が同一オリジンの `/assets/*.css`（200・`text/css`）として読み込まれること、画面を開いた後・ログインに失敗した後・初回セットアップの各状態で `<style>` 要素と `style` 属性が 0 件であること、CSP 違反がないこと、主ボタンの背景色がトークンの `primary` と同じであること
+- #121 で、ログイン後の画面（パソコン幅のアバターメニューを開いた後、スマホ幅のドロワーを開いた後）も同じく `style` 要素・`style` 属性が 0 件で CSP 違反がないことを確かめるシナリオを足した。本番形ではログインが 503 になるため、セッションの確認の応答だけをテストの中で差し替える（架空の利用者。DB は使わない）
 - **開発サーバー用の `npm run test:e2e` と同時に実行しない**。配信のポートは、許可するオリジン（`.env.test` の `ALLOWED_ORIGINS`）に合わせて 5173 で、開発サーバー用と同じため、順に実行する
 - `npm run check` には入れない（ブラウザとビルドが要り、時間がかかるため）。マージの前などに、別に実行する
 

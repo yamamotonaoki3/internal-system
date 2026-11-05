@@ -48,10 +48,10 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 | ファイル | 役割 |
 | --- | --- |
 | `frontend/src/pages/LoginPage.tsx` | 画面S-02（`/login`）。部品を組み合わせるだけ。ログイン済みなら`/`へ移る。未ログインでも見えるよう、`HealthStatus`と`SetupEntryLink`もここに置く |
-| `frontend/src/pages/HomePage.tsx` | ログイン後の画面の枠。`RequireAuth`で包み、`WelcomeMessage`（「ようこそ、{表示名}さん」）を出す。共通レイアウトは#121 |
+| `frontend/src/pages/HomePage.tsx` | ログイン後のホーム（`h1`「ホーム」と`WelcomeMessage`）。枠（`main`）と、ログイン済みの確認は、`App.tsx`のレイアウトルート（`RequireAuth`→`AppShell`）が持つ（#121。[app-shell.md](app-shell.md)） |
 | `frontend/src/features/auth/components/LoginForm.tsx` | 入力フォームと送信。401（`INVALID_CREDENTIALS`）・429・422・通信エラー・その他で文言を分ける。どちらが違うかは示さない |
-| `frontend/src/features/auth/components/RequireAuth.tsx` | ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。`mustChangePassword`なら`PasswordChangePending`（案内とログアウト） |
-| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン、初回パスワードの案内、ようこそ表示 |
+| `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`（`PasswordChangePending`：案内とログアウト）は、枠なしで`PageLayout`で包み、`main`と`h1`を1つずつ保つ |
+| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニューの中に置く。#121）、初回パスワードの案内、ようこそ表示と案内文 |
 | `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |
 | `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `fetchSession`・`login`・`logout`。共通の`apiClient`を使う |
 | `frontend/src/features/auth/schemas/login-form.ts` | 入力チェック（空でないこと） |
@@ -217,7 +217,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 - **#123（パスワード変更）**：変更のAPIを公開の許可リストとゲートの許可リストに足す。変更時に`revokeOthersForUserStatement`を同じ`db.batch`に入れる（0-3 AC-4）。S-03の画面を作る（今は`PasswordChangePending`の案内）
 - **#127（再発行）・無効化のIssue**：`revokeAllForUserStatement`を同じ`db.batch`に入れる（0-3 AC-8、0-1 AC-9）
 - **1-1（下書き）**：手動ログアウトで、端末の下書きをすべて消す（0-2 AC-8）。今は`queryClient.clear()`のみ
-- **#121（共通レイアウト）**：`HomePage`の最小の枠を置き換える
+- **#121（共通レイアウト）**：実装済み。`HomePage`の最小の枠は`AppShell`に置き換わった（[app-shell.md](app-shell.md)）
 - **運用**：本番の`LOGIN_THROTTLE_KEY`は利用者が`wrangler secret put`で入れる（`docs/secrets.md`）。Cron Triggersは利用者のデプロイ後に有効になる。`wrangler.jsonc`には`limits.cpu_ms`の設定がまだない。scryptの計算（1回約270〜530ミリ秒）がCPU時間の既定に収まるか、Workers Paidでの`cpu_ms`の扱いは、本番のデプロイ前に利用者が確認する（ADR-0007、spike-d1-hash.mdの6章）
 
 ## 関係するIssueとADR

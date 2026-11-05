@@ -198,3 +198,60 @@ test("#171 AC-1: ビルド済みのCSSが適用され、主ボタンの背景色
   await expect(button).toBeVisible();
   await expect(button).toHaveCSS("background-color", PRIMARY_RGB);
 });
+
+// #121 AC-1：ログイン後の画面（共通レイアウト）も、本番形（CSP の下）で style 要素・style 属性が 0 で、CSP 違反がない。
+// 本番形（vite preview）ではログインが 503 になりログインできないため、セッションの確認（GET /api/auth/session）の応答だけをこのテストの中で差し替える（架空の利用者。DBは使わない）。
+// ドロワー（dialog）とアバターメニュー（popover）は、開いた状態でも確かめる。
+async function mockLoggedIn(page: Page): Promise<void> {
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({
+        user: { id: "01JTE2E0000000000000000997", displayName: "テスト一郎" },
+        mustChangePassword: false,
+      }),
+    }),
+  );
+}
+
+test("#121 AC-1: ログイン後の画面（パソコン幅）は、アバターメニューを開いても style 要素・style 属性が0で、CSP違反がない", async ({
+  page,
+}) => {
+  await watchCsp(page);
+  await mockLoggedIn(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("ホーム");
+  await expect(
+    page.getByRole("navigation", { name: "メインメニュー" }),
+  ).toBeVisible();
+  await expectNoInlineStyle(page, "ログイン後の画面");
+
+  await page
+    .getByRole("button", { name: "アカウントメニュー（テスト一郎）" })
+    .click();
+  await expect(page.getByRole("button", { name: "ログアウト" })).toBeVisible();
+  await expectNoInlineStyle(page, "アバターメニューを開いた後");
+  await expectNoCspViolation(page, "ログイン後の画面（パソコン幅）");
+});
+
+test("#121 AC-1: ログイン後の画面（スマホ幅）は、ドロワーを開いても style 要素・style 属性が0で、CSP違反がない", async ({
+  page,
+}) => {
+  await watchCsp(page);
+  await mockLoggedIn(page);
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("ホーム");
+  await expect(
+    page.getByRole("navigation", { name: "下部メニュー" }),
+  ).toBeVisible();
+  await expectNoInlineStyle(page, "ログイン後の画面");
+
+  await page.getByRole("button", { name: "メニューを開く" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expectNoInlineStyle(page, "ドロワーを開いた後");
+  await expectNoCspViolation(page, "ログイン後の画面（スマホ幅）");
+});
