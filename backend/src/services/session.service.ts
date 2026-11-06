@@ -16,7 +16,9 @@ export type WithSessions = <T>(
 export type SessionPrincipal = {
   userId: string;
   displayName: string;
+  loginId: string;
   mustChangePassword: boolean;
+  reauthenticatedAt: string | null;
 };
 
 /**
@@ -50,6 +52,8 @@ export async function resolveSession(
   return {
     userId: session.userId,
     displayName: session.displayName,
+    loginId: session.loginId,
     mustChangePassword: session.mustChangePassword,
+    reauthenticatedAt: session.reauthenticatedAt,
   };
 }

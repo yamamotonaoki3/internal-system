@@ -56,7 +56,7 @@ describe("#121 AC-1 AvatarMenu", () => {
     expect(document.querySelectorAll("[popover]")).toHaveLength(1);
   });
 
-  it("#121 AC-1: role=menu・aria-haspopup は付けない（中身はボタン1つで、矢印キーの約束を作らない）", async () => {
+  it("#121 AC-1: role=menu・aria-haspopup は付けない（矢印キーの約束を作らない）", async () => {
     const { avatar, self, panel } = await renderMenu();
     expect(screen.queryByRole("menu")).toBeNull();
     expect(panel.getAttribute("role")).not.toBe("menu");
@@ -64,10 +64,12 @@ describe("#121 AC-1 AvatarMenu", () => {
     expect(self.getAttribute("aria-haspopup")).toBeNull();
   });
 
-  it("#121 AC-1: popover の中身はログアウトだけ（ボタンは1つ）", async () => {
+  it("#123 0-3 AC-1: popover に変更画面へのリンクとログアウトを出す", async () => {
     const { panel } = await renderMenu();
     expect(panel.querySelectorAll("button")).toHaveLength(1);
-    expect(panel.querySelectorAll("a")).toHaveLength(0);
+    const change = screen.getByRole("link", { name: "パスワードを変更" });
+    expect(change.getAttribute("href")).toBe("/password");
+    expect(panel.contains(change)).toBe(true);
   });
 
   it("#121 AC-1: toggle（newState=open）で、両方の起動ボタンの aria-expanded が true になり、closed で false に戻る", async () => {

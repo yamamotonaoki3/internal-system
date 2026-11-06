@@ -163,8 +163,13 @@ describe(
       const res = await postLogin(credentials());
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        user: { id: userId, displayName: "テスト太郎" },
+        user: {
+          id: userId,
+          displayName: "テスト太郎",
+          loginId: "testuser_001",
+        },
         mustChangePassword: false,
+        reauthenticatedAt: null,
       });
     });
 
@@ -663,8 +668,13 @@ describe(
       expect(res.status).toBe(200);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(await res.json()).toEqual({
-        user: { id: userId, displayName: "テスト太郎" },
+        user: {
+          id: userId,
+          displayName: "テスト太郎",
+          loginId: "testuser_001",
+        },
         mustChangePassword: false,
+        reauthenticatedAt: null,
       });
     });
 

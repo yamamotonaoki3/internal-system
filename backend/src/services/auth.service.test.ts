@@ -33,6 +33,7 @@ afterEach(() => vi.restoreAllMocks());
 const activeUser = (overrides: Partial<LoginUser> = {}): LoginUser => ({
   id: "01JTESTUSER000000000000001",
   displayName: "テスト太郎",
+  loginId: "testuser_001",
   passwordHash: "$scrypt$ln=16,r=8,p=2$c2FsdA$aGFzaA",
   isActive: true,
   mustChangePassword: false,
@@ -113,6 +114,7 @@ describe("login（成功）", () => {
     expect(result.user).toEqual({
       id: "01JTESTUSER000000000000001",
       displayName: "テスト太郎",
+      loginId: "testuser_001",
     });
     expect(result.mustChangePassword).toBe(false);
     expect(typeof result.token).toBe("string");

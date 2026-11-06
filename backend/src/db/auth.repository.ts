@@ -22,6 +22,7 @@ const LOGIN_ATTEMPT_RETENTION_MS = 24 * 60 * 60_000;
 
 export type LoginUser = {
   id: string;
+  loginId: string;
   displayName: string;
   passwordHash: string;
   isActive: boolean;
@@ -175,6 +176,7 @@ export function createAuthRepository(db: Database): AuthRepository {
       const rows = await db
         .select({
           id: users.id,
+          loginId: users.loginId,
           displayName: users.displayName,
           passwordHash: users.passwordHash,
           isActive: users.isActive,

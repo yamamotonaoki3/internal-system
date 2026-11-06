@@ -4,6 +4,8 @@ export const AUDIT_ACTIONS = [
   "setup.rate_limited",
   "auth.login",
   "auth.logout",
+  "auth.password_change",
+  "auth.reauthenticate",
   "auth.rate_limited",
 ] as const;
 

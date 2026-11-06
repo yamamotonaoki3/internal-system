@@ -3,7 +3,7 @@
   "info": {
     "title": "internal-system API",
     "version": "0.1.0",
-    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。 /api/* は既定で拒否する：公開の許可リスト（GET /api/health・GET /api/setup/status・POST /api/setup・POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session）以外は、ログイン（Cookie __Host-session）が必要で、未ログインは 401（UNAUTHENTICATED）になる。初回パスワードのままの利用者は、許可リスト以外が 403（PASSWORD_CHANGE_REQUIRED）になる。"
+    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。 /api/* は既定で拒否する：公開の許可リスト（GET /api/health・GET /api/setup/status・POST /api/setup・POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session）以外は、ログイン（Cookie __Host-session）が必要で、未ログインは 401（UNAUTHENTICATED）になる。初回パスワードのままの利用者は、許可リスト以外が 403（PASSWORD_CHANGE_REQUIRED）になる。パスワード変更と再認証はログイン中のセッションが必要な状態変更APIである。"
   },
   "servers": [
     {
@@ -359,6 +359,116 @@
           }
         }
       }
+    },
+    "/api/auth/reauthenticate": {
+      "post": {
+        "operationId": "reauthenticate",
+        "summary": "現在のセッションを再認証する",
+        "description": "現在のパスワードを確認し、成功すると現在のセッションを再認証済みにする。ログイン・パスワード変更と同じ試行制限を適用する。成功・エラー応答は Cache-Control: no-store。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthenticateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "再認証した（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReauthenticateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/CredentialForbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/CredentialConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/CredentialValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/me/password": {
+      "put": {
+        "operationId": "changeMyPassword",
+        "summary": "自分のパスワードを変更する",
+        "description": "現在のパスワードと新しいパスワードを受け取る。確認欄は送信しない。新しいパスワードの構成規則と禁止判定は業務検証で行い、条件不一致は422で入力項目を返す。初回パスワード変更中も利用できる。成功後は現在のCookieを維持し、他のセッションを失効させる。ログイン・再認証と同じ試行制限を適用する。全応答は Cache-Control: no-store。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeMyPasswordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "パスワードを変更した（現在のセッション情報。Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOriginNoStore"
+          },
+          "409": {
+            "$ref": "#/components/responses/CredentialConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/CredentialValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -552,14 +662,16 @@
         "type": "object",
         "required": [
           "user",
-          "mustChangePassword"
+          "mustChangePassword",
+          "reauthenticatedAt"
         ],
         "properties": {
           "user": {
             "type": "object",
             "required": [
               "id",
-              "displayName"
+              "displayName",
+              "loginId"
             ],
             "properties": {
               "id": {
@@ -567,12 +679,73 @@
               },
               "displayName": {
                 "type": "string"
+              },
+              "loginId": {
+                "type": "string"
               }
             }
           },
           "mustChangePassword": {
             "type": "boolean",
             "description": "初回パスワードのまま。true の間は、ログアウトとセッションの確認以外が 403（変更の画面は #123）"
+          },
+          "reauthenticatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "現在のセッションが最後に再認証された時刻（UTC ISO 8601）。未再認証またはログイン直後は null"
+          }
+        }
+      },
+      "ReauthenticateInput": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "現在のパスワード。新しいパスワードの構成規則は適用しない"
+          }
+        }
+      },
+      "ReauthenticateResult": {
+        "type": "object",
+        "required": [
+          "reauthenticatedAt"
+        ],
+        "properties": {
+          "reauthenticatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "再認証した時刻（UTC ISO 8601）"
+          }
+        }
+      },
+      "ChangeMyPasswordInput": {
+        "type": "object",
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "現在のパスワード。新しいパスワードの構成規則は適用しない"
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "description": "新しいパスワード。文字種の構成規則と禁止判定は業務検証で行う"
           }
         }
       }
@@ -643,6 +816,96 @@
               "minimum": 1
             }
           },
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ForbiddenOriginNoStore": {
+        "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "CredentialForbidden": {
+        "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、現在のパスワードが誤っている（REAUTH_FAILED）、または初回パスワード変更が必要（PASSWORD_CHANGE_REQUIRED）。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "CredentialValidationError": {
+        "description": "現在のパスワード誤りまたは新しいパスワードの入力・業務検証エラー（VALIDATION_ERROR）。fields に該当する項目名を含む。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "CredentialConflict": {
+        "description": "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "認証・試行制限を安全に実行できない（SERVICE_UNAVAILABLE）。本番で接続元を特定できない場合を含む。Cache-Control: no-store",
+        "headers": {
           "Cache-Control": {
             "schema": {
               "type": "string",

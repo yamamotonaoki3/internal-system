@@ -64,7 +64,7 @@ export type LoginInput = { loginId: string; password: string };
 
 /** 第一要素を確認できた利用者。issueSession に渡す */
 export type VerifiedUser = {
-  user: { id: string; displayName: string };
+  user: { id: string; displayName: string; loginId: string };
   mustChangePassword: boolean;
   /** 検証したときのハッシュ。確定時にも一致するときだけセッションを作る */
   passwordHash: string;
@@ -80,7 +80,7 @@ const RATE_LIMITED_MESSAGE = "しばらくしてから、もう一度お試し�
  * 監査（D1）に残すのは、ロックに入った1回だけ。ロック中の拒否は、ログだけに残す。
  */
 export async function admitSource(
-  repository: AuthRepository,
+  repository: Pick<AuthRepository, "acquireSourceSlot" | "recordRateLimited">,
   bucketType: SourceBucketType,
   sourceKey: string,
   context: { traceId: string },
@@ -151,7 +151,11 @@ export async function verifyFirstFactor(
     throw new AppError("INVALID_CREDENTIALS", INVALID_CREDENTIALS_MESSAGE);
   }
   return {
-    user: { id: usable.id, displayName: usable.displayName },
+    user: {
+      id: usable.id,
+      displayName: usable.displayName,
+      loginId: usable.loginId,
+    },
     mustChangePassword: usable.mustChangePassword,
     passwordHash: usable.passwordHash,
     accountKey,
@@ -190,7 +194,7 @@ export async function login(
   context: LoginContext,
   deps: AuthDeps,
 ): Promise<{
-  user: { id: string; displayName: string };
+  user: { id: string; displayName: string; loginId: string };
   mustChangePassword: boolean;
   token: string;
 }> {

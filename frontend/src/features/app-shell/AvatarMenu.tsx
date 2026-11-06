@@ -1,4 +1,4 @@
-// アバターメニュー（ネイティブ popover。中身はログアウトだけ）。
+// アバターメニュー（ネイティブ popover）。
 // ヘッダーのアバター（768px以上）と下部メニューの「自分」（768px未満）が、同じ1つの popover を開く。
 // 開閉・Esc・外側クリック・最前面は popover="auto" とボタンの popoverTarget に任せる。role="menu" は使わない（中身はボタン1つで、矢印キーの約束を作らないため）。
 import {
@@ -11,6 +11,7 @@ import {
   type ToggleEvent,
 } from "react";
 import { Button } from "../../components/Button";
+import { Link, useLocation } from "react-router";
 import { LogoutButton } from "../auth/components/LogoutButton";
 import { useSession } from "../auth/hooks/useSession";
 import { DESKTOP_QUERY, focusMainContent } from "./main-content";
@@ -20,6 +21,7 @@ const AVATAR_MENU_ID = "avatar-menu";
 const AvatarMenuContext = createContext<{ expanded: boolean } | null>(null);
 
 export function AvatarMenuProvider({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const [expanded, setExpanded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   // :popover-open には頼らず、toggle イベントの newState で開閉を追う
@@ -65,6 +67,13 @@ export function AvatarMenuProvider({ children }: { children: ReactNode }) {
         onToggle={handleToggle}
         className="inset-auto bottom-16 right-2 rounded-md border border-border bg-surface p-3 text-text shadow-float md:bottom-auto md:top-12"
       >
+        <Link
+          to="/password"
+          state={{ from: location.pathname + location.search + location.hash }}
+          className="mb-2 block text-primary underline"
+        >
+          パスワードを変更
+        </Link>
         <LogoutButton />
       </div>
     </AvatarMenuContext>

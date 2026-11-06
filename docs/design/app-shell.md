@@ -7,7 +7,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 - ログイン後の全画面が同じ枠（ヘッダー・サイドバー・本文）を使えるようにし、各機能の画面は本文（`<Outlet />`）の中身だけを作ればよい形にする
 - 未ログインの利用者はログイン画面（S-02）へ移す（既存の`RequireAuth`が行う）
 - 画面の見た目の基準（トークン・部品・768pxの境目）は [style-foundation.md](style-foundation.md) に従う。ライブラリは追加していない（ドロワーはネイティブの`<dialog>`、アバターメニューはネイティブの`popover`）
-- バックエンドは変更していない
+- S-01の実装ではバックエンドを変更していない。後続の#123では認証応答に`SessionInfo`が加わった（[auth-session.md](auth-session.md)）
 
 ### 要件（S-01）との対応表
 
@@ -19,7 +19,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | ログイン後の最初の本文：「ようこそ、{表示名}さん」と短い案内（画面幅で文言が違う） | **作った**（`HomePage`・`WelcomeMessage`） | — |
 | ロゴ（ホームへのリンク） | **作った** | — |
 | スマホのドロワー | **作った** | — |
-| アバターメニュー | **作った（中身はログアウトだけ）**。ヘッダーのアバターと下部メニューの「自分」が同じメニューを開く | プロフィール（S-19）とステータスは #130、パスワード変更（S-04）は #123、アバター画像は #141 |
+| アバターメニュー | **作った**。ヘッダーのアバターと下部メニューの「自分」が同じメニューを開き、パスワード変更とログアウトを行う | プロフィール（S-19）とステータスは #130、アバター画像は #141 |
 | 管理メニュー（4つのまとまり・まとまりごとの開閉・権限のある項目だけ・項目0なら見出しごと出さない） | **仕組みだけ作った**（権限は空で、今は誰にも出ない）。まとまりの見出しの定義と、出し分けの関数と、開閉（`<details>`）まで | 項目の追加は、最初の管理画面のIssue（#126・#131・#125のうち最初） |
 | 下部メニュー | **ホームと「自分」だけ** | DM #136、案件 #147、通知 #124 |
 | チャンネル（会社・自部署・他部署のセクション） | 作らない | #132・#133・#144・#142・#125 |
@@ -50,7 +50,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | `AdminMenu.tsx` | 管理メニュー。`visibleAdminGroups`の結果が0件なら何も描画しない。まとまりごとの開閉は`<details>`と`<summary>` |
 | `MobileNav.tsx` | `<nav aria-label="下部メニュー">`。768px未満だけ表示。今は「ホーム」のリンクと「自分」（アバターメニューを開くボタン） |
 | `Drawer.tsx` | スマホのメニュー。ネイティブ`<dialog>`を`showModal()`で開く。中身は`SidebarNav` |
-| `AvatarMenu.tsx` | `AvatarMenuProvider`（popover本体と開閉状態）と`AvatarMenuTrigger`（開くボタン。`variant`が`avatar`ならヘッダー用、`self`なら下部メニューの「自分」）。中身は既存の`LogoutButton` |
+| `AvatarMenu.tsx` | `AvatarMenuProvider`（popover本体と開閉状態）と`AvatarMenuTrigger`（開くボタン。`variant`が`avatar`ならヘッダー用、`self`なら下部メニューの「自分」）。中身は`/password`へのリンクと`LogoutButton` |
 | `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`primaryNavItems`・`adminNavGroups`、純粋関数`visibleAdminGroups` |
 | `nav-link-classes.ts` | リンクの見た目のクラスの固定の表`NAV_LINK_CLASSES`（現在のページは色だけでなく太字でも示す） |
 | `main-content.ts` | `MAIN_CONTENT_ID`（本文のid）・`DESKTOP_QUERY`（768px以上のメディアクエリ）・`focusMainContent`（幅の変更でメニューを閉じたときのフォーカスの移し先） |
@@ -59,10 +59,11 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 | ファイル | 変更 |
 | --- | --- |
-| `frontend/src/App.tsx` | `RequireAuth`の中に`AppShell`を置いたレイアウトルートを作り、`HomePage`をその`index`の子にした。`/login`・`/setup`は枠の外 |
+| `frontend/src/App.tsx` | `RequireAuth`の中に`ReauthProvider`と`AppShell`を置いたレイアウトルートを作り、`HomePage`・`PasswordChangePage`・`NotFoundPage`を子にする。`/login`・`/setup`は枠の外 |
 | `frontend/src/pages/HomePage.tsx` | `PageLayout`と`RequireAuth`を外した。`h1`「ホーム」と`WelcomeMessage`だけ（`main`は`AppShell`が持つため二重にしない） |
 | `frontend/src/features/auth/components/WelcomeMessage.tsx` | `LogoutButton`を外し（アバターメニューへ移動）、案内文を画面幅で出し分けて2つ出す（768px以上は「サイドバーから…」、未満は「メニューから…」。両方がDOMにあり、CSSで出し分ける） |
-| `frontend/src/features/auth/components/RequireAuth.tsx` | 確認中・確認できない・パスワード変更待ちを`PageLayout`（`narrow`）で包む（下の「認証ガード」） |
+| `frontend/src/features/auth/components/RequireAuth.tsx` | 確認中・確認できない・初回パスワード変更を`PageLayout`（`narrow`）で包む（下の「認証ガード」） |
+| `frontend/src/pages/PasswordChangePage.tsx` | S-04。`safeReturnPath`で安全なアプリ内戻り先を選び、成功・キャンセル後に戻る |
 | `frontend/src/components/Button.tsx` | `variant`に`ghost`（枠も背景もない見た目）を追加 |
 | `frontend/src/test/setup.ts` | jsdomにないブラウザ機能の最小のスタブ（`matchMedia`・`<dialog>`・popover） |
 
@@ -112,7 +113,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 - `visibleAdminGroups(groups, permissions)`は、持っている権限の項目だけを残し、項目が0件のまとまりを除く。定義は書き換えない。`AdminMenu`は結果が0件なら「管理」の見出しも描画しない（一般メンバーには「管理」自体を出さない）
 - **今は権限が空の`Set`を渡している**（`SidebarNav.tsx`の定数）。管理項目も0件のため、誰にも「管理」は出ない
 - **これは表示の制御であり、認可ではない**。操作の可否は、サーバー側が毎回確かめる。サーバー側の認可は、各機能のIssueで行う
-- セッションの応答（`GET /api/auth/session`）はまだ`user`と`mustChangePassword`だけで、ロール・権限を返さない。次の2つは、**最初の管理項目を足す後続Issue（#126・#131・#125のうち最初に着手するもの）**で行う
+- セッションの応答（`GET /api/auth/session`）は`SessionInfo`（`user`・`mustChangePassword`・`reauthenticatedAt`）を返すが、ロール・権限はまだ返さない。次の2つは、**最初の管理項目を足す後続Issue（#126・#131・#125のうち最初に着手するもの）**で行う
   - セッションの応答に権限を追加し、`SidebarNav`が空の`Set`の代わりにそれを渡す
   - まとまりごとの開閉状態の保存（社員ごと）。今の`<details>`は保存せず、閉じた状態で始まる
 
@@ -133,8 +134,14 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | セッションの確認中 | `h1`「ログイン状態の確認」と「確認中です」。枠なし |
 | 確認できない（401以外のエラー） | `h1`「ログイン状態の確認」と、エラーの通知・再試行ボタン。枠なし |
 | 未ログイン（401） | `/login`へ置き換えて移る（AC-2） |
-| パスワードの変更が必要（`mustChangePassword`） | `h1`「パスワードの変更が必要です」と、`PasswordChangePending`の案内・ログアウト。枠なし |
+| パスワードの変更が必要（`mustChangePassword`） | `h1`「パスワードの変更が必要です」とS-03の`PasswordChangeForm`・ログアウト。枠なし。`/`・`/password`・未知のURLで強制し、変更成功後はホームへ移る |
 | ログイン済み | `children`（`AppShell`）を出す |
+
+### パスワード画面のルーティング（Issue #123）
+
+通常の`/password`は共通レイアウト内のS-04として`PasswordChangePage`を表示する。アバターメニューは遷移元のパス・検索文字列・hashをstateに渡し、`safeReturnPath`は安全なアプリ内の戻り先だけを許可する。直接訪問、`/password`自身、外部URLはホームに戻す。キャンセルと成功は履歴を置き換えて戻る。
+
+初回変更が必要な場合は`RequireAuth`が内側のルートを描画せず、枠なしのS-03を表示する。そのため未知のURLも強制変更画面になり、通常利用者の未知URLは`NotFoundPage`になる。`/login`はログイン済みなら`/`へ移り、`/setup`はレイアウトルートの外にあり変更しない。
 
 ## アバターメニュー
 
@@ -183,7 +190,7 @@ jsdomは、メディアクエリを適用せず、`<dialog>`の`showModal`・`cl
 
 ## 関係するIssueとADR
 
-- Issue #121（親 #108）。依存：#120（ログイン）、#171（デザインの土台）
+- Issue #121（親 #108）、#123（S-03・S-04の認証画面接続）。依存：#120（ログイン）、#171（デザインの土台）
 - 後続：S-01の対応表の各Issue
 - [ADR-0015](../adr/0015-style-foundation.md)（スタイルの方針。複雑な部品はまずネイティブで足りるかを確かめる）、[ADR-0012](../adr/0012-zero-trust-principle.md)（権限は毎回サーバー側で確認する。表示の制御は認可ではない）
 - 設計書：[style-foundation.md](style-foundation.md)、[auth-session.md](auth-session.md)

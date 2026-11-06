@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { authRoutes } from "./routes/auth";
+import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 
@@ -18,6 +19,7 @@ const app = createApp({
     { path: "/api/setup", app: setupRoutes(unusedDb) },
     // #120：ログイン・ログアウト・セッション。index.ts と同じパスに組み込む
     { path: "/api/auth", app: authRoutes(unusedDb) },
+    { path: "/api/me", app: meRoutes(unusedDb) },
   ],
 });
 
@@ -46,6 +48,20 @@ const actual = [
 ].sort();
 
 describe("API の仕様書（docs/api/openapi.json）", () => {
+  it("#123 0-3 AC-1/0-5 AC-1: 認証情報APIの成功と拒否の契約が書かれている", () => {
+    for (const name of [
+      "PUT /api/me/password",
+      "POST /api/auth/reauthenticate",
+    ]) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of ["200", "401", "403", "409", "422", "429", "503"])
+        expect(Object.keys(operation?.operation.responses ?? {})).toContain(
+          code,
+        );
+    }
+    expect(actual).not.toContain("GET /api/me");
+  });
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
     expect(operations.map((o) => o.name).sort()).toEqual(actual);
   });

@@ -124,15 +124,11 @@ describe("#120 AC-1 HomePage（未ログイン。0-2 AC-3）", () => {
 });
 
 describe("#120 AC-1 HomePage（初回パスワードの変更が必要）", () => {
-  it("#120 AC-1: 準備中の案内とログアウトを出し、ようこその表示は出さず /login にも移らない", async () => {
+  it("#123 0-3 AC-5: S-03とログアウトを出し、ようこその表示は出さず /login にも移らない", async () => {
     respondLoggedIn(true);
     respondPublicStatus();
     renderHome();
-    expect(
-      await screen.findByText(
-        "パスワードの変更が必要です。変更画面は準備中です",
-      ),
-    ).toBeDefined();
+    expect(await screen.findByLabelText("現在のパスワード")).toBeDefined();
     expect(screen.getByRole("button", { name: "ログアウト" })).toBeDefined();
     expect(screen.queryByText(/ようこそ、/)).toBeNull();
     expect(screen.getByTestId("path").textContent).toBe("/");

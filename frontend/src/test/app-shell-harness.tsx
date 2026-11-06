@@ -14,13 +14,18 @@ import { server } from "./server";
 export const SHELL_USER = {
   id: "01JTESTUSER000000000000001",
   displayName: "testuser_001",
+  loginId: "testuser_001",
 } as const;
 
 /** GET /api/auth/session：testuser_001 としてログイン済み */
 export function respondShellUser(mustChangePassword = false) {
   server.use(
     http.get("/api/auth/session", () =>
-      HttpResponse.json({ user: SHELL_USER, mustChangePassword }),
+      HttpResponse.json({
+        user: SHELL_USER,
+        mustChangePassword,
+        reauthenticatedAt: null,
+      }),
     ),
   );
 }

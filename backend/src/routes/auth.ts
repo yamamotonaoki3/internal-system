@@ -18,6 +18,10 @@ import {
   logout,
   type WithAuth,
 } from "../services/auth.service";
+import {
+  reauthenticate,
+  type WithCredentials,
+} from "../services/credentials.service";
 
 // 欄の形と上限だけを確かめる。社員ID・パスワードの規則（文字種など）は、ここでは確かめない
 // （規則に合わない入力も、存在しない社員IDと同じ 401 にして、規則を推測させない）
@@ -25,10 +29,14 @@ const loginSchema = z.object({
   loginId: z.string().min(1).max(64),
   password: z.string().min(1).max(1024),
 });
+const reauthSchema = z.object({ password: z.string().min(1).max(1024) });
 
 const COOKIE_ATTRIBUTES = { path: "/", secure: true } as const;
 
-export function authRoutes(withAuth: WithAuth) {
+export function authRoutes(
+  withAuth: WithAuth,
+  withCredentials?: WithCredentials,
+) {
   return new Hono<{ Bindings: Env }>()
     .post("/login", noStore, validate("json", loginSchema), async (c) => {
       const body = c.req.valid("json");
@@ -68,8 +76,60 @@ export function authRoutes(withAuth: WithAuth) {
       return c.json({
         user: result.user,
         mustChangePassword: result.mustChangePassword,
+        reauthenticatedAt: null,
       });
     })
+    .post(
+      "/reauthenticate",
+      noStore,
+      validate("json", reauthSchema),
+      async (c) => {
+        if (withCredentials === undefined) {
+          throw new Error("再認証のRepositoryが登録されていません");
+        }
+        const principal = c.get("principal");
+        const sessionToken = getCookie(c, SESSION_COOKIE);
+        if (principal === null || sessionToken === undefined) {
+          throw new AppError("UNAUTHENTICATED", "ログインしてください");
+        }
+        const config = loadConfig(c.env);
+        if (config.loginThrottleKey === null) {
+          throw new AppError(
+            "SERVICE_UNAVAILABLE",
+            "再認証は現在使えません。運用担当者に連絡してください",
+          );
+        }
+        const throttleKey = config.loginThrottleKey;
+        const traceId = traceIdOf(c);
+        const logger = createLogger({ traceId, userId: principal.userId });
+        const sourceKey = await sourceBucketKey(
+          c.req.header("CF-Connecting-IP"),
+          {
+            appEnv: config.appEnv,
+            throttleKey,
+            logger,
+          },
+        );
+        const result = await withCredentials(c.env, (repository) =>
+          reauthenticate(
+            repository,
+            c.req.valid("json"),
+            {
+              userId: principal.userId,
+              loginId: principal.loginId,
+              displayName: principal.displayName,
+              reauthenticatedAt: principal.reauthenticatedAt,
+              sessionToken,
+              sourceKey,
+              throttleKey,
+              traceId,
+            },
+            createAuthDeps(logger),
+          ),
+        );
+        return c.json(result);
+      },
+    )
     .post("/logout", noStore, async (c) => {
       const traceId = traceIdOf(c);
       // 失効が確定してから Cookie を消す。DB の失敗は 500 のまま伝え、Cookie は消さない
@@ -89,8 +149,13 @@ export function authRoutes(withAuth: WithAuth) {
         throw new AppError("UNAUTHENTICATED", "ログインしてください");
       }
       return c.json({
-        user: { id: principal.userId, displayName: principal.displayName },
+        user: {
+          id: principal.userId,
+          displayName: principal.displayName,
+          loginId: principal.loginId,
+        },
         mustChangePassword: principal.mustChangePassword,
+        reauthenticatedAt: principal.reauthenticatedAt,
       });
     });
 }

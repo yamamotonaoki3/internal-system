@@ -346,6 +346,7 @@ describe("findLoginUser（0-2 AC-1・AC-7）", () => {
     expect(await repo.findLoginUser("TestUser_001")).toEqual({
       id: userId,
       displayName: "テスト太郎",
+      loginId: "testuser_001",
       passwordHash: HASH,
       isActive: true,
       mustChangePassword: false,

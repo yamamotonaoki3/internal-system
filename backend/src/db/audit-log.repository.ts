@@ -1,5 +1,5 @@
 // 監査ログの書き込み（AC-3）。文を返すだけで実行しない：業務の更新と同じ db.batch([...]) に入れて、同時に確定・失敗させる。
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { auditLogs } from "../../db/schema";
 import type { AuditAction } from "../lib/audit-actions";
@@ -27,9 +27,9 @@ export type AuditLogInput<A extends string = AuditAction> = {
 export function auditLogInsert<A extends string = AuditAction>(
   db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
   input: AuditLogInput<A>,
-  deps: { newId?: () => Ulid } = {},
+  deps: { newId?: () => Ulid; onlyWhen?: SQL } = {},
 ) {
-  return db.insert(auditLogs).values({
+  const row = {
     id: (deps.newId ?? newUlid)(),
     actorId: input.actorId,
     action: input.action,
@@ -39,7 +39,13 @@ export function auditLogInsert<A extends string = AuditAction>(
     traceId: input.traceId,
     detail:
       input.detail === undefined ? null : JSON.stringify(redact(input.detail)),
-  });
+  };
+  if (deps.onlyWhen === undefined) return db.insert(auditLogs).values(row);
+  return db.insert(auditLogs).select(sql`
+    SELECT ${row.id}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+      ${row.actorId}, ${row.action}, ${row.targetType}, ${row.targetId},
+      ${row.result}, ${row.traceId}, ${row.detail}
+    WHERE ${deps.onlyWhen}`);
 }
 
 /**
