@@ -1,5 +1,6 @@
 // Service：現在の秘密の照合と、再認証・本人パスワード変更の確定を指示する。
 import type { CredentialRepository } from "../db/credential.repository";
+import { REAUTH_VALIDITY_MS } from "../../../shared/reauth-policy";
 import { AppError } from "../lib/app-error";
 import type { AuthDeps } from "./auth.service";
 import { admitSource } from "./auth.service";
@@ -42,7 +43,7 @@ export function assertRecentReauth(
     !Number.isFinite(elapsed) ||
     new Date(at).toISOString() !== reauthenticatedAt ||
     elapsed < 0 ||
-    elapsed >= 300_000
+    elapsed >= REAUTH_VALIDITY_MS
   ) {
     throw new AppError(
       "REAUTH_REQUIRED",

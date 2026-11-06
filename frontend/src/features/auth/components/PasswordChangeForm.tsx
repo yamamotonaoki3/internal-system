@@ -1,5 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../../../../../shared/password-rules";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { SecretField } from "../../../components/SecretField";
@@ -97,7 +101,8 @@ function PasswordChangeFields({
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <p className="mb-4 text-text-muted">
-        8〜128文字で、大文字・数字・半角記号を含めてください。
+        {PASSWORD_MIN_LENGTH}〜{PASSWORD_MAX_LENGTH}
+        文字で、大文字・数字・半角記号を含めてください。
       </p>
       <SecretField
         label="現在のパスワード"

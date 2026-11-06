@@ -64,6 +64,11 @@ describe("#123 S-03/S-04 本人のパスワード変更", () => {
     expect(await screen.findByLabelText(CURRENT_LABEL)).toBeDefined();
     expect(screen.getByLabelText(NEW_LABEL)).toBeDefined();
     expect(screen.getByLabelText(CONFIRM_LABEL)).toBeDefined();
+    expect(
+      screen.getByText(
+        "8〜128文字で、大文字・数字・半角記号を含めてください。",
+      ),
+    ).toBeDefined();
     expect(screen.getByRole("banner")).toBeDefined();
     expect(screen.getByRole("main")).toBeDefined();
   });
@@ -73,6 +78,11 @@ describe("#123 S-03/S-04 本人のパスワード変更", () => {
     async (path) => {
       renderAt(path, true);
       expect(await screen.findByLabelText(CURRENT_LABEL)).toBeDefined();
+      expect(
+        screen.getByText(
+          "8〜128文字で、大文字・数字・半角記号を含めてください。",
+        ),
+      ).toBeDefined();
       expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
         "パスワードの変更が必要です",
       );

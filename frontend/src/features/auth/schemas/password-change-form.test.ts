@@ -20,6 +20,35 @@ describe("#123 0-3 AC-2/AC-3/AC-10/AC-11 画面のパスワード規則", () => 
     },
   );
 
+  it("#123 0-3 AC-1/2/3: 複数違反でも構成・確認・現在同値・禁止の順で全エラーを返す", () => {
+    const result = createPasswordChangeSchema(PASSWORD_IDENTITY).safeParse({
+      currentPassword: "Password1",
+      newPassword: "Password1",
+      confirmation: "Different456!",
+    });
+    expect(result.success).toBe(false);
+    expect(
+      result.error?.issues.map(({ path, message }) => ({ path, message })),
+    ).toEqual([
+      {
+        path: ["newPassword"],
+        message: "パスワードの条件を確認してください",
+      },
+      {
+        path: ["confirmation"],
+        message: "新しいパスワードが一致しません",
+      },
+      {
+        path: ["newPassword"],
+        message: "現在とは異なるパスワードを入力してください",
+      },
+      {
+        path: ["newPassword"],
+        message: "このパスワードは使えません",
+      },
+    ]);
+  });
+
   it("#123 0-3 AC-1: 確認欄の不一致を拒否する", () => {
     const result = createPasswordChangeSchema(PASSWORD_IDENTITY).safeParse({
       currentPassword: "OldExample456!",

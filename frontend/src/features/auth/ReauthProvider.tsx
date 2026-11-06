@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router";
+import { REAUTH_VALIDITY_MS } from "../../../../shared/reauth-policy";
 import type { ApiError } from "../../services/api-client";
 import { reauthenticate, type SessionInfo } from "./api/auth-api";
 import { authKeys } from "./api/query-keys";
@@ -141,7 +142,7 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
       : NaN;
     if (
       Number.isFinite(at) &&
-      Date.now() - at < 5 * 60_000 &&
+      Date.now() - at < REAUTH_VALIDITY_MS &&
       Date.now() >= at
     ) {
       return Promise.resolve()

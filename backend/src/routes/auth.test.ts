@@ -738,7 +738,12 @@ describe(
       freezeAt(30 * MIN);
       const res = await getSession({ cookie: s.token });
       expect(res.status).toBe(401);
-      expect(sessionCookieOf(res)?.attributes.get("max-age")).toBe("0");
+      const cookie = sessionCookieOf(res);
+      expect(cookie?.attributes.get("max-age")).toBe("0");
+      expect(cookie?.name).toBe("__Host-session");
+      expect(cookie?.attributes.get("path")).toBe("/");
+      expect(cookie?.attributes.has("secure")).toBe(true);
+      expect(cookie?.attributes.has("domain")).toBe(false);
     });
 
     it("#120 0-2 AC-5: 操作していても、ログインから24時間で使えなくなる（直前の1秒前は使える）", async () => {

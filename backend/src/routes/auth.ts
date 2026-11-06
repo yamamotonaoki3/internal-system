@@ -8,7 +8,11 @@ import { loadConfig } from "../config";
 import { AppError } from "../lib/app-error";
 import { createLogger } from "../lib/logger/logger";
 import { noStore } from "../lib/security";
-import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from "../lib/session-policy";
+import {
+  SESSION_COOKIE,
+  SESSION_COOKIE_ATTRIBUTES,
+  SESSION_MAX_AGE_MS,
+} from "../lib/session-policy";
 import { sourceBucketKey } from "../lib/source-key";
 import { traceIdOf } from "../lib/trace-id";
 import { validate } from "../lib/validation";
@@ -30,8 +34,6 @@ const loginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 const reauthSchema = z.object({ password: z.string().min(1).max(1024) });
-
-const COOKIE_ATTRIBUTES = { path: "/", secure: true } as const;
 
 export function authRoutes(
   withAuth: WithAuth,
@@ -68,7 +70,7 @@ export function authRoutes(
         ),
       );
       setCookie(c, SESSION_COOKIE, result.token, {
-        ...COOKIE_ATTRIBUTES,
+        ...SESSION_COOKIE_ATTRIBUTES,
         httpOnly: true,
         sameSite: "Lax",
         maxAge: SESSION_MAX_AGE_MS / 1000,
@@ -140,7 +142,7 @@ export function authRoutes(
           createAuthDeps(createLogger({ traceId })),
         ),
       );
-      deleteCookie(c, SESSION_COOKIE, COOKIE_ATTRIBUTES);
+      deleteCookie(c, SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES);
       return c.body(null, 204);
     })
     .get("/session", noStore, (c) => {

@@ -28,7 +28,8 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `backend/src/services/auth.service.ts` | `verifyFirstFactor`（第一要素の確認。セッションは作らない）・`issueSession`（セッションの発行）・`login`（この2つ＋再ハッシュ）・`logout`・`admitSource`（接続元の受付枠）・`cleanupExpired`・`authCleanupJob`（Cronのジョブ）。`createAuthDeps`が時刻・待ち・乱数・パスワードの計算を束ねる（テストが差し替える） |
 | `backend/src/services/credentials.service.ts` | `changePassword`・`reauthenticate`が本人確認・規則判定後の処理をまとめる。内部の`checkPassword`は共通接続元受付枠・社員ID単位の遅延・現在のパスワード照合・失敗記録を行う。`assertRecentReauth`は業務Serviceから再認証の有効期限を確かめる |
 | `backend/src/db/credential.repository.ts` | `createCredentialRepository`・`withCredentials`。現在の認証情報取得、試行失敗記録、パスワード変更と再認証時刻の条件付き更新を提供する。変更ごとの監査・社員ID失敗数リセット・他セッション失効を同じD1 `batch`にまとめる |
-| `backend/src/lib/password-policy.ts`・`password-denylist.ts` | `isPasswordAllowed`が長さ・文字種・制御文字と禁止判定を組み合わせる。`isDeniedPassword`はNFKC小文字化した禁止語、4文字以上の社員ID・表示名との部分一致を判定する |
+| `backend/src/lib/password-policy.ts`・`password-denylist.ts` | `isPasswordAllowed`が共通の構成判定と禁止判定を組み合わせてサーバー側で最終検証する。`password-denylist.ts`は既存の公開入口を保つ再exportで、判定定義は`shared/password-rules.ts`に置く |
+| `backend/src/lib/session-policy.ts` | セッション期限判定とCookieの共通属性を定義する。`SESSION_COOKIE_ATTRIBUTES`は`Path=/`・`Secure`だけを共有し、`HttpOnly`・`SameSite`・`Max-Age`はCookieを設定する呼出元が個別に指定する |
 | `backend/src/services/session.service.ts` | `resolveSession`。トークンからログイン中の利用者を求める（期限は読み取り時に判定。最終操作の時刻は1分に間引いて更新） |
 | `backend/src/db/auth.repository.ts` | `createAuthRepository`・`withAuth`。受付枠の確保（`acquireSourceSlot`）、社員IDの失敗数（`readAccountThrottle`・`recordLoginFailure`）、利用者の検索（`findLoginUser`）、セッションの作成（`createSession`）、再ハッシュの置き換え（`updatePasswordHashIfUnchanged`）、ログアウト（`revokeSession`）、掃除（`deleteExpiredSessions`・`deleteExpiredLoginAttempts`）、ロックの監査（`recordRateLimited`） |
 | `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない）。後者は`credential.repository.ts`がパスワード変更batchで実行する |
@@ -59,10 +60,12 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |
 | `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |
 | `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `SessionInfo`型と`fetchSession`・`login`・`logout`・`changePassword`・`reauthenticate`。共通の`apiClient`を使い、ログイン時の`reauthenticatedAt`は`null` |
-| `frontend/src/features/auth/schemas/password-change-form.ts`・`components/PasswordChangeForm.tsx` | `createPasswordChangeSchema`がフォームの境界値・一致確認・ユーザー固有禁止判定を検証する。`PasswordChangeForm`は確認欄を送信せず、422の項目エラーを対応する欄に示す |
+| `frontend/src/features/auth/schemas/password-change-form.ts`・`components/PasswordChangeForm.tsx` | `createPasswordChangeSchema`は`shared/password-rules.ts`の構成・禁止判定を使い、確認欄と画面固有の項目エラーも検証する。これは入力時の案内であり、確定処理ではサーバーが`isPasswordAllowed`で再検証する。`PasswordChangeForm`は共有する長さ定数から説明を表示し、確認欄は送信しない |
 | `frontend/src/features/auth/hooks/usePasswordChange.ts` | `usePasswordChange`が`changePassword`を呼び、成功した`SessionInfo`でセッションQueryを更新する |
 | `frontend/src/pages/PasswordChangePage.tsx` | 通常変更（S-04）。`safeReturnPath`でアプリ内の戻り先を選び、成功・キャンセル後に戻る。直接訪問や不正な戻り先はホームへ戻す |
 | `frontend/src/features/auth/ReauthProvider.tsx`・`hooks/useReauth.ts`・`components/ReauthDialog.tsx` | `ReauthProvider`が`withReauth(title, operation)`を提供する。再認証済み5分以内なら操作を直ちに実行し、それ以外は一つのダイアログで再認証してから操作する。キャンセル・ルート移動・認証切れでは保留操作を破棄し、遅延応答から操作を実行しない |
+| `shared/password-rules.ts` | パスワードの長さ定数、本人識別子の最小部分一致長、禁止一覧、構成判定`isPasswordCompositionAllowed`、禁止判定`isDeniedPassword`と`PasswordIdentity`を定義する。バックエンド・フロントエンドから参照される共通定義で、画面側の確認・エラーは各フォームに残す |
+| `shared/reauth-policy.ts` | 再認証の有効期間`REAUTH_VALIDITY_MS`を定義する。`credentials.service.ts`と`ReauthProvider.tsx`が同じ境界を参照する |
 | `frontend/src/features/auth/schemas/login-form.ts` | 入力チェック（空でないこと） |
 | `frontend/src/features/auth/unauthenticated-handler.ts` | 401の共通処理。`code`が`UNAUTHENTICATED`のときだけ、セッションのキャッシュを捨てて`/login`へ移る（`INVALID_CREDENTIALS`では移らない）。`frontend/src/main.tsx`が`setUnauthenticatedHandler`で1回だけ登録する（そのためルーターを部品の外で作る） |
 | `frontend/src/components/SecretField.tsx` | 秘密の入力欄（表示の切り替え）。setupと共通にするため`features/setup/components/`から移した。表示切替の名前・`autoComplete`はpropsで渡す |

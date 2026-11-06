@@ -1,58 +1,13 @@
 import { z } from "zod";
+import {
+  isDeniedPassword,
+  isPasswordCompositionAllowed,
+  type PasswordIdentity,
+} from "../../../../../shared/password-rules";
 
-export type PasswordIdentity = { loginId: string; displayName: string };
-
-// バックエンドの固定一覧と同じ値を使う。判定は正規化後の完全一致だけ。
-const DENIED_PASSWORDS = new Set([
-  "password",
-  "password1",
-  "password123",
-  "password123!",
-  "password1!",
-  "passw0rd",
-  "passw0rd!",
-  "p@ssw0rd",
-  "p@ssword1",
-  "qwerty123",
-  "qwerty123!",
-  "qwertyuiop",
-  "admin123",
-  "admin123!",
-  "administrator",
-  "welcome123",
-  "welcome123!",
-  "letmein123",
-  "letmein123!",
-  "changeme123!",
-  "abc12345",
-  "abc12345!",
-  "abcd1234",
-  "abcd1234!",
-  "12345678",
-  "123456789",
-  "1234567890",
-  "123456789!",
-  "11111111",
-  "00000000",
-  "iloveyou",
-  "sunshine1",
-  "monkey123",
-  "dragon123",
-  "football1",
-  "baseball1",
-  "company123!",
-  "temp1234!",
-  "test1234!",
-  "default123!",
-]);
-
-function normalized(value: string): string {
-  return value.normalize("NFKC").toLowerCase();
-}
+export type { PasswordIdentity } from "../../../../../shared/password-rules";
 
 export function createPasswordChangeSchema(identity: PasswordIdentity) {
-  const loginId = normalized(identity.loginId);
-  const displayName = normalized(identity.displayName);
   return z
     .object({
       currentPassword: z
@@ -64,14 +19,7 @@ export function createPasswordChangeSchema(identity: PasswordIdentity) {
     })
     .superRefine((values, context) => {
       const password = values.newPassword;
-      if (
-        password.length < 8 ||
-        password.length > 128 ||
-        !/[A-Z]/.test(password) ||
-        !/[0-9]/.test(password) ||
-        !/[!-/:-@\[-`{-~]/.test(password) ||
-        /[\u0000-\u001f\u007f-\u009f]/u.test(password)
-      ) {
+      if (!isPasswordCompositionAllowed(password)) {
         context.addIssue({
           code: "custom",
           path: ["newPassword"],
@@ -92,12 +40,7 @@ export function createPasswordChangeSchema(identity: PasswordIdentity) {
           message: "現在とは異なるパスワードを入力してください",
         });
       }
-      const candidate = normalized(password);
-      if (
-        DENIED_PASSWORDS.has(candidate) ||
-        (loginId.length >= 4 && candidate.includes(loginId)) ||
-        (displayName.length >= 4 && candidate.includes(displayName))
-      ) {
+      if (isDeniedPassword(password, identity)) {
         context.addIssue({
           code: "custom",
           path: ["newPassword"],

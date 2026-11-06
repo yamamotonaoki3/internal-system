@@ -1,0 +1,1 @@
+export const REAUTH_VALIDITY_MS = 300_000;
