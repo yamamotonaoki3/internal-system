@@ -15,6 +15,33 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("LOGIN_THROTTLE_KEY の読み込み", () => {
+  it("#181 AC-2/3: 試行制限鍵も英数・_-を許可し、前後空白と禁止文字を拒否する", () => {
+    const value = `Az09_-${randomBase64Url(32).slice(6)}`;
+    expect(
+      loadConfig({ ...base, LOGIN_THROTTLE_KEY: value }).loginThrottleKey,
+    ).toBe(value);
+    for (const invalid of [
+      ` ${value}`,
+      `${value} `,
+      `/${value.slice(1)}`,
+      `=${value.slice(1)}`,
+      ` ${value.slice(1)}`,
+      `あ${value.slice(1)}`,
+    ]) {
+      errorSpy.mockClear();
+      expect(
+        loadConfig({ ...base, LOGIN_THROTTLE_KEY: invalid }).loginThrottleKey,
+      ).toBeNull();
+      expect(errorSpy).toHaveBeenCalled();
+      const output = errorSpy.mock.calls
+        .map((call: unknown[]) => call.join(" "))
+        .join("\n");
+      expect(output).toContain("LOGIN_THROTTLE_KEY");
+      expect(output).not.toContain(invalid);
+      expect(output).not.toContain(value);
+    }
+  });
+
   it("#120 AC-3: 43文字の base64url は、そのまま loginThrottleKey になる", () => {
     const key = randomBase64Url(32);
     expect(

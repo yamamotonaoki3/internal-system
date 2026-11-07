@@ -725,3 +725,89 @@ describe(
     });
   },
 );
+
+describe(
+  "#181 AC-2 共通化前のAPI入力契約",
+  { timeout: SCRYPT_TEST_TIMEOUT_MS },
+  () => {
+    it.each<[string, string, string]>([
+      ["社員IDの先頭空白は除去しない", "loginId", " testuser_181"],
+      ["社員IDの末尾空白は除去しない", "loginId", "testuser_181 "],
+      [
+        "新規社員IDはログイン受付の64文字まで拡張しない",
+        "loginId",
+        `testuser_${"a".repeat(55)}`,
+      ],
+      ["メールの前後空白は除去しない", "email", " testuser_181@example.com "],
+      ["内線の空文字は省略と異なる", "extension", ""],
+      ["内線の前後空白は除去しない", "extension", " 123 "],
+      ["役職の空文字は省略と異なる", "jobTitle", ""],
+      ["役職の空白だけも拒否する", "jobTitle", "　 "],
+    ])("#181 AC-2/3: %s", async (_name, field, value) => {
+      const res = await post(validBody({ [field]: value }));
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({
+        code: "VALIDATION_ERROR",
+        fields: [field],
+      });
+      expect(await snapshot()).toEqual(EMPTY);
+    });
+
+    it("#181 AC-2: 内線1文字を許可し、役職は前後空白を除いた値を保存する", async () => {
+      const res = await post(
+        validBody({ extension: "0", jobTitle: "　 test_role_181  " }),
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as SetupResponse;
+      const row = await env.DB.prepare(
+        "SELECT extension, job_title FROM users WHERE id = ?",
+      )
+        .bind(body.user.id)
+        .first<{ extension: string; job_title: string }>();
+      expect(row).toEqual({ extension: "0", job_title: "test_role_181" });
+    });
+
+    it("#181 AC-2: 複数違反のfieldsは重複せず既存の欄順で返す", async () => {
+      const res = await post(
+        validBody({
+          companyName: "",
+          departmentName: "",
+          loginId: "",
+          legalName: "",
+          email: "invalid",
+          emailConfirmed: false,
+          extension: "",
+          jobTitle: "",
+        }),
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({
+        code: "VALIDATION_ERROR",
+        message: "入力内容を確かめてください",
+        fields: [
+          "companyName",
+          "departmentName",
+          "loginId",
+          "legalName",
+          "email",
+          "emailConfirmed",
+          "extension",
+          "jobTitle",
+        ],
+      });
+      expect(await snapshot()).toEqual(EMPTY);
+    });
+
+    it.each(["前", "後"])(
+      "#181 AC-2: 正しいトークンの%sの空白も照合値の一部として403にする",
+      async (position) => {
+        const input = position === "前" ? ` ${token}` : `${token} `;
+        const res = await post(validBody({ setupToken: input }));
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ code: "FORBIDDEN" });
+        expect(await snapshot()).toEqual(EMPTY);
+        expect(logLines.join("\n")).not.toContain(token);
+      },
+    );
+  },
+);

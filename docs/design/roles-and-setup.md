@@ -120,6 +120,15 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 
 画面S-34から`POST /api/setup`までの流れ。
 
+
+### セットアップ入力規則の定義元
+
+- `shared/setup-rules.ts`は環境非依存の定義元。長さ定数はセットアップ項目の上限・社員IDの上下限と、base64url 32 byte表現の文字数を扱う。形式定義は`SETUP_LOGIN_ID_PATTERN`、`SETUP_EXTENSION_PATTERN`、`BASE64URL_32_BYTE_PATTERN`の3パターン。
+- `backend/src/routes/setup.ts`は上限定数と社員ID・内線のパターンを使ってAPI入力を検証する。サーバー側の最終検証、`text`項目のtrimと制御文字拒否、社員ID・メール・内線それぞれの既存検証、役職の省略可否、検証順、422のfieldsは維持する。
+- `frontend/src/features/setup/schemas/setup-form.ts`は同じ定数とパターンを参照し、フォームの入力検証と数値を含む案内文に使う。画面固有のtrim・空欄の扱い（内線の空欄は許容）・日本語文言・表示順は共有定義へ移さない。APIと画面で異なる任意入力・検証は同じにしない。
+- `backend/src/config.ts`は`BASE64URL_32_BYTE_PATTERN`を`SETUP_TOKEN`と`LOGIN_THROTTLE_KEY`の形式確認に使う。設定取得、未設定・形式不正を`null`にする動作、秘密値を表示しない扱いは変えない。`PII_ENCRYPTION_KEY`のデコード後の長さ検査は別契約として維持する。
+- 似た数値でも別の契約は統合しない。ログイン受付の社員ID上限64とセットアップ社員ID上限32、一般プロフィールの本名上限50とセットアップ本名上限30は独立している。
+
 1. 画面：`SetupFlow`が`GET /api/setup/status`で状態を取る（未認証・キャッシュしない）。`setupRequired`が`true`のときだけフォームを出す。`LoginPage`の`SetupEntryLink`（#120までは`HomePage`）も同じ状態を使い、`true`と分かっているときだけリンクを出す（取得中・取得失敗は出さない）
 2. 送信：`submitSetup`が`POST /api/setup`を呼ぶ。送信元の確認（`Origin`。許可されていない・欠落は`403 FORBIDDEN_ORIGIN`）は、`/api/*`の共通の処理で行う
 3. サーバーの処理順（認証より前に、入力の検証や完了の状態を知らせない）：
@@ -167,6 +176,7 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 | パスワード | `backend/src/lib/password.test.ts`、workerdでのscryptの可否は`backend/src/lib/scrypt-runtime.test.ts` |
 | トークン・暗号・設定 | `backend/src/lib/setup-token.test.ts`、`backend/src/lib/pii-crypto.test.ts`、`backend/src/config.test.ts` |
 | セットアップのService・ルート | `backend/src/services/setup.service.test.ts`、`backend/src/routes/setup.test.ts`、接続元の試行制限（#120）は`backend/src/routes/setup-throttle.test.ts` |
+| セットアップ入力規則の参照箇所 | `backend/src/routes/setup.test.ts`、`backend/src/config.test.ts`、`backend/src/config.throttle.test.ts`、`frontend/src/features/setup/schemas/setup-form.test.ts`（テスト期待値は本番定数から生成しない） |
 | ログの伏せ字 | `backend/src/lib/logger/logger.test.ts` |
 | 画面 | `frontend/src/pages/SetupPage.test.tsx`、`frontend/src/pages/LoginPage.test.tsx`（リンクの表示。#120）、`frontend/src/components/SecretField.test.tsx`、`frontend/src/features/setup/`配下の`*.test.ts(x)` |
 | E2E | `e2e/setup.spec.ts`（架空データ`e2euser_`・`@example.com`・`[E2E_TEST]`） |
@@ -174,7 +184,7 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 
 ## 関係するIssueとADR
 
-- Issue：#119（親 #108）、依存 #118。後続：#120（ログイン。試行制限を`/api/setup`にも適用した。[auth-session.md](auth-session.md)）、#122（TOTP）、#158・#159（ロールの編集・新規作成）、2-2のIssue（R-45の承認）
+- Issue：#119（親 #108）、依存 #118。#181（共有するセットアップ入力規則、親 #180）。後続：#120（ログイン。試行制限を`/api/setup`にも適用した。[auth-session.md](auth-session.md)）、#122（TOTP）、#158・#159（ロールの編集・新規作成）、2-2のIssue（R-45の承認）
 - ADR：[0007](../adr/0007-password-hash-scrypt.md)（パスワードのハッシュ）、[0008](../adr/0008-session-and-login-throttle.md)（試行制限）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回専用の認証と本名の暗号化）
 - 決定記録：C-154〜C-158（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`SETUP_TOKEN`・`PII_ENCRYPTION_KEY`

@@ -24,6 +24,20 @@ const allOutput = () =>
     .join("\n");
 
 describe("SETUP_TOKEN の読み込み", () => {
+  it("#181 AC-2/3: SETUP_TOKENの許可文字を維持し、設定の前後空白は除去しない", () => {
+    const value = `Az09_-${randomBase64Url(32).slice(6)}`;
+    expect(loadConfig({ ...base, SETUP_TOKEN: value }).setupToken).toBe(value);
+    for (const padded of [` ${value}`, `${value} `]) {
+      errorSpy.mockClear();
+      expect(
+        loadConfig({ ...base, SETUP_TOKEN: padded }).setupToken,
+      ).toBeNull();
+      expect(errorSpy).toHaveBeenCalled();
+      expect(allOutput()).toContain("SETUP_TOKEN");
+      expect(allOutput()).not.toContain(value);
+    }
+  });
+
   it("#119 AC-1: 32バイトの base64url（ちょうど43文字）は、そのまま setupToken になる", () => {
     const token = randomBase64Url(32);
     expect(token).toHaveLength(43);
