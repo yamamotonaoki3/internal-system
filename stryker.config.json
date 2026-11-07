@@ -7,6 +7,7 @@
     "backend/src/lib/password-policy.ts",
     "shared/password-rules.ts",
     "shared/reauth-policy.ts",
+    "shared/setup-rules.ts",
     "backend/src/lib/session-policy.ts",
     "frontend/src/features/auth/schemas/password-change-form.ts",
     "backend/src/lib/session-middleware.ts",

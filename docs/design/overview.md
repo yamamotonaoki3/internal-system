@@ -79,6 +79,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/services/` | Service。業務のルール |
 | `backend/src/db/` | Repository。DBへのアクセス |
 | `backend/src/lib/` | 共通の部品（エラー・入力チェック・セキュリティなど。ハーネスが用意） |
+| `shared/setup-rules.ts` | 初回セットアップの入力上限と社員ID・内線・32 byte base64url形式の定義元。API・画面・設定から参照する環境非依存の葉（Issue #181） |
 | `backend/src/rules-examples/` | Skillの良い例・悪い例のテスト（ハーネスが管理する。消さない） |
 | `frontend/src/` | 画面（React） |
 | `frontend/src/styles/` | デザインの土台。`index.css`（Tailwindの読み込み・デザイントークン・全体の基本のスタイル）と、色のコントラスト比のテスト（Issue #171。[style-foundation.md](style-foundation.md)） |
@@ -114,7 +115,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 
 | 機能 | 設計書 | 関係するIssue |
 | --- | --- | --- |
-| ロール・権限・会社と部署の土台・初代全体管理者の初回セットアップ（権限ID67種類、固定の3ロール、Resolver、R-45の申し送り、`POST /api/setup`、初期パスワード、本名の暗号化） | [roles-and-setup.md](roles-and-setup.md) | #119（親 #108） |
+| ロール・権限・会社と部署の土台・初代全体管理者の初回セットアップ（権限ID67種類、固定の3ロール、Resolver、R-45の申し送り、`POST /api/setup`、初期パスワード、本名の暗号化、共有入力規則） | [roles-and-setup.md](roles-and-setup.md) | #119（親 #108）、#181（親 #180） |
 | ログイン・ログアウト・セッション・試行制限・掃除・既定拒否・ログイン画面S-02（2段ログインと#122の拡張点、初回パスワードのゲート、公開の許可リスト6件、`__Host-session`、接続元の受付枠と社員IDの待ち時間、時間差対策と既知の限界、Cron） | [auth-session.md](auth-session.md) | #120（親 #108）、依存 #119 |
 | デザインの土台（Tailwind CSS 4・デザイントークン・共通部品5つ・CSPを変えない決まり・クラスの規約・Preflightへの対処・画面幅の決まり・初回JS/CSSの大きさ） | [style-foundation.md](style-foundation.md) | #171（親 #108）、ADR-0015 |
 | 共通レイアウトの骨格S-01（ヘッダー・サイドバー・本文・下部メニュー・ドロワー・アバターメニュー、サイドバーの項目やヘッダーの部品を足す場所と書き方、管理メニューの仕組みと権限の扱い、認証ガードの各状態、jsdomの制約とE2Eの役割） | [app-shell.md](app-shell.md) | #121（親 #108）、依存 #120・#171、ADR-0015 |

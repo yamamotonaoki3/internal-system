@@ -1,12 +1,8 @@
 // 設定の読み込みは、このファイルの1か所にまとめる（C-40）。ほかのファイルは process.env・env を直接読まない。
 // 起動経路で選んだ APP_ENV を必須にし、欠落を既定値で隠さない。
+import { BASE64URL_32_BYTE_PATTERN } from "../../shared/setup-rules";
 import { createLogger } from "./lib/logger/logger";
 import { isValidPiiKey } from "./lib/pii-crypto";
-
-// 32バイトの乱数の base64url（パディングなし）は、ちょうど43文字
-const SETUP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-// 試行制限の HMAC の鍵も、同じ形式（32バイトの乱数の base64url）
-const LOGIN_THROTTLE_KEY_PATTERN = SETUP_TOKEN_PATTERN;
 
 export type AppConfig = {
   /** 環境の名前（development・test・production） */
@@ -60,11 +56,11 @@ export function loadConfig(env: unknown): AppConfig {
       .map((origin) => origin.trim())
       .filter((origin) => origin !== ""),
     setupToken: optionalSecret(raw, "SETUP_TOKEN", (v) =>
-      SETUP_TOKEN_PATTERN.test(v),
+      BASE64URL_32_BYTE_PATTERN.test(v),
     ),
     piiEncryptionKey: optionalSecret(raw, "PII_ENCRYPTION_KEY", isValidPiiKey),
     loginThrottleKey: optionalSecret(raw, "LOGIN_THROTTLE_KEY", (v) =>
-      LOGIN_THROTTLE_KEY_PATTERN.test(v),
+      BASE64URL_32_BYTE_PATTERN.test(v),
     ),
   };
 }
