@@ -40,6 +40,8 @@ describe("findSession", () => {
     expect(await repo.findSession(s.id)).toEqual({
       userId,
       displayName: "テスト太郎",
+      loginId: "testuser_001",
+      reauthenticatedAt: null,
       mustChangePassword: true,
       isActive: true,
       createdAt: T0,

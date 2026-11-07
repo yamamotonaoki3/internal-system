@@ -23,6 +23,7 @@ Cloudflare Workers（Hono）
 - バックエンドは Cloudflare Workers 上の Hono、DBは D1（Drizzle ORM）、添付は R2、フロントエンドは React（Vite＋React Router）。技術とバージョンは`docs/tech-stack.md`
 - 画面とAPIは1つのWorkersにまとめ、同じドメインから配信する（ADR-0003）。認証はクッキー方式のセッション
 - バックエンドは Controller（`backend/src/routes/`）→ Service（`backend/src/services/`）→ Repository（`backend/src/db/`）の層に分ける（Skill「バックエンド」の層構成の規則）
+- `shared/`はバックエンドとフロントエンドで共有する環境非依存の定義を置く葉の層で、`backend/`・`frontend/`へ依存しない。両アプリケーションから`shared/`を参照し、入力の最終検証・認可は常にサーバー側で行う。共有定義へ移した規則も、テストでは独立した期待値を保つ（詳細は[auth-session.md](auth-session.md)）。
 
 ## 全体に関わる設計の方針（要点）
 

@@ -6,16 +6,24 @@ import { server } from "./server";
 export const TEST_USER = {
   id: "01JTESTUSER000000000000001",
   displayName: "テスト太郎",
+  loginId: "testuser_001",
 } as const;
 
 export const TEST_LOGIN_ID = "testuser_001";
 export const TEST_PASSWORD = "TestPass123!";
 
 /** GET /api/auth/session：ログイン済み（mustChangePassword を選べる） */
-export function respondLoggedIn(mustChangePassword = false) {
+export function respondLoggedIn(
+  mustChangePassword = false,
+  reauthenticatedAt: string | null = null,
+) {
   server.use(
     http.get("/api/auth/session", () =>
-      HttpResponse.json({ user: TEST_USER, mustChangePassword }),
+      HttpResponse.json({
+        user: TEST_USER,
+        mustChangePassword,
+        reauthenticatedAt,
+      }),
     ),
   );
 }

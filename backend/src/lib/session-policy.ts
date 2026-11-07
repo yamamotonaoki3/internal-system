@@ -3,6 +3,7 @@
 
 /** Cookie の名前。__Host- を付けて、ドメイン指定を禁じ、Path=/ ・Secure を必須にする（ADR-0008） */
 export const SESSION_COOKIE = "__Host-session";
+export const SESSION_COOKIE_ATTRIBUTES = { path: "/", secure: true } as const;
 export const SESSION_IDLE_MS = 30 * 60_000;
 export const SESSION_MAX_AGE_MS = 24 * 60 * 60_000;
 /** 最終操作の時刻の更新は、この間隔に間引く（書き込みを減らす。C-149） */

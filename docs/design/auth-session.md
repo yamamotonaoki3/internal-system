@@ -1,20 +1,21 @@
-# 設計書：ログイン・ログアウト・セッション・試行制限
+# 設計書：ログイン・認証情報・セッション・試行制限
 
-Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウト・セッション・パスワードの検証・試行制限・掃除・既定拒否の設計。コードは書き写さず、ファイル名・関数名で指す。
+Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ログアウト・セッション・本人のパスワード変更・再認証・試行制限・掃除・既定拒否の設計。コードは書き写さず、ファイル名・関数名で指す。
 
 ## 目的
 
 - 社員IDとパスワードでログインし、Cookieのセッションで本人を確かめる（0-2 AC-1〜AC-7）
 - ログインしていない人には、公開の許可リスト以外のAPIを使わせない（既定拒否。0-2 AC-3、ADR-0012）
-- 初回パスワードのままの利用者には、パスワードの変更が済むまで、ほかのAPIを使わせない最小のゲートを置く（0-3 AC-5の印。変更画面の本体は#123）
+- 初回パスワードのままの利用者には、パスワードの変更が済むまで、ほかのAPIを使わせない（0-3 AC-5）
+- 本人によるパスワード変更（0-3 AC-1〜5・AC-10・AC-11）と、後続の重要な操作で使う再認証（0-5）を提供する
 - ログインの総当たりを、接続元単位の受付枠と社員ID単位の待ち時間で抑える（C-150。ADR-0008）
 - 期限切れのセッションと古い試行制限の行を、Cronで掃除する
-- 範囲外：TOTP（#122）、パスワードの変更・再発行・無効化に伴う全セッションの失効の呼び出し（#123・#127・無効化のIssue）、共通レイアウト（S-01。#121）
+- 範囲外：TOTP（#122）、管理者によるパスワード再発行（#127）、アカウント無効化に伴う全セッション失効（別Issue）、実際の業務操作への再認証の組み込み（各業務Issue）、共通レイアウト（S-01。#121）
 
-## 重要な境界（#122まで）
+## 重要な境界
 
 - ログインは2段で、第二要素（TOTP）を挿入できる位置を作ってある。**#122が入るまで、全体管理者もパスワードだけでログインできる**（ADR-0009の「全体管理者はTOTP必須」は未実装）。このため、**#122が入るまで、本番に出さない**
-- 初回パスワード（`must_change_password`）の利用者は、ログインはできるが、許可リストの2件（ログアウトとセッションの確認）以外は`403 PASSWORD_CHANGE_REQUIRED`になる。変更のAPIと画面（S-03）は#123で作る。それまでは、画面に「パスワードの変更が必要です。変更画面は準備中です」とログアウトのボタンだけを出す
+- 初回パスワード（`must_change_password`）の利用者はログインできるが、ゲート許可リスト（ログアウト・セッション確認・`PUT /api/me/password`）以外は`403 PASSWORD_CHANGE_REQUIRED`になる。変更APIは認証必須であり、公開の許可リストには加えない。S-03は変更フォームとログアウトを表示し、成功後ホームへ移る
 
 ## ファイルと役割
 
@@ -22,11 +23,16 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 
 | ファイル | 役割 |
 | --- | --- |
-| `backend/src/routes/auth.ts` | `authRoutes`。`POST /login`・`POST /logout`・`GET /session`（すべて`no-store`）。Cookieの設定と削除、`LOGIN_THROTTLE_KEY`未設定時の503、接続元キーの算出をここで行う。DBの処理は引数（`WithAuth`）で受け取る |
+| `backend/src/routes/auth.ts` | `authRoutes`。`POST /login`・`POST /reauthenticate`・`POST /logout`・`GET /session`（すべて`no-store`）。Cookieの設定と削除、`LOGIN_THROTTLE_KEY`未設定時の503、接続元キーの算出をここで行う。認証情報処理は`WithCredentials`で受け取る |
+| `backend/src/routes/me.ts` | `meRoutes`。`PUT /password`を登録し、JSON検証・認証済み主体・現在セッション・設定・接続元キーを`changePassword`へ渡す。初回変更中も使えるよう、共通middlewareのゲート許可に含める |
 | `backend/src/services/auth.service.ts` | `verifyFirstFactor`（第一要素の確認。セッションは作らない）・`issueSession`（セッションの発行）・`login`（この2つ＋再ハッシュ）・`logout`・`admitSource`（接続元の受付枠）・`cleanupExpired`・`authCleanupJob`（Cronのジョブ）。`createAuthDeps`が時刻・待ち・乱数・パスワードの計算を束ねる（テストが差し替える） |
+| `backend/src/services/credentials.service.ts` | `changePassword`・`reauthenticate`が本人確認・規則判定後の処理をまとめる。内部の`checkPassword`は共通接続元受付枠・社員ID単位の遅延・現在のパスワード照合・失敗記録を行う。`assertRecentReauth`は業務Serviceから再認証の有効期限を確かめる |
+| `backend/src/db/credential.repository.ts` | `createCredentialRepository`・`withCredentials`。現在の認証情報取得、試行失敗記録、パスワード変更と再認証時刻の条件付き更新を提供する。変更ごとの監査・社員ID失敗数リセット・他セッション失効を同じD1 `batch`にまとめる |
+| `backend/src/lib/password-policy.ts`・`password-denylist.ts` | `isPasswordAllowed`が共通の構成判定と禁止判定を組み合わせてサーバー側で最終検証する。`password-denylist.ts`は既存の公開入口を保つ再exportで、判定定義は`shared/password-rules.ts`に置く |
+| `backend/src/lib/session-policy.ts` | セッション期限判定とCookieの共通属性を定義する。`SESSION_COOKIE_ATTRIBUTES`は`Path=/`・`Secure`だけを共有し、`HttpOnly`・`SameSite`・`Max-Age`はCookieを設定する呼出元が個別に指定する |
 | `backend/src/services/session.service.ts` | `resolveSession`。トークンからログイン中の利用者を求める（期限は読み取り時に判定。最終操作の時刻は1分に間引いて更新） |
 | `backend/src/db/auth.repository.ts` | `createAuthRepository`・`withAuth`。受付枠の確保（`acquireSourceSlot`）、社員IDの失敗数（`readAccountThrottle`・`recordLoginFailure`）、利用者の検索（`findLoginUser`）、セッションの作成（`createSession`）、再ハッシュの置き換え（`updatePasswordHashIfUnchanged`）、ログアウト（`revokeSession`）、掃除（`deleteExpiredSessions`・`deleteExpiredLoginAttempts`）、ロックの監査（`recordRateLimited`） |
-| `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない） |
+| `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない）。後者は`credential.repository.ts`がパスワード変更batchで実行する |
 | `backend/src/db/audit-log.repository.ts` | 既存の`auditLogInsert`に加えて、`auditLogInsertForSession`（セッションがあるときだけ書く条件付きの監査。ログインの成功・ログアウトで使う） |
 | `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ |
 | `backend/src/lib/session-policy.ts` | Cookie名`SESSION_COOKIE`（`__Host-session`）、無操作30分・ログインから24時間・最終操作の更新間隔1分の定数、`isSessionExpired` |
@@ -38,7 +44,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 | `backend/src/lib/app-error.ts`・`backend/src/lib/error-handler.ts` | エラーコード`INVALID_CREDENTIALS`（401）・`PASSWORD_CHANGE_REQUIRED`（403）を追加。`RATE_LIMITED`の`details.retryAfterSeconds`は、本文に出さず`Retry-After`ヘッダーにだけ出す |
 | `backend/src/lib/audit-actions.ts` | 操作の種類に`auth.login`・`auth.logout`・`auth.rate_limited`・`setup.rate_limited`を追加 |
 | `backend/src/lib/logger/logger.ts` | DBのエラー（SQLとパラメータを含む）を、固定の文言にして出力する（下の「ログ」） |
-| `backend/src/app.ts`・`backend/src/index.ts` | `/api/*`の既定拒否の組み立て、`/api/auth`・`/api/setup`の組み込み、Cron（`authCleanupJob`）の登録 |
+| `backend/src/app.ts`・`backend/src/index.ts` | `/api/*`の既定拒否の組み立て、`/api/auth`・`/api/me`・`/api/setup`の組み込み、Cron（`authCleanupJob`）の登録 |
 | `backend/src/config.ts` | `loadConfig`が`loginThrottleKey`を読む。未設定・形式不正（43文字のbase64urlでない）は`null` |
 | `backend/db/schema.ts`・`backend/db/migrations/0004_add_sessions_login_attempts.sql` | `sessions`・`login_attempts`（下の「テーブル」） |
 | `wrangler.jsonc` | `triggers.crons`に`17 18 * * *`。本番への適用は利用者のデプロイ後 |
@@ -50,10 +56,16 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 | `frontend/src/pages/LoginPage.tsx` | 画面S-02（`/login`）。部品を組み合わせるだけ。ログイン済みなら`/`へ移る。未ログインでも見えるよう、`HealthStatus`と`SetupEntryLink`もここに置く |
 | `frontend/src/pages/HomePage.tsx` | ログイン後のホーム（`h1`「ホーム」と`WelcomeMessage`）。枠（`main`）と、ログイン済みの確認は、`App.tsx`のレイアウトルート（`RequireAuth`→`AppShell`）が持つ（#121。[app-shell.md](app-shell.md)） |
 | `frontend/src/features/auth/components/LoginForm.tsx` | 入力フォームと送信。401（`INVALID_CREDENTIALS`）・429・422・通信エラー・その他で文言を分ける。どちらが違うかは示さない |
-| `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`（`PasswordChangePending`：案内とログアウト）は、枠なしで`PageLayout`で包み、`main`と`h1`を1つずつ保つ |
-| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニューの中に置く。#121）、初回パスワードの案内、ようこそ表示と案内文 |
+| `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`は枠なしで`PageLayout`に包み、後者は`PasswordChangePending`からS-03のフォームを出す |
+| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |
 | `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |
-| `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `fetchSession`・`login`・`logout`。共通の`apiClient`を使う |
+| `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `SessionInfo`型と`fetchSession`・`login`・`logout`・`changePassword`・`reauthenticate`。共通の`apiClient`を使い、ログイン時の`reauthenticatedAt`は`null` |
+| `frontend/src/features/auth/schemas/password-change-form.ts`・`components/PasswordChangeForm.tsx` | `createPasswordChangeSchema`は`shared/password-rules.ts`の構成・禁止判定を使い、確認欄と画面固有の項目エラーも検証する。これは入力時の案内であり、確定処理ではサーバーが`isPasswordAllowed`で再検証する。`PasswordChangeForm`は共有する長さ定数から説明を表示し、確認欄は送信しない |
+| `frontend/src/features/auth/hooks/usePasswordChange.ts` | `usePasswordChange`が`changePassword`を呼び、成功した`SessionInfo`でセッションQueryを更新する |
+| `frontend/src/pages/PasswordChangePage.tsx` | 通常変更（S-04）。`safeReturnPath`でアプリ内の戻り先を選び、成功・キャンセル後に戻る。直接訪問や不正な戻り先はホームへ戻す |
+| `frontend/src/features/auth/ReauthProvider.tsx`・`hooks/useReauth.ts`・`components/ReauthDialog.tsx` | `ReauthProvider`が`withReauth(title, operation)`を提供する。再認証済み5分以内なら操作を直ちに実行し、それ以外は一つのダイアログで再認証してから操作する。キャンセル・ルート移動・認証切れでは保留操作を破棄し、遅延応答から操作を実行しない |
+| `shared/password-rules.ts` | パスワードの長さ定数、本人識別子の最小部分一致長、禁止一覧、構成判定`isPasswordCompositionAllowed`、禁止判定`isDeniedPassword`と`PasswordIdentity`を定義する。バックエンド・フロントエンドから参照される共通定義で、画面側の確認・エラーは各フォームに残す |
+| `shared/reauth-policy.ts` | 再認証の有効期間`REAUTH_VALIDITY_MS`を定義する。`credentials.service.ts`と`ReauthProvider.tsx`が同じ境界を参照する |
 | `frontend/src/features/auth/schemas/login-form.ts` | 入力チェック（空でないこと） |
 | `frontend/src/features/auth/unauthenticated-handler.ts` | 401の共通処理。`code`が`UNAUTHENTICATED`のときだけ、セッションのキャッシュを捨てて`/login`へ移る（`INVALID_CREDENTIALS`では移らない）。`frontend/src/main.tsx`が`setUnauthenticatedHandler`で1回だけ登録する（そのためルーターを部品の外で作る） |
 | `frontend/src/components/SecretField.tsx` | 秘密の入力欄（表示の切り替え）。setupと共通にするため`features/setup/components/`から移した。表示切替の名前・`autoComplete`はpropsで渡す |
@@ -62,7 +74,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 
 詳細な列は`backend/db/schema.ts`と`docs/requirements/data-model.md`が正。
 
-- `sessions`：`id`（トークンのSHA-256の16進。トークンは保存しない）・`user_id`・`created_at`・`last_active_at`・`reauthenticated_at`（0-5用。このIssueでは使わない）・`revoked_at`。索引は（`user_id`, `created_at`）
+- `sessions`：`id`（トークンのSHA-256の16進。トークンは保存しない）・`user_id`・`created_at`・`last_active_at`・`reauthenticated_at`（再認証の有効期間判定に使う）・`revoked_at`。索引は（`user_id`, `created_at`）
 - `login_attempts`：主キーは（`bucket_type`, `bucket_key`）。`bucket_type`は`'source'`（ログインの接続元）・`'account'`（社員ID）・`'setup_source'`（初回セットアップの接続元）のCHECK制約。`bucket_key`は`HMAC-SHA256(LOGIN_THROTTLE_KEY, 値)`の16進で、生のIP・社員IDは保存しない
   - 接続元（`source`・`setup_source`）が使う列：`attempt_count`（受付数。成功も数える）・`window_started_at`・`locked_until`
   - 社員ID（`account`）が使う列：`failed_count`・`last_failed_at`
@@ -99,7 +111,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 - 最終操作の更新（`resolveSession`）：前回の更新から1分以上たったときだけ`touchSession`（`last_active_at`が読んだ値のままのときだけ更新）。失敗しても認証の結果は変えず、`warn`を出す。無操作30分の判定が最大1分ずれる（C-149）
 - 無効化された利用者（`is_active`が偽）のセッションは使えない
 - 使えないCookie（失効・期限切れ・偽物）が付いてきたときは、`loadSession`がCookieを削除する。ただし`POST /api/auth/logout`では、失効が確定した後にハンドラが消す（DBの失敗で500のときにCookieを消さないため）
-- `GET /api/auth/session`：ログイン中なら`{ user, mustChangePassword }`、未ログインなら401`UNAUTHENTICATED`
+- `GET /api/auth/session`とログイン成功応答は`SessionInfo`を返す。`user`にはID・表示名・社員IDを含み、`reauthenticatedAt`はログイン直後・未再認証では`null`、再認証済みならUTC ISO 8601時刻になる。未ログインのsession確認は401`UNAUTHENTICATED`。
 
 ### ログアウト
 
@@ -108,7 +120,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 
 ### 失効の関数と呼び出し元
 
-`revokeAllForUserStatement`（その利用者の有効なセッションをすべて失効させる）と`revokeOthersForUserStatement`（現在のセッションを除く）は、**文を返すだけで、このIssueでは呼び出し元がない**。パスワードの変更・再発行・無効化の`db.batch`に入れて使う（呼び出し元は、パスワード変更の#123、再発行の#127、無効化のIssue）。失効の書き込みが失敗したら、成功扱いにせずエラーにする（ADR-0008）。
+`revokeAllForUserStatement`（その利用者の有効なセッションをすべて失効させる）と`revokeOthersForUserStatement`（現在のセッションを除く）は文を返す。後者は`credential.repository.ts`がパスワード変更の`db.batch`で実行する。前者は再発行（#127）・無効化のIssueで使う。失効の書き込みが失敗したら、成功扱いにせずエラーにする（ADR-0008）。
 
 ## 既定拒否とゲート
 
@@ -129,7 +141,21 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 
 ### 初回パスワードのゲート
 
-`requirePasswordChanged`。`mustChangePassword`が真の利用者は、**許可リストの2件（`POST /api/auth/logout`・`GET /api/auth/session`）以外**を403`PASSWORD_CHANGE_REQUIRED`（no-store）で拒否する。パスワード変更のAPIは#123が許可リストに足す。
+`requirePasswordChanged`は、`mustChangePassword`が真の利用者に対してゲート許可リスト（`POST /api/auth/logout`・`GET /api/auth/session`・`PUT /api/me/password`）以外を403`PASSWORD_CHANGE_REQUIRED`（no-store）で拒否する。これは認証必須ゲートの許可であり、公開の`PUBLIC_ENDPOINTS`には追加しない。`POST /api/auth/reauthenticate`は初回変更が済むまで使えない。
+
+## 本人のパスワード変更と再認証（Issue #123）
+
+### APIと処理の流れ
+
+- `PUT /api/me/password`（`meRoutes`→`changePassword`）は`currentPassword`（1〜1024文字）と`newPassword`を受け取り、フォームの確認欄は送らない。`isPasswordAllowed`と現在のパスワードとの一致を先に検証し、明らかな新パスワード規則違反は試行枠を消費しない。`checkPassword`はログインと共通の接続元受付枠・社員IDごとの遅延を適用して現在のパスワードを照合する。誤りは`currentPassword`の422、パスワード規則・禁止判定は共通文言と`newPassword`の422、CAS競合は409。
+- パスワード確定は`createCredentialRepository().changePassword`が、現在のpassword hash・有効な利用者・有効な現在セッションを条件に新hashへ更新する。要求ごとに異なるsaltで生成した新hashの存在を成功条件として、他セッション失効・`auth.password_change`監査・社員ID失敗数リセットを同じD1 `batch`に入れる。条件を満たさない場合、後続文はすべて副作用なしとなり、Serviceは409を返す。batch内の監査等が失敗した場合も全体を成功扱いしない。
+- 成功応答は更新後の`SessionInfo`を返す。現在のセッショントークンと`reauthenticatedAt`は維持し、他のセッションだけを失効させる。現在のトークン自体が盗まれていた場合は変更後も使われる弱点が残る（ADR-0008）。
+- `POST /api/auth/reauthenticate`（`authRoutes`→`reauthenticate`）は`password`（1〜1024文字）を受け取り、同じ`checkPassword`を使って現在のセッションを再認証する。誤りは403`REAUTH_FAILED`。成功時はUTC ISO 8601の`reauthenticatedAt`を返す。ログイン・パスワード変更・再認証で接続元受付枠と社員ID失敗遅延を共有する。
+- 再認証の`createCredentialRepository().reauthenticate`は、現在セッションと照合済みpassword hashが有効で、現在の`reauthenticatedAt`が今回の時刻と異なる場合だけ、監査・失敗数リセット・セッション時刻更新を同じbatchの条件に含める。更新件数が1件でなければServiceは409を返す。同時刻に走る要求では先行batchが時刻を記録し、後続batchの条件を不成立にするため、敗者は成功監査や失敗数リセットなどの副作用を残さない。
+
+### 後続業務での再認証
+
+`assertRecentReauth`は有効なUTC ISO 8601時刻が現在より未来でなく、経過時間が5分未満であることを確かめ、失敗時は403`REAUTH_REQUIRED`を返す。各業務Issueでは`useReauth`の`withReauth(title, operation)`で画面側の確認を行い、業務API側でも`assertRecentReauth`を呼び出す。判定が通った場合の業務更新と業務操作監査は同じDB batchで確定する。現在、実業務APIは未実装であり、`backend/src/reauth-business.test.ts`のテスト専用操作がこの接続を検証する。再認証から業務確定までの間に5分境界を越える競合は承認済みの許容範囲（ADR-0008）。
 
 ## 試行制限
 
@@ -188,7 +214,8 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 - S-02：ユーザーIDとパスワードの入力、パスワードの表示切り替え（`SecretField`）、送信中は押せない。失敗の文言：401は「ユーザーIDまたはパスワードが違います」（どちらが違うかを示さない）、429は「しばらくしてからお試しください」（制限の種類・残り時間を示さない）、422は「入力内容を確かめてください」、通信エラーは「接続できませんでした。もう一度お試しください」
 - ログアウトで`queryClient.clear()`を行い、`/login`へ移る（0-2 AC-8の前半）。**端末の下書きの消去は、下書きの機能（1-1）が未実装のため、1-1へ申し送る**（無操作・期限切れの自動ログアウトでは消さない。C-82）
 - ログイン・ログアウトの遷移は履歴を置き換え、戻る操作でも保護された画面を見られない
-- E2E（`e2e/login.spec.ts`）：ログイン→ようこそ→ログアウト→戻る・進む・直接アクセスで`/login`／誤ったパスワード／初回パスワードの利用者の準備中の案内と403／`http://localhost`でも`__Host-session`のCookieが保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られること。未ログインのセッション確認の401は仕様どおりのため、`e2e/session-console.ts`の`allowSessionCheck401`で許す。シードは`e2e/seeds/login.sql`（架空の`e2euser_login_001`・`002`）、後始末は`e2e/seeds/login-cleanup.sql`
+- E2E（`e2e/login.spec.ts`）：ログイン→ようこそ→ログアウト→戻る・進む・直接アクセスで`/login`／誤ったパスワード／初回パスワードでS-03が表示され、変更完了まで他画面へ進めないこと／`http://localhost`でも`__Host-session`のCookieが保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られること。未ログインのセッション確認の401は仕様どおりのため、`e2e/session-console.ts`の`allowSessionCheck401`で許す。シードは`e2e/seeds/login.sql`（架空の`e2euser_login_001`・`002`）、後始末は`e2e/seeds/login-cleanup.sql`
+- E2E（`e2e/password-change.spec.ts`）：初回変更と通常変更、規則エラー、現在画面への復帰。架空の専用seedとcleanupは`e2e/seeds/password-change.sql`・`password-change-cleanup.sql`
 
 ## 既存のテストの移行
 
@@ -199,6 +226,9 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 | 対象 | ファイル |
 | --- | --- |
 | パスワードの検証・時間差・境界 | `backend/src/lib/password.test.ts`・`password-verify.test.ts`・`password-boundary.test.ts`、workerdでのscrypt：`scrypt-runtime.test.ts` |
+| Issue #123の規則・本人変更Service/Repository | `backend/src/lib/password-policy.test.ts`・`password-boundary.test.ts`、`backend/src/services/credentials.service.test.ts`、`backend/src/db/credential.repository.db.test.ts` |
+| 本人変更・再認証route/API契約 | `backend/src/routes/me.test.ts`・`backend/src/routes/auth.test.ts`・`backend/src/openapi.test.ts` |
+| 再認証と業務処理の接続 | `backend/src/reauth-business.test.ts`（テスト専用業務更新と監査。同Issueでは実業務APIを追加しない） |
 | セッションのトークン・期限 | `backend/src/lib/session-token.test.ts`、期限の境界・1分の間引きは`backend/src/routes/auth.test.ts`、`backend/src/db/session.repository.db.test.ts`・`session.repository.read.db.test.ts` |
 | 試行制限の値・接続元のキー | `backend/src/lib/throttle-policy.test.ts`、`source-key.test.ts`・`source-key-boundary.test.ts`、`backend/src/config.throttle.test.ts` |
 | ログインのService・Repository | `backend/src/services/auth.service.test.ts`・`auth.service.mutation.test.ts`、`backend/src/db/auth.repository.db.test.ts` |
@@ -207,6 +237,7 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 | 掃除 | `backend/src/auth-cleanup.test.ts` |
 | API仕様との一致 | `backend/src/openapi.test.ts` |
 | 画面 | `frontend/src/pages/LoginPage.test.tsx`・`HomePage.test.tsx`、`frontend/src/features/auth/`配下の`*.test.ts(x)`、`frontend/src/components/SecretField.test.tsx` |
+| Issue #123の画面・再認証 | `frontend/src/pages/PasswordChangePage.test.tsx`、`frontend/src/features/auth/schemas/password-change-form.test.ts`・`hooks/useReauth.test.tsx`・`components/`配下の関連テスト |
 | E2E | `e2e/login.spec.ts`、`e2e/sample-users.spec.ts`（架空データ`e2euser_`・`@example.com`） |
 | テスト用の部品 | `backend/test/auth-fixtures.ts`、`frontend/src/test/auth-handlers.ts` |
 | 変異テスト | `stryker.config.json`の対象に、`password.ts`・`session-middleware.ts`・`source-key.ts`・`throttle-policy.ts`・`session-token.ts`・`auth.repository.ts`・`session.repository.ts`を足した |
@@ -214,7 +245,6 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 ## 申し送り
 
 - **#122（TOTP）**：`verifyFirstFactor`と`issueSession`の間に第二要素を挿入する。#122までは全体管理者もパスワードだけでログインできるため、本番に出さない
-- **#123（パスワード変更）**：変更のAPIを公開の許可リストとゲートの許可リストに足す。変更時に`revokeOthersForUserStatement`を同じ`db.batch`に入れる（0-3 AC-4）。S-03の画面を作る（今は`PasswordChangePending`の案内）
 - **#127（再発行）・無効化のIssue**：`revokeAllForUserStatement`を同じ`db.batch`に入れる（0-3 AC-8、0-1 AC-9）
 - **1-1（下書き）**：手動ログアウトで、端末の下書きをすべて消す（0-2 AC-8）。今は`queryClient.clear()`のみ
 - **#121（共通レイアウト）**：実装済み。`HomePage`の最小の枠は`AppShell`に置き換わった（[app-shell.md](app-shell.md)）
@@ -222,8 +252,8 @@ Issue #120（親 #108）で実装した、ログイン（S-02）・ログアウ�
 
 ## 関係するIssueとADR
 
-- Issue：#120（親 #108）、依存 #119。後続：#121・#122・#123・#127
-- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）
+- Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
+- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）
 - 決定記録：C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`
 - 関連する設計書：[roles-and-setup.md](roles-and-setup.md)（`/api/setup`、`password.ts`の元の部分）

@@ -18,6 +18,7 @@
     "worker-configuration.d.ts",
     "backend",
     "frontend",
+    "shared",
     "e2e",
     "e2e-prod",
     "scripts",

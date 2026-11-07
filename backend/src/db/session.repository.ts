@@ -1,13 +1,15 @@
 // Repository：セッション（sessions）の読み取りと失効（ADR-0003）。ログイン・ログアウト・掃除は auth.repository.ts。
 // 失効の文は、文を返すだけで実行しない：業務の更新・監査と同じ db.batch([...]) に入れる（呼び出し元は #123・#127・無効化のIssue）。
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, type SQL } from "drizzle-orm";
 import { sessions, users } from "../../db/schema";
 import type { Database } from "./database";
 
 export type SessionRecord = {
   userId: string;
   displayName: string;
+  loginId: string;
   mustChangePassword: boolean;
+  reauthenticatedAt: string | null;
   isActive: boolean;
   createdAt: string;
   lastActiveAt: string;
@@ -32,7 +34,9 @@ export function createSessionRepository(db: Database): SessionRepository {
         .select({
           userId: sessions.userId,
           displayName: users.displayName,
+          loginId: users.loginId,
           mustChangePassword: users.mustChangePassword,
+          reauthenticatedAt: sessions.reauthenticatedAt,
           isActive: users.isActive,
           createdAt: sessions.createdAt,
           lastActiveAt: sessions.lastActiveAt,
@@ -78,6 +82,7 @@ export function revokeOthersForUserStatement(
   userId: string,
   currentSessionId: string,
   now: string,
+  onlyWhen?: SQL,
 ) {
   return db
     .update(sessions)
@@ -87,6 +92,7 @@ export function revokeOthersForUserStatement(
         eq(sessions.userId, userId),
         isNull(sessions.revokedAt),
         ne(sessions.id, currentSessionId),
+        onlyWhen,
       ),
     );
 }

@@ -66,14 +66,15 @@ test("#120 AC-1（0-2 AC-7）: 誤ったパスワードでは「ユーザーID�
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("#120 AC-1（0-3 AC-5 の印）: 初回パスワードの利用者は、準備中の案内とログアウトだけが出て、業務の API は 403 PASSWORD_CHANGE_REQUIRED", async ({
+test("#123 0-3 AC-5: 初回パスワードの利用者は、変更フォームとログアウトが出て、業務のAPIは403 PASSWORD_CHANGE_REQUIRED", async ({
   page,
 }) => {
   allowSessionCheck401(page);
   await login(page, MUST_CHANGE_USER.loginId, PASSWORD);
   await expect(
-    page.getByText("パスワードの変更が必要です。変更画面は準備中です"),
+    page.getByLabel("現在のパスワード", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("navigation")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "ログアウト" })).toBeVisible();
   await expect(page.getByText(/ようこそ、/)).toHaveCount(0);
 
