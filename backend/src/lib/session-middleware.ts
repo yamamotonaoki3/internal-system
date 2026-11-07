@@ -11,7 +11,7 @@ import {
 } from "../services/session.service";
 import { AppError } from "./app-error";
 import { createLogger } from "./logger/logger";
-import { SESSION_COOKIE } from "./session-policy";
+import { SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES } from "./session-policy";
 
 // c.get("principal") / c.set("principal", ...) を、どの Hono のアプリでも型つきで使えるようにする（Hono の ContextVariableMap）
 declare module "hono" {
@@ -30,10 +30,11 @@ const PUBLIC_ENDPOINTS: ReadonlySet<string> = new Set([
   "GET /api/auth/session",
 ]);
 
-// 初回パスワードのままの利用者が使える API は、この2件だけ（ログイン・セットアップ・ヘルス確認も 403）
+// 初回パスワードのままの利用者が使える API は、以下の許可リストに限る（ログイン・セットアップ・ヘルス確認も 403）
 const PASSWORD_CHANGE_ALLOWLIST: ReadonlySet<string> = new Set([
   "POST /api/auth/logout",
   "GET /api/auth/session",
+  "PUT /api/me/password",
 ]);
 
 const isPublic = (method: string, path: string) =>
@@ -57,7 +58,7 @@ export function loadSession(
     const isLogout =
       c.req.method === "POST" && c.req.path === "/api/auth/logout";
     if (principal === null && !isLogout) {
-      deleteCookie(c, SESSION_COOKIE, { path: "/", secure: true });
+      deleteCookie(c, SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES);
     }
     c.set("principal", principal);
     return next();

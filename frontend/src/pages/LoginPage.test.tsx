@@ -1,6 +1,6 @@
 // #120 AC-1（0-2 AC-1・AC-7）：S-02 ログイン画面。画面の振り分け（App）を通して確かめる。
 // 公開形の仮定：/login が LoginPage。入力欄のラベルは「ユーザーID」「パスワード」、送信ボタンは「ログイン」。
-// POST /api/auth/login の本文は { loginId, password }、成功は 200 { user: { id, displayName }, mustChangePassword }。
+// POST /api/auth/login の本文は { loginId, password }、成功は 200 SessionInfo。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -121,7 +121,11 @@ describe("#120 AC-1 S-02 ログインの送信", () => {
     server.use(
       http.get("/api/auth/session", () =>
         loggedIn
-          ? HttpResponse.json({ user: TEST_USER, mustChangePassword: false })
+          ? HttpResponse.json({
+              user: TEST_USER,
+              mustChangePassword: false,
+              reauthenticatedAt: null,
+            })
           : HttpResponse.json(
               { code: "UNAUTHENTICATED", message: "x" },
               { status: 401 },
@@ -130,7 +134,11 @@ describe("#120 AC-1 S-02 ログインの送信", () => {
     );
     const record = respondLogin(() => {
       loggedIn = true;
-      return HttpResponse.json({ user: TEST_USER, mustChangePassword: false });
+      return HttpResponse.json({
+        user: TEST_USER,
+        mustChangePassword: false,
+        reauthenticatedAt: null,
+      });
     });
     renderAt("/login");
     await fillAndSubmit();
@@ -145,7 +153,11 @@ describe("#120 AC-1 S-02 ログインの送信", () => {
 
   it("#120 AC-1: パスワード欄で Enter を押すと送信する", async () => {
     const record = respondLogin(() =>
-      HttpResponse.json({ user: TEST_USER, mustChangePassword: false }),
+      HttpResponse.json({
+        user: TEST_USER,
+        mustChangePassword: false,
+        reauthenticatedAt: null,
+      }),
     );
     const user = userEvent.setup();
     renderAt("/login");
@@ -252,12 +264,16 @@ describe("#120 AC-1 S-02 失敗の表示（0-2 AC-7：どちらが違うかを�
 });
 
 describe("#120 AC-1 初回パスワードの利用者（0-3 AC-5 の印）", () => {
-  it("#120 AC-1: mustChangePassword=true でログインすると、準備中の案内とログアウトを出し、業務の画面は出さない", async () => {
+  it("#123 0-3 AC-5: mustChangePassword=true でログインすると、S-03とログアウトを出し、業務の画面は出さない", async () => {
     let loggedIn = false;
     server.use(
       http.get("/api/auth/session", () =>
         loggedIn
-          ? HttpResponse.json({ user: TEST_USER, mustChangePassword: true })
+          ? HttpResponse.json({
+              user: TEST_USER,
+              mustChangePassword: true,
+              reauthenticatedAt: null,
+            })
           : HttpResponse.json(
               { code: "UNAUTHENTICATED", message: "x" },
               { status: 401 },
@@ -266,15 +282,15 @@ describe("#120 AC-1 初回パスワードの利用者（0-3 AC-5 の印）", () 
     );
     respondLogin(() => {
       loggedIn = true;
-      return HttpResponse.json({ user: TEST_USER, mustChangePassword: true });
+      return HttpResponse.json({
+        user: TEST_USER,
+        mustChangePassword: true,
+        reauthenticatedAt: null,
+      });
     });
     renderAt("/login");
     await fillAndSubmit();
-    expect(
-      await screen.findByText(
-        "パスワードの変更が必要です。変更画面は準備中です",
-      ),
-    ).toBeDefined();
+    expect(await screen.findByLabelText("現在のパスワード")).toBeDefined();
     expect(screen.getByRole("button", { name: "ログアウト" })).toBeDefined();
     expect(screen.queryByText(/ようこそ、/)).toBeNull();
   });

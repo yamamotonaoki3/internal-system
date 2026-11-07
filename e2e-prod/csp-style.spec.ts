@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { allowConsoleError, expect, test } from "../e2e/console-guard";
 import { allowSessionCheck401 } from "../e2e/session-console";
+import type { SessionInfo } from "../frontend/src/features/auth/api/auth-api";
 
 function readPrimaryRgb(): string {
   const css = readFileSync("frontend/src/styles/index.css", "utf8");
@@ -209,9 +210,14 @@ async function mockLoggedIn(page: Page): Promise<void> {
       contentType: "application/json",
       headers: { "cache-control": "no-store" },
       body: JSON.stringify({
-        user: { id: "01JTE2E0000000000000000997", displayName: "テスト一郎" },
+        user: {
+          id: "01JTE2E0000000000000000997",
+          displayName: "テスト一郎",
+          loginId: "e2euser_style_997",
+        },
         mustChangePassword: false,
-      }),
+        reauthenticatedAt: null,
+      } satisfies SessionInfo),
     }),
   );
 }

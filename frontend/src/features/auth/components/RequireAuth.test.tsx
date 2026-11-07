@@ -58,14 +58,10 @@ describe("#120 AC-1 RequireAuth", () => {
     expect(screen.queryByText("保護された中身")).toBeNull();
   });
 
-  it("#120 AC-1: mustChangePassword なら中身の代わりに準備中の案内を出す（/login には移らない）", async () => {
+  it("#123 0-3 AC-5: mustChangePassword なら中身の代わりにS-03を出す（/login には移らない）", async () => {
     respondLoggedIn(true);
     renderGuarded();
-    expect(
-      await screen.findByText(
-        "パスワードの変更が必要です。変更画面は準備中です",
-      ),
-    ).toBeDefined();
+    expect(await screen.findByLabelText("現在のパスワード")).toBeDefined();
     expect(screen.queryByText("保護された中身")).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId("path").textContent).toBe("/"),

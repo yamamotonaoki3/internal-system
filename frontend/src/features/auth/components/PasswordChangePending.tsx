@@ -1,10 +1,14 @@
-// 初回パスワードの変更が必要な利用者向けの案内（本体の S-03 は #123）。ログアウトだけ使える。
+import { useNavigate } from "react-router";
+import { PasswordChangeForm } from "./PasswordChangeForm";
 import { LogoutButton } from "./LogoutButton";
 
 export function PasswordChangePending() {
+  const navigate = useNavigate();
   return (
     <section>
-      <p className="mb-3">パスワードの変更が必要です。変更画面は準備中です</p>
+      <PasswordChangeForm
+        onSuccess={() => void navigate("/", { replace: true })}
+      />
       <LogoutButton />
     </section>
   );

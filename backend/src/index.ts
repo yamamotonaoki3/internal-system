@@ -2,10 +2,12 @@
 // fetch（HTTP）と scheduled（Cron Triggers）の両方を公開する。Cronのジョブは、機能のIssueが一覧に足す。
 import { createApp } from "./app";
 import { withAuth } from "./db/auth.repository";
+import { withCredentials } from "./db/credential.repository";
 import { withSampleUsers } from "./db/sample-user.repository";
 import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
 import { authRoutes } from "./routes/auth";
+import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { authCleanupJob } from "./services/auth.service";
@@ -16,7 +18,8 @@ export const app = createApp({
   routes: [
     { path: "/api/sample-users", app: sampleUserRoutes(withSampleUsers) },
     { path: "/api/setup", app: setupRoutes(withSetup, withAuth) },
-    { path: "/api/auth", app: authRoutes(withAuth) },
+    { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
+    { path: "/api/me", app: meRoutes(withCredentials) },
   ],
 });
 

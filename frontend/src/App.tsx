@@ -3,8 +3,11 @@
 import { Route, Routes } from "react-router";
 import { AppShell } from "./features/app-shell/AppShell";
 import { RequireAuth } from "./features/auth/components/RequireAuth";
+import { ReauthProvider } from "./features/auth/ReauthProvider";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { PasswordChangePage } from "./pages/PasswordChangePage";
 import { SetupPage } from "./pages/SetupPage";
 
 export function App() {
@@ -13,11 +16,15 @@ export function App() {
       <Route
         element={
           <RequireAuth>
-            <AppShell />
+            <ReauthProvider>
+              <AppShell />
+            </ReauthProvider>
           </RequireAuth>
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="/password" element={<PasswordChangePage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />

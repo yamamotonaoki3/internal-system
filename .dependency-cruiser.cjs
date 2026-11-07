@@ -2,6 +2,12 @@
 module.exports = {
   forbidden: [
     {
+      name: "no-shared-to-app",
+      severity: "error",
+      from: { path: "^shared/" },
+      to: { path: "^(frontend|backend)/" },
+    },
+    {
       name: "no-circular",
       severity: "error",
       from: {},

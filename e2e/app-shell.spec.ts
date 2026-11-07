@@ -177,6 +177,10 @@ test("#121 AC-1: パソコン幅のアバターメニュー：Enter で開く �
   await expect(logoutButton(page)).toBeVisible();
   await expect(avatar).toHaveAttribute("aria-expanded", "true");
   await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "パスワードを変更" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(logoutButton(page)).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(logoutButton(page)).toHaveCount(0);
@@ -193,6 +197,10 @@ test("#121 AC-1: スマホ幅の「自分」：Enter で開く → Tab でログ
   await page.keyboard.press("Enter");
   await expect(logoutButton(page)).toBeVisible();
   await expect(self).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "パスワードを変更" }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(logoutButton(page)).toBeFocused();
   await page.keyboard.press("Escape");

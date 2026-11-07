@@ -72,10 +72,10 @@ describe("#121 AC-1 RequireAuth の各状態の枠", () => {
     expect(within(main).getByRole("button", { name: "再試行" })).toBeDefined();
   });
 
-  it("#121 AC-1: パスワードの変更待ちは、main と h1「パスワードの変更が必要です」を1つずつ出し、案内とログアウトを出す", async () => {
+  it("#123 0-3 AC-5: パスワードの変更待ちは、main と h1「パスワードの変更が必要です」を1つずつ出し、入力欄とログアウトを出す", async () => {
     respondLoggedIn(true);
     renderGuarded();
-    await screen.findByText("パスワードの変更が必要です。変更画面は準備中です");
+    await screen.findByLabelText("現在のパスワード");
     const main = expectBareFrame("パスワードの変更が必要です");
     expect(
       within(main).getByRole("button", { name: "ログアウト" }),
