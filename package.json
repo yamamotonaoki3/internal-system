@@ -56,6 +56,14 @@
   "overrides": {
     "@typeschema/zod": {
       "zod": "$zod"
+    },
+    "undici@>=7.0.0 <7.30.2": "7.30.2",
+    "undici@>=8.0.0 <8.12.4": "8.12.4",
+    "@cloudflare/vitest-pool-workers@0.23.0": {
+      "zod@>=4.0.0 <4.6.6": "$zod"
+    },
+    "typed-rest-client@2.3.1": {
+      "qs@>=6.0.0 <6.16.1": "6.16.1"
     }
   },
   "allowScripts": {
@@ -65,15 +73,15 @@
   },
   "dependencies": {
     "@hono/zod-validator": "0.9.1",
-    "@hookform/resolvers": "6.0.0",
-    "@tanstack/react-query": "5.104.5",
-    "axios": "1.20.0",
+    "@hookform/resolvers": "7.0.2",
+    "@tanstack/react-query": "5.105.3",
+    "axios": "1.21.0",
     "drizzle-orm": "0.45.4",
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "react-hook-form": "7.90.0",
-    "react-router": "8.5.0",
+    "react-hook-form": "7.91.0",
+    "react-router": "8.5.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
