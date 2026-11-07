@@ -5,7 +5,7 @@
 | 技術 | 採用したバージョン | 選定理由 | 調べた日 | 確認した最新の安定版 | 検証済み |
 | --- | --- | --- | --- | --- | --- |
 | node | 24.22.1 | 最新の安定版（LTS）、セキュリティ修正版 | 2026-10-25 | 24.22.1 | 24.19.0 |
-| hono | 4.13.13 | 最新の安定版 | 2026-10-10 | 4.13.13 | 4.13.12 |
+| hono | 4.13.16 | 最新の安定版 | 2026-10-10 | 4.13.13 | 4.13.12 |
 | @hono/zod-validator | 0.9.1 | 最新の安定版 | 2026-10-10 | 0.9.1 | 0.9.1 |
 | zod | 4.6.7 | 最新の安定版 | 2026-10-10 | 4.6.5 | 4.6.5 |
 | wrangler | 4.151.3 | 最新の安定版 | 2026-10-10 | 4.149.0 | 4.144.0 |
@@ -16,13 +16,13 @@
 | @cloudflare/vite-plugin | 1.64.0 | 最新の安定版 | 2026-10-10 | 1.63.1 | 1.62.2 |
 | react | 19.3.1 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
 | react-dom | 19.3.1 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
-| react-router | 8.5.0 | 最新の安定版 | 2026-10-10 | 8.4.0 | 8.4.0 |
+| react-router | 8.5.1 | 最新の安定版 | 2026-10-10 | 8.4.0 | 8.4.0 |
 | @types/react | 19.3.0 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
 | @types/react-dom | 19.3.0 | 最新の安定版 | 2026-10-10 | 19.3.0 | 19.3.0 |
-| axios | 1.20.0 | 最新の安定版 | 2026-10-10 | 1.20.0 | 1.20.0 |
-| @tanstack/react-query | 5.104.5 | 最新の安定版 | 2026-10-10 | 5.104.1 | 5.104.0 |
-| react-hook-form | 7.90.0 | 最新の安定版 | 2026-10-10 | 7.89.0 | 7.89.0 |
-| @hookform/resolvers | 6.0.0 | 最新の安定版 | 2026-10-10 | 5.9.1 | 5.9.1 |
+| axios | 1.21.0 | 最新の安定版 | 2026-10-10 | 1.20.0 | 1.20.0 |
+| @tanstack/react-query | 5.105.3 | 最新の安定版 | 2026-10-10 | 5.104.1 | 5.104.0 |
+| react-hook-form | 7.91.0 | 最新の安定版 | 2026-10-10 | 7.89.0 | 7.89.0 |
+| @hookform/resolvers | 7.0.2 | 最新の安定版 | 2026-10-10 | 5.9.1 | 5.9.1 |
 | vitest | 4.1.12 | 範囲内の最新の安定版（範囲 ^4） | 2026-10-10 | 4.1.11 | 4.1.11 |
 | @cloudflare/vitest-pool-workers | 0.23.0 | 最新の安定版 | 2026-10-10 | 0.23.0 | 0.22.0 |
 | @testing-library/react | 16.3.3 | 最新の安定版 | 2026-10-10 | 16.3.3 | 16.3.3 |
@@ -135,6 +135,42 @@
 - **このアプリはDBがD1のみ**（ADR-0005）。Drizzle は方言 sqlite、ドライバ `drizzle-orm/d1` で使う。本番・ローカル・テストとも同じ
 - D1では db.transaction() を使わず db.batch() を使う（詳しい型は設計書 `docs/design/overview.md` の「DBの設計の型」）
 - **pg（PostgreSQL・Hyperdrive）は、このアプリでは使わない**。ADR-0005 で PostgreSQL に一本化する案を採らないと決めたため。ハーネスのひな形（`scripts/`・Skill・`infra/README.md`）にはpg向けの記述が残るが、ハーネス由来のため直さない（参照箇所の一覧は Issue #114）。PostgreSQL へ切り替える条件は ADR-0005 に書いてある
+
+## 依存セキュリティ対応（2026-11-07、Issue #185）
+
+上の表の「調べた日」「確認した最新の安定版」「検証済み」は前回の記録を保っている。今回の採用版・理由・確認先はこの節に分けて記録する。依存を更新しただけで、アプリからの実際の攻撃到達を実証したことにはならない。
+
+### 直接依存6件
+
+| パッケージ | 変更前 → 採用版 | 今回の理由・確認した事実 | 公式資料 |
+| --- | --- | --- | --- |
+| `@hookform/resolvers` | 6.0.0 → 7.0.2 | 7系へ更新。v7.0.0の変更のうちTypeBox対応は本アプリで使っていない。Zod連携は実行検証で確かめる | [v7.0.0 リリース](https://github.com/react-hook-form/resolvers/releases/tag/v7.0.0) |
+| `@tanstack/react-query` | 5.104.5 → 5.105.3 | 既存の5系のまま更新。公式changelogの5.105.3変更を参照し、既存利用との互換性は実行検証で確かめる | [公式changelog](https://github.com/TanStack/query/blob/main/packages/query-core/CHANGELOG.md) |
+| `axios` | 1.20.0 → 1.21.0 | 公式releaseのヘッダー既定値変更は、本アプリで使っていない独自クラスに関する。通常のオブジェクトと`AxiosHeaders`の使用を確認し、互換性は実行検証で確かめる | [v1.21.0 リリース](https://github.com/axios/axios/releases/tag/v1.21.0) |
+| `hono` | 4.13.13 → 4.13.16 | GHSA-h7mg-cq63-vhpqの影響範囲と修正版を確認。既定Routerと`/api/*`の認証・Origin middlewareを使うため関連性がある。公開先への攻撃は行っていない | [v4.13.16 リリース](https://github.com/honojs/hono/releases/tag/v4.13.16)、[GHSA-h7mg-cq63-vhpq](https://github.com/honojs/hono/security/advisories/GHSA-h7mg-cq63-vhpq) |
+| `react-hook-form` | 7.90.0 → 7.91.0 | 既存の7系のまま更新。フォーム実装との互換性は実行検証で確かめる | [v7.91.0 リリース](https://github.com/react-hook-form/react-hook-form/releases/tag/v7.91.0) |
+| `react-router` | 8.5.0 → 8.5.1 | 既存の8系のまま更新。ルーティング実装との互換性は実行検証で確かめる | [公式release一覧](https://github.com/remix-run/react-router/releases) |
+
+### 一時的なtransitive override
+
+`package.json`では、既存の`@typeschema/zod`配下のZodを直依存`$zod`へ合わせる設定を保ち、脆弱な範囲にだけ次のoverrideを置く。親パッケージのsemver範囲との交差に適用される設定で、将来の更新時にも新しい版へ自動追随する保証にはならない。更新時に各overrideを撤去または更新するか再評価し、ロックファイルで修正済みの版を意図せず下げていないことを確認する。上流の親依存が脆弱でない版を要求するようになり、overrideなしで修正済み版へ解決される場合は削除する。
+
+| 親・対象 | override条件 → 版 | 状態・根拠 |
+| --- | --- | --- |
+| 全依存のUndici 7系 | `undici@>=7.0.0 <7.30.2` → `7.30.2` | security修正版に限る |
+| 全依存のUndici 8系 | `undici@>=8.0.0 <8.12.4` → `8.12.4` | security修正版に限る。親の要求範囲が許す間も、この一時指定に固定され得る |
+| `@cloudflare/vitest-pool-workers@0.23.0`配下のZod | `zod@>=4.0.0 <4.6.6` → `$zod`（直依存`4.6.7`） | 既存の直依存版に合わせる |
+| `typed-rest-client@2.3.1`配下の`qs` | `qs@>=6.0.0 <6.16.1` → `6.16.1` | security修正版に限る |
+
+`sharp`は利用者承認によりこのPRの修正対象から分離し、overrideを撤去した。`sharp@0.35.2`のhigh脆弱性は残るためIssue #186で追跡する。全依存auditは19件（moderate 15、high 4、critical 0）。全体の`npm ls`では、今回未変更でHEAD・`origin/main`・現行lockに共通する`msw@3.0.3`と`@vitest/mocker@4.1.12`のoptional peer range（`^2.4.9`）不整合が報告される。全体の`npm ls`成功とは扱わない。最終checkはexit 0（92ファイル・1023テスト、Prettier全件、依存違反0、本番audit 0件、gitleaks・Semgrep・OSV全項目成功）、devE2E 54/54、prodE2E 9/9とbuild、mutation score 91.47%（基準80%）を確認した。buildの500kB超chunk警告は既存Issue #160で追跡する。隔離解決候補は既存lockに170エントリ（追加41、削除39、版変更90）と`lightningcss`関連12件のdowngradeを含むため採用しなかった。初回checkの経過はIssue #185に記録する。
+
+Undiciの追加修正6件にはcache・redirect・SRIなどの条件があり、本アプリからの直接利用は確認していない。ツール内部の到達性とアプリからの攻撃成立は未検証である。`minimatch` 10→11と`esbuild` 0.18→0.25は互換性を壊すmajor境界を越えるためoverrideしない。前者は`optimizationLevel` 2以上で攻撃者が制御するパターンを処理する条件、後者は開発サーバー利用の条件が報告されているが、ツール内の実到達性は未検証のため開発依存の残存リスクとして扱う。
+
+本変更は新しいライブラリ追加や認証仕様変更を含まない。Node 24.22.1、TypeScript 6.0.3、Vitest 4.1.12、`@cloudflare/vitest-pool-workers` 0.23.0を維持する。PR #183のDocker向けNode 26移行は別のmajor更新で、現行Nodeに同時期のsecurity修正があるため保留。PR #184のVitest 5移行はWorkers poolとのpeer不整合でCIに失敗し、TypeScript 7も既存compiler APIと`typescript-eslint`の対応条件に合わないため保留する。
+
+bundle計測はJS 792140B（gzip 240040B）でJS gzip 200KB目安を超過。CSSは13382B（gzip 3670B）、gzip合計243710Bで、dynamic importはない。目安は緩和せず、分割・性能判断を既存Issue #160で追跡する。
+
+正式な合否範囲は既存設定のまま維持する。本番依存は`npm audit --omit=dev --audit-level=high`、OSVは`devOnlyPackages`を除外してCVSS 7以上を確認する。全依存auditの開発用脆弱性は件数と条件を別途記録し、正式checkの成功と取り違えない。Dependabot alerts APIは機能無効または権限不足のHTTP 403で取得できず、0件とは扱わない。権限拡張も行わない。
 
 ## 動作確認
 

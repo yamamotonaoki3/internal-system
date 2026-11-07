@@ -146,6 +146,67 @@ describe("既定の拒否（0-2 AC-3）", { timeout: SCRYPT_TEST_TIMEOUT_MS }, (
 });
 
 describe(
+  "#185 符号化された行区切り文字でもAPIのミドルウェアを通る",
+  { timeout: SCRYPT_TEST_TIMEOUT_MS },
+  () => {
+    // GHSA-h7mg-cq63-vhpq: wildcardが行区切り文字を含む未知パスにも適用されることを実入口で確かめる。
+    const encodedTerminators = ["%0A", "%0D", "%E2%80%A8", "%E2%80%A9"];
+
+    it.each(encodedTerminators)(
+      "#185 0-2 AC-3: 未認証GETの未知パス（%s）も401・no-store",
+      async (encoded) => {
+        const res = await call("GET", `/api/unknown${encoded}tail`);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+      },
+    );
+
+    it.each(encodedTerminators)(
+      "#185 0-2 AC-3: 通常sessionの未知パス（%s）は404・no-store",
+      async (encoded) => {
+        const res = await call("GET", `/api/unknown${encoded}tail`, {
+          token: normalToken,
+        });
+        expect(res.status).toBe(404);
+        expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+      },
+    );
+
+    it.each(encodedTerminators)(
+      "#185 0-2 AC-3: 未認証POSTの未知パス（%s）でも許可外Originを先に拒否する",
+      async (encoded) => {
+        const res = await app.request(
+          `/api/unknown${encoded}tail`,
+          {
+            method: "POST",
+            headers: { Origin: "https://origin.invalid" },
+          },
+          envWith(),
+        );
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ code: "FORBIDDEN_ORIGIN" });
+      },
+    );
+
+    it.each(encodedTerminators)(
+      "#185 0-3 AC-5: 初回変更必須sessionの未知パス（%s）も403・no-store",
+      async (encoded) => {
+        const res = await call("GET", `/api/unknown${encoded}tail`, {
+          token: mustChangeToken,
+        });
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({
+          code: "PASSWORD_CHANGE_REQUIRED",
+        });
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+      },
+    );
+  },
+);
+
+describe(
   "公開の許可リスト（6件。0-2 AC-3）",
   { timeout: SCRYPT_TEST_TIMEOUT_MS },
   () => {

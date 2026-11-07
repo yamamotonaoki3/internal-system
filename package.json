@@ -56,6 +56,14 @@
   "overrides": {
     "@typeschema/zod": {
       "zod": "$zod"
+    },
+    "undici@>=7.0.0 <7.30.2": "7.30.2",
+    "undici@>=8.0.0 <8.12.4": "8.12.4",
+    "@cloudflare/vitest-pool-workers@0.23.0": {
+      "zod@>=4.0.0 <4.6.6": "$zod"
+    },
+    "typed-rest-client@2.3.1": {
+      "qs@>=6.0.0 <6.16.1": "6.16.1"
     }
   },
   "allowScripts": {
