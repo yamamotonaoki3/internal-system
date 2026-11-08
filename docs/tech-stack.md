@@ -37,8 +37,8 @@
 | typescript-eslint | 8.72.0 | 最新の安定版 | 2026-10-10 | 8.71.1 | 8.71.0 |
 | eslint-plugin-react-hooks | 7.1.1 | 最新の安定版 | 2026-10-10 | 7.1.1 | 7.1.1 |
 | prettier | 3.9.10 | 最新の安定版 | 2026-10-10 | 3.9.9 | 3.9.9 |
-| @stryker-mutator/core | 10.0.0 | 最新の安定版 | 2026-10-10 | 10.0.0 | 10.0.0 |
-| @stryker-mutator/vitest-runner | 10.0.0 | 最新の安定版 | 2026-10-10 | 10.0.0 | 10.0.0 |
+| @stryker-mutator/core | 10.1.1 | 公式修正版を採用（Issue #192） | 2026-11-08 | 10.1.1 | 10.0.0 |
+| @stryker-mutator/vitest-runner | 10.1.1 | 公式修正版を採用（Issue #192） | 2026-11-08 | 10.1.1 | 10.0.0 |
 | dependency-cruiser | 18.7.0 | 最新の安定版 | 2026-10-10 | 18.5.0 | 18.4.0 |
 | jscpd | 5.4.2 | 最新の安定版 | 2026-10-10 | 5.4.1 | 5.3.3 |
 | @types/node | 26.6.5 | 最新の安定版 | 2026-10-10 | 26.6.4 | 24.19.0 |
@@ -129,6 +129,16 @@
 - typescript-eslint は TypeScript 6.1 未満にだけ対応する（7系は不可）
 - npm 11 では esbuild・workerd のインストール時の処理が既定で実行されないため、package.json に allowScripts を設定する
 - npm audit の合否は本番の依存（--omit=dev）で判定する。開発用の道具の脆弱性は記録して更新の判断に使う
+
+### Strykerの誤分類診断と再検証（2026-11-08、Issue #192）
+
+`@stryker-mutator/core` と `@stryker-mutator/vitest-runner` を10.1.1に固定した。公式 [PR #6269](https://github.com/stryker-mutator/stryker-js/pull/6269) の修正により、importまたはsuite収集中に失敗してテストが0件になった場合に、Survivedと誤分類する問題をRuntimeErrorとして報告する。10.1.1はこの修正を含む10.1.0の再リリースである。依存更新後の `npm ci` は成功した。Node 24・TypeScript 6・Vitest 4の版は変更していない。
+
+別の制限として、Stryker側で`testFiles`を明示すると静的変異もruntime activationになり、モジュール初期化前に変異が適用されない場合がある。このため限定計測ではStrykerの`testFiles`を使わず、同じテスト集合をVitestの`include`で選択し、`related=false`にする。共有ルールの12変異はこの小診断で12件検出した。通常の`npm run mutation`に`testFiles`の注入はなく、Vitestのsetup順序を変更する恒久設定も追加していない。`stryker.config.json`には今回の重要7pathを追加した。
+
+途中の65.81%と78.93%は基準80%未満の経過として保持する。Stryker 10.1.1での最終計測は重要15source・658変異、23関連testfiles・214実行ケース。Killed 534・Survived 108・NoCoverage 13・RuntimeError 3・Timeout 0で、公式の有効分母655に対し81.53%となり、終了0・基準80%以上を確認した。既知RuntimeError 3件は変異によるHono/Zod初期化失敗で、手動Killed補正や対象除外はしていない。元658署名の欠落・追加は0、追加8ケース後の製品・依存・設定ハッシュも不変。全体チェックは106ファイル1179件成功、build・開発形式E2E55件・ローカル本番形式CSP E2E9件・重要19pathの補足Semgrep・desktop/mobile画面確認も合格した。小診断だけを全体合格へ読み替えたものではない。
+
+2026-11-08に`npm view @stryker-mutator/core dist-tags --json`と`npm view @stryker-mutator/vitest-runner dist-tags --json`を再確認し、どちらも`latest`は10.1.1だった。表の採用版・確認した安定版はこの登録情報と一致する。「検証済み」列の10.0.0はハーネスひな形の履歴であり、本アプリでの今回の検証結果とは分ける。
 
 ### Drizzle ORM（data-access/drizzle）
 

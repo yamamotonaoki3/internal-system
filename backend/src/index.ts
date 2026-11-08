@@ -7,6 +7,7 @@ import { withSampleUsers } from "./db/sample-user.repository";
 import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
 import { authRoutes } from "./routes/auth";
+import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
@@ -20,6 +21,8 @@ export const app = createApp({
     { path: "/api/setup", app: setupRoutes(withSetup, withAuth) },
     { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
     { path: "/api/me", app: meRoutes(withCredentials) },
+    { path: "/api/admin/clients", app: adminClientRoutes() },
+    { path: "/api/clients", app: clientRoutes() },
   ],
 });
 

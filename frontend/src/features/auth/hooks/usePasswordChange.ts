@@ -33,11 +33,19 @@ export function usePasswordChange() {
     if (
       !mounted.current ||
       !query ||
+      !currentSession ||
       currentQuery !== query ||
       currentSession?.user.id !== before?.user.id
     )
       return undefined;
-    queryClient.setQueryData(authKeys.session, session);
+    queryClient.setQueryData(authKeys.session, {
+      ...session,
+      permissions: currentSession.permissions,
+    });
+    await queryClient.invalidateQueries({
+      queryKey: authKeys.session,
+      exact: true,
+    });
     return session;
   };
 }

@@ -123,6 +123,7 @@ describe("#120 AC-1 S-02 ログインの送信", () => {
         loggedIn
           ? HttpResponse.json({
               user: TEST_USER,
+              permissions: [],
               mustChangePassword: false,
               reauthenticatedAt: null,
             })
@@ -271,6 +272,7 @@ describe("#120 AC-1 初回パスワードの利用者（0-3 AC-5 の印）", () 
         loggedIn
           ? HttpResponse.json({
               user: TEST_USER,
+              permissions: [],
               mustChangePassword: true,
               reauthenticatedAt: null,
             })

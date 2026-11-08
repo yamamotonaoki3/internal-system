@@ -4,6 +4,7 @@ import { defineConfig } from "@playwright/test";
 // DB の初期化は、サーバーを起動する前に走る pretest:e2e が行う。失敗したら、まずトレースを確認する
 export default defineConfig({
   testDir: "e2e",
+  workers: 1,
   retries: 0, // 自動で再試行しない（C-25）
   use: {
     baseURL: "http://localhost:5173",

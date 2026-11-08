@@ -203,3 +203,37 @@ export const loginAttempts = sqliteTable(
     index("login_attempts_updated_at_idx").on(t.updatedAt),
   ],
 );
+
+export const clients = sqliteTable(
+  "clients",
+  {
+    id: text("id").primaryKey(),
+    code: text("code").notNull().unique(),
+    name: text("name").notNull(),
+    nameNormalized: text("name_normalized").notNull().unique(),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    version: integer("version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [index("clients_code_id_idx").on(t.code, t.id)],
+);
+
+export const clientApiRateLimits = sqliteTable(
+  "client_api_rate_limits",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bucketType: text("bucket_type").notNull(),
+    windowStartedAtMs: integer("window_started_at_ms").notNull(),
+    attemptCount: integer("attempt_count").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.bucketType] }),
+    check(
+      "client_api_rate_limits_bucket_type_check",
+      sql`${t.bucketType} in ('read', 'write')`,
+    ),
+  ],
+);

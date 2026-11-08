@@ -1,14 +1,16 @@
 // サイドバーとドロワーが共用する、メニューの中身。
 // 後続のIssueが足す場所：データを取るセクションは、下の「ここに差し込む」の位置に機能の部品を1行で足す。固定のリンクは navigation.ts に足す。
 import { NavLink } from "react-router";
+import { useSession } from "../auth/hooks/useSession";
 import { AdminMenu } from "./AdminMenu";
 import { NAV_LINK_CLASSES } from "./nav-link-classes";
 import { adminNavGroups, primaryNavItems } from "./navigation";
 
-// セッションの応答に権限が入るまで空にする（管理項目はまだ0件で、誰にも「管理」は出ない）
-const NO_PERMISSIONS: ReadonlySet<string> = new Set();
-
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const session = useSession();
+  const permissions: ReadonlySet<string> = new Set(
+    session.data?.permissions ?? [],
+  );
   return (
     <div>
       {/* ここに差し込む：データを取るセクション（会社・自部署・他部署 → DM → 案件） */}
@@ -30,7 +32,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       </ul>
       <AdminMenu
         groups={adminNavGroups}
-        permissions={NO_PERMISSIONS}
+        permissions={permissions}
         onNavigate={onNavigate}
       />
     </div>

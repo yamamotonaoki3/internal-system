@@ -27,7 +27,18 @@ export const adminNavGroups: AdminNavGroup[] = [
   { id: "approval", label: "承認", items: [] },
   { id: "account", label: "アカウント", items: [] },
   { id: "department", label: "部署", items: [] },
-  { id: "master-log", label: "マスタ・ログ", items: [] },
+  {
+    id: "master-log",
+    label: "マスタ・ログ",
+    items: [
+      {
+        id: "clients",
+        label: "取引先管理",
+        to: "/clients",
+        requires: "perm.client.manage",
+      },
+    ],
+  },
 ];
 
 /** 持っている権限の項目だけを残し、項目が0件のまとまりは除く。定義は書き換えない */
