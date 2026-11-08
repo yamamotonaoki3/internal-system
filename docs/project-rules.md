@@ -35,3 +35,9 @@
 - 開発・テスト用の使い捨ての秘密の値（ADR 0014）：AIが書いてよいのは、乱数で作った値を`.env.development`・`.env.test`に入れる場合だけ。本番（`wrangler secret put`・GitHub Secrets）と実在の認証情報は利用者が入れる。値を画面・会話・ログに出さず、ファイルを読まない（項目名だけを`npm run env:check`で確認する）。動作確認で使った値は確認後に作り直す（開発・テスト用の鍵だけ。本番と実データの鍵を入れ替えない規則は`docs/secrets.md`のとおり変わらない）。安全装置に止められたら回避せず、利用者に依頼する
 - 画面のスタイル（ADR 0015）：色・文字・余白などの基準値は `frontend/src/styles/index.css` の `@theme` の1か所だけで定義し、色は用途で名付ける（色を足すときは `tokens.test.ts` の組み合わせにも足す）。画面で素の `button`・`input` にクラスを書かず、`frontend/src/components/` の共通部品を使う（部品は `className` を受け取らない）。クラス名は動的に作らず、任意の値（`[...]`）は使わない。`style` 属性と `<style>` は使わない（本番のCSPは `style-src 'self'`）。フォーカスの輪郭は `index.css` の1か所で決める。詳しくは `docs/design/style-foundation.md`
 - 共通レイアウト（S-01。Issue #121）：サイドバー・下部メニューの固定リンクは `frontend/src/features/app-shell/navigation.ts` の配列だけに足し、データを取るセクションは機能の部品を `SidebarNav.tsx` の決まった位置に1行で差し込む。画面のルートは `frontend/src/App.tsx` のレイアウトルートの子に足す。管理項目は `requires`（権限ID）を付け、権限による出し分けは表示の制御であり認可ではない（認可はサーバー側で行う）。動かない仮の項目は置かない。詳しくは `docs/design/app-shell.md`
+
+## 2026-11-08承認の運用改善試行
+
+[ADR0019](adr/0019-efficiency-trial.md)により、次の1Issue #125（未決仕様の合意・依存確認後）で、計画・文書・品質確認等の兼務、条件一致を立証した検証再利用、同一原因の修正失敗2回または30分の調査枠、独立Issue最大2件、共有環境の品質担当1名を試す。AGENTS.md・Skillの役割分離・工程ごとの全体検証・前Issue統合後の次Issue着手の例外はADRの範囲だけとする。
+
+テスト先行・実装担当のテスト編集禁止・独立レビュー・重要範囲ミューテーション80%以上・最終全体ゲートとADR0016の承認境界を維持する。承認台帳・6項目引継ぎ・完了件数／進行中件数・振返りは[試行手順](operations/efficiency-trial.md)に従う。他Issueへ自動拡大せず、ブランチ削除の包括承認を新設せず、#189を本記録で閉じない。
