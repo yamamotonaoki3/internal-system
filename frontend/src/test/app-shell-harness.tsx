@@ -23,6 +23,7 @@ export function respondShellUser(mustChangePassword = false) {
     http.get("/api/auth/session", () =>
       HttpResponse.json({
         user: SHELL_USER,
+        permissions: [],
         mustChangePassword,
         reauthenticatedAt: null,
       }),

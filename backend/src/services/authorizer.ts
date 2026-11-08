@@ -1,10 +1,13 @@
 // アプリの権限判定。#118 の枠（createAuthorizer）を呼ぶのは、このファイルの1か所だけ。
-import type { RoleAssignmentRepository } from "../db/role-assignment.repository";
+import {
+  withRoleAssignments,
+  type RoleAssignmentRepository,
+} from "../db/role-assignment.repository";
 import {
   createAuthorizer,
   type PermissionResolver,
 } from "../lib/authorization";
-import type { Logger } from "../lib/logger/logger";
+import { createLogger, type Logger } from "../lib/logger/logger";
 import { PERMISSIONS, type Permission } from "../lib/permissions";
 import { resolvePermissions } from "./permission-resolver";
 
@@ -19,4 +22,16 @@ export function createAppAuthorizer(
     return resolvePermissions(found.user, found.assignments, scope);
   };
   return createAuthorizer(PERMISSIONS, resolve, options);
+}
+
+export function canManageClients(
+  env: Env,
+  userId: string,
+  traceId: string,
+): Promise<boolean> {
+  return withRoleAssignments(env, (repository) =>
+    createAppAuthorizer(repository, {
+      logger: createLogger({ traceId }),
+    }).can({ userId }, "perm.client.manage", { type: "company" }),
+  );
 }

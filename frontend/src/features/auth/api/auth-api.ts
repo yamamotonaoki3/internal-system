@@ -6,6 +6,7 @@ export type SessionInfo = {
   user: { id: string; displayName: string; loginId: string };
   mustChangePassword: boolean;
   reauthenticatedAt: string | null;
+  permissions?: "perm.client.manage"[];
 };
 
 export type LoginRequest = { loginId: string; password: string };
@@ -26,13 +27,16 @@ const sessionInfoSchema = z.object({
   mustChangePassword: z.boolean(),
   reauthenticatedAt: reauthenticatedAtSchema.nullable(),
 });
+const sessionWithPermissionsSchema = sessionInfoSchema.extend({
+  permissions: z.array(z.literal("perm.client.manage")),
+});
 const reauthenticateResponseSchema = z.object({
   reauthenticatedAt: reauthenticatedAtSchema,
 });
 
 export async function fetchSession(): Promise<SessionInfo> {
   const response = await apiClient.get<SessionInfo>("/auth/session");
-  return sessionInfoSchema.parse(response.data);
+  return sessionWithPermissionsSchema.parse(response.data);
 }
 
 export async function login(input: LoginRequest): Promise<SessionInfo> {

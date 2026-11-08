@@ -27,12 +27,14 @@ import {
 import {
   cleanupRoleTestData,
   countRows,
+  insertAssignment,
   insertDepartment,
   insertUser,
 } from "../../test/role-fixtures";
 import { loadConfig } from "../config";
 import { app } from "../index";
 import { verifyPassword } from "../lib/password";
+import { ROLE_IDS } from "../lib/permissions";
 
 const ALLOWED_ORIGIN = loadConfig(env).allowedOrigins[0] ?? "";
 const MIN = 60_000;
@@ -673,6 +675,7 @@ describe(
           displayName: "テスト太郎",
           loginId: "testuser_001",
         },
+        permissions: [],
         mustChangePassword: false,
         reauthenticatedAt: null,
       });
@@ -792,3 +795,38 @@ describe(
     });
   },
 );
+
+describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
+  it("#192 AC-1・AC-6: 全体管理者のsessionはperm.client.manageを返す", async () => {
+    await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
+    const session = await insertSession(userId, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: session.token });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      permissions: ["perm.client.manage"],
+    });
+  });
+
+  it("#192 AC-1・AC-6: 一般社員のsessionは管理権限を返さない", async () => {
+    const general = await insertSession(userId, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: general.token });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ permissions: [] });
+  });
+
+  it("#192 AC-1・AC-6: 部署オーナーのsessionは管理権限を返さない", async () => {
+    const department = await insertDepartment("取引先権限テスト部署");
+    const owner = await insertUser("testuser_client_session_owner", department);
+    await insertAssignment(owner, ROLE_IDS.owner, "department", department);
+    const session = await insertSession(owner, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: session.token });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ permissions: [] });
+  });
+});

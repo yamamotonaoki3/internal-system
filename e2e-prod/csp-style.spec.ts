@@ -215,6 +215,7 @@ async function mockLoggedIn(page: Page): Promise<void> {
           displayName: "テスト一郎",
           loginId: "e2euser_style_997",
         },
+        permissions: [],
         mustChangePassword: false,
         reauthenticatedAt: null,
       } satisfies SessionInfo),

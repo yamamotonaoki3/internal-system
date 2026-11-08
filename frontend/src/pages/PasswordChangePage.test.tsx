@@ -137,7 +137,11 @@ describe("#123 S-03/S-04 本人のパスワード変更", () => {
     const { user, client } = renderAt("/password", true);
     server.use(
       http.get("/api/auth/session", () =>
-        HttpResponse.json({ ...nextSession, mustChangePassword }),
+        HttpResponse.json({
+          ...nextSession,
+          permissions: [],
+          mustChangePassword,
+        }),
       ),
     );
     await fillForm(user);

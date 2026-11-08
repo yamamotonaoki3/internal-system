@@ -115,3 +115,32 @@ describe("#121 AC-3 navigation の定義", () => {
     expect(visibleAdminGroups(adminNavGroups, new Set())).toEqual([]);
   });
 });
+
+// #192 AC-1（5-7 AC-1）：管理メニューは全体管理者だけに表示する。
+describe("#192 AC-1（5-7 AC-1）: 取引先管理メニュー", () => {
+  it("#192 AC-1（5-7 AC-1）: perm.client.manage があると取引先管理へ進める", () => {
+    const groups = visibleAdminGroups(
+      adminNavGroups,
+      new Set(["perm.client.manage"]),
+    );
+    expect(groups.flatMap((group) => group.items)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          to: "/clients",
+          requires: "perm.client.manage",
+        }),
+      ]),
+    );
+  });
+  it("#192 AC-1（5-7 AC-1）: 一般・オーナー権限では取引先管理を表示しない", () => {
+    for (const permissions of [
+      new Set<string>(),
+      new Set(["perm.role.assign"]),
+    ]) {
+      const links = visibleAdminGroups(adminNavGroups, permissions).flatMap(
+        (group) => group.items,
+      );
+      expect(links.some((item) => item.to === "/clients")).toBe(false);
+    }
+  });
+});

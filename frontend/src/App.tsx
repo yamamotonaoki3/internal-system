@@ -3,12 +3,23 @@
 import { Route, Routes } from "react-router";
 import { AppShell } from "./features/app-shell/AppShell";
 import { RequireAuth } from "./features/auth/components/RequireAuth";
+import { useSession } from "./features/auth/hooks/useSession";
 import { ReauthProvider } from "./features/auth/ReauthProvider";
 import { HomePage } from "./pages/HomePage";
+import { ClientsPage } from "./pages/ClientsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
 import { SetupPage } from "./pages/SetupPage";
+
+function ClientManageRoute() {
+  const session = useSession();
+  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isError) return null;
+  if (!session.data.permissions?.includes("perm.client.manage"))
+    return <NotFoundPage />;
+  return <ClientsPage />;
+}
 
 export function App() {
   return (
@@ -23,6 +34,7 @@ export function App() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="/clients" element={<ClientManageRoute />} />
         <Route path="/password" element={<PasswordChangePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

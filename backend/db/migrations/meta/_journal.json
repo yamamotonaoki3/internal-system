@@ -36,6 +36,27 @@
       "when": 1793702477357,
       "tag": "0004_add_sessions_login_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794062814350,
+      "tag": "0005_add_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794092904451,
+      "tag": "0006_seed_internal_client",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794093155177,
+      "tag": "0007_add_client_api_rate_limits",
+      "breakpoints": true
     }
   ]
 }

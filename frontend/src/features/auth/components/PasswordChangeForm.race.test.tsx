@@ -97,7 +97,7 @@ describe("#123 0-3 AC-4 認証失効後の遅延成功（レビュー回帰）",
       server.use(
         http.get("/api/auth/session", () =>
           loggedIn
-            ? HttpResponse.json(SESSION)
+            ? HttpResponse.json({ ...SESSION, permissions: [] })
             : HttpResponse.json(
                 { code: "UNAUTHENTICATED", message: "ログインしてください" },
                 { status: 401 },

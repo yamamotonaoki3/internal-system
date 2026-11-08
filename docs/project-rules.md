@@ -35,6 +35,8 @@
 - 開発・テスト用の使い捨ての秘密の値（ADR 0014）：AIが書いてよいのは、乱数で作った値を`.env.development`・`.env.test`に入れる場合だけ。本番（`wrangler secret put`・GitHub Secrets）と実在の認証情報は利用者が入れる。値を画面・会話・ログに出さず、ファイルを読まない（項目名だけを`npm run env:check`で確認する）。動作確認で使った値は確認後に作り直す（開発・テスト用の鍵だけ。本番と実データの鍵を入れ替えない規則は`docs/secrets.md`のとおり変わらない）。安全装置に止められたら回避せず、利用者に依頼する
 - 画面のスタイル（ADR 0015）：色・文字・余白などの基準値は `frontend/src/styles/index.css` の `@theme` の1か所だけで定義し、色は用途で名付ける（色を足すときは `tokens.test.ts` の組み合わせにも足す）。画面で素の `button`・`input` にクラスを書かず、`frontend/src/components/` の共通部品を使う（部品は `className` を受け取らない）。クラス名は動的に作らず、任意の値（`[...]`）は使わない。`style` 属性と `<style>` は使わない（本番のCSPは `style-src 'self'`）。フォーカスの輪郭は `index.css` の1か所で決める。詳しくは `docs/design/style-foundation.md`
 - 共通レイアウト（S-01。Issue #121）：サイドバー・下部メニューの固定リンクは `frontend/src/features/app-shell/navigation.ts` の配列だけに足し、データを取るセクションは機能の部品を `SidebarNav.tsx` の決まった位置に1行で差し込む。画面のルートは `frontend/src/App.tsx` のレイアウトルートの子に足す。管理項目は `requires`（権限ID）を付け、権限による出し分けは表示の制御であり認可ではない（認可はサーバー側で行う）。動かない仮の項目は置かない。詳しくは `docs/design/app-shell.md`
+- 予約取引先 `INT` の初期登録（Issue #192）：業務要件5-7 AC-9を満たすため、初期登録だけの専用migrationを1本に限って手作成する。既存migrationは変更しない。通常のDDL変更を含む他のmigrationは生成手順を使う。本番への適用には別途利用者承認が必要（ADR-0018）。
+- 取引先APIの利用者単位レート上限（Issue #192）：読み取りAPI3操作の合算は固定UTC 1分あたり120回、登録・改名・無効化の3操作の合算は30回。超過時は429と `Retry-After` 秒数を返し、計数DB障害時は503で拒否する。詳細は要件API共通仕様X-8を正とする。
 
 ## 2026-11-08承認の運用改善試行
 
