@@ -1,7 +1,7 @@
 // Repository：利用者のロールの割り当てを読む（権限の判定用）。DB へのアクセスはこの層に閉じ込める。
 import { eq } from "drizzle-orm";
 import { userRoleAssignments, users } from "../../db/schema";
-import type { Database } from "./database";
+import { withDatabase, type Database } from "./database";
 
 export type UserRoleAssignment = {
   roleId: string;
@@ -52,4 +52,11 @@ export function createRoleAssignmentRepository(
       };
     },
   };
+}
+
+export function withRoleAssignments<T>(
+  env: Env,
+  run: (repository: RoleAssignmentRepository) => Promise<T>,
+): Promise<T> {
+  return withDatabase(env, (db) => run(createRoleAssignmentRepository(db)));
 }

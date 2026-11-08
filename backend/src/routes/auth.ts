@@ -22,6 +22,7 @@ import {
   logout,
   type WithAuth,
 } from "../services/auth.service";
+import { canManageClients } from "../services/authorizer";
 import {
   reauthenticate,
   type WithCredentials,
@@ -145,11 +146,16 @@ export function authRoutes(
       deleteCookie(c, SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES);
       return c.body(null, 204);
     })
-    .get("/session", noStore, (c) => {
+    .get("/session", noStore, async (c) => {
       const principal = c.get("principal") ?? null;
       if (principal === null) {
         throw new AppError("UNAUTHENTICATED", "ログインしてください");
       }
+      const canManage = await canManageClients(
+        c.env,
+        principal.userId,
+        traceIdOf(c),
+      );
       return c.json({
         user: {
           id: principal.userId,
@@ -158,6 +164,7 @@ export function authRoutes(
         },
         mustChangePassword: principal.mustChangePassword,
         reauthenticatedAt: principal.reauthenticatedAt,
+        permissions: canManage ? ["perm.client.manage"] : [],
       });
     });
 }

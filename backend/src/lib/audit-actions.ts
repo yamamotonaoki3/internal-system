@@ -7,6 +7,9 @@ export const AUDIT_ACTIONS = [
   "auth.password_change",
   "auth.reauthenticate",
   "auth.rate_limited",
+  "client.create",
+  "client.rename",
+  "client.deactivate",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

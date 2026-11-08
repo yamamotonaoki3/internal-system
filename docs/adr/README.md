@@ -26,3 +26,4 @@
 | [0013](0013-initial-setup-auth-and-pii-encryption.md) | 初回セットアップの認証は環境のシークレットで行い、本名はAES-256-GCMで暗号化して保存する | 採用 |
 | [0014](0014-ai-may-set-dev-test-secrets.md) | 開発・テスト用の使い捨ての秘密の値は、AIが環境ファイルに書いてよい | 採用 |
 | [0015](0015-style-foundation.md) | スタイルの方針は、Tailwind CSS 4とCSS変数のデザイントークンと、自前の小さな共通部品にする | 採用 |
+| [0018](0018-client-initial-seed-migration-exception.md) | 予約取引先INTの初期登録専用migrationを1本だけ手作成する | 採用 |

@@ -18,6 +18,13 @@
     "backend/src/db/credential.repository.ts",
     "backend/src/db/audit-log.repository.ts",
     "backend/src/db/session.repository.ts",
+    "shared/client-rules.ts",
+    "backend/src/db/client.repository.ts",
+    "backend/src/db/client-rate-limit.repository.ts",
+    "backend/src/routes/clients.ts",
+    "frontend/src/features/clients/client-api.ts",
+    "frontend/src/features/clients/ClientForm.tsx",
+    "frontend/src/features/clients/ClientsManager.tsx",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],

@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -79,12 +79,21 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/services/` | Service。業務のルール |
 | `backend/src/db/` | Repository。DBへのアクセス |
 | `backend/src/lib/` | 共通の部品（エラー・入力チェック・セキュリティなど。ハーネスが用意） |
+| `backend/src/routes/clients.ts` | 取引先マスタの管理・社員向けルート（Issue #192）。`adminClientRoutes`・`clientRoutes`を`backend/src/index.ts`で登録 |
+| `backend/src/services/client.service.ts` | `createClientService`で取引先管理の認可と業務規則を扱う |
+| `backend/src/db/client.repository.ts` | `createClientRepository`で取引先の保存・一覧・更新と監査記録を扱う |
+| `backend/src/db/client-rate-limit.repository.ts` | `createClientRateLimitRepository`で取引先APIの利用者ごとのレート制限状態を原子的に更新する |
+| `shared/client-rules.ts` | 取引先コード・名前・検索語の入力規則と名前比較キー |
+| `backend/db/schema.ts`、`backend/db/migrations/0005_add_clients.sql`、`backend/db/migrations/0006_seed_internal_client.sql`、`backend/db/migrations/0007_add_client_api_rate_limits.sql` | 取引先マスタ・INT初期行・取引先API rate状態のDB定義（Issue #192）。DDLは通常生成migration、INT初期行はADR-0018の例外となる専用migration |
+| `frontend/src/features/clients/`、`frontend/src/pages/ClientsPage.tsx` | 取引先管理画面。API層・query key・フォーム・`ClientsManager`を構成し、詳細は[client-management.md](client-management.md)を参照 |
+| `frontend/src/App.tsx`、`frontend/src/features/auth/api/auth-api.ts`、`frontend/src/features/app-shell/navigation.ts`、`SidebarNav.tsx` | 取引先管理画面の権限付きルートと管理メニュー。画面側の権限確認はサーバー認可の代わりにならない |
 | `shared/setup-rules.ts` | 初回セットアップの入力上限と社員ID・内線・32 byte base64url形式の定義元。API・画面・設定から参照する環境非依存の葉（Issue #181） |
 | `backend/src/rules-examples/` | Skillの良い例・悪い例のテスト（ハーネスが管理する。消さない） |
 | `frontend/src/` | 画面（React） |
 | `frontend/src/styles/` | デザインの土台。`index.css`（Tailwindの読み込み・デザイントークン・全体の基本のスタイル）と、色のコントラスト比のテスト（Issue #171。[style-foundation.md](style-foundation.md)） |
 | `frontend/src/components/` | 画面で共通に使う部品。`Button`（`variant`：primary・secondary・danger・ghost）・`TextField`・`SecretField`・`Alert`・`PageLayout`（`FieldMessages`は内部用）。使い分けと足す手順は [style-foundation.md](style-foundation.md) |
 | `frontend/src/features/app-shell/` | ログイン後の全画面が使う共通レイアウト（S-01）。`AppShell`・`Header`・`Sidebar`・`SidebarNav`・`AdminMenu`・`MobileNav`・`Drawer`・`AvatarMenu`・`navigation.ts`（Issue #121）。項目を足す場所と書き方は [app-shell.md](app-shell.md) |
+| 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
 

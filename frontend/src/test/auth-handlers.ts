@@ -21,6 +21,7 @@ export function respondLoggedIn(
     http.get("/api/auth/session", () =>
       HttpResponse.json({
         user: TEST_USER,
+        permissions: [],
         mustChangePassword,
         reauthenticatedAt,
       }),

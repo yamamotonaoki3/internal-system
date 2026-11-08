@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { authRoutes } from "./routes/auth";
+import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
@@ -20,6 +21,8 @@ const app = createApp({
     // #120：ログイン・ログアウト・セッション。index.ts と同じパスに組み込む
     { path: "/api/auth", app: authRoutes(unusedDb) },
     { path: "/api/me", app: meRoutes(unusedDb) },
+    { path: "/api/admin/clients", app: adminClientRoutes() },
+    { path: "/api/clients", app: clientRoutes() },
   ],
 });
 
@@ -43,7 +46,10 @@ const actual = [
   ...new Set(
     app.routes
       .filter((route) => route.method !== "ALL")
-      .map((route) => `${route.method} ${route.path}`),
+      .map(
+        (route) =>
+          `${route.method} ${route.path.replace(/\/:([A-Za-z_][A-Za-z0-9_]*)(?=\/|$)/g, "/{$1}")}`,
+      ),
   ),
 ].sort();
 
