@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `channels_company_general_unique` ON `channels` (`purpose`) WHERE "channels"."purpose" = 'company_general';

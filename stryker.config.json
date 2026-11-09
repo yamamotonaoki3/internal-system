@@ -37,6 +37,12 @@
     "backend/src/db/account.repository.ts",
     "backend/src/routes/accounts.ts",
     "frontend/src/features/accounts/schemas/account-form.ts",
+    "backend/src/lib/channel-rules.ts",
+    "backend/src/db/channel.repository.ts",
+    "backend/src/routes/channels.ts",
+    "frontend/src/features/channels/api/channel-api.ts",
+    "frontend/src/features/channels/hooks/useJoinChannel.ts",
+    "frontend/src/features/channels/components/*.tsx",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],

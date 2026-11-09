@@ -3,6 +3,7 @@
 // 初期パスワードは、ハッシュにしたものだけを保存する。平文は呼び出し元への戻り値にだけ入れ、ログ・監査・エラーには入れない。
 import {
   AccountConflictError,
+  CompanyGeneralChannelMissingError,
   withAccounts,
   type AccountConflictReason,
   type AccountListOptions,
@@ -44,6 +45,9 @@ const CONFLICT_MESSAGES: Record<AccountConflictReason, string> = {
   login_id: "そのユーザーIDはすでに使われています",
   email: "そのメールアドレスはすでに使われています",
 };
+
+const COMPANY_GENERAL_MISSING_MESSAGE =
+  "初期チャンネルが準備されていないため、アカウントを発行できません。システム管理者へ連絡してください。";
 
 export function withAccountService<T>(
   env: Env,
@@ -116,6 +120,21 @@ export function createAccountService(
           throw new AppError(
             "CONFLICT",
             CONFLICT_MESSAGES[error.reason],
+            {},
+            { cause: error },
+          );
+        }
+        if (error instanceof CompanyGeneralChannelMissingError) {
+          // 運用担当者が気づけるよう記録する（個人情報は出さない）
+          createLogger({
+            traceId: actor.traceId,
+            userId: actor.userId,
+          }).error(
+            "全社連絡のチャンネルがないため、アカウントを発行できません",
+          );
+          throw new AppError(
+            "SERVICE_UNAVAILABLE",
+            COMPANY_GENERAL_MISSING_MESSAGE,
             {},
             { cause: error },
           );

@@ -6,6 +6,7 @@ import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
+import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
@@ -30,6 +31,8 @@ const app = createApp({
     // #196：部署の管理。index.ts と同じパスに組み込む
     { path: "/api/admin/departments", app: adminDepartmentRoutes() },
     { path: "/api/departments", app: departmentRoutes() },
+    // #200：チャンネルの一覧・詳細・参加。index.ts と同じパスに組み込む
+    { path: "/api/channels", app: channelRoutes() },
   ],
 });
 
@@ -117,6 +120,28 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
       "POST /api/admin/accounts": ["201", "401", "403", "409", "422"],
       "GET /api/admin/accounts": ["200", "401", "403", "422"],
       "GET /api/admin/accounts/department-options": ["200", "401", "403"],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#200 AC-2・AC-3: チャンネルの一覧・詳細・参加の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "GET /api/channels": ["200", "401", "404", "422"],
+      "GET /api/channels/{channelId}": ["200", "401", "404", "422"],
+      "POST /api/channels/{channelId}/join": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "422",
+      ],
     };
     for (const [name, codes] of Object.entries(expected)) {
       const operation = operations.find((entry) => entry.name === name);

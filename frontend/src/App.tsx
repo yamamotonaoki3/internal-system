@@ -8,6 +8,8 @@ import { ReauthProvider } from "./features/auth/ReauthProvider";
 import { HomePage } from "./pages/HomePage";
 import { AccountCreatePage } from "./pages/AccountCreatePage";
 import { AccountsPage } from "./pages/AccountsPage";
+import { ChannelDetailPage } from "./pages/ChannelDetailPage";
+import { ChannelsPage } from "./pages/ChannelsPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { DepartmentCreatePage } from "./pages/DepartmentCreatePage";
 import { DepartmentsPage } from "./pages/DepartmentsPage";
@@ -68,6 +70,8 @@ export function App() {
           path="/accounts/new"
           element={<AccountManageRoute page="create" />}
         />
+        <Route path="/channels" element={<ChannelsPage />} />
+        <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/password" element={<PasswordChangePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

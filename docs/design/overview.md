@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -100,6 +100,9 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `shared/department-rules.ts` | 部署名・説明の入力規則、比較キー、お知らせ専用チャンネルの名前の定義元（Issue #196） |
 | `backend/db/schema.ts`、`backend/db/migrations/0008_add_department_channels.sql`、`0009_backfill_department_channels.sql` | `departments`への列の追加と、`rooms`・`channels`・`channel_members`（Issue #196）。0009はADR-0021の例外となる補完migration |
 | `frontend/src/features/departments/`、`frontend/src/pages/DepartmentsPage.tsx`・`DepartmentCreatePage.tsx`、`frontend/src/components/SelectField.tsx` | 部署管理画面（S-24・S-08）。詳細は[department-management.md](department-management.md) |
+| `backend/src/routes/channels.ts`、`backend/src/services/channel.service.ts`、`backend/src/db/channel.repository.ts`、`backend/src/lib/channel-rules.ts` | チャンネルの一覧・詳細・参加（Issue #200）。`channelRoutes`を`backend/src/index.ts`で`/api/channels`へ登録。判定は`channel-rules.ts`の純粋関数、参加の行と監査は1回の`db.batch`。詳細は[channels.md](channels.md) |
+| `backend/db/migrations/0010_add_company_general_unique.sql`、`0011_seed_company_general_channel.sql` | 全社連絡を1つに限る部分一意インデックスと、全社連絡の初期データ（Issue #200）。0011はADR-0022の例外となる手作成migration |
+| `frontend/src/features/channels/`、`frontend/src/pages/ChannelsPage.tsx`・`ChannelDetailPage.tsx` | S-09（チャンネルを探す）・詳細の入口・サイドバーの「参加中のチャンネル」（Issue #200）。詳細は[channels.md](channels.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
@@ -137,6 +140,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | アカウントの個別発行（S-23）と一覧（S-22）（全体管理者の認可をroute・service両方で入力検証より先に行う、初期パスワードの一度だけの表示とキャッシュに載せない扱い、重複の409、後続の拡張点、未決定のレート制限と離脱確認） | [accounts.md](accounts.md) | #199（親 #126）、ADR-0012・0013 |
 | 共通レイアウトの骨格S-01（ヘッダー・サイドバー・本文・下部メニュー・ドロワー・アバターメニュー、サイドバーの項目やヘッダーの部品を足す場所と書き方、管理メニューの仕組みと権限の扱い、認証ガードの各状態、jsdomの制約とE2Eの役割） | [app-shell.md](app-shell.md) | #121（親 #108）、依存 #120・#171、ADR-0015 |
 | 部署の登録・改名・オーナー交代と部署の専用チャンネル2つ（batchの文の順序と前提の確認、`rooms`・`channels`・`channel_members`を後続が使う約束、初代部署の補完migration、本番適用前の注意、未実装の記録） | [department-management.md](department-management.md) | #196（親 #125）、ADR-0018・0021 |
+| 全社連絡と公開チャンネルの一覧・閲覧・参加（S-09。判定の順と404の扱い、参加の監査を同じbatchに入れる順序、全社連絡の用意（migration 0010・0011）、アカウント発行・セットアップでの参加と503、サイドバーの取得、未実施・未決定の記録） | [channels.md](channels.md) | #200（親 #132）、ADR-0022 |
 
 ## 関係する文書
 

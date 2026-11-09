@@ -299,6 +299,10 @@ export const channels = sqliteTable(
     uniqueIndex("channels_department_purpose_unique")
       .on(t.departmentId, t.purpose)
       .where(sql`${t.purpose} in ('department', 'announcement')`),
+    // 全社連絡は会社で1つだけ（Q-3）。列は purpose で、条件の行（company_general）の間で重複を拒否する
+    uniqueIndex("channels_company_general_unique")
+      .on(t.purpose)
+      .where(sql`${t.purpose} = 'company_general'`),
     index("channels_department_id_idx").on(t.departmentId),
   ],
 );

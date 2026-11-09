@@ -7,6 +7,19 @@ import {
   cleanupAuthTestData,
 } from "../../test/auth-fixtures";
 import {
+  companyGeneralMembers,
+  companyGeneralRoomId,
+  removeCompanyGeneral,
+  restoreCompanyGeneral,
+} from "../../test/company-general-fixtures";
+import {
+  TEST_TAG,
+  cleanupDepartmentTestData,
+  insertChannel,
+  insertDepartmentWithChannels,
+  membersOf,
+} from "../../test/department-fixtures";
+import {
   cleanupRoleTestData,
   insertDepartment,
   insertUser,
@@ -15,6 +28,7 @@ import {
 import { decodeCursor } from "../lib/cursor";
 import {
   AccountConflictError,
+  CompanyGeneralChannelMissingError,
   withAccounts,
   type AccountCreateInput,
 } from "./account.repository";
@@ -74,10 +88,17 @@ beforeEach(async () => {
   adminId = await insertUser("testuser_acct_admin", departmentId);
 });
 
+let companyGeneralRemoved = false;
+
 afterEach(async () => {
   await env.DB.exec("DROP TRIGGER IF EXISTS unit_fail_account_audit");
   await cleanupAuthTestData();
+  await cleanupDepartmentTestData();
   await cleanupRoleTestData();
+  if (companyGeneralRemoved) {
+    await restoreCompanyGeneral();
+    companyGeneralRemoved = false;
+  }
 });
 
 describe("#199 アカウントの Repository（D1）", () => {
@@ -304,5 +325,136 @@ describe("#199 アカウントの Repository（D1）", () => {
       expect(failure).toBeInstanceOf(Error);
       expect((failure as Error).message).toBe("利用者IDが不正です");
     });
+  });
+});
+
+// #200 AC-1・Q-5・Q-10（計画レビュー #2）: アカウント発行のときに、全社連絡と所属部署の専用チャンネル2つへ同じ batch で参加させる。
+// 前提（実装前。引き継ぎに明記）：全社連絡がない（またはアーカイブ済み）ときは CompanyGeneralChannelMissingError を投げ、何も残さない。
+describe("#200 アカウント発行時のチャンネル参加（D1）", () => {
+  async function memberRows(userId: string) {
+    const { results } = await env.DB.prepare(
+      "SELECT channel_id FROM channel_members WHERE user_id = ? ORDER BY channel_id",
+    )
+      .bind(userId)
+      .all<{ channel_id: string }>();
+    return results.map((r) => r.channel_id);
+  }
+
+  it("#200 AC-1・Q-10: 発行すると、全社連絡と所属部署の専用チャンネル2つ（department・announcement）に参加する。他部署のチャンネルには入らない", async () => {
+    const own = await insertDepartmentWithChannels("発行時参加の自部署");
+    const another = await insertDepartmentWithChannels("発行時参加の他部署");
+    const value = input({
+      loginId: "testuser_acct_join",
+      email: "testuser_acct_join@example.com",
+      departmentId: own.id,
+    });
+    await create(value);
+    const general = await companyGeneralRoomId();
+    expect(general).not.toBeNull();
+    expect(await memberRows(value.id)).toEqual(
+      [general, own.dedicatedChannelId, own.announcementChannelId].sort(),
+    );
+    expect(await membersOf(another.dedicatedChannelId)).toEqual([]);
+    expect(await membersOf(another.announcementChannelId)).toEqual([]);
+    expect(await companyGeneralMembers()).toContain(value.id);
+  });
+
+  it("#200 AC-1・Q-10: 部署に専用チャンネルがなくても発行は成功し、全社連絡だけに参加する", async () => {
+    const value = input({ loginId: "testuser_acct_nochan" });
+    await create(value);
+    expect(await memberRows(value.id)).toEqual([await companyGeneralRoomId()]);
+    expect(await userCount("testuser_acct_nochan")).toBe(1);
+  });
+
+  it("#200 AC-1・Q-10: アーカイブ済みの専用チャンネルには参加しない（残りの専用チャンネルと全社連絡には参加する）", async () => {
+    const own = await insertDepartmentWithChannels("発行時参加のアーカイブ");
+    await env.DB.prepare("UPDATE channels SET deleted_at = ? WHERE room_id = ?")
+      .bind(NOW, own.announcementChannelId)
+      .run();
+    const value = input({
+      loginId: "testuser_acct_archived",
+      departmentId: own.id,
+    });
+    await create(value);
+    expect(await memberRows(value.id)).toEqual(
+      [await companyGeneralRoomId(), own.dedicatedChannelId].sort(),
+    );
+  });
+
+  it("#200 AC-1・Q-10: 部署の通常のチャンネル（purpose=normal）には自動参加しない", async () => {
+    const own = await insertDepartmentWithChannels("発行時参加の通常");
+    const normal = await insertChannel({
+      name: `${TEST_TAG}部署の通常チャンネル`,
+      purpose: "normal",
+      departmentId: own.id,
+    });
+    const value = input({
+      loginId: "testuser_acct_normal",
+      departmentId: own.id,
+    });
+    await create(value);
+    expect(await memberRows(value.id)).not.toContain(normal);
+  });
+
+  it("#200 AC-1・Q-5: 全社連絡がないと発行は失敗し、利用者・参加・監査のどれも残らない", async () => {
+    const own = await insertDepartmentWithChannels("全社連絡なし");
+    await removeCompanyGeneral();
+    companyGeneralRemoved = true;
+    const value = input({
+      loginId: "testuser_acct_nogeneral",
+      departmentId: own.id,
+    });
+    const error = await create(value).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CompanyGeneralChannelMissingError);
+    expect(await userCount("testuser_acct_nogeneral")).toBe(0);
+    expect(await memberRows(value.id)).toEqual([]);
+    expect(await auditCount(value.id)).toBe(0);
+  });
+
+  it("#200 AC-1・Q-5（計画レビュー #2）: 全社連絡がアーカイブ済みのときも発行は失敗し、何も残らない", async () => {
+    const own = await insertDepartmentWithChannels("全社連絡アーカイブ");
+    await env.DB.prepare(
+      "UPDATE channels SET deleted_at = ? WHERE purpose = 'company_general'",
+    )
+      .bind(NOW)
+      .run();
+    companyGeneralRemoved = true;
+    const value = input({
+      loginId: "testuser_acct_archgeneral",
+      departmentId: own.id,
+    });
+    const error = await create(value).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CompanyGeneralChannelMissingError);
+    expect(await userCount("testuser_acct_archgeneral")).toBe(0);
+    expect(await memberRows(value.id)).toEqual([]);
+    expect(await auditCount(value.id)).toBe(0);
+  });
+
+  it("#200 AC-1: ユーザーID重複の競合（AccountConflictError）でも、参加の行は残らない", async () => {
+    const own = await insertDepartmentWithChannels("競合時参加");
+    await create(
+      input({ loginId: "testuser_acct_dupjoin", departmentId: own.id }),
+    );
+    const second = input({
+      loginId: "TESTUSER_ACCT_DUPJOIN",
+      email: "testuser_acct_dupjoin2@example.com",
+      departmentId: own.id,
+    });
+    const error = await create(second).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AccountConflictError);
+    expect(await memberRows(second.id)).toEqual([]);
+  });
+
+  it("#200 AC-1: 監査ログの書き込みが失敗すると、参加の行も残らない（同じ db.batch）", async () => {
+    const own = await insertDepartmentWithChannels("監査失敗時参加");
+    await env.DB.exec(
+      "CREATE TRIGGER unit_fail_account_audit BEFORE INSERT ON audit_logs WHEN NEW.action = 'account.create' BEGIN SELECT RAISE(ABORT, 'unit test failure'); END",
+    );
+    const value = input({
+      loginId: "testuser_acct_atomicjoin",
+      departmentId: own.id,
+    });
+    await expect(create(value)).rejects.toThrow();
+    expect(await memberRows(value.id)).toEqual([]);
   });
 });
