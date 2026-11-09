@@ -10,6 +10,7 @@ export const AUDIT_ACTIONS = [
   "client.create",
   "client.rename",
   "client.deactivate",
+  "account.create",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

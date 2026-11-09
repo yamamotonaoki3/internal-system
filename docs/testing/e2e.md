@@ -38,6 +38,7 @@
 | シードしたデータを読む（DB があるときだけ） | `e2e/sample-users.spec.ts` | シードした `e2euser_health_001` を、API から読める（シードの保存先と、検証用サーバーの読み先が同じ） |
 
 | ログイン・ログアウト（S-02） | `e2e/login.spec.ts` | ログイン→「ようこそ、{表示名}さん」→ログアウト→戻る・進む・直接アクセスで `/login`、誤ったパスワードの文言、初回パスワードの利用者の案内と `403 PASSWORD_CHANGE_REQUIRED`、**`http://localhost` で `__Host-session` の Cookie が保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られる**。シードは `e2e/seeds/login.sql`（架空の `e2euser_login_001`・`e2euser_login_002`）。後始末は `e2e/seeds/login-cleanup.sql`。ログアウトは、共通レイアウトのアバターメニューを開いてから押す（#121） |
+| アカウントの個別発行（S-22・S-23。Issue #199） | `e2e/accounts.spec.ts` | 全体管理者が、メニュー（アカウント→アカウント管理）から一覧と登録画面へ進み、1人を発行する。応答が201で`Cache-Control: no-store`を含み、初期パスワードが画面に一度だけ出て、`localStorage`・`sessionStorage`に残らない。「一覧へ戻る」で「登録しました」が出て、初期パスワードが消え、一覧に発行した行（メール・所属部署）が出る。発行したアカウントでログインすると、パスワードの変更を求められ（`mustChangePassword`）、変更するとホームへ進む。一般社員には管理メニューが出ず、`/accounts`は見つからない画面になり、`/api/admin/accounts`は403。シードは`e2e/seeds/accounts.sql`（架空の部署1件と、全体管理者`e2euser_account_admin`・一般社員`e2euser_account_member`。パスワードのハッシュは`e2euser_login_001`のものをDB内で参照するため、`pretest:e2e`が`login.sql`を先に流す前提）。後始末は`e2e/seeds/accounts-cleanup.sql`で、specの`beforeAll`と`afterAll`が流す（`e2euser_account_`で始まる利用者と`[E2E_TEST]アカウント発行部`だけを消す）。**全体管理者は一意制約で1人だけなので、他のspec（`clients.sql`など）の全体管理者のシードと同時には存在させない**（`workers: 1`で、各specが自分のシードを入れて消す） |
 | 共通レイアウト（S-01） | `e2e/app-shell.spec.ts` | 下の「共通レイアウトのシナリオ」を参照 |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）

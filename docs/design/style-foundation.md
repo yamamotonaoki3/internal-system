@@ -34,10 +34,11 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | `frontend/src/styles/tokens.test.ts` | 色の組み合わせのコントラスト比を、`index.css` の値から自動で確かめる |
 | `frontend/src/components/Button.tsx` | ボタン（`variant`：primary・secondary・danger・ghost） |
 | `frontend/src/components/TextField.tsx` | ラベル・ヒント・エラーつきのテキスト入力欄 |
+| `frontend/src/components/SelectField.tsx` | ラベル・ヒント・エラーつきの選択欄（`select`）。`TextField`と同じ見た目で、`className`は受け取らない（Issue #199） |
 | `frontend/src/components/SecretField.tsx` | 秘密の値（トークン・パスワード）の入力欄。表示・非表示のボタンつき |
 | `frontend/src/components/Alert.tsx` | 通知（`tone`：error・info・warning） |
 | `frontend/src/components/PageLayout.tsx` | 画面の枠（`main`＋`h1`。`width`：narrow・default） |
-| `frontend/src/components/FieldMessages.tsx` | 入力欄の下のヒント・エラーと、`aria-describedby` 用のid（`useFieldIds`）。`TextField` と `SecretField` が共用する**内部用**の部品で、画面からは使わない |
+| `frontend/src/components/FieldMessages.tsx` | 入力欄の下のヒント・エラーと、`aria-describedby` 用のid（`useFieldIds`）。`TextField`・`SelectField`・`SecretField` が共用する**内部用**の部品で、画面からは使わない |
 | `vite.config.ts` | `@tailwindcss/vite` のプラグインを登録している |
 | `scripts/size-report.mjs` | 初回に読み込むJS・CSSの大きさを表示する（`npm run size:report`） |
 | `playwright.prod.config.ts`、`e2e-prod/csp-style.spec.ts` | 本番形のE2E（`npm run test:e2e:prod`） |
@@ -100,9 +101,10 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | `PageLayout` | 画面の一番外側。`main` と画面の `h1` を作る。1画面に1つ | `title`、`width`（`narrow`：入力中心の狭い画面、`default`：既定） |
 | `Button` | 操作のボタン。`type` の既定は `"button"`（フォームを意図せず送信しない）。送信ボタンだけ `type="submit"` を渡す | `variant`（`primary`：主な操作、`secondary`：補助、`danger`：取り消せない操作、`ghost`：枠も背景もない控えめな操作。メニューを開くボタンなど。#121）、`button` の標準の属性 |
 | `TextField` | ラベルつきのテキスト入力。ヒントとエラーを `aria-describedby` で結ぶ。`ref` が `input` に渡る（react-hook-form の `register` が使える） | `label`、`hint`、`error`、`input` の標準の属性 |
+| `SelectField` | 選択肢から1つ選ぶ欄（所属部署など）。ヒントとエラーを`aria-describedby`で結ぶ。`ref`が`select`に渡る（react-hook-formの`register`が使える） | `label`、`hint`、`error`、`select`の標準の属性、選択肢（`option`）は子として渡す |
 | `SecretField` | パスワード・トークンなど、伏せて入力する欄。表示・非表示のボタンが付く | `TextField` に加えて `toggleLabels`（ボタンの読み上げ名） |
 | `Alert` | 画面内の通知。`role` は呼び出し側が渡したものだけ付く（勝手に読み上げさせない） | `tone`（`error`・`info`・`warning`）、`role` |
-| `FieldMessages` | 内部用。`TextField`・`SecretField` の中だけで使う | — |
+| `FieldMessages` | 内部用。`TextField`・`SelectField`・`SecretField` の中だけで使う | — |
 
 ### 部品を足す手順
 
@@ -162,7 +164,7 @@ Tailwindは、素のHTML要素のブラウザ標準の見た目をリセット�
 
 | 内容 | 場所 |
 | --- | --- |
-| 共通部品の単体テスト | `frontend/src/components/*.test.tsx`（`Button`・`TextField`・`SecretField`・`Alert`・`PageLayout`） |
+| 共通部品の単体テスト | `frontend/src/components/*.test.tsx`（`Button`・`TextField`・`SelectField`・`SecretField`・`Alert`・`PageLayout`） |
 | 色のコントラスト比 | `frontend/src/styles/tokens.test.ts` |
 | 表示・アクセシビリティのE2E（開発サーバー） | `e2e/style-foundation.spec.ts` |
 | 本番形のE2E（CSP下で外部CSSだけが使われること） | `e2e-prod/csp-style.spec.ts`（`npm run test:e2e:prod`）。#121で、ログイン後の画面（アバターメニュー・ドロワーを開いた状態を含む）の確認を足した |
