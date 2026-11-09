@@ -37,6 +37,7 @@
 - 共通レイアウト（S-01。Issue #121）：サイドバー・下部メニューの固定リンクは `frontend/src/features/app-shell/navigation.ts` の配列だけに足し、データを取るセクションは機能の部品を `SidebarNav.tsx` の決まった位置に1行で差し込む。画面のルートは `frontend/src/App.tsx` のレイアウトルートの子に足す。管理項目は `requires`（権限ID）を付け、権限による出し分けは表示の制御であり認可ではない（認可はサーバー側で行う）。動かない仮の項目は置かない。詳しくは `docs/design/app-shell.md`
 - 予約取引先 `INT` の初期登録（Issue #192）：業務要件5-7 AC-9を満たすため、初期登録だけの専用migrationを1本に限って手作成する。既存migrationは変更しない。通常のDDL変更を含む他のmigrationは生成手順を使う。本番への適用には別途利用者承認が必要（ADR-0018）。
 - 取引先APIの利用者単位レート上限（Issue #192）：読み取りAPI3操作の合算は固定UTC 1分あたり120回、登録・改名・無効化の3操作の合算は30回。超過時は429と `Retry-After` 秒数を返し、計数DB障害時は503で拒否する。詳細は要件API共通仕様X-8を正とする。
+- 一度だけ表示する認証情報（初期パスワード。Issue #199）：フロントエンドでは、TanStack Queryの`useMutation`に載せない（結果がMutationCacheに残るため）。呼び出しを`onSubmit`で直接awaitし、受け取った値は表示する画面の`useState`だけに置く。localStorage・sessionStorage・URL・画面遷移の`state`に入れない。APIの応答には`noStore`を付ける。詳細は`docs/design/accounts.md`
 
 ## 2026-11-08承認の運用改善試行
 

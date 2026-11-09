@@ -797,7 +797,7 @@ describe(
 );
 
 describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
-  it("#192 AC-1・AC-6: 全体管理者のsessionはperm.client.manageを返す", async () => {
+  it("#192 AC-1・AC-6・#199 AC-1: 全体管理者のsessionはperm.client.manageとperm.account.createを返す", async () => {
     await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
     const session = await insertSession(userId, {
       createdAt: new Date().toISOString(),
@@ -805,7 +805,7 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     const response = await getSession({ cookie: session.token });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      permissions: ["perm.client.manage"],
+      permissions: ["perm.client.manage", "perm.account.create"],
     });
   });
 

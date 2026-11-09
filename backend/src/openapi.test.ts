@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
+import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { meRoutes } from "./routes/me";
@@ -22,6 +23,8 @@ const app = createApp({
     { path: "/api/auth", app: authRoutes(unusedDb) },
     { path: "/api/me", app: meRoutes(unusedDb) },
     { path: "/api/admin/clients", app: adminClientRoutes() },
+    // #199：アカウントの発行と一覧。index.ts と同じパスに組み込む
+    { path: "/api/admin/accounts", app: adminAccountRoutes() },
     { path: "/api/clients", app: clientRoutes() },
   ],
 });
@@ -67,6 +70,22 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         );
     }
     expect(actual).not.toContain("GET /api/me");
+  });
+  it("#199 AC-1・AC-3・AC-5: アカウントの発行・一覧・部署の候補の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/admin/accounts": ["201", "401", "403", "409", "422"],
+      "GET /api/admin/accounts": ["200", "401", "403", "422"],
+      "GET /api/admin/accounts/department-options": ["200", "401", "403"],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
   });
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
     expect(operations.map((o) => o.name).sort()).toEqual(actual);

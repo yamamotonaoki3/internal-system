@@ -25,6 +25,10 @@
     "frontend/src/features/clients/client-api.ts",
     "frontend/src/features/clients/ClientForm.tsx",
     "frontend/src/features/clients/ClientsManager.tsx",
+    "shared/account-rules.ts",
+    "backend/src/db/account.repository.ts",
+    "backend/src/routes/accounts.ts",
+    "frontend/src/features/accounts/schemas/account-form.ts",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],

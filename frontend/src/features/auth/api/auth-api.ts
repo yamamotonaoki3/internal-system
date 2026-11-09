@@ -6,7 +6,7 @@ export type SessionInfo = {
   user: { id: string; displayName: string; loginId: string };
   mustChangePassword: boolean;
   reauthenticatedAt: string | null;
-  permissions?: "perm.client.manage"[];
+  permissions?: ("perm.client.manage" | "perm.account.create")[];
 };
 
 export type LoginRequest = { loginId: string; password: string };
@@ -28,7 +28,7 @@ const sessionInfoSchema = z.object({
   reauthenticatedAt: reauthenticatedAtSchema.nullable(),
 });
 const sessionWithPermissionsSchema = sessionInfoSchema.extend({
-  permissions: z.array(z.literal("perm.client.manage")),
+  permissions: z.array(z.enum(["perm.client.manage", "perm.account.create"])),
 });
 const reauthenticateResponseSchema = z.object({
   reauthenticatedAt: reauthenticatedAtSchema,
