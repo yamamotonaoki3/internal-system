@@ -12,6 +12,158 @@
     }
   ],
   "paths": {
+    "/api/admin/accounts": {
+      "get": {
+        "operationId": "listAdminAccounts",
+        "summary": "アカウントを管理用に一覧取得する",
+        "description": "全体管理者（perm.account.create）だけ。ユーザーIDの正規化順のカーソル方式。本名は含めない。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次ページのカーソル"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ユーザーIDの正規化順の一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAdminPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccount",
+        "summary": "アカウントを1件発行する",
+        "description": "全体管理者（perm.account.create）だけ。認可を入力の検証より先に行う。初期パスワードは応答に一度だけ含め、Cache-Control: no-store を付ける。本名・メールは応答に含めない。ユーザーID・メールは大文字小文字を区別せず重複を拒否する（無効化済みを含む）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "発行したアカウントと、一度だけ返す初期パスワード",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ユーザーIDまたはメールアドレスが重複した（入力値は返さない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/accounts/department-options": {
+      "get": {
+        "operationId": "listAccountDepartmentOptions",
+        "summary": "アカウントの所属部署に選べる部署を取得する",
+        "description": "全体管理者（perm.account.create）だけ。有効な部署を名前順に全件返す。",
+        "responses": {
+          "200": {
+            "description": "有効な部署の候補",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDepartmentOptions"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/clients": {
       "get": {
         "operationId": "listAdminClients",
@@ -1255,6 +1407,215 @@
   },
   "components": {
     "schemas": {
+    "AccountCreate": {
+      "type": "object",
+      "required": [
+        "loginId",
+        "legalName",
+        "displayName",
+        "email",
+        "emailConfirmed",
+        "departmentId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "loginId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{3,32}$"
+        },
+        "legalName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "emailConfirmed": {
+          "type": "boolean",
+          "const": true,
+          "description": "会社が発行したメールだと管理者が確認したこと。検証だけに使い、保存しない"
+        },
+        "departmentId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "extension": {
+          "type": "string",
+          "pattern": "^[0-9-]{1,10}$"
+        },
+        "jobTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        }
+      }
+    },
+    "AccountCreated": {
+      "type": "object",
+      "required": [
+        "id",
+        "loginId",
+        "displayName",
+        "departmentId",
+        "mustChangePassword",
+        "createdAt",
+        "initialPassword"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "loginId": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "departmentId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "mustChangePassword": {
+          "type": "boolean",
+          "const": true
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "initialPassword": {
+          "type": "string",
+          "description": "この応答でだけ返す。保存・ログ出力をしない"
+        }
+      }
+    },
+    "AccountAdminItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "loginId",
+        "displayName",
+        "department",
+        "email",
+        "extension",
+        "jobTitle",
+        "active",
+        "mustChangePassword",
+        "createdAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "loginId": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "department": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/AccountDepartmentOption"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "email": {
+          "type": "string"
+        },
+        "extension": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jobTitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "mustChangePassword": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "AccountAdminPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/AccountAdminItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "AccountDepartmentOption": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "AccountDepartmentOptions": {
+      "type": "object",
+      "required": [
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/AccountDepartmentOption"
+          }
+        }
+      }
+    },
     "ClientAdmin": {
       "type": "object",
       "required": [
@@ -1985,6 +2346,7 @@
                   "type": "string",
                   "enum": [
                     "perm.client.manage",
+                    "perm.account.create",
                     "perm.workspace.create"
                   ]
                 }

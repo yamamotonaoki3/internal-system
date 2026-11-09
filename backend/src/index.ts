@@ -6,6 +6,7 @@ import { withCredentials } from "./db/credential.repository";
 import { withSampleUsers } from "./db/sample-user.repository";
 import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
+import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
@@ -26,6 +27,7 @@ export const app = createApp({
     { path: "/api/clients", app: clientRoutes() },
     { path: "/api/admin/departments", app: adminDepartmentRoutes() },
     { path: "/api/departments", app: departmentRoutes() },
+    { path: "/api/admin/accounts", app: adminAccountRoutes() },
   ],
 });
 

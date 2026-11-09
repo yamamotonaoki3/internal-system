@@ -6,7 +6,11 @@ export type SessionInfo = {
   user: { id: string; displayName: string; loginId: string };
   mustChangePassword: boolean;
   reauthenticatedAt: string | null;
-  permissions?: ("perm.client.manage" | "perm.workspace.create")[];
+  permissions?: (
+    | "perm.client.manage"
+    | "perm.account.create"
+    | "perm.workspace.create"
+  )[];
 };
 
 export type LoginRequest = { loginId: string; password: string };
@@ -28,7 +32,9 @@ const sessionInfoSchema = z.object({
   reauthenticatedAt: reauthenticatedAtSchema.nullable(),
 });
 const sessionWithPermissionsSchema = sessionInfoSchema.extend({
-  permissions: z.array(z.enum(["perm.client.manage", "perm.workspace.create"])),
+  permissions: z.array(
+    z.enum(["perm.client.manage", "perm.account.create", "perm.workspace.create"]),
+  ),
 });
 const reauthenticateResponseSchema = z.object({
   reauthenticatedAt: reauthenticatedAtSchema,

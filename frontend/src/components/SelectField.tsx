@@ -1,4 +1,5 @@
-// 共通の選択欄（select）。ラベル・ヒント・エラーを結び付ける。ref は select に渡る。
+// 共通の選択欄。ラベル・ヒント・エラーを結び付ける。ref は select に渡る（react-hook-form の register が使える）。
+// 見た目は TextField と同じ。className は受け取らない。
 import type { ComponentProps } from "react";
 import { FieldMessages, useFieldIds } from "./FieldMessages";
 

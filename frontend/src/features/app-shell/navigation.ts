@@ -25,7 +25,18 @@ export const primaryNavItems: NavItem[] = [homeNavItem];
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す
 export const adminNavGroups: AdminNavGroup[] = [
   { id: "approval", label: "承認", items: [] },
-  { id: "account", label: "アカウント", items: [] },
+  {
+    id: "account",
+    label: "アカウント",
+    items: [
+      {
+        id: "accounts",
+        label: "アカウント管理",
+        to: "/accounts",
+        requires: "perm.account.create",
+      },
+    ],
+  },
   {
     id: "department",
     label: "部署",

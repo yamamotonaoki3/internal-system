@@ -33,6 +33,10 @@
     "frontend/src/features/departments/DepartmentsManager.tsx",
     "frontend/src/features/departments/DepartmentCreateForm.tsx",
     "frontend/src/features/departments/OwnerChangeDialog.tsx",
+    "shared/account-rules.ts",
+    "backend/src/db/account.repository.ts",
+    "backend/src/routes/accounts.ts",
+    "frontend/src/features/accounts/schemas/account-form.ts",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],

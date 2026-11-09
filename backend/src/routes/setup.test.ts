@@ -226,7 +226,7 @@ describe("POST /api/setup：正常", { timeout: SCRYPT_TEST_TIMEOUT_MS }, () => 
       "loginId",
     ]);
     expect(body.user.loginId).toBe("testuser_001");
-    // 初期表示名は本名と同じ値（0-1 AC-11）
+    // 初期表示名は本名と同じ値（0-4 AC-11）
     expect(body.user.displayName).toBe("テスト太郎");
     expect(text).not.toContain(token);
     expect(text).not.toContain(piiKey);

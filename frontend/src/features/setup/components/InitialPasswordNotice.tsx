@@ -7,12 +7,15 @@ type InitialPasswordNoticeProps = {
   loginId: string;
   initialPassword: string;
   onProceed: () => void;
+  // 進むボタンの文言。省略すると、初回セットアップの「ログイン画面へ進む」
+  proceedLabel?: string;
 };
 
 export function InitialPasswordNotice({
   loginId,
   initialPassword,
   onProceed,
+  proceedLabel = "ログイン画面へ進む",
 }: InitialPasswordNoticeProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -44,7 +47,7 @@ export function InitialPasswordNotice({
       <p className="mb-4">
         初期パスワードは、この画面で一度だけ表示します。別の連絡手段で本人へ伝え、初回ログインで変更してください。表示前に失ったときは、全体管理者が再発行します。
       </p>
-      <Button onClick={onProceed}>ログイン画面へ進む</Button>
+      <Button onClick={onProceed}>{proceedLabel}</Button>
     </section>
   );
 }
