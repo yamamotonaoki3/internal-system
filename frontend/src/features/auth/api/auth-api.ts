@@ -7,9 +7,7 @@ export type SessionInfo = {
   mustChangePassword: boolean;
   reauthenticatedAt: string | null;
   permissions?: (
-    | "perm.client.manage"
-    | "perm.account.create"
-    | "perm.workspace.create"
+    "perm.client.manage" | "perm.account.create" | "perm.workspace.create"
   )[];
 };
 
@@ -33,7 +31,11 @@ const sessionInfoSchema = z.object({
 });
 const sessionWithPermissionsSchema = sessionInfoSchema.extend({
   permissions: z.array(
-    z.enum(["perm.client.manage", "perm.account.create", "perm.workspace.create"]),
+    z.enum([
+      "perm.client.manage",
+      "perm.account.create",
+      "perm.workspace.create",
+    ]),
   ),
 });
 const reauthenticateResponseSchema = z.object({
