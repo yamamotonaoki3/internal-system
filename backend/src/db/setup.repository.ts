@@ -2,11 +2,19 @@
 // 会社の設定・部署・利用者・ロールの割り当て・監査ログを、1つの db.batch で同時に確定する（途中で失敗したら、すべて取り消される）。
 import { eq } from "drizzle-orm";
 import {
+  channelMembers,
+  channels,
   companySettings,
   departments,
+  rooms,
   userRoleAssignments,
   users,
 } from "../../db/schema";
+import {
+  announcementChannelName,
+  channelNameKey,
+  departmentNameKey,
+} from "../../../shared/department-rules";
 import type { AuditAction } from "../lib/audit-actions";
 import { ROLE_IDS } from "../lib/permissions";
 import { newUlid } from "../lib/ulid";
@@ -84,6 +92,9 @@ export function createSetupRepository(db: Database): SetupRepository {
       return rows.length > 0;
     },
     async createInitialAdmin(input) {
+      const dedicatedChannelId = newUlid();
+      const announcementChannelId = newUlid();
+      const announcementName = announcementChannelName(input.departmentName);
       try {
         await db.batch([
           db.insert(companySettings).values({
@@ -94,7 +105,7 @@ export function createSetupRepository(db: Database): SetupRepository {
           db.insert(departments).values({
             id: input.departmentId,
             name: input.departmentName,
-            nameNormalized: input.departmentName.toLowerCase(),
+            nameNormalized: departmentNameKey(input.departmentName),
             createdAt: input.now,
           }),
           db.insert(users).values({
@@ -132,6 +143,49 @@ export function createSetupRepository(db: Database): SetupRepository {
               scopeType: "department",
               departmentId: input.departmentId,
               assignedAt: input.now,
+            },
+          ]),
+          // 初代部署の専用チャンネル2つ（通常・お知らせ）を作り、所属する初代管理者が参加する（7-1 AC-1・AC-2）
+          db.insert(rooms).values([
+            { id: dedicatedChannelId, kind: "channel", createdAt: input.now },
+            {
+              id: announcementChannelId,
+              kind: "channel",
+              createdAt: input.now,
+            },
+          ]),
+          db.insert(channels).values([
+            {
+              roomId: dedicatedChannelId,
+              departmentId: input.departmentId,
+              name: input.departmentName,
+              nameNormalized: channelNameKey(input.departmentName),
+              visibility: "public",
+              purpose: "department",
+              createdAt: input.now,
+              updatedAt: input.now,
+            },
+            {
+              roomId: announcementChannelId,
+              departmentId: input.departmentId,
+              name: announcementName,
+              nameNormalized: channelNameKey(announcementName),
+              visibility: "public",
+              purpose: "announcement",
+              createdAt: input.now,
+              updatedAt: input.now,
+            },
+          ]),
+          db.insert(channelMembers).values([
+            {
+              channelId: dedicatedChannelId,
+              userId: input.userId,
+              joinedAt: input.now,
+            },
+            {
+              channelId: announcementChannelId,
+              userId: input.userId,
+              joinedAt: input.now,
             },
           ]),
           auditLogInsert(db, {

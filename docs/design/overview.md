@@ -93,6 +93,10 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `frontend/src/styles/` | デザインの土台。`index.css`（Tailwindの読み込み・デザイントークン・全体の基本のスタイル）と、色のコントラスト比のテスト（Issue #171。[style-foundation.md](style-foundation.md)） |
 | `frontend/src/components/` | 画面で共通に使う部品。`Button`（`variant`：primary・secondary・danger・ghost）・`TextField`・`SecretField`・`Alert`・`PageLayout`（`FieldMessages`は内部用）。使い分けと足す手順は [style-foundation.md](style-foundation.md) |
 | `frontend/src/features/app-shell/` | ログイン後の全画面が使う共通レイアウト（S-01）。`AppShell`・`Header`・`Sidebar`・`SidebarNav`・`AdminMenu`・`MobileNav`・`Drawer`・`AvatarMenu`・`navigation.ts`（Issue #121）。項目を足す場所と書き方は [app-shell.md](app-shell.md) |
+| `backend/src/routes/departments.ts`、`backend/src/services/department.service.ts`、`backend/src/db/department.repository.ts` | 部署の作成・一覧・改名・オーナー交代・オーナー候補（Issue #196）。`adminDepartmentRoutes`・`departmentRoutes`を`backend/src/index.ts`で登録。作成・改名・交代はそれぞれ1回の`db.batch`で部署・チャンネル・ロール・所属・参加・監査を確定する |
+| `shared/department-rules.ts` | 部署名・説明の入力規則、比較キー、お知らせ専用チャンネルの名前の定義元（Issue #196） |
+| `backend/db/schema.ts`、`backend/db/migrations/0008_add_department_channels.sql`、`0009_backfill_department_channels.sql` | `departments`への列の追加と、`rooms`・`channels`・`channel_members`（Issue #196）。0009はADR-0021の例外となる補完migration |
+| `frontend/src/features/departments/`、`frontend/src/pages/DepartmentsPage.tsx`・`DepartmentCreatePage.tsx`、`frontend/src/components/SelectField.tsx` | 部署管理画面（S-24・S-08）。詳細は[department-management.md](department-management.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
@@ -128,6 +132,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | ログイン・ログアウト・セッション・試行制限・掃除・既定拒否・ログイン画面S-02（2段ログインと#122の拡張点、初回パスワードのゲート、公開の許可リスト6件、`__Host-session`、接続元の受付枠と社員IDの待ち時間、時間差対策と既知の限界、Cron） | [auth-session.md](auth-session.md) | #120（親 #108）、依存 #119 |
 | デザインの土台（Tailwind CSS 4・デザイントークン・共通部品5つ・CSPを変えない決まり・クラスの規約・Preflightへの対処・画面幅の決まり・初回JS/CSSの大きさ） | [style-foundation.md](style-foundation.md) | #171（親 #108）、ADR-0015 |
 | 共通レイアウトの骨格S-01（ヘッダー・サイドバー・本文・下部メニュー・ドロワー・アバターメニュー、サイドバーの項目やヘッダーの部品を足す場所と書き方、管理メニューの仕組みと権限の扱い、認証ガードの各状態、jsdomの制約とE2Eの役割） | [app-shell.md](app-shell.md) | #121（親 #108）、依存 #120・#171、ADR-0015 |
+| 部署の登録・改名・オーナー交代と部署の専用チャンネル2つ（batchの文の順序と前提の確認、`rooms`・`channels`・`channel_members`を後続が使う約束、初代部署の補完migration、本番適用前の注意、未実装の記録） | [department-management.md](department-management.md) | #196（親 #125）、ADR-0018・0021 |
 
 ## 関係する文書
 

@@ -144,3 +144,35 @@ describe("#192 AC-1（5-7 AC-1）: 取引先管理メニュー", () => {
     }
   });
 });
+
+// #196 AC-4（2-1 AC-4・7-1 AC-3）：部署管理のメニューは、部署のまとまりに置き、全体管理者（perm.workspace.create）だけに出す。
+describe("#196 AC-4: 部署管理メニュー", () => {
+  it("#196 AC-4: perm.workspace.create があると、部署のまとまりに「部署管理」（/departments）が出る", () => {
+    const groups = visibleAdminGroups(
+      adminNavGroups,
+      new Set(["perm.workspace.create"]),
+    );
+    const department = groups.find((group) => group.id === "department");
+    expect(department?.items).toEqual([
+      expect.objectContaining({
+        id: "departments",
+        label: "部署管理",
+        to: "/departments",
+        requires: "perm.workspace.create",
+      }),
+    ]);
+  });
+
+  it("#196 AC-4: 一般・オーナー・取引先管理だけの権限では部署管理を出さない", () => {
+    for (const permissions of [
+      new Set<string>(),
+      new Set(["perm.role.assign"]),
+      new Set(["perm.client.manage"]),
+    ]) {
+      const links = visibleAdminGroups(adminNavGroups, permissions).flatMap(
+        (group) => group.items,
+      );
+      expect(links.some((item) => item.to === "/departments")).toBe(false);
+    }
+  });
+});

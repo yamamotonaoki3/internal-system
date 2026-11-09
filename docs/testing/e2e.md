@@ -39,11 +39,22 @@
 
 | ログイン・ログアウト（S-02） | `e2e/login.spec.ts` | ログイン→「ようこそ、{表示名}さん」→ログアウト→戻る・進む・直接アクセスで `/login`、誤ったパスワードの文言、初回パスワードの利用者の案内と `403 PASSWORD_CHANGE_REQUIRED`、**`http://localhost` で `__Host-session` の Cookie が保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られる**。シードは `e2e/seeds/login.sql`（架空の `e2euser_login_001`・`e2euser_login_002`）。後始末は `e2e/seeds/login-cleanup.sql`。ログアウトは、共通レイアウトのアバターメニューを開いてから押す（#121） |
 | 共通レイアウト（S-01） | `e2e/app-shell.spec.ts` | 下の「共通レイアウトのシナリオ」を参照 |
+| 部署の管理（S-24・S-08。Issue #196） | `e2e/departments.spec.ts` | 下の「部署の管理のシナリオ」を参照 |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
 - 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）
 - シナリオは、`e2e/` に `<名前>.spec.ts` として足す。`e2e/console-guard.ts` の `test` を使い、コンソールのエラーを失敗にする
 - シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）
+
+### 部署の管理のシナリオ（開発サーバー。Issue #196）
+
+`e2e/departments.spec.ts`。設計は [department-management.md](../design/department-management.md)。2件を直列（`serial`）で実行する。
+
+- 全体管理者で、メニューの「部署」→「部署管理」→ 一覧 → 「部署を作成」→ 作成（再認証のダイアログを挟む）→ 一覧に戻る（作成者がオーナー）→ 名前の変更（再認証の有効期間内のため、ダイアログは出ない）→ オーナーの変更（別部署の現オーナーを選び、元部署の後任を選ぶ）の流れを確かめる。削除・無効化の操作が出ないことも確かめる
+- 一般社員には、メニューに部署管理が出ず、`/departments`・`/departments/new`を直接開いても「ページが見つかりません」になる
+- シード：`e2e/seeds/departments.sql`（架空の全体管理者`e2euser_dept_admin`、既存の部署「[E2E_TEST]部署196営業」とそのオーナー`e2euser_dept_owner`、一般社員`e2euser_dept_member`、専用チャンネル2つと参加）。後始末：`e2e/seeds/departments-cleanup.sql`（社員ID`e2euser_dept_`と部署名`[E2E_TEST]部署196`の識別子だけ。画面から作った部署とそのチャンネルを含み、残数を表示する）。spec自身が`beforeAll`で流し、`afterAll`で後始末する
+- **全体管理者は一意制約で1人だけ**（`user_role_assignments_global_admin_unique`）。このシードは全体管理者を入れるため、同じく全体管理者を入れる他のspecのシード（`e2e/seeds/clients.sql`）と同時に存在できない。後始末を必ず流し、他のspecのシードが残っていないことを前提にする。残っていると、シードの挿入が一意制約の違反で失敗する
+- 部署の管理のAPIには試行制限（`429`）がないため、ログイン回数の制限以外には配慮しなくてよい
 
 ### 共通レイアウトのシナリオ（開発サーバー。Issue #121）
 

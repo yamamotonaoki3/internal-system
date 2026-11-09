@@ -35,3 +35,15 @@ export function canManageClients(
     }).can({ userId }, "perm.client.manage", { type: "company" }),
   );
 }
+
+export function canManageDepartments(
+  env: Env,
+  userId: string,
+  traceId: string,
+): Promise<boolean> {
+  return withRoleAssignments(env, (repository) =>
+    createAppAuthorizer(repository, {
+      logger: createLogger({ traceId }),
+    }).can({ userId }, "perm.workspace.create", { type: "company" }),
+  );
+}

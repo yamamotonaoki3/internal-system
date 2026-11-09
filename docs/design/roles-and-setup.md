@@ -101,7 +101,7 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 | テーブル | 主な列と制約 |
 | --- | --- |
 | `company_settings` | `id`（`'company'`に固定するCHECK制約。2件目を入れられない）・`company_name`・`created_at` |
-| `departments` | `id`（ULID）・`name`・`name_normalized`（一意。前後の空白を除いて小文字にした値をアプリ側で作る）・`is_active`・`created_at`。**`owner_id`は持たない**（オーナーは`user_role_assignments`だけで表す） |
+| `departments` | `id`（ULID）・`name`・`name_normalized`（一意。前後の空白を除いて小文字にした値をアプリ側で作る）・`is_active`・`created_at`・`description`・`version`・`updated_at`（最後の3つはIssue #196で追加）。**`owner_id`は持たない**（オーナーは`user_role_assignments`だけで表す） |
 | `users` | `id`・`login_id`・`login_id_normalized`（一意）・`display_name`・`legal_name`（**暗号化した値**。`v1:<iv>:<暗号文>`）・`email`・`email_normalized`（一意）・`email_verified_by`・`email_verified_at`・`department_id`・`extension`・`job_title`・`password_hash`・`must_change_password`・`is_active`・`deactivated_at`・`created_at` |
 | `roles` | `id`（固定）・`name`・`scope_type`（`company`か`department`のCHECK制約）・`department_id`・`is_system`・`created_at` |
 | `role_permissions` | `role_id`と`permission_id`の複合主キー |
@@ -143,7 +143,7 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 
 ### 原子性と同時実行
 
-`createInitialAdmin`は、会社の設定→部署→利用者→ロールの割り当て（全体管理者を会社範囲、オーナーを部署範囲）→監査ログ（`auditLogInsert`）を**1つの`db.batch`**で実行する。途中で失敗すれば全体が取り消される。
+`createInitialAdmin`は、会社の設定→部署→利用者→ロールの割り当て（全体管理者を会社範囲、オーナーを部署範囲）→初代部署の専用チャンネル2つ（`rooms`・`channels`）と初代管理者の参加（`channel_members`。Issue #196。[department-management.md](department-management.md)）→監査ログ（`auditLogInsert`）を**1つの`db.batch`**で実行する。途中で失敗すれば全体が取り消される。
 
 「すでに完了している」は、事前の確認（`isSetupCompleted`）と、一意制約（`company_settings`の`id`、全体管理者の部分一意インデックス）の**両方**で守る。同時に複数の要求が来ても、成功するのは1件だけで、他は`SetupConflictError`（理由`already_completed`）を経て409になる。社員ID・メール・部署名の重複は、それぞれ別の理由（`login_id`・`email`・`department_name`）の409になる。
 

@@ -6,6 +6,7 @@ import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { authRoutes } from "./routes/auth";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
+import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
@@ -23,6 +24,9 @@ const app = createApp({
     { path: "/api/me", app: meRoutes(unusedDb) },
     { path: "/api/admin/clients", app: adminClientRoutes() },
     { path: "/api/clients", app: clientRoutes() },
+    // #196：部署の管理。index.ts と同じパスに組み込む
+    { path: "/api/admin/departments", app: adminDepartmentRoutes() },
+    { path: "/api/departments", app: departmentRoutes() },
   ],
 });
 
@@ -67,6 +71,43 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         );
     }
     expect(actual).not.toContain("GET /api/me");
+  });
+  it("#196 AC-1・AC-2・AC-4: 部署の操作の成功と拒否の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/departments": ["201", "401", "403", "404", "409", "422"],
+      "GET /api/admin/departments": ["200", "401", "403", "422"],
+      "PATCH /api/admin/departments/{id}": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "PUT /api/departments/{id}/owner": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "GET /api/admin/departments/owner-candidates": [
+        "200",
+        "401",
+        "403",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
   });
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
     expect(operations.map((o) => o.name).sort()).toEqual(actual);
