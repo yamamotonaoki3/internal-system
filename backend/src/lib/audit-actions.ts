@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS = [
   "department.owner_change",
   "department.channel_backfill",
   "account.create",
+  "channel.join",
+  "channel.company_general_backfill",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

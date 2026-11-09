@@ -20,7 +20,10 @@ export type AdminNavGroup = {
 
 export const homeNavItem: NavItem = { id: "home", label: "ホーム", to: "/" };
 
-export const primaryNavItems: NavItem[] = [homeNavItem];
+export const primaryNavItems: NavItem[] = [
+  homeNavItem,
+  { id: "channels", label: "チャンネルを探す", to: "/channels" },
+];
 
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す
 export const adminNavGroups: AdminNavGroup[] = [

@@ -946,6 +946,178 @@
         }
       }
     },
+    "/api/channels": {
+      "get": {
+        "operationId": "listChannels",
+        "summary": "チャンネルを一覧取得する",
+        "description": "ログイン済みの有効な社員。全社連絡と全部署の公開チャンネル、自分が参加している非公開チャンネルを返す（アーカイブ済みは除く）。名前の正規化値・ルームIDの昇順のカーソル方式。departmentId で部署に、joined で参加中・未参加に絞る。存在しない部署を指定すると 404。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次ページのカーソル"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "departmentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "description": "この部署のチャンネルだけに絞る"
+          },
+          {
+            "name": "joined",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "true は参加中だけ、false は未参加だけ"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "チャンネルの一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "description": "departmentId の部署がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channels/{channelId}": {
+      "get": {
+        "operationId": "getChannel",
+        "summary": "チャンネルを1件取得する",
+        "description": "ログイン済みの有効な社員。公開チャンネルは参加していなくても読める。参加者の数と先頭の参加者（members・memberCount）は、参加している社員にだけ返す。参加していない非公開・アーカイブ済み・存在しないチャンネルは、区別せず 404（存在を開示しない）。メッセージは含めない。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "チャンネル",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "description": "見えないチャンネル（非公開で未参加・アーカイブ済み・存在しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channels/{channelId}/join": {
+      "post": {
+        "operationId": "joinChannel",
+        "summary": "公開チャンネルに自分で参加する",
+        "description": "ログイン済みの有効な社員。参加済みなら何もせず 200（べき等。監査ログは増えない）。参加していない非公開・アーカイブ済み・存在しないチャンネルは、区別せず 404。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "参加した（または参加済みだった）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelJoined"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "404": {
+            "description": "見えないチャンネル（非公開で未参加・アーカイブ済み・存在しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "getHealth",
@@ -1407,6 +1579,179 @@
   },
   "components": {
     "schemas": {
+    "ChannelListItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "roomId",
+        "name",
+        "visibility",
+        "departmentId",
+        "departmentName",
+        "joined"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "departmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "会社直属（全社連絡など）は null"
+        },
+        "departmentName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "会社直属は null"
+        },
+        "joined": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChannelPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ChannelListItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ChannelMember": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "ChannelDetail": {
+      "type": "object",
+      "required": [
+        "id",
+        "roomId",
+        "name",
+        "description",
+        "visibility",
+        "departmentId",
+        "joined",
+        "isCaseChannel"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "departmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "joined": {
+          "type": "boolean"
+        },
+        "isCaseChannel": {
+          "type": "boolean",
+          "description": "案件チャンネルか。今はつねに false"
+        },
+        "memberCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "有効な参加者の数。参加者にだけ返す"
+        },
+        "members": {
+          "type": "array",
+          "description": "参加者の先頭の一部（件数の上限は MEMBERS_PREVIEW_LIMIT）。参加者にだけ返す",
+          "items": {
+            "$ref": "#/components/schemas/ChannelMember"
+          }
+        }
+      }
+    },
+    "ChannelJoined": {
+      "type": "object",
+      "required": [
+        "channelId",
+        "roomId",
+        "joinedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "joinedAt": {
+          "type": "string"
+        }
+      }
+    },
     "AccountCreate": {
       "type": "object",
       "required": [

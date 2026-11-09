@@ -3,6 +3,10 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  removeCompanyGeneral,
+  restoreCompanyGeneral,
+} from "../../test/company-general-fixtures";
+import {
   TEST_TAG,
   cleanupDepartmentTestData,
   insertChannel,
@@ -65,18 +69,24 @@ describe("#196 channels の制約（D1）", () => {
   });
 
   it("#196 AC-5（S-2）: company_general は会社直属（department_id が NULL）だけ", async () => {
-    await insertChannel({
-      name: uniqueName("全社"),
-      purpose: "company_general",
-      departmentId: null,
-    });
-    await expect(
-      insertChannel({
+    // #200：全社連絡は migration が1件作る（部分一意）。ここで入れる前に取り除き、終わったら元に戻す
+    await removeCompanyGeneral();
+    try {
+      await insertChannel({
         name: uniqueName("全社"),
         purpose: "company_general",
-        departmentId: dept.id,
-      }),
-    ).rejects.toThrow();
+        departmentId: null,
+      });
+      await expect(
+        insertChannel({
+          name: uniqueName("全社"),
+          purpose: "company_general",
+          departmentId: dept.id,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await restoreCompanyGeneral();
+    }
   });
 
   it.each<ChannelPurpose>(["department", "announcement"])(

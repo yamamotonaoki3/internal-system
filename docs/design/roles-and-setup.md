@@ -7,7 +7,7 @@ Issue #119（親Issue #108）で実装した、ロールと権限、会社・部
 - 第1段階の固定のロール（一般メンバー・オーナー・全体管理者）とその権限を、#118の権限判定の枠（`createAuthorizer`）で使える形にする
 - 会社の設定・部署・利用者・ロールの割り当てのテーブルを用意する
 - ログインの前に、代表取締役社長本人が初代全体管理者を1回だけ登録できるようにする
-- 範囲外：TOTPの登録（#122）、ロールの編集・新規作成（#158・#159）、ログイン（#120）、チャンネルの初期データ（「全社連絡」など。チャンネルのIssueで作る）
+- 範囲外：TOTPの登録（#122）、ロールの編集・新規作成（#158・#159）、ログイン（#120）、チャンネルの初期データ（「全社連絡」は Issue #200 の migration 0011 が作る。[channels.md](channels.md)）
 
 ## ファイルと役割
 
@@ -143,7 +143,9 @@ Resolverが返す集合は、「この範囲で、この操作を試してよい
 
 ### 原子性と同時実行
 
-`createInitialAdmin`は、会社の設定→部署→利用者→ロールの割り当て（全体管理者を会社範囲、オーナーを部署範囲）→初代部署の専用チャンネル2つ（`rooms`・`channels`）と初代管理者の参加（`channel_members`。Issue #196。[department-management.md](department-management.md)）→監査ログ（`auditLogInsert`）を**1つの`db.batch`**で実行する。途中で失敗すれば全体が取り消される。
+`createInitialAdmin`は、会社の設定→部署→利用者→ロールの割り当て（全体管理者を会社範囲、オーナーを部署範囲）→初代部署の専用チャンネル2つ（`rooms`・`channels`）と初代管理者の参加（`channel_members`。Issue #196。[department-management.md](department-management.md)）→全社連絡への初代管理者の参加（Issue #200）→監査ログ（`auditLogInsert`）を**1つの`db.batch`**で実行する。途中で失敗すれば全体が取り消される。
+
+**全社連絡（Issue #200）**：セットアップは全社連絡を作らず、migration 0011が作った全社連絡に初代管理者を参加させるだけ。利用者の挿入の直後に、全社連絡の存在確認の文（`purpose = company_general`かつ未アーカイブでなければNOT NULL違反でbatch全体を失敗させる）を置く。全社連絡がなければ、セットアップは失敗して何も残らず、未完了のままになる。アカウント発行と違い、この失敗は専用のエラー（503）に変えておらず、想定外のエラーとして500になる（テストは「201にならない」ことと、何も残らないことを確かめる）（例：0011が名前の衝突で全社連絡を作れなかった場合。復旧は[ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)）。テストは`backend/src/db/setup.repository.db.test.ts`・`backend/src/routes/setup.test.ts`。詳細は [channels.md](channels.md)。
 
 「すでに完了している」は、事前の確認（`isSetupCompleted`）と、一意制約（`company_settings`の`id`、全体管理者の部分一意インデックス）の**両方**で守る。同時に複数の要求が来ても、成功するのは1件だけで、他は`SetupConflictError`（理由`already_completed`）を経て409になる。社員ID・メール・部署名の重複は、それぞれ別の理由（`login_id`・`email`・`department_name`）の409になる。
 

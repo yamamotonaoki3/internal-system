@@ -1,10 +1,15 @@
 // サイドバーとドロワーが共用する、メニューの中身。
 // 後続のIssueが足す場所：データを取るセクションは、下の「ここに差し込む」の位置に機能の部品を1行で足す。固定のリンクは navigation.ts に足す。
 import { NavLink } from "react-router";
+import { JoinedChannelsSection } from "../channels";
 import { useSession } from "../auth/hooks/useSession";
 import { AdminMenu } from "./AdminMenu";
 import { NAV_LINK_CLASSES } from "./nav-link-classes";
 import { adminNavGroups, primaryNavItems } from "./navigation";
+
+function navLinkClassName({ isActive }: { isActive: boolean }) {
+  return isActive ? NAV_LINK_CLASSES.active : NAV_LINK_CLASSES.idle;
+}
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const session = useSession();
@@ -14,6 +19,10 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div>
       {/* ここに差し込む：データを取るセクション（会社・自部署・他部署 → DM → 案件） */}
+      <JoinedChannelsSection
+        linkClassName={navLinkClassName}
+        onNavigate={onNavigate}
+      />
       <ul>
         {primaryNavItems.map((item) => (
           <li key={item.id}>

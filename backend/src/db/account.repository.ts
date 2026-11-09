@@ -1,7 +1,7 @@
 // Repository：アカウントの個別発行と管理者用の一覧（DB へのアクセスはこの層に閉じ込める）。
 // 利用者の追加と監査ログは、同じ db.batch で確定する（片方が失敗したら、どちらも残さない）。
-import { and, asc, eq } from "drizzle-orm";
-import { departments, users } from "../../db/schema";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { channelMembers, departments, users } from "../../db/schema";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
@@ -66,14 +66,48 @@ const CONFLICT_BY_COLUMN: Record<string, AccountConflictReason> = {
   "users.email_normalized": "email",
 };
 
-function conflictReason(error: unknown): AccountConflictReason | null {
+/** 全社連絡がない（またはアーカイブ済み）ため、発行できないときに投げる。何も残らない */
+export class CompanyGeneralChannelMissingError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super("全社連絡のチャンネルがありません", options);
+    this.name = "CompanyGeneralChannelMissingError";
+  }
+}
+
+// 全社連絡の確認の文（users の挿入の直後）が崩れたときに NOT NULL 違反になる列
+const COMPANY_GENERAL_ASSERT_COLUMN = "users.display_name";
+
+type Constraint = { kind: "unique" | "not_null"; target: string };
+
+function constraintOf(error: unknown): Constraint | null {
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
-    const match = /UNIQUE constraint failed: ([\w.]+)/i.exec(current.message);
-    if (match !== null) return CONFLICT_BY_COLUMN[match[1] ?? ""] ?? null;
+    const match = /(UNIQUE|NOT NULL) constraint failed: ([\w.]+)/i.exec(
+      current.message,
+    );
+    if (match !== null)
+      return {
+        kind: match[1]?.toUpperCase() === "UNIQUE" ? "unique" : "not_null",
+        target: match[2] ?? "",
+      };
     current = current.cause;
   }
   return null;
+}
+
+/** 一意の制約・全社連絡の確認の失敗だけを専用エラーにし、それ以外（未知のDBエラー）は変えずに返す */
+function translateError(error: unknown): unknown {
+  const constraint = constraintOf(error);
+  if (constraint === null) return error;
+  if (constraint.kind === "unique") {
+    const reason = CONFLICT_BY_COLUMN[constraint.target];
+    return reason === undefined
+      ? error
+      : new AccountConflictError(reason, { cause: error });
+  }
+  return constraint.target === COMPANY_GENERAL_ASSERT_COLUMN
+    ? new CompanyGeneralChannelMissingError({ cause: error })
+    : error;
 }
 
 function cursorFor(row: { id: string; loginIdNormalized: string }) {
@@ -119,6 +153,19 @@ export function createAccountRepository(db: Database) {
             mustChangePassword: true,
             createdAt: input.now,
           }),
+          // 全社連絡がなければ NOT NULL 違反で batch 全体を失敗させる（下の参加の文と同じ条件）
+          db
+            .update(users)
+            .set({
+              displayName: sql`CASE WHEN EXISTS (SELECT 1 FROM channels WHERE purpose = 'company_general' AND deleted_at IS NULL) THEN ${users.displayName} ELSE NULL END`,
+            })
+            .where(eq(users.id, input.id)),
+          // 全社連絡と、所属部署の専用チャンネル2つ（department・announcement）に参加させる。専用チャンネルがない部署でも成功する
+          db.insert(channelMembers).select(sql`
+            SELECT c.room_id, ${input.id}, ${input.now} FROM channels c
+            WHERE c.deleted_at IS NULL
+              AND (c.purpose = 'company_general'
+                OR (c.department_id = ${input.departmentId} AND c.purpose IN ('department', 'announcement')))`),
           auditLogInsert(db, {
             actorId: input.actorId,
             action: "account.create",
@@ -133,10 +180,7 @@ export function createAccountRepository(db: Database) {
           }),
         ]);
       } catch (error) {
-        const reason = conflictReason(error);
-        if (reason !== null)
-          throw new AccountConflictError(reason, { cause: error });
-        throw error;
+        throw translateError(error);
       }
     },
     // 本名は読まない（一覧に含めない）

@@ -221,6 +221,15 @@ async function mockLoggedIn(page: Page): Promise<void> {
       } satisfies SessionInfo),
     }),
   );
+  // サイドバーの「参加中のチャンネル」が呼ぶ一覧（?joined=true を含む）。空の一覧を返す（実際の応答の形：items と nextCursor）
+  await page.route(/\/api\/channels(\?.*)?$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ items: [], nextCursor: null }),
+    }),
+  );
 }
 
 test("#121 AC-1: ログイン後の画面（パソコン幅）は、アバターメニューを開いても style 要素・style 属性が0で、CSP違反がない", async ({

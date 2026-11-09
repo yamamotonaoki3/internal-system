@@ -6,6 +6,12 @@ import { SCRYPT_TEST_TIMEOUT_MS } from "../../test/auth-fixtures";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  companyGeneralMembers,
+  companyGeneralRows,
+  removeCompanyGeneral,
+  restoreCompanyGeneral,
+} from "../../test/company-general-fixtures";
+import {
   newPiiKey,
   newSetupToken,
   randomBase64Url,
@@ -122,8 +128,9 @@ const EMPTY = {
   users: 0,
   assignments: 0,
   auditLogs: 0,
-  rooms: 0,
-  channels: 0,
+  // #200：全社連絡（0011 が作る初期データ）が1件ある。参加者は0名（セットアップのときに最初の管理者が参加する）
+  rooms: 1,
+  channels: 1,
   channelMembers: 0,
 };
 
@@ -167,7 +174,7 @@ afterEach(async () => {
   }>();
   await env.DB.batch([
     env.DB.prepare(
-      `DELETE FROM channel_members WHERE channel_id IN (${testChannels})`,
+      `DELETE FROM channel_members WHERE channel_id IN (${testChannels}) OR user_id IN (${testUsers})`,
     ),
     env.DB.prepare(`DELETE FROM channels WHERE room_id IN (${testChannels})`),
     ...testRooms.map((room) =>
@@ -351,6 +358,30 @@ describe("POST /api/setup：正常", { timeout: SCRYPT_TEST_TIMEOUT_MS }, () => 
     }
   });
 
+  it("#200 AC-1（2-1 AC-17・Q-1）: セットアップの後に、最初の管理者が全社連絡に参加している（参加者はその1名だけ。全社連絡は作り足さない）", async () => {
+    const body = (await (await post(validBody())).json()) as SetupResponse;
+    const general = await companyGeneralRows();
+    expect(general).toHaveLength(1);
+    expect(await companyGeneralMembers()).toEqual([body.user.id]);
+  });
+
+  it("#200 AC-1（Q-5）: 全社連絡がないと、セットアップは失敗し、何も残らず、未完了のまま", async () => {
+    await removeCompanyGeneral();
+    try {
+      const res = await post(validBody());
+      expect(res.status).not.toBe(201);
+      expect(await snapshot()).toEqual({
+        ...EMPTY,
+        rooms: 0,
+        channels: 0,
+        channelMembers: 0,
+      });
+      expect(await (await getStatus()).json()).toEqual({ setupRequired: true });
+    } finally {
+      await restoreCompanyGeneral();
+    }
+  });
+
   it("#119 AC-1: メールアドレスは自己確認：email_verified_by は作った利用者のID、email_verified_at は created_at と同じ値（改訂版 3.5）", async () => {
     const body = (await (await post(validBody())).json()) as SetupResponse;
     const row = await env.DB.prepare(
@@ -455,9 +486,10 @@ describe(
         users: 1,
         assignments: 2,
         auditLogs: 1,
-        rooms: 2,
-        channels: 2,
-        channelMembers: 2,
+        // 初代部署の専用チャンネル2つ + 全社連絡（#200）。参加は専用2つ + 全社連絡の3件
+        rooms: 3,
+        channels: 3,
+        channelMembers: 3,
       });
       const admins = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM user_role_assignments WHERE role_id = ?",

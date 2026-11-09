@@ -22,7 +22,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | アバターメニュー | **作った**。ヘッダーのアバターと下部メニューの「自分」が同じメニューを開き、パスワード変更とログアウトを行う | プロフィール（S-19）とステータスは #130、アバター画像は #141 |
 | 管理メニュー（4つのまとまり・まとまりごとの開閉・権限のある項目だけ・項目0なら見出しごと出さない） | **仕組みだけ作った**（権限は空で、今は誰にも出ない）。まとまりの見出しの定義と、出し分けの関数と、開閉（`<details>`）まで | 項目の追加は、最初の管理画面のIssue（#126・#131・#125のうち最初）。`account`のまとまりには、Issue #199で「アカウント管理」（`perm.account.create`を要求。`/accounts`）を足した。`department`のまとまりには、Issue #196で「部署管理」を足した。ほかのまとまりは、取引先管理を除き項目0件のまま（[accounts.md](accounts.md)） |
 | 下部メニュー | **ホームと「自分」だけ** | DM #136、案件 #147、通知 #124 |
-| チャンネル（会社・自部署・他部署のセクション） | 作らない | #132・#133・#144・#142・#125 |
+| チャンネル（会社・自部署・他部署のセクション） | 作らない（#121の時点）。**Issue #200で、「参加中のチャンネル」の1セクションと、固定リンク「チャンネルを探す」（S-09）を足した**。会社・自部署・他部署のセクション分けは、まだ行っていない | セクション分けは #132・#133・#144・#142・#125 |
 | ダイレクトメッセージ・「新しいDM」 | 作らない | #136 |
 | 案件のセクション | 作らない | #147 |
 | スレッド一覧 | 作らない | #137 |
@@ -46,12 +46,12 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | `AppShell.tsx` | レイアウトルートの要素。スキップリンク・`Header`・`Sidebar`・`<main id="main-content" tabIndex={-1}>`（`<Outlet />`）・`MobileNav`・`Drawer`を並べ、`AvatarMenuProvider`で包む。ドロワーの開閉は`useState`で持つ。`body`の左右の余白（ログイン前の画面用）を打ち消して画面いっぱいに広げる |
 | `Header.tsx` | `<header>`。左にメニューボタン（768px未満だけ）とロゴ、右にアバターのボタン（768px以上だけ） |
 | `Sidebar.tsx` | `<nav aria-label="メインメニュー">`。768px以上だけ表示。中身は`SidebarNav` |
-| `SidebarNav.tsx` | サイドバーとドロワーが共用するメニューの中身。`primaryNavItems`のリンクと、下部の`AdminMenu` |
+| `SidebarNav.tsx` | サイドバーとドロワーが共用するメニューの中身。参加中のチャンネルのセクション（`JoinedChannelsSection`。Issue #200）、`primaryNavItems`のリンク、下部の`AdminMenu` |
 | `AdminMenu.tsx` | 管理メニュー。`visibleAdminGroups`の結果が0件なら何も描画しない。まとまりごとの開閉は`<details>`と`<summary>` |
 | `MobileNav.tsx` | `<nav aria-label="下部メニュー">`。768px未満だけ表示。今は「ホーム」のリンクと「自分」（アバターメニューを開くボタン） |
 | `Drawer.tsx` | スマホのメニュー。ネイティブ`<dialog>`を`showModal()`で開く。中身は`SidebarNav` |
 | `AvatarMenu.tsx` | `AvatarMenuProvider`（popover本体と開閉状態）と`AvatarMenuTrigger`（開くボタン。`variant`が`avatar`ならヘッダー用、`self`なら下部メニューの「自分」）。中身は`/password`へのリンクと`LogoutButton` |
-| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`primaryNavItems`・`adminNavGroups`、純粋関数`visibleAdminGroups` |
+| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`primaryNavItems`（ホームと「チャンネルを探す」。Issue #200）・`adminNavGroups`、純粋関数`visibleAdminGroups` |
 | `nav-link-classes.ts` | リンクの見た目のクラスの固定の表`NAV_LINK_CLASSES`（現在のページは色だけでなく太字でも示す） |
 | `main-content.ts` | `MAIN_CONTENT_ID`（本文のid）・`DESKTOP_QUERY`（768px以上のメディアクエリ）・`focusMainContent`（幅の変更でメニューを閉じたときのフォーカスの移し先） |
 
@@ -86,7 +86,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | --- | --- |
 | データを取らない固定のリンク | `navigation.ts`の`primaryNavItems`に`NavItem`（`id`・`label`・`to`）を1つ足す。`SidebarNav`・ドロワーに同時に出る |
 | 管理項目 | `navigation.ts`の`adminNavGroups`の該当するまとまり（`approval`・`account`・`department`・`master-log`）の`items`に`requires`（必要な権限ID）つきで足す。`AdminMenu`が権限で出し分ける |
-| データを取るセクション（会社・自部署・他部署のチャンネル、DM、案件） | その機能のフォルダ（`features/<機能>/components/`）に部品を作り、`SidebarNav.tsx`の「ここに差し込む」のコメントの位置に**1行で**差し込む。並び順は、会社 → 自部署 → 他部署 → DM → 案件 |
+| データを取るセクション（会社・自部署・他部署のチャンネル、DM、案件） | その機能のフォルダ（`features/<機能>/components/`）に部品を作り、`SidebarNav.tsx`の「ここに差し込む」のコメントの位置に**1行で**差し込む。並び順は、会社 → 自部署 → 他部署 → DM → 案件。**実例（Issue #200）**：`features/channels/components/JoinedChannelsSection.tsx`を、`SidebarNav.tsx`の「ここに差し込む」の位置に1行で差し込んだ。リンクの見た目は枠が決めるため、`navLinkClassName`（`nav-link-classes.ts`を使う）を引数で渡し、機能から枠を参照しない。取得に失敗しても枠は壊さず、このセクションの中にエラーを出す。詳細は [channels.md](channels.md) |
 | スレッド一覧（S-35）・整理スペース（S-33） | 固定のリンクなので、`primaryNavItems`に足す |
 | アーカイブ | 管理の外の独立した項目（全体管理者と担当部署のオーナーだけ）。区切りを置いて、管理メニューの上に出す。権限による出し分けは、アーカイブを担当するIssueで決める（細部は未決定） |
 
@@ -179,7 +179,7 @@ jsdomは、メディアクエリを適用せず、`<dialog>`の`showModal`・`cl
 
 | 内容 | 場所 |
 | --- | --- |
-| 属性とイベントへの反応（単体） | `frontend/src/features/app-shell/`の`*.test.tsx`（`AppShell`・`AdminMenu`・`AvatarMenu`・`Drawer`・`MobileNav`）、`navigation.test.ts`、`frontend/src/features/auth/components/RequireAuth.states.test.tsx`、`frontend/src/pages/HomePage.test.tsx` |
+| 属性とイベントへの反応（単体） | `frontend/src/features/app-shell/`の`*.test.tsx`（`AppShell`・`AdminMenu`・`AvatarMenu`・`Drawer`・`MobileNav`）、`navigation.test.ts`・`navigation.channels.test.ts`（「チャンネルを探す」。Issue #200）、`frontend/src/features/auth/components/RequireAuth.states.test.tsx`、`frontend/src/pages/HomePage.test.tsx` |
 | スタブ | 全テスト共通の最小のスタブは`frontend/src/test/setup.ts`。幅の切り替えや開閉の呼び出しを確かめるテスト用の差し込みは`frontend/src/test/app-shell-harness.tsx`（`installDomStubs`・`pressEscapeOn`・`fireToggle`・`renderApp`・`respondShellUser`）。本番のコードにテスト都合の開閉処理は足さない |
 | 実ブラウザの動き（E2E） | `e2e/app-shell.spec.ts`。メディアクエリによる出し分け、Tab循環、背面が押せないこと、Esc、backdrop、popoverの外側クリックと最前面、幅の変更 |
 | 本番形（CSP） | `e2e-prod/csp-style.spec.ts` |

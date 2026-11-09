@@ -5,6 +5,7 @@ import { SCRYPT_TEST_TIMEOUT_MS } from "../../test/auth-fixtures";
 import { newPiiKey } from "../../test/random-secrets";
 import {
   AccountConflictError,
+  CompanyGeneralChannelMissingError,
   type AccountCreateInput,
   type AccountRepository,
 } from "../db/account.repository";
@@ -210,6 +211,54 @@ describe(
         expect(text).not.toContain(input.email);
       },
     );
+
+    it("#200 AC-1（Q-5・計画レビュー 応答コードの確定）: 全社連絡がないとき（CompanyGeneralChannelMissingError）は 503 SERVICE_UNAVAILABLE と決めた文言になり、原因を cause に残し、入力値を含めず、logger.error に記録する", async () => {
+      const lines: string[] = [];
+      const capture = (...args: unknown[]) => {
+        lines.push(args.map(String).join(" "));
+      };
+      vi.spyOn(console, "log").mockImplementation(capture);
+      vi.spyOn(console, "warn").mockImplementation(capture);
+      vi.spyOn(console, "error").mockImplementation(capture);
+      try {
+        const missing = new CompanyGeneralChannelMissingError();
+        const { repository } = stub({
+          createAccount: vi.fn(async () => {
+            throw missing;
+          }),
+        } as Partial<AccountRepository>);
+        const service = createAccountService(
+          repository,
+          roles(ROLE_IDS.globalAdmin),
+        );
+        const error = await service
+          .create(actor, input, { piiKey: newPiiKey() })
+          .catch((e: unknown) => e);
+        expect(error).toMatchObject({
+          code: "SERVICE_UNAVAILABLE",
+          status: 503,
+          userMessage:
+            "初期チャンネルが準備されていないため、アカウントを発行できません。システム管理者へ連絡してください。",
+        });
+        expect((error as Error).cause).toBe(missing);
+        const text = JSON.stringify(error) + String((error as Error).message);
+        expect(text).not.toContain(input.loginId);
+        expect(text).not.toContain(input.email);
+        // 運用担当者が気づけるよう、エラーとして記録する（個人情報は出さない）
+        const errorLines = lines.filter((l) => l.startsWith("{"));
+        expect(errorLines.length).toBeGreaterThan(0);
+        expect(
+          errorLines.some((l) => /"severity_text":\s*"ERROR"/.test(l)),
+        ).toBe(true);
+        for (const line of lines) {
+          expect(line).not.toContain(input.loginId);
+          expect(line).not.toContain(input.email);
+          expect(line).not.toContain("テスト太郎");
+        }
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
 
     it("#199 AC-2: 競合以外の Repository の失敗は、そのまま呼び出し元へ伝える（409にしない）", async () => {
       const failure = new Error("unit test failure");

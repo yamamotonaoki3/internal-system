@@ -1,6 +1,6 @@
 // Repository：初代全体管理者の初回セットアップ（DB へのアクセスはこの層に閉じ込める）。
 // 会社の設定・部署・利用者・ロールの割り当て・監査ログを、1つの db.batch で同時に確定する（途中で失敗したら、すべて取り消される）。
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   channelMembers,
   channels,
@@ -126,6 +126,13 @@ export function createSetupRepository(db: Database): SetupRepository {
             mustChangePassword: true,
             createdAt: input.now,
           }),
+          // 全社連絡（migration 0011 が作る初期データ）がなければ NOT NULL 違反で batch 全体を失敗させる（下の参加の文と同じ条件）
+          db
+            .update(users)
+            .set({
+              displayName: sql`CASE WHEN EXISTS (SELECT 1 FROM channels WHERE purpose = 'company_general' AND deleted_at IS NULL) THEN ${users.displayName} ELSE NULL END`,
+            })
+            .where(eq(users.id, input.userId)),
           // 全体管理者（会社範囲）と、初代管理者が所属する部署のオーナー（部署範囲）
           db.insert(userRoleAssignments).values([
             {
@@ -188,6 +195,10 @@ export function createSetupRepository(db: Database): SetupRepository {
               joinedAt: input.now,
             },
           ]),
+          // 全社連絡は作らず、最初の管理者を参加させるだけ（全社連絡は migration が作る）
+          db.insert(channelMembers).select(sql`
+            SELECT c.room_id, ${input.userId}, ${input.now} FROM channels c
+            WHERE c.purpose = 'company_general' AND c.deleted_at IS NULL`),
           auditLogInsert(db, {
             actorId: input.userId,
             action: SETUP_ACTION,

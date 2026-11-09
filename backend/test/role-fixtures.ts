@@ -86,6 +86,10 @@ export async function cleanupRoleTestData() {
   const testUsers =
     "SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'";
   await env.DB.batch([
+    // #200：アカウント発行・セットアップは全社連絡などの channel_members に参加の行を作るため、利用者より先に消す
+    env.DB.prepare(
+      `DELETE FROM channel_members WHERE user_id IN (${testUsers})`,
+    ),
     env.DB.prepare(
       `DELETE FROM user_role_assignments WHERE user_id IN (${testUsers})`,
     ),
