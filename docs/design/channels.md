@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-2-04（一覧）・EP-2-05（参加）・EP-2-06（詳細）／全社連絡の用意（部分一意インデックスのmigration 0010と、初期データのmigration 0011）／アカウント発行・初回セットアップでの全社連絡と部署の専用チャンネルへの参加／S-09（チャンネルを探す）・詳細画面の入口・サイドバーの「参加中のチャンネル」／監査操作`channel.join`・`channel.company_general_backfill` |
-| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（#131）、非公開チャンネルの招待（2-4 AC-1〜4。#135）、お知らせ専用チャンネルの投稿制限（2-3 AC-4。#201）、メッセージ（#201）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出 |
+| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（#131）、非公開チャンネルの招待（2-4 AC-1〜4。#135）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出。なお、お知らせ専用チャンネルの投稿制限（2-3 AC-4）とメッセージは**#201で実装した**（[messages.md](messages.md)） |
 | 作らないもの | 退出のAPI（全社連絡にも作らない。Q-2）、新しい権限ID（認証済みの有効な社員であれば足りる。Q-7）、レート制限（上限がX-8で未決定のため入れない。別Issueで扱う。Q-8） |
 
 ## ファイルと役割
@@ -40,7 +40,7 @@
 | `frontend/src/features/channels/api/channel-api.ts` | `fetchChannels`・`fetchChannel`・`joinChannel`。共通の`apiClient`だけを使い、応答はzodで検証する。詳細は、参加済み（`joined: true`）なのに参加者の情報（`memberCount`・`members`）がない応答を、サーバーの不具合として検証エラーにする |
 | `frontend/src/features/channels/api/query-keys.ts` | `channelKeys`（`all`・`list`・`detail`）。参加したときは`all`を取り直す |
 | `frontend/src/features/channels/hooks/` | `useChannels`（絞り込みごとに別のキャッシュ。カーソルで続きを取る無限スクロール型）・`useJoinedChannels`（`useChannels`に`joined: true`を渡すだけ）・`useChannelDetail`・`useJoinChannel`（成功したら`channelKeys.all`を無効にし、一覧・サイドバー・詳細を取り直す。取り直しが終わるまで送信中のまま） |
-| `frontend/src/features/channels/components/` | `ChannelList`（読み込み中・エラー・なし・ありの4つの状態）・`ChannelSummary`（1行。参加ボタンは参加済みなら出さず、送信中は押せない）・`DepartmentFilter`・`JoinedChannelsSection`（サイドバー用）・`ChannelDetailView`（詳細の入口） |
+| `frontend/src/features/channels/components/` | `ChannelList`（読み込み中・エラー・なし・ありの4つの状態）・`ChannelSummary`（1行。参加ボタンは参加済みなら出さず、送信中は押せない）・`DepartmentFilter`・`JoinedChannelsSection`（サイドバー用）・`ChannelDetailView`（詳細。#201でS-05になり、`features/messages`の`RoomMessages`を使う。下の「S-05への統合」） |
 | `frontend/src/features/channels/describe-error.ts` | 通信の失敗を利用者向けの文にする。`ApiError`のメッセージはそのまま使い、それ以外は一般的な文にする |
 | `frontend/src/pages/ChannelsPage.tsx`（S-09）・`ChannelDetailPage.tsx` | 画面の構成だけ。API通信は書かない |
 | `frontend/src/App.tsx` | レイアウトルートの子に`/channels`・`/channels/:channelId`を足した |
@@ -70,7 +70,7 @@
 3. **参加できるか**（`canJoinChannel`）：アーカイブされていない公開チャンネル。できなければ404
 4. 参加する（Repositoryの`join`）
 
-`get`は①の後、**参加者にだけ**参加者の数（`memberCount`）と先頭`MEMBERS_PREVIEW_LIMIT`件（`members`）を付ける。未参加の公開チャンネルの詳細には、この2項目を含めない。参加者の数と一覧には、無効にした社員を含めない。メッセージは返さない（#201）。`isCaseChannel`は今はつねに`false`。
+`get`は①の後、**参加者にだけ**参加者の数（`memberCount`）と先頭`MEMBERS_PREVIEW_LIMIT`件（`members`）を付ける。未参加の公開チャンネルの詳細には、この2項目を含めない。参加者の数と一覧には、無効にした社員を含めない。メッセージは返さない（一覧は`GET /api/rooms/:roomId/messages`。[messages.md](messages.md)）。`isCaseChannel`は今はつねに`false`。**#201で`canPost`（真偽）を足した**：未参加は偽、参加者で、お知らせ専用なら自部署のオーナーか全体管理者のときだけ真、それ以外の参加者は真。判定は`shared/message-rules.ts`の`canPostToChannel`で、権限の確認は`can`（拒否を監査に記録しない）。全社連絡は部署の範囲を渡さず、参加者なら真。
 
 ### 一覧（`GET /api/channels`）
 
@@ -95,6 +95,13 @@
 - ID・メールの重複（409）でも、参加の行は残らない（batch全体の取消し）
 - **初回セットアップ**（`createInitialAdmin`）：同じ存在確認の文を置き、最初の管理者を全社連絡に参加させる。全社連絡を作る処理は書かない。全社連絡がなければセットアップは失敗し、何も残らない（アカウント発行と違い、専用の503には変えておらず、想定外のエラー（500）になる。利用者に向けた案内を出す改善は未実施）
 
+### S-05への統合（Issue #201）
+
+- `ChannelDetailView`は、見出し・説明の下に`RoomMessages`（`roomId`・`canPost`・`joined`を渡す）を置き、参加者の一覧を下に出す。メッセージの一覧・投稿・ポーリングの設計は[messages.md](messages.md)
+- 参加中で`canPost`が真：入力欄を出す／参加中でお知らせ専用の権限なし：入力欄の代わりに案内を出す／未参加の公開：入力欄を出さず、既存の「参加する」の案内を出す（本文は読める）
+- `channel-api.ts`の詳細のスキーマに`canPost`（必須の真偽）を足した。テストのMSWの応答（`channels.components.test.tsx`・`channels-route.test.tsx`・`frontend/src/test/server.ts`）にも`canPost`を足した
+- `findForViewer`（`channel.repository.ts`）の取得項目に`purpose`を足した（足しただけ）
+
 ### フロントエンドの取得とサイドバー
 
 - `JoinedChannelsSection`は`GET /api/channels?joined=true`を取り、参加中のチャンネルを名前順に並べる。1ページ（既定20件）を超えるときは「さらに表示」で続きを取る。上限の定数は設けず、ページ送りで対応した
@@ -112,7 +119,7 @@
 | 操作 | 契約 |
 | --- | --- |
 | 一覧（EP-2-04） | `GET /api/channels`。`departmentId?`・`joined?`・`limit`・`cursor`。200で`items`（`id`・`roomId`・`name`・`visibility`・`departmentId`・`departmentName`・`joined`）と`nextCursor`。401／404（存在しない部署）／422 |
-| 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。401／404 |
+| 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`canPost`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。**#201で`canPost`を足した**（既存の項目は変えていない）。401／404 |
 | 参加（EP-2-05） | `POST /api/channels/{channelId}/join`。200で`channelId`・`roomId`・`joinedAt`。参加済みでも200（べき等）。401／403（Origin）／404 |
 
 ## 権限
@@ -136,13 +143,14 @@
 - Service・route：`backend/src/services/channel.service.test.ts`、`backend/src/routes/channels.test.ts`・`channels.unit.test.ts`、`backend/src/routes/accounts.channels.test.ts`、`backend/src/services/account.service.test.ts`・`account.service.logging.test.ts`（503とログ）、`backend/src/openapi.test.ts`
 - テスト部品：`backend/test/company-general-fixtures.ts`、`backend/test/role-fixtures.ts`、`frontend/src/test/channel-handlers.ts`
 - フロントエンド：`frontend/src/features/channels/channels.components.test.tsx`、`frontend/src/pages/ChannelsPage.test.tsx`、`frontend/src/channels-route.test.tsx`、`frontend/src/features/app-shell/navigation.channels.test.ts`
+- #201で足したテスト：`backend/src/routes/channels.can-post.test.ts`（`canPost`）、`frontend/src/features/channels/channel-detail.messages.test.tsx`（S-05の統合）
 - E2E：`e2e/channels.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/channels.sql`・`channels-cleanup.sql`
 
 ## 未実施・未決定として記録するもの
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、お知らせ専用の投稿制限、未読など） | 親に残す。このIssueでは作っていない |
+| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（お知らせ専用の投稿制限とメッセージは#201で実装） |
 | Q-9：0009で名前が衝突して専用チャンネルが作られなかった部署の扱い | 未決。このIssueでは何も作らない。デモの前に、`audit_logs`の`department.channel_backfill`と`channel.company_general_backfill`の`failure`の有無を確かめる |
 | 全社連絡の退出 | APIを作っていない。全社連絡から外れる経路はない |
 | レート制限（EP-2-04〜06） | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)） |
@@ -151,7 +159,7 @@
 
 ## 関係するIssue・ADR
 
-- Issue #200：本Issue。親Issue #132。#201（メッセージ。`channel.repository`・EP-2-06・S-05が重なる）が後続
+- Issue #200：本Issue。親Issue #132。#201（メッセージ。`channel.repository`・EP-2-06・S-05が重なる）が後続。#201で実装済み（[messages.md](messages.md)）
 - [department-management.md](department-management.md)（#196。`rooms`・`channels`・`channel_members`の約束）、[accounts.md](accounts.md)（#199）
 - ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0020：ミューテーション・E2Eの実行範囲
 - [ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)：全社連絡を補う手作成migrationの例外

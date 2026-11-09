@@ -1118,6 +1118,163 @@
         }
       }
     },
+    "/api/rooms/{roomId}/messages": {
+      "get": {
+        "operationId": "listMessages",
+        "summary": "チャンネルのメッセージを取得する",
+        "description": "ログイン済みの有効な社員。公開チャンネルは参加していなくても読める。参加していない非公開・アーカイブ済み・存在しない部屋（DMの部屋を含む）は、区別せず 404。after なしは新しい順（nextCursor で古い側へ）。after ありは、そのIDより後を ID 昇順で返す（after は含まない。hasMore が真なら続きがある）。after と cursor は同時に指定できない。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "description": "このID以降（含まない）をID昇順で取る。画面のポーリングが、取得済みの最後のIDを渡す"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次の古い側のカーソル（after と同時に指定できない）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "件数。既定は after なしで 50、after ありで 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "メッセージ。after なしは { items, nextCursor }、after ありは { items, hasMore }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MessageLatestPage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MessageAfterPage"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・チャンネルでない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "postMessage",
+        "summary": "チャンネルにメッセージを投稿する",
+        "description": "チャンネルの参加者だけが投稿できる。お知らせ専用は、参加者のうち、その部署のオーナーと全体管理者だけ。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "投稿した",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または投稿できない（FORBIDDEN。未参加の公開チャンネル・お知らせ専用で権限がない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・チャンネルでない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "description": "混み合っていて投稿できない（IDの作り直しが上限を超えた）。しばらくしてからやり直す",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "getHealth",
@@ -1678,7 +1835,8 @@
         "visibility",
         "departmentId",
         "joined",
-        "isCaseChannel"
+        "isCaseChannel",
+        "canPost"
       ],
       "additionalProperties": false,
       "properties": {
@@ -1716,6 +1874,10 @@
           "type": "boolean",
           "description": "案件チャンネルか。今はつねに false"
         },
+        "canPost": {
+          "type": "boolean",
+          "description": "このチャンネルに投稿できるか。参加者で、お知らせ専用なら部署のオーナーか全体管理者のとき真"
+        },
         "memberCount": {
           "type": "integer",
           "minimum": 0,
@@ -1749,6 +1911,132 @@
         },
         "joinedAt": {
           "type": "string"
+        }
+      }
+    },
+    "MessageItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "roomId",
+        "author",
+        "body",
+        "createdAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "author": {
+          "type": "object",
+          "required": [
+            "id",
+            "displayName"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "displayName": {
+              "type": "string",
+              "description": "投稿時点の表示名"
+            }
+          }
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "MessageLatestPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "MessageAfterPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "hasMore"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageItem"
+          }
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MessageCreate": {
+      "type": "object",
+      "required": [
+        "body"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      }
+    },
+    "MessageCreated": {
+      "type": "object",
+      "required": [
+        "id",
+        "roomId",
+        "createdAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },

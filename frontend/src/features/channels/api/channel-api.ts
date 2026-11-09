@@ -25,6 +25,8 @@ const channelDetailSchema = z
     departmentId: z.string().nullable(),
     joined: z.boolean(),
     isCaseChannel: z.boolean(),
+    // このチャンネルに投稿できるか（参加者で、お知らせ専用なら権限がある）
+    canPost: z.boolean(),
     // 参加者にだけ返る
     memberCount: z.number().int().optional(),
     members: z

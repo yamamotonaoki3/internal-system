@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -31,7 +31,7 @@ Cloudflare Workers（Hono）
 
 | 項目 | 方針 | ADR |
 | --- | --- | --- |
-| リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue）。「最後のID以降を取るAPI」を共通の土台にする | [0004](../adr/0004-realtime-polling-then-websocket.md) |
+| リアルタイム更新 | 最初は2秒間隔のポーリング（Workers Paid前提）。あとでWebSocket（Durable Objects＋Hibernation）に置き換える（別のIssue）。「最後のID以降を取るAPI」を共通の土台にする。**Issue #201で、チャンネルについて実装した**（部屋の中ではコミットの順にIDが増える不変条件を、条件付きINSERTで保証。詳細は[messages.md](messages.md)） | [0004](../adr/0004-realtime-polling-then-websocket.md) |
 | DB | D1のみ（本番・ローカル・テストとも）。PostgreSQLへの一本化は採らない | [0005](../adr/0005-database-d1-only.md) |
 | ID・ページ送り・未読 | 時刻順のULID相当のテキストID（自前生成）。一覧はすべてカーソル方式。未読は既読位置から上限つきで数え直す | [0006](../adr/0006-id-cursor-unread.md) |
 | パスワードのハッシュ | `node:crypto`のscrypt（N=2^16, r=8, p=2）。PHC形式の自己記述の文字列。ログイン成功時に再ハッシュ。本番確認により確定（2026-11-03）。`maxmem`の指定が必須 | [0007](../adr/0007-password-hash-scrypt.md) |
@@ -62,7 +62,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 
 | 対象 | 索引の候補 | 使う場面 |
 | --- | --- | --- |
-| `messages` | （ルーム, ID）。スレッド用に（親メッセージ, ID） | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
+| `messages` | （ルーム, ID）【Issue #201で`messages_room_id_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果はIssueに記録】。スレッド用に（親メッセージ, ID）は未作成 | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
 | `read_positions` | 主キー（ユーザー, ルーム） | 未読の判定。ユーザーの全ルームをまとめて引く |
 | `channel_members` / `case_participants` | （ユーザー, 状態）など | サイドバー、見られる範囲の判定 |
 | `audit_logs` | （発生日時, ID）。絞り込み列は使われ方を見て追加 | 監査ログの絞り込みとページ送り、1年保持の掃除 |
@@ -103,6 +103,9 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/routes/channels.ts`、`backend/src/services/channel.service.ts`、`backend/src/db/channel.repository.ts`、`backend/src/lib/channel-rules.ts` | チャンネルの一覧・詳細・参加（Issue #200）。`channelRoutes`を`backend/src/index.ts`で`/api/channels`へ登録。判定は`channel-rules.ts`の純粋関数、参加の行と監査は1回の`db.batch`。詳細は[channels.md](channels.md) |
 | `backend/db/migrations/0010_add_company_general_unique.sql`、`0011_seed_company_general_channel.sql` | 全社連絡を1つに限る部分一意インデックスと、全社連絡の初期データ（Issue #200）。0011はADR-0022の例外となる手作成migration |
 | `frontend/src/features/channels/`、`frontend/src/pages/ChannelsPage.tsx`・`ChannelDetailPage.tsx` | S-09（チャンネルを探す）・詳細の入口・サイドバーの「参加中のチャンネル」（Issue #200）。詳細は[channels.md](channels.md) |
+| `backend/src/routes/messages.ts`、`backend/src/services/message.service.ts`、`backend/src/db/message.repository.ts`、`shared/message-rules.ts` | チャンネルのメッセージの一覧・投稿（Issue #201）。`messageRoutes`を`backend/src/index.ts`で`/api/rooms`へ登録。投稿は条件付きの`INSERT … SELECT`1文で、IDの順序・アーカイブ・参加・お知らせ専用の権限を同時に確かめる。詳細は[messages.md](messages.md) |
+| `backend/db/migrations/0012_add_messages.sql`、`backend/src/lib/ulid.ts`（`ulidAfter`）、`backend/src/lib/cursor.ts`（`afterIdQuerySchema`・`toAfterIdPage`） | `messages`テーブルと、「最後のID以降」の共通部品（Issue #201） |
+| `frontend/src/features/messages/`、`frontend/src/components/TextAreaField.tsx` | S-05のメッセージの一覧・入力欄・2秒ポーリング（Issue #201）。DM・スレッドが後で使えるよう`channels`の外に置く。詳細は[messages.md](messages.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
@@ -113,8 +116,8 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 
 | 部品 | ファイル | 役割・決まり |
 | --- | --- | --- |
-| ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ。根拠は[調査メモ](../research/design-foundation.md)の12章 |
-| カーソル | `backend/src/lib/cursor.ts` | 一覧はOFFSETを使わず、`(並び替えの値, ID)`の組で続きを取る。`cursorQuerySchema`が`cursor`と`limit`を検証し、`afterCursor`（並び替えの値＋ID）または`afterId`（IDだけ）が条件を作り、`toPage`が`limit+1`件の結果から1ページ分と`nextCursor`を作る。壊れたカーソルは`decodeCursor`が`VALIDATION_ERROR`（422）にする。件数は`PAGE_LIMIT`（メッセージ50・その他20・最大100）。並び替えの値の文字列は128文字まで、カーソル全体は1024文字まで |
+| ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ（メッセージの投稿では、`ulidAfter`と条件付きINSERTで、部屋の中の順序を補う。[messages.md](messages.md)）。根拠は[調査メモ](../research/design-foundation.md)の12章 |
+| カーソル | `backend/src/lib/cursor.ts` | 一覧はOFFSETを使わず、`(並び替えの値, ID)`の組で続きを取る。`cursorQuerySchema`が`cursor`と`limit`を検証し、`afterIdQuerySchema`・`toAfterIdPage`が「最後のID以降」（`after`・`hasMore`。Issue #201）を扱い、`afterCursor`（並び替えの値＋ID）または`afterId`（IDだけ）が条件を作り、`toPage`が`limit+1`件の結果から1ページ分と`nextCursor`を作る。壊れたカーソルは`decodeCursor`が`VALIDATION_ERROR`（422）にする。件数は`PAGE_LIMIT`（メッセージ50・その他20・最大100）。並び替えの値の文字列は128文字まで、カーソル全体は1024文字まで |
 | 監査ログの書き込み | `backend/src/db/audit-log.repository.ts` | `auditLogInsert`は挿入の文を**返すだけ**で実行しない。業務の更新と同じ`db.batch([...])`に入れて、同時に確定・失敗させる（`backend/src/db/database.ts`の`BatchItem`型）。`detail`に入れてよいのは件数・変更前後の識別子や状態・失敗の分類・文字数などの概要で、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない。`redact`は項目名による保険であり、個人情報を取り除く仕組みではない |
 | 監査ログの操作の種類 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`の一覧。機能のIssueが操作を足すときにここへ足す。Issue #119で`setup.initial_admin.create`を、Issue #120で`auth.login`・`auth.logout`・`auth.rate_limited`・`setup.rate_limited`を足した。`auditLogInsertForSession`は、セッションがあるときだけ書く条件付きの監査（ログインの成功・ログアウト） |
 | 権限判定 | `backend/src/lib/authorization.ts` | `createAuthorizer(known, resolve, { logger })`が`can`（真偽）と`authorize`（拒否は例外）を返す。範囲（`Scope`）は会社または部署。`known`にない権限IDは、Resolverが許可しても拒否する。未ログインは`UNAUTHENTICATED`、権限なしは`FORBIDDEN`にし、拒否は`logger.audit`で必ず記録する（利用者IDやResolverの権限集合は含めない）。**本番の権限IDの一覧とResolverは、Issue #119で`backend/src/services/authorizer.ts`（`createAppAuthorizer`。`createAuthorizer`を呼ぶ1か所）に組んだ**（[roles-and-setup.md](roles-and-setup.md)） |
@@ -141,6 +144,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | 共通レイアウトの骨格S-01（ヘッダー・サイドバー・本文・下部メニュー・ドロワー・アバターメニュー、サイドバーの項目やヘッダーの部品を足す場所と書き方、管理メニューの仕組みと権限の扱い、認証ガードの各状態、jsdomの制約とE2Eの役割） | [app-shell.md](app-shell.md) | #121（親 #108）、依存 #120・#171、ADR-0015 |
 | 部署の登録・改名・オーナー交代と部署の専用チャンネル2つ（batchの文の順序と前提の確認、`rooms`・`channels`・`channel_members`を後続が使う約束、初代部署の補完migration、本番適用前の注意、未実装の記録） | [department-management.md](department-management.md) | #196（親 #125）、ADR-0018・0021 |
 | 全社連絡と公開チャンネルの一覧・閲覧・参加（S-09。判定の順と404の扱い、参加の監査を同じbatchに入れる順序、全社連絡の用意（migration 0010・0011）、アカウント発行・セットアップでの参加と503、サイドバーの取得、未実施・未決定の記録） | [channels.md](channels.md) | #200（親 #132）、ADR-0022 |
+| チャンネルのメッセージの投稿・一覧と2秒ポーリング（S-05。部屋の中でコミットの順にIDが増える不変条件と条件付きINSERT、`ulidAfter`と再試行3回・503、判定の順と404／403、お知らせ専用の権限をServiceとSQLの両方で判定、フロントのポーリングと停止条件、未実施・範囲外の記録） | [messages.md](messages.md) | #201（親 #133）、ADR-0004・0006・0020 |
 
 ## 関係する文書
 

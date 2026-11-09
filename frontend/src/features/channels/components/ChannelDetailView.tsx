@@ -1,6 +1,7 @@
-// チャンネルの詳細（S-05 の入口）。名前・説明・公開範囲・参加者を出す。メッセージは #201 で足す。
+// チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
+import { RoomMessages } from "../../messages";
 import { describeError, isApiError } from "../describe-error";
 import { useChannelDetail } from "../hooks/useChannelDetail";
 import { useJoinChannel } from "../hooks/useJoinChannel";
@@ -31,17 +32,8 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
           : "公開チャンネル"}
       </p>
       {data.description !== "" && <p className="mb-4">{data.description}</p>}
-      {data.joined ? (
-        <div>
-          <h2 className="mb-2 font-bold">参加者（{data.memberCount}人）</h2>
-          <ul>
-            {data.members?.map((member) => (
-              <li key={member.id}>{member.displayName}</li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <>
+      {!data.joined && (
+        <div className="mb-4">
           <Button
             disabled={join.isPending}
             onClick={() => join.mutate(data.id)}
@@ -55,7 +47,22 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
               </Alert>
             </div>
           )}
-        </>
+        </div>
+      )}
+      <RoomMessages
+        roomId={data.roomId}
+        canPost={data.canPost}
+        joined={data.joined}
+      />
+      {data.joined && (
+        <div>
+          <h2 className="mb-2 font-bold">参加者（{data.memberCount}人）</h2>
+          <ul>
+            {data.members?.map((member) => (
+              <li key={member.id}>{member.displayName}</li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

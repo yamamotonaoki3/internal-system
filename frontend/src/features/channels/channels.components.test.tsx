@@ -54,6 +54,8 @@ const detailBase = {
   departmentId: null,
   joined: false,
   isCaseChannel: false,
+  // #201：詳細の応答に canPost が加わった（投稿できるか。お知らせ専用の権限）
+  canPost: false,
 };
 
 function respondDetail(body: Record<string, unknown>) {
@@ -164,8 +166,8 @@ describe("#200 AC-2・AC-3 チャンネルの詳細（ChannelDetailView）", () 
     respondDetail({ description: "" });
     const { container } = renderWith(<ChannelDetailView channelId={ID} />);
     await screen.findByRole("heading", { level: 1 });
-    // 残る段落は「公開チャンネル」の1つだけ（空の説明の段落がない）
-    expect(container.querySelectorAll("p")).toHaveLength(1);
+    // 詳細の見出し直下に残る段落は「公開チャンネル」の1つだけ（空の説明の段落がない。メッセージ欄の中の段落は数えない）
+    expect(container.querySelectorAll("section > p")).toHaveLength(1);
   });
 
   it("#200 AC-2: 参加者には、参加者の数と参加者の表示名の一覧を出し、参加ボタンは出さない", async () => {

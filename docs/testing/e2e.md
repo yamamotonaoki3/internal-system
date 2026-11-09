@@ -41,6 +41,7 @@
 | アカウントの個別発行（S-22・S-23。Issue #199） | `e2e/accounts.spec.ts` | 全体管理者が、メニュー（アカウント→アカウント管理）から一覧と登録画面へ進み、1人を発行する。応答が201で`Cache-Control: no-store`を含み、初期パスワードが画面に一度だけ出て、`localStorage`・`sessionStorage`に残らない。「一覧へ戻る」で「登録しました」が出て、初期パスワードが消え、一覧に発行した行（メール・所属部署）が出る。発行したアカウントでログインすると、パスワードの変更を求められ（`mustChangePassword`）、変更するとホームへ進む。一般社員には管理メニューが出ず、`/accounts`は見つからない画面になり、`/api/admin/accounts`は403。シードは`e2e/seeds/accounts.sql`（架空の部署1件と、全体管理者`e2euser_account_admin`・一般社員`e2euser_account_member`。パスワードのハッシュは`e2euser_login_001`のものをDB内で参照するため、`pretest:e2e`が`login.sql`を先に流す前提）。後始末は`e2e/seeds/accounts-cleanup.sql`で、specの`beforeAll`と`afterAll`が流す（`e2euser_account_`で始まる利用者と`[E2E_TEST]アカウント発行部`だけを消す）。**全体管理者は一意制約で1人だけなので、他のspec（`clients.sql`など）の全体管理者のシードと同時には存在させない**（`workers: 1`で、各specが自分のシードを入れて消す） |
 | 共通レイアウト（S-01） | `e2e/app-shell.spec.ts` | 下の「共通レイアウトのシナリオ」を参照 |
 | チャンネルを探す・参加（S-09。Issue #200） | `e2e/channels.spec.ts` | 下の「チャンネルのシナリオ」を参照 |
+| チャンネルのメッセージ（S-05。Issue #201） | `e2e/messages.spec.ts` | 下の「メッセージのシナリオ」を参照 |
 | 部署の管理（S-24・S-08。Issue #196） | `e2e/departments.spec.ts` | 下の「部署の管理のシナリオ」を参照 |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
@@ -68,6 +69,18 @@
 - ログインの試行制限に当たらないよう、各利用者のログインは1回だけにする
 - 既存の後始末SQL（`e2e/seeds/accounts-cleanup.sql`・`login-cleanup.sql`）に、`channel_members`の削除を足した。発行・セットアップされた社員が全社連絡に参加するため、参加の行を先に消さないと外部キーで社員を消せない
 - 本番形（CSP）のスモーク（`e2e-prod/csp-style.spec.ts`）は、サイドバーが`GET /api/channels`を呼ぶようになったため、この一覧を空の応答でモックする
+
+### メッセージのシナリオ（開発サーバー。Issue #201）
+
+`e2e/messages.spec.ts`。設計は [messages.md](../design/messages.md)。1件。
+
+- 利用者A・Bが、**別々のブラウザコンテキスト**で同じチャンネル（S-05）を開く。Aが「送信」ボタンで投稿すると、Aの画面にもBの画面にも、**再読み込みなし**（`page.reload`を呼ばない）で表示される。入力欄は投稿後に空になる
+- Bが、Enterだけでは送られず改行になること（入力欄の値が改行を含む）と、Ctrl+Enterで送られることを確かめ、Aの画面にも出る。2つの投稿が、投稿の順（古い→新しい）に並ぶ
+- 新着の表示は2秒ポーリングで、`expect`の既定の待ちで足りる。待ち時間は延ばさない
+- シード：`e2e/seeds/messages.sql`（架空の利用者`e2euser_msg_a`・`e2euser_msg_b`〔`@example.com`〕、部署「[E2E_TEST]部署201…」とそのチャンネル、固定のルームID）。後始末：`e2e/seeds/messages-cleanup.sql`（社員ID`e2euser_msg_`と部署名`[E2E_TEST]部署201`の識別子だけ。メッセージ・参加・セッション・監査を含む。**全社連絡は消さない**）。spec自身が`beforeAll`で後始末とシードを流し、`afterAll`で後始末して、残数がすべて0であることを確かめる
+- このシードは全体管理者を入れない（全体管理者の一意制約に当たらない）
+- ログインの試行制限に当たらないよう、各利用者のログインは1回だけにする
+- 開発中は、このspecに加えて、画面が変わる`e2e/channels.spec.ts`とスモーク（`health.spec.ts`・`login.spec.ts`）を選んで実行する（ADR-0020）。共通部品`TextAreaField`を足したため、必要に応じて`style-foundation.spec.ts`も対象にする
 
 ### 共通レイアウトのシナリオ（開発サーバー。Issue #121）
 

@@ -10,6 +10,7 @@ import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
+import { messageRoutes } from "./routes/messages";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 
@@ -33,6 +34,8 @@ const app = createApp({
     { path: "/api/departments", app: departmentRoutes() },
     // #200：チャンネルの一覧・詳細・参加。index.ts と同じパスに組み込む
     { path: "/api/channels", app: channelRoutes() },
+    // #201：メッセージの一覧・投稿。index.ts と同じパスに組み込む
+    { path: "/api/rooms", app: messageRoutes() },
   ],
 });
 
@@ -141,6 +144,28 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         "403",
         "404",
         "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#201 AC-1・AC-2・AC-3: メッセージの一覧・投稿の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "GET /api/rooms/{roomId}/messages": ["200", "401", "404", "422"],
+      "POST /api/rooms/{roomId}/messages": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "422",
+        "503",
       ],
     };
     for (const [name, codes] of Object.entries(expected)) {

@@ -12,6 +12,7 @@ import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
+import { messageRoutes } from "./routes/messages";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { authCleanupJob } from "./services/auth.service";
@@ -30,6 +31,7 @@ export const app = createApp({
     { path: "/api/departments", app: departmentRoutes() },
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
     { path: "/api/channels", app: channelRoutes() },
+    { path: "/api/rooms", app: messageRoutes() },
   ],
 });
 

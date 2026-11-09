@@ -4,8 +4,12 @@
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 
+// #201：チャンネルの詳細（S-05）がメッセージの一覧（GET /api/rooms/:roomId/messages）も取るため、これも空を既定の応答にする。
 export const server = setupServer(
   http.get("/api/channels", () =>
     HttpResponse.json({ items: [], nextCursor: null }),
+  ),
+  http.get("/api/rooms/:roomId/messages", () =>
+    HttpResponse.json({ items: [], nextCursor: null, hasMore: false }),
   ),
 );
