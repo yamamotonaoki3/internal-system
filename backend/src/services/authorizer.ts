@@ -36,6 +36,18 @@ export function canManageClients(
   );
 }
 
+export function canManageDepartments(
+  env: Env,
+  userId: string,
+  traceId: string,
+): Promise<boolean> {
+  return withRoleAssignments(env, (repository) =>
+    createAppAuthorizer(repository, {
+      logger: createLogger({ traceId }),
+    }).can({ userId }, "perm.workspace.create", { type: "company" }),
+  );
+}
+
 export function canManageAccounts(
   env: Env,
   userId: string,

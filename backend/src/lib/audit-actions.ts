@@ -10,6 +10,10 @@ export const AUDIT_ACTIONS = [
   "client.create",
   "client.rename",
   "client.deactivate",
+  "department.create",
+  "department.rename",
+  "department.owner_change",
+  "department.channel_backfill",
   "account.create",
 ] as const;
 

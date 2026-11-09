@@ -9,6 +9,7 @@ import { withSetup } from "./db/setup.repository";
 import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
+import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
@@ -24,6 +25,8 @@ export const app = createApp({
     { path: "/api/me", app: meRoutes(withCredentials) },
     { path: "/api/admin/clients", app: adminClientRoutes() },
     { path: "/api/clients", app: clientRoutes() },
+    { path: "/api/admin/departments", app: adminDepartmentRoutes() },
+    { path: "/api/departments", app: departmentRoutes() },
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
   ],
 });

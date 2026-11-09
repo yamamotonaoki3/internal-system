@@ -37,7 +37,18 @@ export const adminNavGroups: AdminNavGroup[] = [
       },
     ],
   },
-  { id: "department", label: "部署", items: [] },
+  {
+    id: "department",
+    label: "部署",
+    items: [
+      {
+        id: "departments",
+        label: "部署管理",
+        to: "/departments",
+        requires: "perm.workspace.create",
+      },
+    ],
+  },
   {
     id: "master-log",
     label: "マスタ・ログ",

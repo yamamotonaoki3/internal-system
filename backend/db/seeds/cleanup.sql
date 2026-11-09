@@ -10,6 +10,10 @@ SELECT COUNT(*) AS remaining FROM sample_users WHERE username LIKE 'testuser!_%'
 DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 -- login_attempts は識別子（社員ID・IP）を持たない HMAC のキーのため、ここでは消せない。テスト用DBの作り直し（npm run db:reset:test）で消える。
 DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
+-- 部署のチャンネルと参加者（#196）。外部キーの順：参加者 → チャンネル → ルーム。ルームは、チャンネルの行を持たなくなった kind='channel' のものだけを消す。
+DELETE FROM channel_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR channel_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!'));
+DELETE FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!');
+DELETE FROM rooms WHERE kind = 'channel' AND id NOT IN (SELECT room_id FROM channels);
 DELETE FROM user_role_assignments WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 DELETE FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!';
 DELETE FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!';

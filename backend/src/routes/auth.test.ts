@@ -804,8 +804,13 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     });
     const response = await getSession({ cookie: session.token });
     expect(response.status).toBe(200);
+    // #196 AC-4（S-12で承認）：部署管理（作成・改名・一覧）の権限 perm.workspace.create が加わる
     expect(await response.json()).toMatchObject({
-      permissions: ["perm.client.manage", "perm.account.create"],
+      permissions: [
+        "perm.client.manage",
+        "perm.account.create",
+        "perm.workspace.create",
+      ],
     });
   });
 

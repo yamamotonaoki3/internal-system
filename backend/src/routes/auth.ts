@@ -22,7 +22,11 @@ import {
   logout,
   type WithAuth,
 } from "../services/auth.service";
-import { canManageAccounts, canManageClients } from "../services/authorizer";
+import {
+  canManageAccounts,
+  canManageClients,
+  canManageDepartments,
+} from "../services/authorizer";
 import {
   reauthenticate,
   type WithCredentials,
@@ -156,6 +160,11 @@ export function authRoutes(
         principal.userId,
         traceIdOf(c),
       );
+      const canManageDepartment = await canManageDepartments(
+        c.env,
+        principal.userId,
+        traceIdOf(c),
+      );
       const canManageAccount = await canManageAccounts(
         c.env,
         principal.userId,
@@ -172,6 +181,7 @@ export function authRoutes(
         permissions: [
           ...(canManage ? ["perm.client.manage"] : []),
           ...(canManageAccount ? ["perm.account.create"] : []),
+          ...(canManageDepartment ? ["perm.workspace.create"] : []),
         ],
       });
     });

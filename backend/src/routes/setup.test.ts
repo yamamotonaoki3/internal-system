@@ -110,6 +110,10 @@ async function snapshot() {
     users: await countRows("users"),
     assignments: await countRows("user_role_assignments"),
     auditLogs: audit?.n,
+    // #196 AC-3（S-4 のB・S-12で承認）：初代部署の自動専用チャンネル2つと参加者も、同じ batch で作られ・取り消される
+    rooms: await countRows("rooms"),
+    channels: await countRows("channels"),
+    channelMembers: await countRows("channel_members"),
   };
 }
 const EMPTY = {
@@ -118,6 +122,9 @@ const EMPTY = {
   users: 0,
   assignments: 0,
   auditLogs: 0,
+  rooms: 0,
+  channels: 0,
+  channelMembers: 0,
 };
 
 /** 出力されたログのうち、監査（log_type: audit）の記録 */
@@ -153,6 +160,20 @@ afterEach(async () => {
   await env.DB.exec("DROP TRIGGER IF EXISTS unit_fail_setup_audit");
   // このテストのデータだけを、識別子（[UNIT_TEST] の部署・会社名、セットアップの監査ログ）で消す（C-05）
   const testUsers = `SELECT id FROM users WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '${TEST_TAG}%')`;
+  // #196（S-4 のB）：初代部署の自動専用チャンネルとルーム・参加者を、外部キーの順で先に消す
+  const testChannels = `SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '${TEST_TAG}%')`;
+  const { results: testRooms } = await env.DB.prepare(testChannels).all<{
+    room_id: string;
+  }>();
+  await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM channel_members WHERE channel_id IN (${testChannels})`,
+    ),
+    env.DB.prepare(`DELETE FROM channels WHERE room_id IN (${testChannels})`),
+    ...testRooms.map((room) =>
+      env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(room.room_id),
+    ),
+  ]);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM audit_logs WHERE action = ?").bind(
       SETUP_ACTION,
@@ -280,6 +301,56 @@ describe("POST /api/setup：正常", { timeout: SCRYPT_TEST_TIMEOUT_MS }, () => 
     ]);
   });
 
+  it("#196 AC-3（S-4 のB・7-1 AC-1）: セットアップで、初代部署の公開の通常とお知らせのチャンネルができ、所属する初代管理者が両方に参加する", async () => {
+    const body = (await (await post(validBody())).json()) as SetupResponse;
+    const department = await env.DB.prepare(
+      "SELECT department_id FROM users WHERE id = ?",
+    )
+      .bind(body.user.id)
+      .first<{ department_id: string }>();
+    const { results } = await env.DB.prepare(
+      "SELECT room_id, name, name_normalized, description, visibility, purpose, deleted_at FROM channels WHERE department_id = ? ORDER BY purpose",
+    )
+      .bind(department?.department_id)
+      .all<Record<string, string | null>>();
+    expect(
+      results.map((row) =>
+        Object.fromEntries(
+          Object.entries(row).filter(([key]) => key !== "room_id"),
+        ),
+      ),
+    ).toEqual([
+      {
+        name: `${TEST_TAG}経営企画部のお知らせ`,
+        name_normalized: `${TEST_TAG}経営企画部のお知らせ`.toLowerCase(),
+        description: "",
+        visibility: "public",
+        purpose: "announcement",
+        deleted_at: null,
+      },
+      {
+        name: `${TEST_TAG}経営企画部`,
+        name_normalized: `${TEST_TAG}経営企画部`.toLowerCase(),
+        description: "",
+        visibility: "public",
+        purpose: "department",
+        deleted_at: null,
+      },
+    ]);
+    for (const channel of results) {
+      const rooms = await env.DB.prepare("SELECT kind FROM rooms WHERE id = ?")
+        .bind(channel.room_id)
+        .all<{ kind: string }>();
+      expect(rooms.results).toEqual([{ kind: "channel" }]);
+      const members = await env.DB.prepare(
+        "SELECT user_id FROM channel_members WHERE channel_id = ?",
+      )
+        .bind(channel.room_id)
+        .all<{ user_id: string }>();
+      expect(members.results).toEqual([{ user_id: body.user.id }]);
+    }
+  });
+
   it("#119 AC-1: メールアドレスは自己確認：email_verified_by は作った利用者のID、email_verified_at は created_at と同じ値（改訂版 3.5）", async () => {
     const body = (await (await post(validBody())).json()) as SetupResponse;
     const row = await env.DB.prepare(
@@ -384,6 +455,9 @@ describe(
         users: 1,
         assignments: 2,
         auditLogs: 1,
+        rooms: 2,
+        channels: 2,
+        channelMembers: 2,
       });
       const admins = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM user_role_assignments WHERE role_id = ?",

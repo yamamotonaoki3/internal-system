@@ -65,6 +65,10 @@ export const departments = sqliteTable("departments", {
   nameNormalized: text("name_normalized").notNull().unique(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(nowUtc),
+  description: text("description").notNull().default(""),
+  version: integer("version").notNull().default(1),
+  // ADD COLUMN は式の既定値を付けられないため NULL を許す。アプリが作成・改名・交代のたびに値を入れる
+  updatedAt: text("updated_at"),
 });
 
 // 社員のアカウント。legal_name は暗号化した値（"v1:<iv>:<暗号文>"）。メール・社員IDの正規化の値は小文字。
@@ -235,5 +239,83 @@ export const clientApiRateLimits = sqliteTable(
       "client_api_rate_limits_bucket_type_check",
       sql`${t.bucketType} in ('read', 'write')`,
     ),
+  ],
+);
+
+// チャンネルとDMの共通の入れ物（メッセージ #201 は room_id で結ぶ）。
+export const rooms = sqliteTable(
+  "rooms",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["channel", "conversation"] }).notNull(),
+    createdAt: text("created_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    check("rooms_kind_check", sql`${t.kind} in ('channel', 'conversation')`),
+  ],
+);
+
+// チャンネル。purpose：normal=通常、department=部署の専用、announcement=部署のお知らせ専用、company_general=全社連絡、case=案件（値の予約だけ）。
+// name_normalized はアーカイブ済み（deleted_at あり）を含めて会社内で一意（V-25・C-124）。参加は channel_members の行の有無で表す。
+// CHECK の値を増やすときは、表の作り直しのマイグレーションが要る（docs/design/department-management.md）。
+export const channels = sqliteTable(
+  "channels",
+  {
+    roomId: text("room_id")
+      .primaryKey()
+      .references(() => rooms.id),
+    departmentId: text("department_id").references(() => departments.id),
+    name: text("name").notNull(),
+    nameNormalized: text("name_normalized").notNull().unique(),
+    description: text("description").notNull().default(""),
+    visibility: text("visibility", { enum: ["public", "private"] }).notNull(),
+    purpose: text("purpose", {
+      enum: ["normal", "department", "announcement", "company_general", "case"],
+    }).notNull(),
+    createdBy: text("created_by").references(() => users.id),
+    version: integer("version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+    deletedAt: text("deleted_at"),
+    deletedBy: text("deleted_by").references(() => users.id),
+  },
+  (t) => [
+    check(
+      "channels_visibility_check",
+      sql`${t.visibility} in ('public', 'private')`,
+    ),
+    check(
+      "channels_purpose_check",
+      sql`${t.purpose} in ('normal', 'department', 'announcement', 'company_general', 'case')`,
+    ),
+    check(
+      "channels_department_purpose_check",
+      sql`${t.purpose} not in ('department', 'announcement') or (${t.departmentId} is not null and ${t.visibility} = 'public')`,
+    ),
+    check(
+      "channels_company_general_check",
+      sql`${t.purpose} <> 'company_general' or ${t.departmentId} is null`,
+    ),
+    uniqueIndex("channels_department_purpose_unique")
+      .on(t.departmentId, t.purpose)
+      .where(sql`${t.purpose} in ('department', 'announcement')`),
+    index("channels_department_id_idx").on(t.departmentId),
+  ],
+);
+
+export const channelMembers = sqliteTable(
+  "channel_members",
+  {
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.roomId),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    joinedAt: text("joined_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    primaryKey({ columns: [t.channelId, t.userId] }),
+    index("channel_members_user_id_idx").on(t.userId),
   ],
 );
