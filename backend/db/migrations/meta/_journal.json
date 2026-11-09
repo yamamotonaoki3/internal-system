@@ -85,6 +85,13 @@
       "when": 1794223665639,
       "tag": "0011_seed_company_general_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794254994832,
+      "tag": "0012_add_messages",
+      "breakpoints": true
     }
   ]
 }

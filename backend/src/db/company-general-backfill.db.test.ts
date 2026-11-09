@@ -3,7 +3,7 @@
 // そこで、0011 の文を TEST_MIGRATIONS から取り出し、全社連絡を取り除いた状態（= 0009 までの状態）に社員を入れてから直接実行する。
 // 前提（実装前。引き継ぎに明記）：
 // - 0010 は名前に add_company_general_unique を含み、channels_company_general_unique（purpose の部分一意。company_general の行だけ）を作る
-// - 0011 は名前に seed_company_general_channel を含み、文だけで完結してべき等。journal 順で 0010 の直後（最後）
+// - 0011 は名前に seed_company_general_channel を含み、文だけで完結してべき等。journal 順で 0010 の直後
 // - ルームIDは channel-rules.ts の COMPANY_GENERAL_ROOM_ID（ULID 形式の固定値）と一致する
 import { type D1Migration } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -65,7 +65,7 @@ afterEach(async () => {
 });
 
 describe("#200 AC-1 全社連絡の補完（0010・0011）", () => {
-  it("#200 AC-1（2-1 AC-16）: 0011 は journal の順で、channels を作る migration と 0010（一意インデックス）の後にあり、最後の migration である", () => {
+  it("#200 AC-1（2-1 AC-16）: 0011 は journal の順で、channels を作る migration の後にあり、0010（一意インデックス）の直後にある手作成の補完である", () => {
     const names = migrations.map((m) => m.name);
     const seed = names.findIndex((n) =>
       n.includes(COMPANY_GENERAL_MIGRATION_KEY),
@@ -79,7 +79,10 @@ describe("#200 AC-1 全社連絡の補完（0010・0011）", () => {
     expect(table).toBeGreaterThanOrEqual(0);
     expect(unique).toBeGreaterThan(table);
     expect(seed).toBe(unique + 1);
-    expect(names).toHaveLength(seed + 1);
+    // 0011 は手作成の補完（INSERT ... SELECT 等のデータ補完であり、テーブルを作らない）
+    const sql = migrations[seed]?.queries.join("\n") ?? "";
+    expect(sql).toMatch(/\bINSERT\b/i);
+    expect(sql).not.toMatch(/CREATE TABLE/i);
   });
 
   it("#200 AC-1（Q-3）: 0010 は channels_company_general_unique を作る（DDL だけで、データを書き換えない）", () => {

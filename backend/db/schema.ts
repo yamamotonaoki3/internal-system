@@ -323,3 +323,27 @@ export const channelMembers = sqliteTable(
     index("channel_members_user_id_idx").on(t.userId),
   ],
 );
+
+// メッセージ（#201）。room_id でチャンネル・DM・案件の共通の親（rooms）に結ぶ。
+// sender_display_name は投稿時点の表示名のスナップショット（後で表示名を変えても過去の投稿は変わらない）。
+// 本文の上限は UTF-16 の単位で数えるためアプリ側で検証する（SQLite の length は文字数で数え方が違う）。DB では空の本文だけを拒否する。
+// 部屋の中では、コミットの順に id が必ず増える（「最後のID以降」で取りこぼさないため。message.repository の条件付き INSERT が保つ）。
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id),
+    senderId: text("sender_id")
+      .notNull()
+      .references(() => users.id),
+    senderDisplayName: text("sender_display_name").notNull(),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    check("messages_body_check", sql`length(${t.body}) >= 1`),
+    index("messages_room_id_id_idx").on(t.roomId, t.id),
+  ],
+);

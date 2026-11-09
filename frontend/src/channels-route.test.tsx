@@ -135,6 +135,8 @@ describe("#200 AC-2 /channels/:channelId", () => {
           departmentId: null,
           joined: true,
           isCaseChannel: false,
+          // #201：詳細の応答に canPost が加わった
+          canPost: true,
           memberCount: 1,
           members: [
             { id: "01JTESTUSER000000000000001", displayName: "テスト太郎" },

@@ -110,6 +110,25 @@ export function afterId(idColumn: AnyColumn, after: string): SQL {
   return gt(idColumn, after);
 }
 
+/** 「最後のID以降」の一覧のクエリ（after・limit）の検証。validate("query", ...) に渡す */
+export const afterIdQuerySchema = z.object({
+  after: z.string().refine(isUlid),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(PAGE_LIMIT.max)
+    .default(PAGE_LIMIT.max),
+});
+
+/** limit+1 件を取得した結果から、「最後のID以降」の1ページ分と、続きがあるかを作る */
+export function toAfterIdPage<T>(
+  rows: T[],
+  limit: number,
+): { items: T[]; hasMore: boolean } {
+  return { items: rows.slice(0, limit), hasMore: rows.length > limit };
+}
+
 /** limit+1 件を取得した結果から、1ページ分と次ページのカーソルを作る */
 export function toPage<T>(
   rows: T[],

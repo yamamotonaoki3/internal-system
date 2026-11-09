@@ -5,6 +5,7 @@ import { channelMembers, channels, departments, users } from "../../db/schema";
 import type { ChannelVisibility } from "../lib/channel-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
+import type { ChannelPurpose } from "../../../shared/message-rules";
 import { auditLogInsert } from "./audit-log.repository";
 import { withDatabase, type Database } from "./database";
 
@@ -36,6 +37,9 @@ export type ChannelDetailRow = {
   /** 閲覧者の参加の日時（未参加は null） */
   joinedAt: string | null;
 };
+
+/** 閲覧者から見たチャンネル。メッセージの投稿の判定が purpose を使う */
+export type ChannelViewRow = ChannelDetailRow & { purpose: ChannelPurpose };
 
 export type ChannelMember = { id: string; displayName: string };
 
@@ -127,7 +131,7 @@ export function createChannelRepository(db: Database) {
     async findForViewer(
       roomId: string,
       viewerId: string,
-    ): Promise<ChannelDetailRow | null> {
+    ): Promise<ChannelViewRow | null> {
       const rows = await db
         .select({
           roomId: channels.roomId,
@@ -135,6 +139,7 @@ export function createChannelRepository(db: Database) {
           description: channels.description,
           visibility: channels.visibility,
           departmentId: channels.departmentId,
+          purpose: channels.purpose,
           deletedAt: channels.deletedAt,
           joinedAt: channelMembers.joinedAt,
         })

@@ -53,6 +53,25 @@ function increment(bytes: Uint8Array): boolean {
   return false;
 }
 
+function decodeTime(id: Ulid): number {
+  let time = 0;
+  for (const char of id.slice(0, TIME_LENGTH))
+    time = time * 32 + ALPHABET.indexOf(char);
+  return time;
+}
+
+function decodeRandom(id: Ulid): Uint8Array {
+  let value = 0n;
+  for (const char of id.slice(TIME_LENGTH))
+    value = (value << 5n) | BigInt(ALPHABET.indexOf(char));
+  const bytes = new Uint8Array(RANDOM_BYTES);
+  for (let i = RANDOM_BYTES - 1; i >= 0; i--) {
+    bytes[i] = Number(value & 0xffn);
+    value >>= 8n;
+  }
+  return bytes;
+}
+
 export function createUlidFactory(deps: UlidDeps = {}): () => Ulid {
   const now = deps.now ?? Date.now;
   const random =
@@ -78,3 +97,18 @@ export function createUlidFactory(deps: UlidDeps = {}): () => Ulid {
 }
 
 export const newUlid = createUlidFactory();
+
+/**
+ * 指定したIDより必ず大きいULIDを返す（部屋の最大IDより小さいIDしか作れなかったときの作り直し用）。
+ * 時刻部は max(now, 前のIDの時刻)。前のIDと同じ時刻になるときは、乱数部に1を足して昇順を保つ。
+ */
+export function ulidAfter(previous: Ulid, now: number = Date.now()): Ulid {
+  if (!isUlid(previous)) throw new Error("ULIDの形式が不正です");
+  if (!Number.isInteger(now) || now < 0 || now > MAX_TIME)
+    throw new Error("ULIDの時刻が範囲外です");
+  const previousTime = decodeTime(previous);
+  if (now > previousTime) return createUlidFactory({ now: () => now })();
+  const next = decodeRandom(previous);
+  if (!increment(next)) throw new Error("ULIDの乱数部があふれました");
+  return encodeTime(previousTime) + encodeRandom(next);
+}

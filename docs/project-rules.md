@@ -40,6 +40,7 @@
 - 複数の文の `db.batch` で前提を確認する書き方（Issue #196。利用者承認 2026-11-09）：D1には対話型トランザクションがなく、`db.batch` は途中の文が失敗すると全体を取り消す。読んだ事実が変わっていないこと（版の一致など）は batch の先頭近くで、不変条件（オーナーが部署ごとに1人など）は batch の最後で、`CASE WHEN 条件 THEN 値 ELSE NULL END` を NOT NULL の列に入れる更新文で確かめる（条件が崩れると NOT NULL 違反で全体が失敗する）。失敗は、Repository が制約の表と列の名前で専用エラーに変換し、Service が `AppError` にする。**未知のDBエラーは握りつぶさず、そのまま再送出する**。SQLiteの一意制約は文単位で判定されるため、同じ batch の中で名前を入れ替える更新は、自分自身と衝突しない順序に並べる。例は `backend/src/db/department.repository.ts`（`assertStatement`・`bumpVersion`・`translateError`）。
 - 一度だけ表示する認証情報（初期パスワード。Issue #199）：フロントエンドでは、TanStack Queryの`useMutation`に載せない（結果がMutationCacheに残るため）。呼び出しを`onSubmit`で直接awaitし、受け取った値は表示する画面の`useState`だけに置く。localStorage・sessionStorage・URL・画面遷移の`state`に入れない。APIの応答には`noStore`を付ける。詳細は`docs/design/accounts.md`
 - 全社連絡の補完（Issue #200）：全社連絡（`purpose=company_general`）の初期データだけの専用migration（0011）を1本に限って手作成する（3本目の例外。ADR-0022）。既存migrationは変更しない。本番への適用には別途利用者承認が必要。チャンネルの一覧・詳細・参加APIのレート制限は、上限がX-8で決まっていないため入れず、別Issueで扱う。
+- 「最後のID以降」で読む一覧（Issue #201）：新着を`after`（直前に見たID）以降で取る一覧は、`cursor.ts`の`afterIdQuerySchema`・`toAfterIdPage`を使う。取りこぼしを防ぐため、書き込む側は「同じ部屋では、コミットの順にIDが増える」を、時計やULIDの単調性に頼らず、DBの条件付きの`INSERT … SELECT`（挿入するID以上のIDがないこと）で保証する。0行のときは原因を読み分け、IDだけが原因なら最大より大きいIDで作り直して再試行する（上限を超えたら503）。この保証はD1が書き込みを直列に実行することに依存し、読み取りレプリカ（Sessions API）は使わない前提。詳細は[messages.md](design/messages.md)。メッセージの投稿のレート制限は、上限がX-8で決まっていないため入れず、別Issueで扱う。
 
 ## 2026-11-08承認の運用改善試行
 
