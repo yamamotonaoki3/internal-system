@@ -55,6 +55,7 @@ npm run docker:up:local
 | `npm run env:check` | `.env.development` に足りない項目がないか確かめる |
 | `npm run test` | `.env.test` を使ってテストする |
 | `npm run dev:test` | `.env.test` を使って開発サーバーを起動する |
+| `npm run dev:stop` | `npm run dev`・`npm run dev:test` で起動した開発サーバー（この作業ツリーのもの。`.dev-server.pid` に記録した PID のプロセスツリー）だけを止め、5173・8787 に待ち受けがないことを確かめる。動いていなければ「動いていません」と表示する |
 | `npm run docker:up:test`・`npm run docker:down:test` | テスト用の Docker 環境を起動・停止する |
 | `git switch -c <種類>/<番号>-<内容>` | 作業のブランチを作る（`AGENTS.md` の「作業の流れ」） |
 | `npm run db:generate -- --name <内容>` | スキーマ（`backend/db/schema.ts`）の変更から、マイグレーションを作る |

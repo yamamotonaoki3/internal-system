@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/run-local.ts development vite",
     "dev:test": "node scripts/run-local.ts test vite",
+    "dev:stop": "node scripts/dev-stop.ts",
     "build": "node scripts/run-local.ts build vite build",
     "size:report": "node scripts/size-report.mjs",
     "preview": "node scripts/run-local.ts development vite preview",
