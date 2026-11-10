@@ -45,4 +45,39 @@ describe("#201 AC-4 mergeMessages 並べ替え", () => {
     expect(ids(incoming)).toEqual(incomingSnapshot);
     expect(result).not.toBe(current);
   });
+
+  const permutations = (items: number[]): number[][] =>
+    items.length <= 1
+      ? [items]
+      : items.flatMap((item, index) =>
+          permutations([
+            ...items.slice(0, index),
+            ...items.slice(index + 1),
+          ]).map((rest) => [item, ...rest]),
+        );
+
+  it("#207 AC-1: 4件のすべての並び順（24通り）で、current のみでも半分ずつでも ID昇順になる", () => {
+    const all = permutations([1, 2, 3, 4]);
+    expect(all).toHaveLength(24);
+    for (const order of all) {
+      expect(ids(mergeMessages(build(order), []))).toEqual(idsOf([1, 2, 3, 4]));
+      expect(
+        ids(mergeMessages(build(order.slice(0, 2)), build(order.slice(2)))),
+      ).toEqual(idsOf([1, 2, 3, 4]));
+    }
+  });
+
+  it("#207 AC-1: 30件の固定の順不同でも、ID昇順になる", () => {
+    const shuffled = [
+      17, 3, 28, 9, 24, 1, 30, 12, 21, 6, 15, 27, 2, 19, 8, 25, 11, 29, 4, 22,
+      13, 7, 26, 18, 5, 23, 10, 16, 20, 14,
+    ];
+    const expected = Array.from({ length: 30 }, (_, i) => i + 1);
+    expect([...shuffled].sort((a, b) => a - b)).toEqual(expected);
+    const result = mergeMessages(
+      build(shuffled.slice(0, 12)),
+      build(shuffled.slice(12)),
+    );
+    expect(ids(result)).toEqual(idsOf(expected));
+  });
 });
