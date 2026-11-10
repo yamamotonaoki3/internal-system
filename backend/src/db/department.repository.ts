@@ -1,5 +1,6 @@
 // Repository：部署の一覧・作成・改名・オーナー交代と、オーナー候補（#196）。DB へのアクセスはこの層に閉じ込める。
 // 作成・改名・交代は、それぞれ1つの db.batch で、部署・チャンネル・ロール・所属・参加・監査を一体で確定する。
+// 全体管理者がオーナーになるときは、所属を動かさず、その部署の専用チャンネル2つへの参加だけを同じ batch で足す（#206）。
 // 前提の確認（S-3）：D1 の batch は途中の文が失敗すると全体が取り消されるため、「条件が崩れたら NOT NULL 違反で失敗する文」
 // （assertStatement）を batch の先頭近く（読んだ事実が変わっていないか）と最後（不変条件）に置く。
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
@@ -387,7 +388,7 @@ export function createDepartmentRepository(db: Database) {
     return conditions;
   }
 
-  /** ロール・所属・参加の付け替え（作成と交代で共通）。指名された社員（全体管理者を除く）の所属が移り、自動チャンネルの参加が付け替わる */
+  /** ロール・所属・参加の付け替え（作成と交代で共通）。指名された社員（全体管理者を除く）の所属が移り、旧部署の自動チャンネルから外れる。新部署の自動チャンネルへの参加は全体管理者にも足す（所属は動かさない） */
   function transferStatements(plan: OwnerPlan, now: string): BatchItem[] {
     const { previous, newOwner } = plan;
     const statements: BatchItem[] = [];
@@ -439,15 +440,16 @@ export function createDepartmentRepository(db: Database) {
               ),
           );
       }
-      statements.push(
-        db.insert(channelMembers).select(sql`
-          SELECT c.room_id, ${plan.newOwnerId}, ${now}
-          FROM channels c
-          WHERE c.department_id = ${plan.departmentId} AND c.purpose IN ${AUTO_PURPOSES}
-            AND NOT EXISTS (
-              SELECT 1 FROM channel_members m WHERE m.channel_id = c.room_id AND m.user_id = ${plan.newOwnerId})`),
-      );
     }
+    // 全体管理者も、所属は動かさず専用チャンネルへ参加だけ足す（#206）
+    statements.push(
+      db.insert(channelMembers).select(sql`
+        SELECT c.room_id, ${plan.newOwnerId}, ${now}
+        FROM channels c
+        WHERE c.department_id = ${plan.departmentId} AND c.purpose IN ${AUTO_PURPOSES}
+          AND NOT EXISTS (
+            SELECT 1 FROM channel_members m WHERE m.channel_id = c.room_id AND m.user_id = ${plan.newOwnerId})`),
+    );
     return statements;
   }
 

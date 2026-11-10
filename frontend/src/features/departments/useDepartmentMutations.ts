@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useReauth } from "../auth/hooks/useReauth";
+import { channelKeys } from "../channels";
 import {
   changeDepartmentOwner,
   createDepartment,
@@ -34,6 +35,13 @@ export function useDepartmentMutations() {
   const { withReauth } = useReauth();
   const onSuccess = () =>
     queryClient.invalidateQueries({ queryKey: departmentKeys.all });
+  // 作成・交代では、全体管理者のオーナーが専用チャンネルへ自動参加するため、参加中のチャンネルも取り直す
+  const onSuccessWithChannels = async () => {
+    await Promise.all([
+      onSuccess(),
+      queryClient.invalidateQueries({ queryKey: channelKeys.all }),
+    ]);
+  };
   return {
     create: useMutation({
       mutationFn: (input: {
@@ -43,7 +51,7 @@ export function useDepartmentMutations() {
         previousDepartmentSuccessorUserId?: string;
       }) =>
         sendWithReauth(withReauth, "部署の作成", () => createDepartment(input)),
-      onSuccess,
+      onSuccess: onSuccessWithChannels,
     }),
     rename: useMutation({
       mutationFn: (input: { department: Department; name: string }) =>
@@ -66,7 +74,7 @@ export function useDepartmentMutations() {
             version: input.department.version,
           }),
         ),
-      onSuccess,
+      onSuccess: onSuccessWithChannels,
     }),
   };
 }

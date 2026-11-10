@@ -30,6 +30,7 @@
 | `backend/src/routes/auth.ts` | `GET /api/auth/session`の`permissions`に、部署管理の権限`perm.workspace.create`を足した |
 | `backend/src/lib/audit-actions.ts` | `department.create`・`department.rename`・`department.owner_change`・`department.channel_backfill`を足した |
 | `backend/src/index.ts` | `/api/admin/departments`と`/api/departments`へ各routeを登録 |
+| `backend/db/scripts/backfill-owner-channel-members.sql` | 全体管理者のオーナーの専用チャンネル参加を補う運用手順のSQL（C-164。下の「オーナーの専用チャンネル参加の補完」）。migrationではない |
 | `backend/db/seeds/cleanup.sql` | 部署のチャンネル・参加者・ルームの後始末を足した（`[UNIT_TEST]`・`[E2E_TEST]`で始まる部署のものだけ） |
 | `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 部署の5操作のAPI仕様と実routeとの契約確認 |
 | `stryker.config.json` | ミューテーションの対象に、上のRepository・route・共有規則・フロントエンドの主な部品・`setup.repository.ts`を足した |
@@ -40,7 +41,7 @@
 | --- | --- |
 | `frontend/src/features/departments/department-api.ts` | `fetchDepartments`・`fetchOwnerCandidates`・`createDepartment`・`renameDepartment`・`changeDepartmentOwner` |
 | `frontend/src/features/departments/query-keys.ts` | `departmentKeys`（キャッシュのキー） |
-| `frontend/src/features/departments/useDepartmentMutations.ts` | 作成・改名・交代の各操作を、再認証（`withReauth`）で包んで送り、成功したら一覧とセッションのキャッシュを無効にする。再認証が完了しなかったときは、要求を送らず`NotSentError`にする |
+| `frontend/src/features/departments/useDepartmentMutations.ts` | 作成・改名・交代の各操作を、再認証（`withReauth`）で包んで送り、成功したら一覧とセッションのキャッシュに加え、参加中チャンネルのキャッシュ（`channelKeys.all`。`features/channels`から公開）も無効にする（サイドバーに、再読込なしで新しい参加が出る）。再認証が完了しなかったときは、要求を送らず`NotSentError`にする |
 | `frontend/src/features/departments/DepartmentsManager.tsx` | S-24の一覧。改名（`DepartmentRenameForm`）とオーナー交代（`OwnerChangeDialog`）の入口。削除・無効化の操作は出さない |
 | `frontend/src/features/departments/DepartmentCreateForm.tsx` | S-08の入力。成功するとS-24（`/departments`）に移る |
 | `frontend/src/features/departments/OwnerChangeDialog.tsx`、`OwnerSelectFields.tsx`、`owner-selection.ts` | オーナーの選択。別部署の現オーナーを選んだときだけ元部署の後任を選ばせる（`needsSuccessor`・`successorCandidates`）。画面の補助であり、最終の確認はサーバー |
@@ -107,9 +108,20 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 
 `transferStatements`が、現オーナーの削除、元部署の後任の割り当て、新オーナーの割り当て、所属の更新、自動チャンネルの参加の付け替えを並べる。
 
-- 全体管理者は**所属を動かさず、自動チャンネルにも参加させない**（S-8）。所属する社員だけが自動参加する。全体管理者は、Issue #200で作った`POST /api/channels/{channelId}/join`で手動参加する（[channels.md](channels.md)）
-- 全体管理者でない新オーナーは、所属が移り、旧部署の自動チャンネル2つから外れ（行を削除）、新部署の自動チャンネル2つに参加する。他のチャンネルには触れない
-- 参加の追加は`INSERT ... SELECT`で、すでに参加している行は作らない
+- 新オーナーの専用チャンネル2つ（専用・お知らせ）への参加は、**全体管理者かどうかにかかわらず**足す（C-164。C-163のS-8のうち「全体管理者を自動参加させない」を置き換えた）。全体管理者でも**所属は動かさない**（S-8の所属の扱いは維持）。前のオーナーの参加の行は消さない。全体管理者はほかの部署の専用チャンネルへ、Issue #200で作った`POST /api/channels/{channelId}/join`で手動参加することもできる（[channels.md](channels.md)）
+- 全体管理者でない新オーナーは、これに加えて、所属が移り、旧部署の自動チャンネル2つから外れる（行を削除）。他のチャンネルには触れない。所属の移動と旧部署からの除外は、従来どおり一般社員だけ
+- 参加の追加は`INSERT ... SELECT ... WHERE NOT EXISTS`で、すでに参加している行は作らない。この文は`deleted_at`で絞らない。補完のSQLは絞る、という差がある
+- 監査ログは`department.create`・`department.owner_change`の1件だけで、参加（`channel.join`）の記録は残さない。不変条件の確認の文は増やしていない
+
+### オーナーの専用チャンネル参加の補完（C-164。Issue #206）
+
+#206より前に全体管理者がオーナーになった部署には、参加の行がない。運用の手順の**SQL 1ファイル**`backend/db/scripts/backfill-owner-channel-members.sql`で補う（migrationではなく、ADR-0021の例外は広げない）。
+
+- 対象：有効な利用者で、部署のオーナーのロールと全体管理者のロールを持ち、その部署の専用・お知らせのチャンネル（`deleted_at`がNULL）に未参加の人。アーカイブ済みのチャンネルには参加させない（#200のアカウント発行時の自動参加と同じ扱い）
+- べき等：`INSERT ... SELECT ... WHERE NOT EXISTS`の1文。何度流しても参加済みの行は増えず、`joined_at`も変わらない。監査に件数は残さない
+- 実行手順：①`wrangler d1 execute`で、対象の件数を数える`SELECT`を流す（適用前）。②同コマンドで本ファイルを指定して流す。③①と同じ`SELECT`を流し、**0件**になったことを確かめる
+- 実行してよい範囲：ローカルの開発DBのみ。本番のD1は、0008〜0012の適用の承認（[ADR-0021](../adr/0021-department-channel-backfill-migration-exception.md)・[ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)）と同じ枠で、別途承認を得てから行う。本Issueの完了条件には含めない
+- 検証：`backend/src/db/owner-channel-backfill.db.test.ts`が、`?raw`でこのファイルを読み、未参加の補完・べき等・アーカイブ済みと無効な利用者の除外を確かめる
 
 ## API契約
 
@@ -176,6 +188,7 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 | 全社連絡と公開チャンネルの一覧・閲覧・参加 | Issue #200で実装済み（[channels.md](channels.md)） |
 | メッセージ | #201 |
 | 部署の無効化・削除 | 追加しない（2-1 AC-14） |
+| 本番のD1での、オーナー参加の補完SQL（#206）の実行 | 未実施（利用者の承認が別途必要。ローカルの開発DBへの実行も、利用者の承認後） |
 | 本番のD1での0008・0009の適用 | 未実施（ローカルのリハーサルは確認済み。本番は利用者の承認が別途必要。上の「本番適用前の注意」） |
 
 ## 主な入出力
@@ -193,11 +206,11 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 ## テストの場所
 
 - 共有規則：`backend/src/lib/department-rules.test.ts`（50・51文字、お知らせ名の境界、比較キー）
-- DB結合：`backend/src/db/department.repository.db.test.ts`（作成・改名・交代・同時更新・途中失敗での全体取消・名前衝突・参加の付け替え）、`backend/src/db/channels.schema.db.test.ts`（表の制約）、`backend/src/db/department-channel-backfill.db.test.ts`（0009の補完・衝突・べき等）
+- DB結合：`backend/src/db/department.repository.db.test.ts`（作成・改名・交代・同時更新・途中失敗での全体取消・名前衝突・参加の付け替え）、`backend/src/db/channels.schema.db.test.ts`（表の制約）、`backend/src/db/department-channel-backfill.db.test.ts`（0009の補完・衝突・べき等）、`backend/src/db/owner-channel-backfill.db.test.ts`（オーナー参加の補完SQL）
 - Service・route：`backend/src/services/department.service.test.ts`、`backend/src/routes/departments.test.ts`
 - 既存テストの変更：`backend/src/routes/auth.test.ts`（セッションの`permissions`）、`backend/src/routes/setup.test.ts`（初代部署のチャンネル）、`backend/src/openapi.test.ts`
 - テスト部品：`backend/test/department-fixtures.ts`、`frontend/src/test/department-harness.tsx`
-- フロントエンド：`frontend/src/features/departments/DepartmentsManager.test.tsx`・`DepartmentCreateForm.test.tsx`・`departments-branches.test.tsx`、`frontend/src/departments-route.test.tsx`（ルートの権限）、`frontend/src/features/app-shell/navigation.test.ts`
+- フロントエンド：`frontend/src/features/departments/DepartmentsManager.test.tsx`・`DepartmentCreateForm.test.tsx`・`departments-branches.test.tsx`、`frontend/src/departments-route.test.tsx`（ルートの権限）、`frontend/src/features/app-shell/navigation.test.ts`、`frontend/src/features/departments/departments-joined-channels.test.tsx`（作成・交代の成功で参加中チャンネルを再取得する）
 - E2E：`e2e/departments.spec.ts`（[e2e.md](../testing/e2e.md)）。seedは`e2e/seeds/departments.sql`と`departments-cleanup.sql`
 
 ## 関係するIssue・ADR
@@ -206,4 +219,4 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 - Issue #199：アカウントの個別発行（`SelectField`など共有ファイルが重なる）。#200：全社連絡と公開チャンネルの一覧・閲覧・参加（実装済み）。#201：後続
 - ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0018：`INT`初期登録の手作成例外／ADR-0020：ミューテーション・E2Eの実行範囲
 - [ADR-0021](../adr/0021-department-channel-backfill-migration-exception.md)：初代部署の専用チャンネルを補う手作成migrationの例外
-- 要件：2-1 AC-1・2・4・12・13・18、0-8 AC-1〜8・10、7-1 AC-1〜3、S-08・S-24。決定記録C-162・C-163
+- 要件：2-1 AC-1・2・4・12・13・18、0-8 AC-1〜8・10、7-1 AC-1〜3、S-08・S-24。決定記録C-162・C-163・C-164。Issue #206：全体管理者のオーナーを専用チャンネルへ参加させる（C-164）

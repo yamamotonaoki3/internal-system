@@ -180,6 +180,25 @@ describe("#196 POST /api/departments（EP-2-01）", () => {
     ).toHaveLength(1);
   });
 
+  it("#206 AC-1: 全体管理者が作ると、201 の後、自分が新部署の専用チャンネル2つのメンバーになり、所属は変わらない。監査は department.create の1件だけ", async () => {
+    const response = await request("POST", "/api/departments", {
+      token: adminToken,
+      body: createBody(),
+    });
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      id: string;
+      dedicatedChannelId: string;
+      announcementChannelId: string;
+    };
+    expect(await membersOf(body.dedicatedChannelId)).toEqual([admin]);
+    expect(await membersOf(body.announcementChannelId)).toEqual([admin]);
+    expect(await departmentOf(admin)).toBe(deptA.id);
+    expect((await departmentAudits()).map((a) => a.action)).toEqual([
+      "department.create",
+    ]);
+  });
+
   it("#196 AC-1・AC-2（2-1 AC-2・0-8 AC-7）: 一般社員を指名すると、その人がオーナーになり所属が移る", async () => {
     const response = await request("POST", "/api/departments", {
       token: adminToken,
@@ -715,6 +734,38 @@ describe("#196 PUT /api/departments/:id/owner（EP-0-21）", () => {
     expect(await departmentOf(admin)).toBe(deptA.id);
     expect(await ownersOf(deptA.id)).toEqual([admin]);
     expect(await ownersOf(deptB.id)).toEqual([admin]);
+  });
+
+  it("#206 AC-2: 全体管理者を任命すると、200 の後、その部署の専用チャンネル2つに参加する。兼任中の他部署の参加は変わらず、監査は department.owner_change の1件だけ", async () => {
+    const aMembersBefore = await membersOf(deptA.dedicatedChannelId);
+    const response = await request("PUT", path(), {
+      token: adminToken,
+      body: { ownerUserId: admin, version: 1 },
+    });
+    expect(response.status).toBe(200);
+    expect(await membersOf(deptB.dedicatedChannelId)).toContain(admin);
+    expect(await membersOf(deptB.announcementChannelId)).toContain(admin);
+    expect(await membersOf(deptA.dedicatedChannelId)).toEqual(aMembersBefore);
+    expect((await departmentAudits()).map((a) => a.action)).toEqual([
+      "department.owner_change",
+    ]);
+  });
+
+  it("#206 AC-3: オーナーを外れた全体管理者は、専用チャンネルに残る", async () => {
+    // 全体管理者を部署Cのオーナーにしたあと、部署Cの一般社員に交代する
+    const response = await request("PUT", path(deptC.id), {
+      token: adminToken,
+      body: { ownerUserId: admin, version: 1 },
+    });
+    expect(response.status).toBe(200);
+    const back = await request("PUT", path(deptC.id), {
+      token: adminToken,
+      body: { ownerUserId: memberC1, version: 2 },
+    });
+    expect(back.status).toBe(200);
+    expect(await ownersOf(deptC.id)).toEqual([memberC1]);
+    expect(await membersOf(deptC.dedicatedChannelId)).toContain(admin);
+    expect(await membersOf(deptC.announcementChannelId)).toContain(admin);
   });
 
   it.each([

@@ -185,11 +185,11 @@ describe("#196 部署の作成（Repository・D1）", () => {
       .all<{ id: string; kind: string }>();
     expect(rooms.results.map((r) => r.kind)).toEqual(["channel", "channel"]);
     expect(await ownersOf(created.id)).toEqual([admin]);
-    // 全体管理者は所属を動かさず、所属する社員だけが自動参加する（S-8）。新しい部署の社員はまだいない
+    // #206 AC-1（S-8 の変更）: 全体管理者は所属を動かさず、オーナーになった新部署の専用チャンネル2つには参加する
     expect(await departmentOf(admin)).toBe(deptA.id);
     expect(await ownersOf(deptA.id)).toEqual([admin]);
-    expect(await membersOf(created.dedicatedChannelId)).toEqual([]);
-    expect(await membersOf(created.announcementChannelId)).toEqual([]);
+    expect(await membersOf(created.dedicatedChannelId)).toEqual([admin]);
+    expect(await membersOf(created.announcementChannelId)).toEqual([admin]);
     const audits = await departmentAudits();
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
@@ -634,7 +634,7 @@ describe("#196 オーナーの交代（Repository・D1）", () => {
     expect(await departmentInvariantViolations()).toEqual([]);
   });
 
-  it("#196 AC-2（0-8 AC-4・AC-5・C-44）: 全体管理者を任命すると、所属は動かず自動参加もしない。前のオーナーは一般メンバーに戻り、所属は変わらない", async () => {
+  it("#196 AC-2・#206 AC-2（0-8 AC-4・AC-5・C-44）: 全体管理者を任命すると、所属は動かず、その部署の専用チャンネル2つに参加する。前のオーナーは一般メンバーに戻り、所属は変わらない", async () => {
     await changeOwner({
       departmentId: deptB.id,
       version: 1,
@@ -644,7 +644,8 @@ describe("#196 オーナーの交代（Repository・D1）", () => {
     // 全体管理者は複数の部署でオーナーを兼ねられる
     expect(await ownersOf(deptA.id)).toEqual([admin]);
     expect(await departmentOf(admin)).toBe(deptA.id);
-    expect(await membersOf(deptB.dedicatedChannelId)).not.toContain(admin);
+    expect(await membersOf(deptB.dedicatedChannelId)).toContain(admin);
+    expect(await membersOf(deptB.announcementChannelId)).toContain(admin);
     const ownerBRoles = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM user_role_assignments WHERE user_id = ?",
     )
@@ -860,6 +861,219 @@ describe("#196 オーナーの交代（Repository・D1）", () => {
         ownerUserId: memberB1,
       }),
     ).rejects.toThrow();
+    expect(await departmentSnapshot()).toEqual(before);
+  });
+});
+
+describe("#206 全体管理者のオーナーの専用チャンネルへの自動参加（Repository・D1）", () => {
+  const OLD_JOINED_AT = "2026-01-01T00:00:00.000Z";
+  // 全体管理者は会社に1人だけ（user_role_assignments_global_admin_unique）。オーナーになる全体管理者は常に admin
+
+  const joinedAt = async (channelId: string, userId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT joined_at FROM channel_members WHERE channel_id = ? AND user_id = ?",
+      )
+        .bind(channelId, userId)
+        .first<{ joined_at: string }>()
+    )?.joined_at ?? null;
+
+  const rowCount = async (channelId: string, userId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM channel_members WHERE channel_id = ? AND user_id = ?",
+      )
+        .bind(channelId, userId)
+        .first<{ n: number }>()
+    )?.n ?? 0;
+
+  const joinAudits = async () =>
+    (
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'channel.join' AND actor_id = ?",
+      )
+        .bind(admin)
+        .first<{ n: number }>()
+    )?.n ?? 0;
+
+  const triggerFailure = () =>
+    env.DB.exec(
+      "CREATE TRIGGER unit_fail_channel_member BEFORE INSERT ON channel_members BEGIN SELECT RAISE(ABORT, 'unit_fail_channel_member'); END",
+    );
+
+  it("#206 AC-1: 全体管理者が指名なしで作ると、新部署の通常・お知らせの参加者は作成者だけで、所属と元部署のオーナー・参加は変わらない", async () => {
+    const aMembersBefore = await membersOf(deptA.dedicatedChannelId);
+    const created = await create({ name: `${TEST_TAG}自動参加` });
+    expect(await membersOf(created.dedicatedChannelId)).toEqual([admin]);
+    expect(await membersOf(created.announcementChannelId)).toEqual([admin]);
+    expect(await departmentOf(admin)).toBe(deptA.id);
+    expect(await ownersOf(deptA.id)).toEqual([admin]);
+    expect(await membersOf(deptA.dedicatedChannelId)).toEqual(aMembersBefore);
+    expect(await membersOf(deptA.announcementChannelId)).toContain(admin);
+    expect(await departmentInvariantViolations()).toEqual([]);
+  });
+
+  it("#206 AC-1（計画レビュー 5）: 全体管理者の作成者が一般社員を指名して作ると、作成者は新部署のチャンネルに参加しない（指名された人だけが参加する）", async () => {
+    const created = await create({ ownerUserId: memberB1 });
+    expect(await membersOf(created.dedicatedChannelId)).toEqual([memberB1]);
+    expect(await membersOf(created.announcementChannelId)).toEqual([memberB1]);
+    expect(await membersOf(created.dedicatedChannelId)).not.toContain(admin);
+    expect(await membersOf(created.announcementChannelId)).not.toContain(admin);
+  });
+
+  it("#206 AC-2: 全体管理者を任命すると2チャンネルに参加し、所属・他の参加者・兼任中の他部署の参加は変わらない", async () => {
+    const bBefore = await membersOf(deptB.dedicatedChannelId);
+    const aDedicatedBefore = await membersOf(deptA.dedicatedChannelId);
+    const aAnnouncementBefore = await membersOf(deptA.announcementChannelId);
+    await changeOwner({
+      departmentId: deptB.id,
+      version: 1,
+      ownerUserId: admin,
+    });
+    expect(await membersOf(deptB.dedicatedChannelId)).toEqual(
+      [...bBefore, admin].sort(),
+    );
+    expect(await membersOf(deptB.announcementChannelId)).toContain(admin);
+    expect(await departmentOf(admin)).toBe(deptA.id);
+    expect(await membersOf(deptA.dedicatedChannelId)).toEqual(aDedicatedBefore);
+    expect(await membersOf(deptA.announcementChannelId)).toEqual(
+      aAnnouncementBefore,
+    );
+    // 一般メンバーの通常のチャンネルには触れない
+    expect(await membersOf(chatB)).toEqual([memberB1]);
+    expect(await departmentInvariantViolations()).toEqual([]);
+  });
+
+  it.each([
+    ["通常だけ参加済み", true, false],
+    ["お知らせだけ参加済み", false, true],
+    ["両方参加済み", true, true],
+  ])(
+    "#206 AC-2: %sの全体管理者を任命しても、行は重複せず、既存の joined_at は変わらず、足りない方に参加する",
+    async (_label, dedicatedJoined, announcementJoined) => {
+      if (dedicatedJoined) await insertMember(deptB.dedicatedChannelId, admin);
+      if (announcementJoined)
+        await insertMember(deptB.announcementChannelId, admin);
+      await env.DB.prepare(
+        "UPDATE channel_members SET joined_at = ? WHERE user_id = ? AND channel_id IN (?, ?)",
+      )
+        .bind(
+          OLD_JOINED_AT,
+          admin,
+          deptB.dedicatedChannelId,
+          deptB.announcementChannelId,
+        )
+        .run();
+      await changeOwner({
+        departmentId: deptB.id,
+        version: 1,
+        ownerUserId: admin,
+      });
+      expect(await rowCount(deptB.dedicatedChannelId, admin)).toBe(1);
+      expect(await rowCount(deptB.announcementChannelId, admin)).toBe(1);
+      for (const [channelId, wasJoined] of [
+        [deptB.dedicatedChannelId, dedicatedJoined],
+        [deptB.announcementChannelId, announcementJoined],
+      ] as const) {
+        const at = await joinedAt(channelId, admin);
+        if (wasJoined) expect(at).toBe(OLD_JOINED_AT);
+        else {
+          expect(typeof at).toBe("string");
+          expect(at).not.toBe(OLD_JOINED_AT);
+        }
+      }
+    },
+  );
+
+  it("#206 AC-2（退行）: 全体管理者でない新オーナー（他部署の一般社員）の所属移動・旧部署の自動チャンネルからの除外・新部署への参加は従来どおりで、全体管理者の参加は増えない", async () => {
+    await changeOwner({
+      departmentId: deptC.id,
+      version: 1,
+      ownerUserId: memberB1,
+    });
+    expect(await departmentOf(memberB1)).toBe(deptC.id);
+    expect(await membersOf(deptB.dedicatedChannelId)).not.toContain(memberB1);
+    expect(await membersOf(deptB.announcementChannelId)).not.toContain(
+      memberB1,
+    );
+    expect(await membersOf(deptC.dedicatedChannelId)).toContain(memberB1);
+    expect(await membersOf(deptC.announcementChannelId)).toContain(memberB1);
+    expect(await membersOf(chatB)).toEqual([memberB1]);
+    expect(await membersOf(deptC.dedicatedChannelId)).not.toContain(admin);
+  });
+
+  it("#206 AC-3: オーナーを外れた全体管理者は、その部署の専用チャンネルに残る（参加の行を消さない）", async () => {
+    await changeOwner({
+      departmentId: deptB.id,
+      version: 1,
+      ownerUserId: admin,
+    });
+    expect(await membersOf(deptB.dedicatedChannelId)).toContain(admin);
+    const joinedAtBefore = await joinedAt(deptB.dedicatedChannelId, admin);
+    await changeOwner({
+      departmentId: deptB.id,
+      version: 2,
+      ownerUserId: memberB1,
+    });
+    expect(await ownersOf(deptB.id)).toEqual([memberB1]);
+    expect(await membersOf(deptB.dedicatedChannelId)).toContain(admin);
+    expect(await membersOf(deptB.announcementChannelId)).toContain(admin);
+    expect(await joinedAt(deptB.dedicatedChannelId, admin)).toBe(
+      joinedAtBefore,
+    );
+  });
+
+  it("#206 AC-3: 元からオーナーの全体管理者が一般社員に交代されても、専用チャンネル2つの参加の行が残る", async () => {
+    await changeOwner({
+      departmentId: deptA.id,
+      version: 1,
+      ownerUserId: memberA1,
+    });
+    expect(await ownersOf(deptA.id)).toEqual([memberA1]);
+    expect(await membersOf(deptA.dedicatedChannelId)).toContain(admin);
+    expect(await membersOf(deptA.announcementChannelId)).toContain(admin);
+  });
+
+  it("#206 AC-4: 全体管理者の作成では、監査は department.create の1件だけで、channel.join は残らない", async () => {
+    await create({ name: `${TEST_TAG}監査` });
+    const audits = await departmentAudits();
+    expect(audits.map((a) => a.action)).toEqual(["department.create"]);
+    expect(await joinAudits()).toBe(0);
+  });
+
+  it("#206 AC-4: 全体管理者の任命では、監査は department.owner_change の1件だけで、channel.join は残らない", async () => {
+    await changeOwner({
+      departmentId: deptB.id,
+      version: 1,
+      ownerUserId: admin,
+    });
+    const audits = await departmentAudits();
+    expect(audits.map((a) => a.action)).toEqual(["department.owner_change"]);
+    expect(await joinAudits()).toBe(0);
+  });
+
+  it("#206 AC-4（原子性）: 全体管理者が指名なしで作る途中で参加の追加が失敗したら、部署・チャンネル・ロール・参加・監査・版のどれも残らず、エラーは再送出される", async () => {
+    await triggerFailure();
+    const before = await departmentSnapshot();
+    const error = await create({ name: `${TEST_TAG}原子性作成` }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DuplicateDepartmentError);
+    expect(error).not.toBeInstanceOf(DepartmentConflictError);
+    expect(await departmentSnapshot()).toEqual(before);
+  });
+
+  it("#206 AC-4（原子性）: 全体管理者を任命する途中で参加の追加が失敗したら、ロール・参加・監査・版のどれも元のままで、エラーは再送出される", async () => {
+    await triggerFailure();
+    const before = await departmentSnapshot();
+    const error = await changeOwner({
+      departmentId: deptB.id,
+      version: 1,
+      ownerUserId: admin,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DepartmentConflictError);
     expect(await departmentSnapshot()).toEqual(before);
   });
 });
