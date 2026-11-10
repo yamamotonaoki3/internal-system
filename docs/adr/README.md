@@ -33,3 +33,4 @@
 | [0020](0020-test-scope-mutation-e2e.md) | ミューテーションとE2Eの実行範囲を、開発中は影響範囲に絞り、決めた時期に全体を確認する | 採用 |
 | [0021](0021-department-channel-backfill-migration-exception.md) | 初代部署の専用チャンネルを補うmigrationを1本だけ手作成する | 採用 |
 | [0022](0022-company-general-channel-seed-migration-exception.md) | 全社連絡を補うmigrationを1本だけ手作成する | 採用 |
+| [0023](0023-mutation-equivalent-mutants-exception.md) | ファイル別ミューテーションスコア80%の基準に、同値変異体による例外を設ける | 採用 |

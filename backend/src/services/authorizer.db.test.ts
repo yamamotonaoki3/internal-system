@@ -15,7 +15,12 @@ import { AppError } from "../lib/app-error";
 import type { Scope } from "../lib/authorization";
 import type { Logger } from "../lib/logger/logger";
 import { ROLE_IDS } from "../lib/permissions";
-import { createAppAuthorizer } from "./authorizer";
+import {
+  canManageAccounts,
+  canManageClients,
+  canManageDepartments,
+  createAppAuthorizer,
+} from "./authorizer";
 
 afterEach(cleanupRoleTestData);
 
@@ -161,5 +166,54 @@ describe("ロールの権限判定（createAppAuthorizer × D1）", () => {
     const logged = JSON.stringify(audit.mock.calls);
     expect(logged).not.toContain(member);
     expect(logged).not.toContain("perm.auth.login");
+  });
+});
+
+const TRACE = "unit_test_207";
+
+async function manageResults(userId: string) {
+  return [
+    await canManageClients(env, userId, TRACE),
+    await canManageDepartments(env, userId, TRACE),
+    await canManageAccounts(env, userId, TRACE),
+  ];
+}
+
+describe("canManage*（会社の管理権限の直接判定）", () => {
+  it("#207 AC-1: 全体管理者は canManageClients・canManageDepartments・canManageAccounts がすべて true", async () => {
+    const dept = await insertDepartment("部署207");
+    const admin = await insertUser("testuser_207_admin", dept);
+    await insertAssignment(admin, ROLE_IDS.globalAdmin, "company", null);
+    expect(await manageResults(admin)).toEqual([true, true, true]);
+  });
+
+  it("#207 AC-1: 割り当てのない一般社員は3つとも false（デフォルト拒否）", async () => {
+    const dept = await insertDepartment("部署207");
+    const member = await insertUser("testuser_207_member", dept);
+    expect(await manageResults(member)).toEqual([false, false, false]);
+  });
+
+  it("#207 AC-1: 部署のオーナーは3つとも false", async () => {
+    const dept = await insertDepartment("部署207");
+    const owner = await insertUser("testuser_207_owner", dept);
+    await insertAssignment(owner, ROLE_IDS.owner, "department", dept);
+    expect(await manageResults(owner)).toEqual([false, false, false]);
+  });
+
+  it("#207 AC-1: 無効の利用者は、全体管理者の割り当てが残っていても3つとも false", async () => {
+    const dept = await insertDepartment("部署207");
+    const admin = await insertUser("testuser_207_inactive", dept, {
+      isActive: false,
+    });
+    await insertAssignment(admin, ROLE_IDS.globalAdmin, "company", null);
+    expect(await manageResults(admin)).toEqual([false, false, false]);
+  });
+
+  it("#207 AC-1: 存在しない利用者は3つとも false", async () => {
+    expect(await manageResults("01JNOUSER20700000000000000")).toEqual([
+      false,
+      false,
+      false,
+    ]);
   });
 });
