@@ -1,0 +1,4 @@
+# 改行コードは LF に統一する。prettier の既定（lf）と CI（Linux）に合わせ、
+# Windows の core.autocrlf=true によるチェックアウト時の CRLF 変換を防ぐ。
+# バイナリは text=auto の自動判定に任せる。
+* text=auto eol=lf

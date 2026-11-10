@@ -42,6 +42,36 @@
 - 全社連絡の補完（Issue #200）：全社連絡（`purpose=company_general`）の初期データだけの専用migration（0011）を1本に限って手作成する（3本目の例外。ADR-0022）。既存migrationは変更しない。本番への適用には別途利用者承認が必要。チャンネルの一覧・詳細・参加APIのレート制限は、上限がX-8で決まっていないため入れず、別Issueで扱う。
 - 「最後のID以降」で読む一覧（Issue #201）：新着を`after`（直前に見たID）以降で取る一覧は、`cursor.ts`の`afterIdQuerySchema`・`toAfterIdPage`を使う。取りこぼしを防ぐため、書き込む側は「同じ部屋では、コミットの順にIDが増える」を、時計やULIDの単調性に頼らず、DBの条件付きの`INSERT … SELECT`（挿入するID以上のIDがないこと）で保証する。0行のときは原因を読み分け、IDだけが原因なら最大より大きいIDで作り直して再試行する（上限を超えたら503）。この保証はD1が書き込みを直列に実行することに依存し、読み取りレプリカ（Sessions API）は使わない前提。詳細は[messages.md](design/messages.md)。メッセージの投稿のレート制限は、上限がX-8で決まっていないため入れず、別Issueで扱う。
 
+## 改行コード（Issue #208）
+
+改行コードは LF に統一する。リポジトリ直下の `.gitattributes` の `* text=auto eol=lf` で決める。prettier の既定（`endOfLine: lf`）と CI（Linux）に合わせるためである。Windows で `core.autocrlf=true` のまま作業ツリーが CRLF になると、`npm run format:check` が改行の違いで止まる。`format:check` の基準（`--end-of-line auto` で違いを無視する等）は緩めない。
+
+- 新しいクローン：何もしなくてよい。チェックアウト時から LF になる
+- 既存のクローン・worktree：この設定を取り込んだ後、作業ツリーに残った CRLF を LF に更新する。索引（リポジトリに保存された内容）はもともと LF なので、対象のファイルを削除してから、`checkout-index` で索引の内容を作業ツリーに書き戻す（git が「作業ツリーは最新」と判断したファイルは、`checkout-index -f` だけでは書き直されず、CRLF が残るため）。未コミットの変更が失われないよう、手順1で改行以外の差が 0 件であること（未コミットの変更がないこと）を確かめてから行う。差があるファイルがあれば、先にコミットするか退避する（未追跡のファイルは対象外）。手順は Git Bash（Windows）で実行する前提である（`xargs -d` は GNU の xargs の機能で、macOS の BSD xargs では動かない）
+
+```
+# 1. 事前確認：改行以外の差があるファイルと、ステージ済みの変更が、どちらも 0 件であること（0 件でなければ、先にコミットか退避をする。ステージ済みの変更があると、後の renormalize で今回の作業と混ざる）
+git diff --ignore-cr-at-eol --stat
+git diff --cached --stat
+
+# 2. 対象の一覧を、削除の前にファイルへ保存し、件数を確かめる（パスの前はタブ区切りなので cut -f2 を使う。削除すると w/crlf が出なくなるため、先に保存する）
+git ls-files --eol | grep 'w/crlf' | cut -f2 > /tmp/crlf-files.txt
+wc -l < /tmp/crlf-files.txt
+
+# 3. 書き戻し（対象を削除し、索引の内容 = LF で復元する。最後の renormalize は索引の stat 情報を更新し、git status の見かけの変更を消す）
+xargs -d '\n' rm -f -- < /tmp/crlf-files.txt
+xargs -d '\n' git checkout-index -f -- < /tmp/crlf-files.txt
+git add --renormalize .
+
+# 4. 事後確認：w/crlf が 0 件であること、git diff が空であること、git status --short --untracked-files=no が空であること
+git ls-files --eol | grep -c 'w/crlf'
+git diff --stat
+git status --short --untracked-files=no
+
+# 5. 後始末：一時ファイルを消す
+rm -f /tmp/crlf-files.txt
+```
+
 ## 2026-11-08承認の運用改善試行
 
 [ADR0019](adr/0019-efficiency-trial.md)により、次の1Issue #125（未決仕様の合意・依存確認後）で、計画・文書・品質確認等の兼務、条件一致を立証した検証再利用、同一原因の修正失敗2回または30分の調査枠、独立Issue最大2件、共有環境の品質担当1名を試す。AGENTS.md・Skillの役割分離・工程ごとの全体検証・前Issue統合後の次Issue着手の例外はADRの範囲だけとする。
