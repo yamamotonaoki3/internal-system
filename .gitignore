@@ -13,6 +13,9 @@ worker-configuration.d.ts
 .dev.vars
 .dev.vars.*
 
+# npm run dev:stop が読む、開発サーバー（run-local）の PID の記録
+.dev-server.pid
+
 # テスト・品質チェックの結果
 coverage
 playwright-report
