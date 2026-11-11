@@ -11,6 +11,7 @@ import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
+import { notificationRoutes } from "./routes/notifications";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { userRoutes } from "./routes/users";
@@ -38,6 +39,8 @@ const app = createApp({
     // #201：メッセージの一覧・投稿。index.ts と同じパスに組み込む
     { path: "/api/rooms", app: messageRoutes() },
     { path: "/api/users", app: userRoutes() },
+    // #124：通知の一覧・未読数・既読。index.ts と同じパスに組み込む
+    { path: "/api/me/notifications", app: notificationRoutes() },
   ],
 });
 

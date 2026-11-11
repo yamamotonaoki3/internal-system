@@ -16,6 +16,7 @@ import { DepartmentsPage } from "./pages/DepartmentsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MembersPage } from "./pages/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SetupPage } from "./pages/SetupPage";
@@ -75,6 +76,7 @@ export function App() {
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/members" element={<MembersPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordChangePage />} />
         <Route path="*" element={<NotFoundPage />} />

@@ -12,6 +12,11 @@ export const server = setupServer(
   http.get("/api/rooms/:roomId/messages", () =>
     HttpResponse.json({ items: [], nextCursor: null, hasMore: false }),
   ),
+  // #124：ヘッダーの通知（NotificationBell）が未読数（GET /api/me/notifications/unread-count）を 2 秒ごとに取るため、枠（App・Header）を描画する
+  // 全テストで「未処理の通信」にならないよう、未読 0 件を既定の応答にする。個別のテストは test/notification-handlers.ts の respondNotifications で上書きする。
+  http.get("/api/me/notifications/unread-count", () =>
+    HttpResponse.json({ count: 0 }),
+  ),
   // #130：ヘッダーのステータスボタンが自分のプロフィール（GET /api/me/profile）を取るため、在席の架空の値を既定の応答にする。
   // 個別のテストは test/profile-handlers.ts の respondProfileWorld で上書きする。
   http.get("/api/me/profile", () =>

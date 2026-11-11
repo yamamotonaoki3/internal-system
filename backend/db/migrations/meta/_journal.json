@@ -99,6 +99,13 @@
       "when": 1794370238264,
       "tag": "0013_add_user_status",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1794404706398,
+      "tag": "0014_add_notifications",
+      "breakpoints": true
     }
   ]
 }

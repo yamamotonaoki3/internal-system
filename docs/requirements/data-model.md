@@ -524,9 +524,10 @@ erDiagram
     notifications {
         text id PK
         text user_id FK "受け取る人"
-        text kind "mention のほか change_request emergency_deletion_requested emergency_deletion_decided（C-114。名前は案） archived restored（C-124 アーカイブ・復元の参加者宛て 名前は案）"
-        text message_id FK
-        text request_id "依頼・緊急削除の申請のID kindで参照先が決まる 外部キーにしない案 mentionなどはnull"
+        text kind "種類。DBのCHECKは付けない（定義元 shared/notification-kinds.ts で守る。今は0件。後続のIssueが足す種類の例 mention change_request emergency_deletion_requested emergency_deletion_decided（C-114。名前は案） archived restored（C-124 アーカイブ・復元の参加者宛て 名前は案））【#124で確定】"
+        text room_id "null可 外部キーにしない 対象の部屋（可視性の判定に使う）【#124で追加】"
+        text message_id "null可 外部キーにしない もとのメッセージ【#124で確定】"
+        text target_id "null可 外部キーにしない 依頼・申請・案件などのID kindで参照先が決まる 旧 request_id を一般化【#124で確定】"
         text created_at
         text read_at
     }
@@ -579,7 +580,7 @@ erDiagram
   - 重複の防止：同じ`message_id`・同じ`kind`の`pending`の依頼は1件まで、同じ`message_id`の`pending`の申請は1件まで。アプリ側で確認して`409`にし、DBでも守るために、`status = pending`の行だけに一意制約を置く（SQLiteの部分一意インデックス）案。実装の計画で確定する（設計-13）
   - 対象は`channels.purpose = announcement`のチャンネルのメッセージだけ。DBの制約にはせず、アプリ側で確認する。依頼者・申請者の資格（自部署のオーナー、依頼のみ全体管理者）もアプリ側の権限判定で行う
   - 投稿の印（「依頼されています」等）は、保存する列を持たず、`pending`の行の有無から導く。見せる相手（投稿者・依頼者・自部署のオーナー・全体管理者）の判定もアプリ側で行い、それ以外の人には返さない（EP-1-01）
-  - 通知は`notifications`に積む。`kind`に`change_request`（投稿者宛て）・`emergency_deletion_requested`（全体管理者宛て）・`emergency_deletion_decided`（申請者宛ての承認・却下の結果）を足し、依頼・申請を指す`request_id`を足す案（名前は【案】。外部キーにせず、`kind`で参照先を決める）。通知はアプリ内のみ（C-39）
+  - 通知は`notifications`に積む。`kind`に`change_request`（投稿者宛て）・`emergency_deletion_requested`（全体管理者宛て）・`emergency_deletion_decided`（申請者宛ての承認・却下の結果）を足し、依頼・申請を指す`request_id`を足す案（名前は【案】。外部キーにせず、`kind`で参照先を決める）【C-166 により追記（2026-11-11）：`request_id`は案件も指せるよう`target_id`に一般化して、Issue #124 で確定した。`kind`の値は後続のIssueが定義元に足す】。通知はアプリ内のみ（C-39）
   - 監査ログは既存の`audit_logs`を使い、`action`に操作の種類を足す。人の操作（依頼の作成、緊急削除の申請・承認・却下・取消、全体管理者による他人の投稿の直接削除）は記録する。自動の「対応済み」「無効」は記録しない（投稿の編集・削除の記録で分かる。C-115）。全体管理者が他人の投稿を直接削除するときの理由（必須。最大500文字）は`audit_logs.detail`に残す案で、`messages`に列は足さない（投稿者に理由を見せるか、削除後の表示に出すかは未決定。見せる場合は列が要る）。申請・依頼の理由の本文は、それぞれの行に持つ。業務の履歴（依頼・申請の行）と監査ログは区別する
   - 通知：申請の取消は全体管理者へ通知する（`notifications.kind`に`emergency_deletion_cancelled`を足す案）。「無効」は通知しない（C-115）。部署の無効化後の細部（読み取り専用の解除や部署の復帰時の扱いなど）は未決定
 - 未読（3-1）は、`read_positions.last_read_message_id`より新しいメッセージがあるかで判断する。未読の数を保存するか、毎回計算するかは未決定（設計-9。実装の計画で決める）【C-147により決定（2026-11-02〜03。Issue #105）：カウンターは持たず、既読位置から上限つきで数え直す。サイドバーが重いと実測で分かったときだけ`rooms.last_message_id`を足す案は将来の選択肢。スレッドごとの既読位置と画面に件数を出すかは未決定のまま。ADR-0006。元の記述は残す】
@@ -671,7 +672,7 @@ erDiagram
 | `reactions` | 絵文字・スタンプのリアクション | メッセージ、ユーザー、種類、値 | 1-7 |
 | `mentions` | メッセージでの指名 | メッセージ、指名された人 | 1-8、3-2 |
 | `read_positions` | 部屋ごとの既読の位置 | ユーザー、部屋、最後に読んだメッセージ | 3-1 |
-| `notifications` | アプリ内の通知 | 受け取る人、種類（メンションのほか、依頼・緊急削除の申請・結果。C-114。チャンネル・案件のアーカイブ・復元【案】。C-124）、もとのメッセージ、依頼・申請のID（案）、既読の日時。アーカイブ・復元の通知が指すチャンネル・案件のID の持ち方は未決定（設計-14）。物理削除と編集は通知しない | 3-2、7-2 |
+| `notifications` | アプリ内の通知 | 受け取る人、種類（メンションのほか、依頼・緊急削除の申請・結果。C-114。チャンネル・案件のアーカイブ・復元【案】。C-124）、対象の部屋（`room_id`）、もとのメッセージ（`message_id`）、依頼・申請・案件などのID（`target_id`。旧`request_id`を一般化。【#124で確定。C-166】`room_id`・`message_id`・`target_id`は外部キーにしない。`kind`にCHECKを付けない。文言は保存しない）、既読の日時。アーカイブ・復元の通知が指すチャンネル・案件のID の持ち方は未決定（設計-14）。物理削除と編集は通知しない | 3-2、7-2 |
 | `message_change_requests` | お知らせ専用チャンネルの投稿者への編集・削除の依頼（C-114） | メッセージ、依頼した人、種類（編集・削除）、理由（任意）、状態（未処理・対応済み・無効【案】）、日時 | 7-2 AC-3・AC-6 |
 | `emergency_deletion_requests` | お知らせ専用チャンネルの投稿の緊急削除の申請（C-114） | メッセージ、申請した人、理由（必須）、状態（申請中・承認・却下・取消・無効）、承認・却下した人と日時、却下の理由（任意）、取消・無効の日時 | 7-2 AC-3・AC-7 |
 
