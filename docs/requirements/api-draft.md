@@ -1601,3 +1601,23 @@
 | メソッドとパス | 権限 | 入力 | 応答 | エラー |
 | --- | --- | --- | --- | --- |
 | `GET /api/admin/departments/owner-candidates` | 全体管理者のみ（`perm.workspace.create`。S-6） | `q`（任意。100文字まで）、`limit`（最大50）、`cursor` | `200`：`items`（`id`、`displayName`、`departmentId`、`ownedDepartmentId`、`isGlobalAdmin`）、`nextCursor`。有効な社員だけ。本名・メール・社員IDは返さない | `401`、`403：FORBIDDEN`、`422：VALIDATION_ERROR` |
+
+## 2026-11-11 Issue #130 の実装（プロフィール・社員一覧・ステータス）
+
+（決定記録 [C-165](decision-register.md)。設計書 [profile-status.md](../design/profile-status.md)。）EP-0-03・EP-0-12・EP-0-15・EP-0-18・EP-7-01 の実装の形を、次の表に追記する。上の表の記述は残し、実装で決まったことだけを書く。応答の最終の形は `docs/api/openapi.json` に従う。
+
+| EP | 実装した形（Issue #130） |
+| --- | --- |
+| EP-0-03（詳細） | 既存の `GET /api/auth/me` は変えていない。自分のプロフィールの詳細は `GET /api/me/profile` で返す。`200`：`id`、`loginId`、`displayName`、`legalName`（復号した本名）、`department`（`id`・`name`。所属なしは `null`）、`jobTitle`、`email`、`extension`、`status`（`kind`・`returnAt`・`message`）。応答は `Cache-Control: no-store`。エラーは `401`、`404`（利用者がいない）、`503`（本名の暗号鍵が未設定） |
+| EP-0-12 | 本文は変更する項目だけで `strict`。`displayName`・`status`・`returnAt`（ISO 8601・オフセットつき。`null` は受け付けない）・`statusMessage`（空文字は一言を消す。`null` は受け付けない）。0項目、未知の項目（本名・メール・内線・役職・部署など）は `422`。`status` を送ったとき、在席なら `returnAt` を同時に送ると `422`、在席以外で `returnAt` を送らなければ戻り予定は消える。`status` を送らず `returnAt` だけ送ったときは、いまの種類に対して設定し、いまが在席なら `422`。`returnAt` は現在より後で、暦の1年後（翌年の同じ月日。2月29日は翌年3月1日）まで。`200`：`displayName`、`status`（種類）、`returnAt`、`statusMessage`、`updatedAt`。`displayName` を送ったときだけ監査 `profile.display_name_change`（`detail` は空）を同じ `db.batch` で残す。`429` は返さない（レート制限は X-8 が未決定のため入れていない） |
+| EP-0-15 | 本文は `status`（必須）と `returnAt`（任意。`null` は受け付けない）だけで `strict`。一言メッセージは扱わず、本人の一言は変えない。対象の社員がいない・無効化済み・所属なしは、認可の前に `404`。そのあと `perm.status.proxy.set` を対象者の部署の範囲で判定し、メンバーと他部署の社員に対するオーナーは `403：FORBIDDEN`。自分自身への特別な拒否はなく、オーナーが自部署の自分に設定すると `200`。`userId` の形式が不正なら `422`。`200`：`userId`、`status`（種類）、`returnAt`、`updatedAt`。監査 `status.proxy_set`（対象は `user`、`detail` は `departmentId` と `status` の種類だけ）を、操作者と対象者が同じ場合も、同じ `db.batch` で残す |
+| EP-0-18 | `200`：`userId`、`displayName`、`legalName`、`department`（所属なしは `null`）、`status`（`kind`・`returnAt`・`message`）。応答は `no-store`。無効化済み・いない社員は `404`、`userId` の形式が不正なら `422`、本名の暗号鍵が未設定なら `503`。閲覧は監査に残さない（C-75） |
+| EP-7-01 | クエリは `departmentId`（任意。形式が不正なら `422`）・`limit`（既定20・最大100）・`cursor`。余剰のクエリは `422`。`200`：`items`（`id`、`displayName`、`department`（`id`・`name`）、`extension`、`email`、`status`（`kind`・`returnAt`・`message`）、`canSetStatus`）、`nextCursor`。上の表の `userId` は、実装では `id`。有効かつ所属ありの社員だけを、表示名・`id` の昇順で、自分も含めて返す。本名は含めない。`canSetStatus` は、サーバーが `perm.status.proxy.set` を各行の部署の範囲で判定した結果で、表示の制御に使う（認可は EP-0-15 が行う）。画面は、自分の行には代理設定の操作を出さない |
+
+### 新設：一般向けの部署の候補
+
+社員一覧の絞り込みに使う部署の候補を返す API。一般のメンバーが使える部署の一覧が既存になかった（既存の `GET /api/admin/departments` は全体管理者用）ため新設した。EP-7-01 の付属として扱い、EP番号は付けない（#196 のオーナー候補 API と同じ。番号の整理は実装設計で行う）。
+
+| メソッドとパス | 権限 | 入力 | 応答 | エラー |
+| --- | --- | --- | --- | --- |
+| `GET /api/users/departments` | `perm.employee.view`（会社範囲。ログイン後の全員） | なし | `200`：`items`（`id`、`name`）。有効な部署だけを名前順で返す | `401：UNAUTHENTICATED`、`403` |

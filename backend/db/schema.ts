@@ -10,6 +10,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { USER_STATUS_KINDS } from "../../shared/profile-rules";
 
 export const sampleUsers = sqliteTable("sample_users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -44,6 +45,11 @@ export const auditLogs = sqliteTable(
   ],
 );
 
+// CHECK 制約の値の並び（shared/profile-rules.ts が定義元。固定の値だけなので sql.raw に渡してよい）
+const STATUS_KIND_LIST = USER_STATUS_KINDS.map((kind) => `'${kind}'`).join(
+  ", ",
+);
+
 const nowUtc = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 // 会社の設定（会社のワークスペースを表す1件だけの表。2-1 AC-5）。id を 'company' に固定して、2件目を入れられなくする。
@@ -72,29 +78,51 @@ export const departments = sqliteTable("departments", {
 });
 
 // 社員のアカウント。legal_name は暗号化した値（"v1:<iv>:<暗号文>"）。メール・社員IDの正規化の値は小文字。
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
-  loginId: text("login_id").notNull(),
-  loginIdNormalized: text("login_id_normalized").notNull().unique(),
-  displayName: text("display_name").notNull(),
-  legalName: text("legal_name").notNull(),
-  email: text("email").notNull(),
-  emailNormalized: text("email_normalized").notNull().unique(),
-  emailVerifiedBy: text("email_verified_by").references(
-    (): AnySQLiteColumn => users.id,
-  ),
-  emailVerifiedAt: text("email_verified_at"),
-  departmentId: text("department_id").references(() => departments.id),
-  extension: text("extension"),
-  jobTitle: text("job_title"),
-  passwordHash: text("password_hash").notNull(),
-  mustChangePassword: integer("must_change_password", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
-  deactivatedAt: text("deactivated_at"),
-  createdAt: text("created_at").notNull().default(nowUtc),
-});
+// ステータス（#130）：status_kind は既定が在席。status_updated_by は最後に設定した人（本人の変更なら本人、代理設定ならその操作者）。
+// 一覧は有効かつ所属ありの社員を、表示名・ID の順に読む（users_directory_idx は部署で絞る場合、users_display_name_idx は全社）。
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    loginId: text("login_id").notNull(),
+    loginIdNormalized: text("login_id_normalized").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    legalName: text("legal_name").notNull(),
+    email: text("email").notNull(),
+    emailNormalized: text("email_normalized").notNull().unique(),
+    emailVerifiedBy: text("email_verified_by").references(
+      (): AnySQLiteColumn => users.id,
+    ),
+    emailVerifiedAt: text("email_verified_at"),
+    departmentId: text("department_id").references(() => departments.id),
+    extension: text("extension"),
+    jobTitle: text("job_title"),
+    passwordHash: text("password_hash").notNull(),
+    mustChangePassword: integer("must_change_password", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    deactivatedAt: text("deactivated_at"),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    statusKind: text("status_kind", { enum: USER_STATUS_KINDS })
+      .notNull()
+      .default("available"),
+    statusReturnAt: text("status_return_at"),
+    statusMessage: text("status_message"),
+    statusUpdatedAt: text("status_updated_at"),
+    statusUpdatedBy: text("status_updated_by").references(
+      (): AnySQLiteColumn => users.id,
+    ),
+  },
+  (t) => [
+    check(
+      "users_status_kind_check",
+      sql`${t.statusKind} in (${sql.raw(STATUS_KIND_LIST)})`,
+    ),
+    index("users_directory_idx").on(t.departmentId, t.displayName, t.id),
+    index("users_display_name_idx").on(t.displayName, t.id),
+  ],
+);
 
 // ロール。第1段階は固定の3つ（マイグレーション seed_initial_roles で入れる）。
 export const roles = sqliteTable(

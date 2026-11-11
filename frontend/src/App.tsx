@@ -14,8 +14,10 @@ import { ClientsPage } from "./pages/ClientsPage";
 import { DepartmentCreatePage } from "./pages/DepartmentCreatePage";
 import { DepartmentsPage } from "./pages/DepartmentsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MembersPage } from "./pages/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { SetupPage } from "./pages/SetupPage";
 
 function ClientManageRoute() {
@@ -72,6 +74,8 @@ export function App() {
         />
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
+        <Route path="/members" element={<MembersPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordChangePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

@@ -1,6 +1,7 @@
 // アバターメニュー（ネイティブ popover）。
 // ヘッダーのアバター（768px以上）と下部メニューの「自分」（768px未満）が、同じ1つの popover を開く。
-// 開閉・Esc・外側クリック・最前面は popover="auto" とボタンの popoverTarget に任せる。role="menu" は使わない（中身はボタン1つで、矢印キーの約束を作らないため）。
+// 開閉・Esc・外側クリック・最前面は popover="auto" とボタンの popoverTarget に任せる。role="menu" は使わない（矢印キーの約束を作らないため）。
+// 中身の並びは プロフィール設定 → ステータス（5種類）→ パスワードを変更 → ログアウト。ヘッダーのステータスの popover とは、同時に1つだけ開く（popover="auto"）。
 import {
   createContext,
   useContext,
@@ -14,6 +15,7 @@ import { Button } from "../../components/Button";
 import { Link, useLocation } from "react-router";
 import { LogoutButton } from "../auth/components/LogoutButton";
 import { useSession } from "../auth/hooks/useSession";
+import { StatusPicker } from "../profile";
 import { DESKTOP_QUERY, focusMainContent } from "./main-content";
 
 const AVATAR_MENU_ID = "avatar-menu";
@@ -65,8 +67,12 @@ export function AvatarMenuProvider({ children }: { children: ReactNode }) {
         ref={panelRef}
         popover="auto"
         onToggle={handleToggle}
-        className="inset-auto bottom-16 right-2 rounded-md border border-border bg-surface p-3 text-text shadow-float md:bottom-auto md:top-12"
+        className="inset-auto bottom-16 right-2 w-72 max-w-full rounded-md border border-border bg-surface p-3 text-text shadow-float md:bottom-auto md:top-12"
       >
+        <Link to="/profile" className="mb-2 block text-primary underline">
+          プロフィール設定
+        </Link>
+        <StatusPicker />
         <Link
           to="/password"
           state={{ from: location.pathname + location.search + location.hash }}

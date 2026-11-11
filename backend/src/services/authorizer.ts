@@ -59,3 +59,27 @@ export function canManageAccounts(
     }).can({ userId }, "perm.account.create", { type: "company" }),
   );
 }
+
+/**
+ * 部署ごとの権限の有無を、割り当ての読み込み1回で判定する（一覧の各行の可否用）。
+ * 判定は createAppAuthorizer と同じ resolvePermissions で行う。存在しない・無効な利用者は、すべて false。
+ * 読み込みの失敗は呼び出し元へ伝える。
+ */
+export async function canForDepartments(
+  repository: RoleAssignmentRepository,
+  userId: string,
+  permission: Permission,
+  departmentIds: readonly string[],
+): Promise<Map<string, boolean>> {
+  const found = await repository.findByUserId(userId);
+  return new Map(
+    [...new Set(departmentIds)].map((departmentId) => [
+      departmentId,
+      found !== null &&
+        resolvePermissions(found.user, found.assignments, {
+          type: "department",
+          departmentId,
+        }).has(permission),
+    ]),
+  );
+}

@@ -17,6 +17,8 @@ export const AUDIT_ACTIONS = [
   "account.create",
   "channel.join",
   "channel.company_general_backfill",
+  "status.proxy_set",
+  "profile.display_name_change",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

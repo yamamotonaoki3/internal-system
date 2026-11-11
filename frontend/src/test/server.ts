@@ -12,4 +12,19 @@ export const server = setupServer(
   http.get("/api/rooms/:roomId/messages", () =>
     HttpResponse.json({ items: [], nextCursor: null, hasMore: false }),
   ),
+  // #130：ヘッダーのステータスボタンが自分のプロフィール（GET /api/me/profile）を取るため、在席の架空の値を既定の応答にする。
+  // 個別のテストは test/profile-handlers.ts の respondProfileWorld で上書きする。
+  http.get("/api/me/profile", () =>
+    HttpResponse.json({
+      id: "01JTESTUSER000000000000001",
+      loginId: "testuser_001",
+      displayName: "testuser_001",
+      legalName: "テスト花子",
+      email: "testuser_001@example.com",
+      extension: null,
+      jobTitle: null,
+      department: null,
+      status: { kind: "available", returnAt: null, message: null },
+    }),
+  ),
 );

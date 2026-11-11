@@ -3,6 +3,10 @@ import { spawn } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
+  encryptLegalName,
+  isValidPiiKey,
+} from "../backend/src/lib/pii-crypto.ts";
+import {
   applyLocalEnvironment,
   loadLocalEnvironment,
   localStatePath,
@@ -75,8 +79,9 @@ async function main(): Promise<void> {
   // E2E 用のシードは、e2e/seeds/ の下の SQL だけを、選択した環境の保存先へ流す
   if (operation === "seed-file") {
     const file = seedFile(options);
+    // E2E のシードは D1 の test 環境だけで使う。postgres で流した場合は本名の暗号化を行わない（ADR-0005 で DB は D1 のみ）
     if (postgres) return psql([], readFileSync(file, "utf8"));
-    return wrangler([
+    await wrangler([
       "d1",
       "execute",
       "DB",
@@ -86,6 +91,10 @@ async function main(): Promise<void> {
       "--file",
       file,
     ]);
+    // 既存のシードは本名を平文で入れる。アプリは暗号化した値（ADR-0013）しか読めないため、test 環境のE2E用の利用者だけ暗号化する
+    if (environment === "test")
+      await encryptSeedLegalNames(values.PII_ENCRYPTION_KEY);
+    return;
   }
   if (options.length)
     throw new LocalEnvironmentError("DB 操作に追加の引数は指定できません。");
@@ -165,6 +174,82 @@ async function main(): Promise<void> {
     }
   }
   throw new Error("DB 操作の名前が不正です。");
+}
+
+type D1Json = { results?: Record<string, unknown>[] }[];
+
+/** wrangler d1 execute を実行して、標準出力（JSON）を返す。値は画面に出さない */
+function d1Query(sql: string): Promise<D1Json> {
+  return new Promise((resolve, reject) => {
+    const wranglerBin = path.resolve(
+      "node_modules",
+      "wrangler",
+      "bin",
+      "wrangler.js",
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        wranglerBin,
+        "d1",
+        "execute",
+        "DB",
+        "--local",
+        "--persist-to",
+        localStatePath("test"),
+        "--json",
+        "--command",
+        sql,
+      ],
+      {
+        stdio: ["ignore", "pipe", "inherit"],
+        windowsHide: true,
+        env: process.env,
+      },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    child.on("error", () =>
+      reject(new Error("DB の道具を起動できません（値は表示しません）。")),
+    );
+    child.on("exit", (code) => {
+      if (code !== 0)
+        return reject(
+          new Error(`DB 操作に失敗しました（終了コード ${String(code)}）。`),
+        );
+      try {
+        resolve(JSON.parse(output) as D1Json);
+      } catch {
+        reject(new Error("DB の応答を読めませんでした（値は表示しません）。"));
+      }
+    });
+  });
+}
+
+async function encryptSeedLegalNames(key: string | undefined): Promise<void> {
+  const rows =
+    (
+      await d1Query(
+        "SELECT id, legal_name FROM users WHERE login_id LIKE 'e2euser!_%' ESCAPE '!' AND legal_name NOT LIKE 'v1:%'",
+      )
+    )[0]?.results ?? [];
+  if (rows.length === 0) return;
+  if (key === undefined || !isValidPiiKey(key))
+    throw new LocalEnvironmentError(
+      "PII_ENCRYPTION_KEY を .env.test に設定してください（値は表示しません）。",
+    );
+  const statements: string[] = [];
+  for (const row of rows) {
+    const id = String(row.id);
+    if (!/^[A-Za-z0-9]+$/.test(id))
+      throw new Error("利用者IDの形式が不正です。");
+    const encrypted = await encryptLegalName(String(row.legal_name), key, id);
+    statements.push(
+      `UPDATE users SET legal_name = '${encrypted}' WHERE id = '${id}';`,
+    );
+  }
+  await d1Query(statements.join(" "));
+  console.log(`E2E用の利用者の本名を暗号化しました：${String(rows.length)}件`);
 }
 
 function seedFile(options: string[]): string {

@@ -127,6 +127,35 @@ for (const [label, size] of [
   });
 }
 
+/** アバターメニューを開いた直後からの Tab の順番（#130。AvatarMenu.tsx・StatusPicker.tsx の DOM 順）。ヘッダーのステータスにも同じ名前のボタンがあるため、メニューの中に絞る */
+async function expectAvatarMenuTabOrder(page: Page) {
+  const menu = page.locator("[popover]").filter({ has: logoutButton(page) });
+  await page.keyboard.press("Tab");
+  await expect(
+    menu.getByRole("link", { name: "プロフィール設定" }),
+  ).toBeFocused();
+  for (const label of ["在席", "外出", "欠席", "休暇", "会議中"]) {
+    await page.keyboard.press("Tab");
+    await expect(
+      menu.getByRole("button", { name: label, exact: true }),
+    ).toBeFocused();
+  }
+  await page.keyboard.press("Tab");
+  const returnAt = menu.getByLabel("戻り予定");
+  await expect(returnAt).toBeFocused();
+  // datetime-local の欄の中で Tab が止まる回数はブラウザで異なるため、欄から出るまで進め、次が「パスワードを変更」であることを確かめる
+  for (let i = 0; i < 10; i += 1) {
+    if (!(await returnAt.evaluate((el) => el === document.activeElement)))
+      break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(
+    menu.getByRole("link", { name: "パスワードを変更" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(logoutButton(page)).toBeFocused();
+}
+
 test("#121 AC-1: 360px（スマホ）では、サイドバーが出ず、下部メニューとメニューボタンが出て、横スクロールがない", async ({
   page,
 }) => {
@@ -166,7 +195,7 @@ for (const width of [360, 767, 768, 1280]) {
   });
 }
 
-test("#121 AC-1: パソコン幅のアバターメニュー：Enter で開く → Tab でログアウトへ → Esc で閉じてアバターのボタンに戻る", async ({
+test("#121 AC-1: パソコン幅のアバターメニュー：Enter で開く → Tab でプロフィール設定・ログアウトへ → Esc で閉じてアバターのボタンに戻る", async ({
   page,
 }) => {
   await openHome(page, SIZES.desktop);
@@ -176,19 +205,15 @@ test("#121 AC-1: パソコン幅のアバターメニュー：Enter で開く �
   await page.keyboard.press("Enter");
   await expect(logoutButton(page)).toBeVisible();
   await expect(avatar).toHaveAttribute("aria-expanded", "true");
-  await page.keyboard.press("Tab");
-  await expect(
-    page.getByRole("link", { name: "パスワードを変更" }),
-  ).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(logoutButton(page)).toBeFocused();
+  // #130：Tab の順番（プロフィール設定 → ステータス5つ → 戻り予定 → パスワードを変更 → ログアウト）
+  await expectAvatarMenuTabOrder(page);
   await page.keyboard.press("Escape");
   await expect(logoutButton(page)).toHaveCount(0);
   await expect(avatar).toHaveAttribute("aria-expanded", "false");
   await expect(avatar).toBeFocused();
 });
 
-test("#121 AC-1: スマホ幅の「自分」：Enter で開く → Tab でログアウトへ → Esc で閉じて「自分」に戻る", async ({
+test("#121 AC-1: スマホ幅の「自分」：Enter で開く → Tab でプロフィール設定・ログアウトへ → Esc で閉じて「自分」に戻る", async ({
   page,
 }) => {
   await openHome(page, SIZES.mobile);
@@ -197,12 +222,8 @@ test("#121 AC-1: スマホ幅の「自分」：Enter で開く → Tab でログ
   await page.keyboard.press("Enter");
   await expect(logoutButton(page)).toBeVisible();
   await expect(self).toHaveAttribute("aria-expanded", "true");
-  await page.keyboard.press("Tab");
-  await expect(
-    page.getByRole("link", { name: "パスワードを変更" }),
-  ).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(logoutButton(page)).toBeFocused();
+  // #130：Tab の順番（プロフィール設定 → ステータス5つ → 戻り予定 → パスワードを変更 → ログアウト）
+  await expectAvatarMenuTabOrder(page);
   await page.keyboard.press("Escape");
   await expect(logoutButton(page)).toHaveCount(0);
   await expect(self).toHaveAttribute("aria-expanded", "false");

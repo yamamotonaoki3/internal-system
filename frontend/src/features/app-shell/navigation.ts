@@ -23,6 +23,7 @@ export const homeNavItem: NavItem = { id: "home", label: "ホーム", to: "/" };
 export const primaryNavItems: NavItem[] = [
   homeNavItem,
   { id: "channels", label: "チャンネルを探す", to: "/channels" },
+  { id: "members", label: "社員一覧", to: "/members" },
 ];
 
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す

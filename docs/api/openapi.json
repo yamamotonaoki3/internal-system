@@ -1732,6 +1732,354 @@
           }
         }
       }
+    },
+    "/api/me/profile": {
+      "get": {
+        "operationId": "getMyProfile",
+        "summary": "自分のプロフィールを取得する",
+        "description": "本人のみ。表示名・本名（復号）・部署・役職・メール・内線・ステータス。Cache-Control: no-store",
+        "responses": {
+          "200": {
+            "description": "自分のプロフィール。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "404": {
+            "description": "利用者が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMyProfile",
+        "summary": "自分の表示名・ステータス・戻り予定・一言メッセージを変更する",
+        "description": "変える項目だけを送る（0項目は422）。表示名を変えたときだけ監査ログ（profile.display_name_change。値は残さない）を同じ処理で残す。在席のとき戻り予定は指定できず、在席を選ぶと戻り予定は消える。ステータスだけの変更は監査に残さない。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MyProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "変更後の値。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyProfileUpdated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "404": {
+            "description": "利用者が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "社員を一覧取得する",
+        "description": "ログイン後の全員が閲覧できる。有効かつ所属ありの社員だけを、表示名・IDの昇順のカーソル方式で返す。本名は含めない。",
+        "parameters": [
+          {
+            "name": "departmentId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "部署で絞り込む"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次ページのカーソル"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "社員の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/users/departments": {
+      "get": {
+        "operationId": "listUserDepartments",
+        "summary": "社員一覧の絞り込み用に、有効な部署を取得する",
+        "description": "ログイン後の全員。有効な部署の id と name だけを名前順に返す。",
+        "responses": {
+          "200": {
+            "description": "有効な部署。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryDepartments"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/profile-card": {
+      "get": {
+        "operationId": "getProfileCard",
+        "summary": "プロフィールカード（本名を含む）を取得する",
+        "description": "ログイン後の全員。本名は復号した値で、この操作と自分のプロフィールだけで返す。無効化済み・不在は404。",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "プロフィールカード。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileCard"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "社員が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/status": {
+      "put": {
+        "operationId": "setUserStatusByProxy",
+        "summary": "社員のステータスを代理設定する",
+        "description": "対象者の部署の範囲で、部署のオーナー（自部署）または全体管理者（全部署）だけ。一言メッセージは変えない。監査ログ（status.proxy_set）を同じ処理で残す。対象なし・無効化済み・所属なしは404。",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProxyStatusInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "設定後のステータス。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyStatusSet"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足または送信元不正（FORBIDDEN・FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "社員が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3035,6 +3383,345 @@
             "minLength": 8,
             "maxLength": 128,
             "description": "新しいパスワード。文字種の構成規則と禁止判定は業務検証で行う"
+          }
+        }
+      },
+      "UserStatusKind": {
+        "type": "string",
+        "enum": [
+          "available",
+          "away",
+          "absent",
+          "vacation",
+          "meeting"
+        ],
+        "description": "在席・外出・欠席・休暇・会議中"
+      },
+      "UserStatus": {
+        "type": "object",
+        "required": [
+          "kind",
+          "returnAt",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/UserStatusKind"
+          },
+          "returnAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "戻り予定（UTC）。在席のときは null"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100,
+            "description": "一言メッセージ"
+          }
+        }
+      },
+      "ProfileDepartment": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MyProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "loginId",
+          "displayName",
+          "legalName",
+          "department",
+          "jobTitle",
+          "email",
+          "extension",
+          "status"
+        ],
+        "additionalProperties": false,
+        "description": "自分のプロフィール。本名は復号した値（本人にだけ返す）",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "loginId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "department": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProfileDepartment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jobTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "extension": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        }
+      },
+      "MyProfileUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "変える項目だけを送る。本名・メール・内線・役職・部署は受け付けない",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30,
+            "description": "前後の空白を除いて1〜30文字。制御文字は不可"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatusKind"
+          },
+          "returnAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "オフセット付きの ISO 8601。現在より後、現在から1年以内。在席のときは指定できない"
+          },
+          "statusMessage": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "前後の空白を除いて100文字まで。空は一言なし。制御文字・改行は不可"
+          }
+        }
+      },
+      "MyProfileUpdated": {
+        "type": "object",
+        "required": [
+          "displayName",
+          "status",
+          "returnAt",
+          "statusMessage",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatusKind"
+          },
+          "returnAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "statusMessage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DirectoryItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "department",
+          "extension",
+          "email",
+          "status",
+          "canSetStatus"
+        ],
+        "additionalProperties": false,
+        "description": "本名は含めない",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "department": {
+            "$ref": "#/components/schemas/ProfileDepartment"
+          },
+          "extension": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "canSetStatus": {
+            "type": "boolean",
+            "description": "呼び出した人が、この社員のステータスを代理設定できるか（表示の制御。認可は PUT で再判定する）"
+          }
+        }
+      },
+      "DirectoryPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DirectoryDepartments": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileDepartment"
+            }
+          }
+        }
+      },
+      "ProfileCard": {
+        "type": "object",
+        "required": [
+          "userId",
+          "displayName",
+          "legalName",
+          "department",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string",
+            "description": "復号した本名"
+          },
+          "department": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProfileDepartment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          }
+        }
+      },
+      "ProxyStatusInput": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false,
+        "description": "一言メッセージは扱わない",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/UserStatusKind"
+          },
+          "returnAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "オフセット付きの ISO 8601。現在より後、現在から1年以内。在席のときは指定できない"
+          }
+        }
+      },
+      "ProxyStatusSet": {
+        "type": "object",
+        "required": [
+          "userId",
+          "status",
+          "returnAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatusKind"
+          },
+          "returnAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

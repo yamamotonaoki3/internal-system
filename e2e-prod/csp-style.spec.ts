@@ -230,6 +230,25 @@ async function mockLoggedIn(page: Page): Promise<void> {
       body: JSON.stringify({ items: [], nextCursor: null }),
     }),
   );
+  // #130：ヘッダーのステータスボタンが呼ぶ自分のプロフィール。在席の架空の値を返す（frontend/src/test/server.ts の既定の応答と同じ形）
+  await page.route("**/api/me/profile", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({
+        id: "01JTE2E0000000000000000997",
+        loginId: "e2euser_style_997",
+        displayName: "テスト一郎",
+        legalName: "テスト一郎",
+        email: "e2euser_style_997@example.com",
+        extension: null,
+        jobTitle: null,
+        department: null,
+        status: { kind: "available", returnAt: null, message: null },
+      }),
+    }),
+  );
 }
 
 test("#121 AC-1: ログイン後の画面（パソコン幅）は、アバターメニューを開いても style 要素・style 属性が0で、CSP違反がない", async ({

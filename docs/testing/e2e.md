@@ -43,11 +43,12 @@
 | チャンネルを探す・参加（S-09。Issue #200） | `e2e/channels.spec.ts` | 下の「チャンネルのシナリオ」を参照 |
 | チャンネルのメッセージ（S-05。Issue #201） | `e2e/messages.spec.ts` | 下の「メッセージのシナリオ」を参照 |
 | 部署の管理（S-24・S-08。Issue #196） | `e2e/departments.spec.ts` | 下の「部署の管理のシナリオ」を参照 |
+| プロフィール・社員一覧・ステータス（S-19・S-20・S-27・ヘッダー。Issue #130） | `e2e/profile.spec.ts` | 5件を直列（`serial`）で実行する。S-19で表示名を変えると、再読み込みせずにヘッダーのアバターと社員一覧が変わる／ヘッダーで「外出」と戻り予定を選ぶと、再読み込みせずに社員一覧とカードが変わり、別の利用者の一覧にも反映される／一覧の表示名を押すとカードに本名が出て、Esc で閉じるとフォーカスが表示名に戻る／ヘッダーのステータスとアバターメニューは同時に1つだけ開く／スマホ幅（375px）でもヘッダーにステータスの丸が出て、文字は隠れて読み上げの名前に残る。シードは`e2e/seeds/profile.sql`（架空の部署と、`e2euser_profile_`で始まる全体管理者・一般社員。本名は平文の`INSERT`で書き、`seed-file`が暗号化する）。後始末は`e2e/seeds/profile-cleanup.sql`（`e2euser_profile_`と`[E2E_TEST]部署130`の識別子だけ）。**全体管理者は一意制約で1人だけなので、他のspecの全体管理者のシードと同時には存在させない**（各specが自分のシードを入れて消す） |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
 - 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）
 - シナリオは、`e2e/` に `<名前>.spec.ts` として足す。`e2e/console-guard.ts` の `test` を使い、コンソールのエラーを失敗にする
-- シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）
+- シナリオ用のシードは、`e2e/seeds/<名前>.sql` に足す。架空のデータだけを使い、ユーザー名は `e2euser_` で始める。何回流しても同じ結果になるようにする（`ON CONFLICT DO NOTHING`）。流すには、`pretest:e2e` に `node scripts/db-local.ts test seed-file e2e/seeds/<名前>.sql` を足す（`e2e/seeds/` の下の SQL だけを指定できる）。test 環境の `seed-file` は、シードの適用後に、`login_id` が `e2euser_` で始まり、本名（`legal_name`）が暗号化済みの形式（`v1:`）でない行を、その利用者のIDを追加認証データにして暗号化する（`backend/src/lib/pii-crypto.ts`。件数だけを表示し、値は出さない）。アプリは暗号化した本名しか読めないため、SQLのシードには本名を平文で書いてよい。development・本番には影響しない
 
 ### 部署の管理のシナリオ（開発サーバー。Issue #196）
 

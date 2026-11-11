@@ -53,6 +53,10 @@
     "frontend/src/features/messages/hooks/*.ts",
     "frontend/src/features/messages/merge-messages.ts",
     "frontend/src/features/messages/components/*.tsx",
+    "shared/profile-rules.ts",
+    "backend/src/db/profile.repository.ts",
+    "backend/src/routes/users.ts",
+    "frontend/src/features/profile/schemas/profile-form.ts",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],
