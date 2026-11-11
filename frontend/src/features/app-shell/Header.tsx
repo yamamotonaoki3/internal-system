@@ -1,8 +1,9 @@
 // ヘッダー。左にメニューボタン（スマホ幅のみ）とロゴ、右にアバター（パソコン幅のみ）。
-// 後続のIssueが足す場所：右側に 検索 → 通知 → ステータス → アバター の順で1行ずつ足す。スマホでは検索・通知はアイコン、ステータスは色つきの丸、アバターは出さず下部メニューの「自分」から開く。
+// 後続のIssueが足す場所：右側に 検索 → 通知 → ステータス → アバター の順で1行ずつ足す（ステータスは #130 で追加済み）。スマホでは検索・通知はアイコン、ステータスは色つきの丸、アバターは出さず下部メニューの「自分」から開く。
 import type { RefObject } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/Button";
+import { StatusButton } from "../profile";
 import { AvatarMenuTrigger } from "./AvatarMenu";
 import { homeNavItem } from "./navigation";
 
@@ -37,8 +38,11 @@ export function Header({
           internal-system
         </Link>
       </div>
-      <div className="hidden md:block">
-        <AvatarMenuTrigger variant="avatar" />
+      <div className="flex items-center gap-2">
+        <StatusButton />
+        <div className="hidden md:block">
+          <AvatarMenuTrigger variant="avatar" />
+        </div>
       </div>
     </header>
   );

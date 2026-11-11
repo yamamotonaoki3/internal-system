@@ -70,6 +70,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | `border-strong`（入力欄の枠） | `bg` / `surface` | 3.38 / 3.64 | 3 |
 | `focus`（フォーカスの輪郭） | `bg` / `surface` | 4.65 / 5.01 | 3 |
 
+- ステータスの色（Issue #130）：`status-available`（在席・緑）・`status-away`（外出・黄）・`status-absent`（欠席・赤）・`status-vacation`（休暇・青）・`status-meeting`（会議中・紫）の5トークンを`@theme`に足した。色つきの丸は文字ではない図形なので、接する背景（`surface`・`bg`）に対して3以上を`tokens.test.ts`で確かめ、5色がすべて異なることも確かめる。種類は色だけに頼らず、文字でも出す（`StatusBadge`・`StatusButton`）。クラスは`features/profile/status-labels.ts`に完全な文字列で書く（文字列連結で作らない）
 - `border`（パネルや区切りの飾りの線）は、情報を伝えない飾りなので基準の対象外。入力欄の枠は `border-strong` を使う
 - 無効な状態は `opacity` で薄くせず、専用の色（`disabled-bg`・`disabled-text`）を使う
 - フォーカスの輪郭は要素の外側（2pxのすき間の外）に出るため、隣り合うのはすき間の背景（`bg` または `surface`）。主色の地と同じ色相に近い輪郭を重ねる配置は作らない

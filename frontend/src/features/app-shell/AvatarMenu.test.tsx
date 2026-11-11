@@ -1,4 +1,4 @@
-// #121 AC-1：アバターメニュー（ネイティブ popover。中身はログアウトのみ）。ヘッダーのアバターと下部メニューの「自分」が、同じ1つの popover を開く。
+// #121 AC-1：アバターメニュー（ネイティブ popover）。#130 で中身は プロフィール設定 → ステータス → パスワード変更 → ログアウト になった。ヘッダーのアバターと下部メニューの「自分」が、同じ1つの popover を開く。
 // 本番は popoverTarget のブラウザ既定の動作で開閉する。jsdom には popover がないため、ここでは「属性・toggle イベントへの反応・中身・幅変更」までを確かめ、
 // 実際の開閉・Tab順・Esc で閉じてボタンへ戻る・外側クリック・最前面は e2e/app-shell.spec.ts で確かめる。
 // 公開形の仮定（契約）：
@@ -6,7 +6,7 @@
 //  - どちらも popovertarget・aria-controls が popover の要素の id を指し、aria-expanded（toggle の newState で更新）を持つ
 //  - popover の要素は popover="auto"。role="menu"・aria-haspopup は付けない
 //  - 画面幅が 768px 以上に変わったら hidePopover を呼び、フォーカスがメニューの中・起動ボタンにあれば #main-content に移す
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -53,7 +53,8 @@ describe("#121 AC-1 AvatarMenu", () => {
       expect(trigger.getAttribute("aria-controls")).toBe(panel.id);
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
     }
-    expect(document.querySelectorAll("[popover]")).toHaveLength(1);
+    // #130：ヘッダーのステータスも別の popover を持つため、数えるのはアバターメニューの要素だけにする（同じ id は1つ）
+    expect(document.querySelectorAll(`[id="${panel.id}"]`)).toHaveLength(1);
   });
 
   it("#121 AC-1: role=menu・aria-haspopup は付けない（矢印キーの約束を作らない）", async () => {
@@ -66,7 +67,10 @@ describe("#121 AC-1 AvatarMenu", () => {
 
   it("#123 0-3 AC-1: popover に変更画面へのリンクとログアウトを出す", async () => {
     const { panel } = await renderMenu();
-    expect(panel.querySelectorAll("button")).toHaveLength(1);
+    // #130：アバターメニューにステータスの切り替え（ボタン）が加わるため、ボタンの数ではなくログアウトが1つあることを確かめる
+    expect(
+      within(panel).getAllByRole("button", { name: "ログアウト" }),
+    ).toHaveLength(1);
     const change = screen.getByRole("link", { name: "パスワードを変更" });
     expect(change.getAttribute("href")).toBe("/password");
     expect(panel.contains(change)).toBe(true);
@@ -129,5 +133,57 @@ describe("#121 AC-1 AvatarMenu", () => {
     stubs.setDesktop(true);
     await waitFor(() => expect(stubs.hidePopover).toHaveBeenCalled());
     expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+});
+
+// #130 AC-2（6-1 AC-2・C-79）：アバターメニューの項目の並びは プロフィール → ステータス → パスワード変更 → ログアウト（docs/design/app-shell.md）。
+describe("#130 AC-2 AvatarMenu の項目", () => {
+  const follows = (a: Node, b: Node) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it("#130 AC-2（6-1 AC-2・C-79）: プロフィール設定（/profile）→ ステータス（5種類）→ パスワードを変更 → ログアウト の順に並ぶ", async () => {
+    const { panel } = await renderMenu();
+    const profile = within(panel).getByRole("link", {
+      name: "プロフィール設定",
+    });
+    expect(profile.getAttribute("href")).toBe("/profile");
+    const statusButtons = ["在席", "外出", "欠席", "休暇", "会議中"].map(
+      (label) => within(panel).getByRole("button", { name: new RegExp(label) }),
+    );
+    const password = within(panel).getByRole("link", {
+      name: "パスワードを変更",
+    });
+    const logout = within(panel).getByRole("button", { name: "ログアウト" });
+    const first = statusButtons[0];
+    const last = statusButtons[statusButtons.length - 1];
+    if (first === undefined || last === undefined)
+      throw new Error("ステータスのボタンがありません");
+    expect(follows(profile, first)).toBe(true);
+    expect(follows(last, password)).toBe(true);
+    expect(follows(password, logout)).toBe(true);
+  });
+
+  it("#130 AC-2（6-1 AC-2・P-7）: ヘッダーのステータスとアバターメニューは、どちらも popover=auto（同時に1つだけ開く）", async () => {
+    const { panel } = await renderMenu();
+    const banner = screen.getByRole("banner");
+    const statusTrigger = within(banner).getByRole("button", {
+      name: /ステータス/,
+    });
+    const statusPanelId = statusTrigger.getAttribute("popovertarget");
+    expect(statusPanelId).not.toBeNull();
+    expect(statusPanelId).not.toBe(panel.id);
+    const statusPanel = document.getElementById(statusPanelId ?? "");
+    expect(statusPanel?.getAttribute("popover")).toBe("auto");
+    expect(panel.getAttribute("popover")).toBe("auto");
+    // 一方を開くと、もう一方の aria-expanded は false のまま
+    fireToggle(statusPanel as HTMLElement, "open");
+    await waitFor(() =>
+      expect(statusTrigger.getAttribute("aria-expanded")).toBe("true"),
+    );
+    expect(
+      screen
+        .getByRole("button", { name: AVATAR_NAME })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
   });
 });

@@ -13,6 +13,7 @@ import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { userRoutes } from "./routes/users";
 
 // DB につなぐ処理は使わない代役（このテストは、ルートの組み立てだけを確かめる）
 const unusedDb = () => Promise.reject(new Error("DB は使いません"));
@@ -36,6 +37,7 @@ const app = createApp({
     { path: "/api/channels", app: channelRoutes() },
     // #201：メッセージの一覧・投稿。index.ts と同じパスに組み込む
     { path: "/api/rooms", app: messageRoutes() },
+    { path: "/api/users", app: userRoutes() },
   ],
 });
 

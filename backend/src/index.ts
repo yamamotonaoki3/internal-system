@@ -15,6 +15,7 @@ import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { userRoutes } from "./routes/users";
 import { authCleanupJob } from "./services/auth.service";
 import { createScheduledHandler } from "./scheduled";
 
@@ -25,6 +26,7 @@ export const app = createApp({
     { path: "/api/setup", app: setupRoutes(withSetup, withAuth) },
     { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
     { path: "/api/me", app: meRoutes(withCredentials) },
+    { path: "/api/users", app: userRoutes() },
     { path: "/api/admin/clients", app: adminClientRoutes() },
     { path: "/api/clients", app: clientRoutes() },
     { path: "/api/admin/departments", app: adminDepartmentRoutes() },

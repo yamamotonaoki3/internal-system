@@ -26,6 +26,13 @@
   --color-disabled-bg: #e3e9ec;
   --color-disabled-text: #566b7a;
 
+  /* ステータスの色（#130）。丸は図形なので、surface・bg に対して 3:1 以上。種類は文字でも出す */
+  --color-status-available: #1e7a3c;
+  --color-status-away: #a16a00;
+  --color-status-absent: #b3261e;
+  --color-status-vacation: #1f5fa8;
+  --color-status-meeting: #6b3fa0;
+
   /* 端末に入っているフォントだけを使う（外部フォントは読み込まない） */
   --font-sans:
     system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI",

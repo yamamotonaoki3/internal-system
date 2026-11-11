@@ -111,3 +111,29 @@ describe("#171 AC-3 フォーカスの輪郭", () => {
     expect(Number(offset?.[1])).toBeGreaterThanOrEqual(2);
   });
 });
+
+// #130 AC-2（6-1 AC-3・C-136）: ステータスの色（在席=緑・外出=黄・欠席=赤・休暇=青・会議中=紫）を用途名のトークンで持つ。
+// 色つきの丸は文字ではない図形なので、接する背景（ヘッダー・パネルの surface、画面の地 bg）に対して 3:1 以上（WCAG 1.4.11）。
+// 種類は文字でも出す（色だけに頼らない）ため、文字の色の基準はここでは足さない。
+const statusTokens = [
+  ["status-available", "在席"],
+  ["status-away", "外出"],
+  ["status-absent", "欠席"],
+  ["status-vacation", "休暇"],
+  ["status-meeting", "会議中"],
+] as const;
+
+describe("#130 AC-2 ステータスの色", () => {
+  it.each(statusTokens)(
+    "#130 AC-2（6-1 AC-3）: --color-%s（%s）は surface・bg に対して 3 以上",
+    (name) => {
+      expect(contrast(color(name), color("surface"))).toBeGreaterThanOrEqual(3);
+      expect(contrast(color(name), color("bg"))).toBeGreaterThanOrEqual(3);
+    },
+  );
+
+  it("#130 AC-2（6-1 AC-3）: 5種類の色はすべて異なる", () => {
+    const values = statusTokens.map(([name]) => color(name).toLowerCase());
+    expect(new Set(values).size).toBe(5);
+  });
+});

@@ -92,6 +92,13 @@
       "when": 1794254994832,
       "tag": "0012_add_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1794370238264,
+      "tag": "0013_add_user_status",
+      "breakpoints": true
     }
   ]
 }

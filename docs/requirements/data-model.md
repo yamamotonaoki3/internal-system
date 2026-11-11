@@ -189,10 +189,11 @@ erDiagram
         text extension "内線番号 任意"
         text job_title "役職 任意"
         text avatar_key "R2のキー 未設定はnull"
-        text status_kind "在席 外出 欠席 休暇 会議中 5種類"
-        text status_return_at "戻り予定 任意"
+        text status_kind "在席 外出 欠席 休暇 会議中 5種類 既定は在席 CHECK制約（Issue #130）"
+        text status_return_at "戻り予定 任意 UTCのISO 8601"
         text status_message "一言メッセージ 任意"
-        text status_updated_by FK "代理設定した人"
+        text status_updated_at "ステータスを最後に設定した日時（Issue #130）"
+        text status_updated_by FK "最後に設定した人 本人の変更なら本人 代理設定ならその操作者"
         text password_hash "現在のハッシュ 平文・過去の履歴は持たない"
         integer must_change_password "初回と再発行直後"
         integer is_active "無効化は論理削除"
@@ -234,7 +235,8 @@ erDiagram
 - 所属部署（`department_id`）は、1人に1つだけ（K-4）。有効な社員は必ず1つの部署に所属し、全体管理者も部署を持つ（C-102）。決めるのは全体管理者のみで、登録時に指定し（0-1）、変更も全体管理者のみ（0-4 AC-7）。部署のメンバーの直接削除（旧N-1）はC-37で設けない。オーナーに指名された社員（全体管理者以外）は、指名と同時に`department_id`がその部署に移る（N-2）。決定（C-44）：全体管理者の間も元の所属部署を保持し、引き継ぎ後は前任・後任とも各自の元の所属部署を保つ。具体的に`department_id`を保持するか別の形で表すかは実装設計-4で決める
 - 会社のワークスペース（旧：全社ワークスペース・全体コミュニティ）は、所属の数に数えないため、`users.department_id`には入れない。有効な社員は全員が会社のワークスペースに所属している扱いは、3.2の説明のとおり
 - ステータスは、機能0-4・6-1で、1人に1つだけなので`users`に持たせた。履歴は持たない（要件にない）。種類（`status_kind`）は、在席・外出・欠席・休暇・会議中の5種類（「会議中」を足した。決定。6-1 AC-3）。値は文字列で、種類を足してもスキーマは変わらない。社員一覧・ダイレクトメッセージの相手の選択・プロフィールカードで、部署（`departments`の名前。所属は`users.department_id`）とステータスを一緒に見せる（6-1 AC-4）が、読むだけで、新しい列・テーブルは要らない
-- 所属部署（`department_id`）・役職（`job_title`）・メールアドレス（`email`）・内線番号（`extension`）の変更は全体管理者のみが行い、再認証後に保存する（0-4 AC-7・AC-12、C-36）。所属変更はC-30の部署異動手続きで行う。監査ログには操作者・日時・対象者・変更項目を記録し、個人情報の変更前後の値は記録しない。メールアドレス変更時は確認者・日時（`email_verified_by`・`email_verified_at`）を更新する。表示名（`display_name`）は本人が変更できる（決定。0-4 AC-9）。長さ（1〜30文字）・制御文字不可・重複可はC-56・C-90で決定。表示名の変更の監査記録は未決定（#25）
+- **Issue #130で実装した形（C-165。2026-11-11）**：`users`に、`status_kind`（`TEXT NOT NULL DEFAULT 'available'`。5値の`CHECK`制約`users_status_kind_check`）・`status_return_at`・`status_message`・`status_updated_at`・`status_updated_by`（`users.id`を参照）の5列を足した（migration 0013。既存の行は在席・戻り予定なし・一言なしになる）。戻り予定は日時（UTCのISO 8601）で、在席は戻り予定を持たない。一覧の並びと絞り込みのため、索引`users_directory_idx`（`department_id`, `display_name`, `id`）と`users_display_name_idx`（`display_name`, `id`）を足した。`avatar_key`は#141で足す。詳細は[設計書 profile-status.md](../design/profile-status.md)。元の記述は残す。
+- 所属部署（`department_id`）・役職（`job_title`）・メールアドレス（`email`）・内線番号（`extension`）の変更は全体管理者のみが行い、再認証後に保存する（0-4 AC-7・AC-12、C-36）。所属変更はC-30の部署異動手続きで行う。監査ログには操作者・日時・対象者・変更項目を記録し、個人情報の変更前後の値は記録しない。メールアドレス変更時は確認者・日時（`email_verified_by`・`email_verified_at`）を更新する。表示名（`display_name`）は本人が変更できる（決定。0-4 AC-9）。長さ（1〜30文字）・制御文字不可・重複可はC-56・C-90で決定。表示名の変更の監査記録は、Issue #130で残すと決定した（C-165。`profile.display_name_change`。`detail`は空で、表示名の値は入れない）。元の記述は残す
 - 本名（`legal_name`）は、全体管理者が社員登録時に設定し、初期表示名（`display_name`）にも同じ値を設定する。本人が変更届を出し、全体管理者が承認して更新する。ログイン後の全員がプロフィールカードで見られるが、検索対象・監査ログの値・履歴スナップショットには含めない。閲覧履歴は記録しない。登録・申請・承認・更新の監査メタデータ（操作者・日時・対象者・操作内容）は記録する。本名はアカウント情報として保持し、保存時に暗号化する。【Issue #119（決定記録 C-157。2026-11-03）で方式を決定：AES-256-GCM（WebCrypto）で暗号化し、`users.legal_name`に`v1:<iv>:<暗号文>`の版つき形式で保存する。AADは`users.id`、鍵はシークレット`PII_ENCRYPTION_KEY`。鍵の紛失・ローテーションの扱いは未決定。[ADR-0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)。初代全体管理者の初回セットアップでは、本名・表示名とも1〜30文字に限る（C-154）】無効化済みアカウントの一般向けプロフィールは表示せず、管理者向けアカウント管理では必要な範囲で参照できる。バックアップ内の保持・削除反映は要調査T-05。
 - 無効化（`is_active`・`deactivated_at`）したアカウントは全体管理者が再有効化で戻せる（決定。0-1 AC-11〜AC-14）。同じ`users.id`・`login_id`のまま`is_active`を戻し、新しい行は作らない。無効化した社員はどの部署にも属さず、会社のワークスペースからも外れる（O-3、C-104）。有効な社員は所属必須。無効化済み・所属なしのアカウントは一般社員向け一覧から除き、管理者向けアカウント一覧とは分ける（C-36）。再有効化のときに`deactivated_at`を消すか履歴を持つか、`must_change_password`を立てるか、ロールの割り当て・`department_id`を戻すかは未決定（#23）。再有効化の履歴は`audit_logs`で追う
 - パスワードは現在のハッシュだけを`users.password_hash`に保持し、変更時は新しい値で置き換える。過去のハッシュを履歴として保持せず、定期削除処理も設けない（0-3 AC-11、C-34）
