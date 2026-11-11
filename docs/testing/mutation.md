@@ -27,7 +27,7 @@
 
 ## 5. 後始末
 
-作業用のフォルダ（`.stryker-tmp`）と結果（`reports/`）は Git に入らない。不要なら消す。
+作業用のフォルダ（`.stryker-tmp`）と結果（`reports/`）は Git に入らない。不要なら消す。途中で止まった実行が残す `.stryker-tmp/sandbox-*` は gitignore 済みで、eslint の対象からも外している。手動で削除してよい。
 
 ## 6. よくある失敗と対処
 
@@ -35,5 +35,6 @@
 | --- | --- |
 | 時間がかかりすぎる | `stryker.config.json` の対象を、変えたファイルに絞る |
 | 初期のテスト実行（dry run）が5分を超えてタイムアウトする（対象が大きいとき。全体実行で4分38秒の実績） | `npm run mutation -- --dryRunTimeoutMinutes 40` のように上限を延ばす。恒久的に延ばす場合は `stryker.config.json` の `dryRunTimeoutMinutes` を使う |
-| 開発中に範囲を絞りたい | ADR0020の範囲（変更した重要処理と参照元）に、上の方法で絞る。絞った設定はコミットせず、元の対象に戻す。`--mutate`・`--incremental` は未検証のため、検証が済むまで使わない。絞った結果を全体の合格として扱わない |
+| 開発中に範囲を絞りたい | ADR0020の範囲（変更した重要処理と参照元）に、上の方法で絞る。絞った設定はコミットせず、元の対象に戻す。`--mutate` は検証済みで、絞った実行に使う（[ADR0020](../adr/0020-test-scope-mutation-e2e.md)の「`--mutate` の検証結果（2026-11-11）」）。`--incremental` は未検証のため、検証が済むまで使わない。絞った結果を全体の合格として扱わない |
+| 絞った実行（ADR0020）のコマンド | `npx stryker run --mutate "<ファイル>" --reporters clear-text,json --dryRunTimeoutMinutes 40` を直接使う（`json` は生存した変異体の一覧をレビュー用に作るため。既定は clear-text,html。`scripts/run-local.ts` は stryker を起動できない） |
 | 振る舞いのテストで殺せない変異体（同値変異体）が残り、ファイル別80%に届かない | 本番コードをスコアのために変えない。Strykerの除外設定も足さない。同値であることをコードの根拠つきで証明し、ADRに例外として記録して利用者の承認を得る（[ADR-0023](../adr/0023-mutation-equivalent-mutants-exception.md)） |

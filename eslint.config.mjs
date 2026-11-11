@@ -14,6 +14,8 @@ export default tseslint.config(
       "dist",
       ".wrangler",
       "**/.wrangler",
+      ".stryker-tmp",
+      "**/.stryker-tmp",
       "worker-configuration.d.ts",
       "prototype",
     ],
