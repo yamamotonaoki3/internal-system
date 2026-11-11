@@ -57,6 +57,12 @@
     "backend/src/db/profile.repository.ts",
     "backend/src/routes/users.ts",
     "frontend/src/features/profile/schemas/profile-form.ts",
+    "shared/notification-kinds.ts",
+    "backend/src/db/notification.repository.ts",
+    "backend/src/routes/notifications.ts",
+    "frontend/src/features/notifications/api/*.ts",
+    "frontend/src/features/notifications/hooks/*.ts",
+    "frontend/src/features/notifications/notification-views.ts",
     "!**/*.test.ts"
   ],
   "reporters": ["clear-text", "html"],

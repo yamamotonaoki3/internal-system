@@ -13,6 +13,7 @@ import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
+import { notificationRoutes } from "./routes/notifications";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { userRoutes } from "./routes/users";
@@ -25,6 +26,7 @@ export const app = createApp({
     { path: "/api/sample-users", app: sampleUserRoutes(withSampleUsers) },
     { path: "/api/setup", app: setupRoutes(withSetup, withAuth) },
     { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
+    { path: "/api/me/notifications", app: notificationRoutes() },
     { path: "/api/me", app: meRoutes(withCredentials) },
     { path: "/api/users", app: userRoutes() },
     { path: "/api/admin/clients", app: adminClientRoutes() },

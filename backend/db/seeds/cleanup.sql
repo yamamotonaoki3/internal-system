@@ -10,6 +10,8 @@ SELECT COUNT(*) AS remaining FROM sample_users WHERE username LIKE 'testuser!_%'
 DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 -- login_attempts は識別子（社員ID・IP）を持たない HMAC のキーのため、ここでは消せない。テスト用DBの作り直し（npm run db:reset:test）で消える。
 DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
+-- 通知（#124）。user_id の外部キーのため、利用者より先に消す。宛先がテストの利用者のものを消す。
+DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 -- メッセージ（#201）。外部キーの順：メッセージ → 参加者 → チャンネル → ルーム。投稿者がテストの利用者、またはテストの部署のチャンネルの部屋のものを消す。
 DELETE FROM messages WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!'));
 -- 部署のチャンネルと参加者（#196）。外部キーの順：参加者 → チャンネル → ルーム。ルームは、チャンネルの行を持たなくなった kind='channel' のものだけを消す。

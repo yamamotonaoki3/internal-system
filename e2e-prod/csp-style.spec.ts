@@ -230,6 +230,15 @@ async function mockLoggedIn(page: Page): Promise<void> {
       body: JSON.stringify({ items: [], nextCursor: null }),
     }),
   );
+  // #124：ヘッダーの通知が呼ぶ未読数（0 件）。frontend/src/test/server.ts の既定の応答と同じ形
+  await page.route("**/api/me/notifications/unread-count", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ count: 0 }),
+    }),
+  );
   // #130：ヘッダーのステータスボタンが呼ぶ自分のプロフィール。在席の架空の値を返す（frontend/src/test/server.ts の既定の応答と同じ形）
   await page.route("**/api/me/profile", (route) =>
     route.fulfill({

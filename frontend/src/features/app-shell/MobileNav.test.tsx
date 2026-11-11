@@ -1,4 +1,4 @@
-// #121 AC-1：MobileNav（下部メニュー。md未満で表示）。今はホームと「自分」だけ。「自分」は、アバターメニューを開く。
+// #121 AC-1：MobileNav（下部メニュー。md未満で表示）。今はホーム・「通知」（#124）・「自分」だけ。「自分」は、アバターメニューを開く。
 // 公開形の仮定：nav の名前は「下部メニュー」。ホームは link（aria-current）、「自分」は button（popovertarget でアバターメニュー本体を指す）。
 // jsdom はメディアクエリを適用しないため、md以上でも DOM にある。表示の切り替えは E2E（e2e/app-shell.spec.ts）で確かめる。
 import { screen, within } from "@testing-library/react";
@@ -19,17 +19,26 @@ afterEach(() => {
 });
 
 describe("#121 AC-1 MobileNav", () => {
-  it("#121 AC-1: 下部メニューには、ホームのリンクと「自分」のボタンだけがある（動かない仮項目を置かない）", async () => {
+  it("#121 AC-1・#124 AC-1: 下部メニューには、ホーム・通知のリンクと「自分」のボタンだけがある（動かない仮項目を置かない）", async () => {
     respondShellUser();
     renderApp("/");
     const nav = within(
       await screen.findByRole("navigation", { name: "下部メニュー" }),
     );
-    expect(nav.getAllByRole("link")).toHaveLength(1);
+    // #124：ホーム → 通知 → 「自分」の順。通知は S-14（/notifications）へのリンク
+    const links = nav.getAllByRole("link");
+    expect(links).toHaveLength(2);
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      "ホーム",
+      "通知",
+    ]);
     expect(nav.getAllByRole("button")).toHaveLength(1);
     const home = nav.getByRole("link", { name: "ホーム" });
     expect(home.getAttribute("href")).toBe("/");
     expect(home.getAttribute("aria-current")).toBe("page");
+    const notifications = nav.getByRole("link", { name: "通知" });
+    expect(notifications.getAttribute("href")).toBe("/notifications");
+    expect(notifications.getAttribute("aria-current")).toBeNull();
   });
 
   it("#121 AC-1: 「自分」は最後の項目で、アバターメニューの本体（popover）を指す", async () => {

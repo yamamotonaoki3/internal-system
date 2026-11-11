@@ -1678,6 +1678,169 @@
         }
       }
     },
+    "/api/me/notifications": {
+      "get": {
+        "operationId": "listMyNotifications",
+        "summary": "自分宛ての通知を新しい順に取得する",
+        "description": "ログイン済みの本人宛てだけ（他人宛てを取る手段はない）。作成日時・ID の降順。nextCursor で古い側へ続く。既読の通知も消えずに残る。通知の行に本名・本文は含まない（種類と対象の ID だけ。文言は画面で組み立てる）。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "通知の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/me/notifications/unread-count": {
+      "get": {
+        "operationId": "getMyUnreadNotificationCount",
+        "summary": "自分宛ての未読の通知の数を取得する",
+        "description": "100 件で打ち切る（画面は 99 を超えたら「99+」と表示する）。ヘッダーが 2 秒ごとに取る。",
+        "responses": {
+          "200": {
+            "description": "未読数（最大 100）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationUnreadCount"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          }
+        }
+      }
+    },
+    "/api/me/notifications/read-all": {
+      "post": {
+        "operationId": "markAllMyNotificationsRead",
+        "summary": "自分宛ての未読の通知をすべて既読にする",
+        "description": "本人宛ての未読だけを既読にする。既読の通知の read_at は変えない。未読がなくても 204。",
+        "responses": {
+          "204": {
+            "description": "既読にした（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/api/me/notifications/{notificationId}/read": {
+      "post": {
+        "operationId": "markMyNotificationRead",
+        "summary": "自分宛ての通知を 1 件既読にする",
+        "description": "既読済みも 204 で、read_at は最初の時刻のまま。存在しない・他人宛て・ULID でない ID は区別せず 404（存在を漏らさない）。",
+        "parameters": [
+          {
+            "name": "notificationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "既読にした（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "404": {
+            "description": "通知が見つからない（存在しない・他人宛て）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "operationId": "changeMyPassword",
@@ -2307,6 +2470,92 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        }
+      }
+    },
+    "NotificationItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "roomId",
+        "messageId",
+        "targetId",
+        "createdAt",
+        "readAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "description": "通知の種類（shared/notification-kinds.ts の定義元）"
+        },
+        "roomId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "messageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "種類で参照先が決まる ID（申請・依頼・案件など）"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "readAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "NotificationPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/NotificationItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "NotificationUnreadCount": {
+      "type": "object",
+      "required": [
+        "count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
         }
       }
     },

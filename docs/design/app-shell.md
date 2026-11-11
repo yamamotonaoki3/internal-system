@@ -29,7 +29,8 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | 自分専用の整理スペース | 作らない | #144 |
 | アーカイブの項目（全体管理者・担当部署のオーナーだけ） | 作らない | #151 または #143（どちらが担当かは未確定） |
 | ヘッダーの検索 | 作らない | #155 |
-| ヘッダーの通知 | 作らない | #124 |
+| ヘッダーの通知 | 作らない（#121の時点）。**Issue #124で作った**（`NotificationBell`。押すとS-14へ直接移る。[notifications.md](notifications.md)） | — |
+| 下部メニューの「通知」 | 作らない（#121の時点）。**Issue #124で作った**（ホーム → 通知 → 自分） | — |
 | ヘッダーのステータスボタン | 作らない（#121の時点）。**Issue #130で作った**（`StatusButton`。[profile-status.md](profile-status.md)） | — |
 | 社員一覧（S-20）のナビ | **Issue #130で、`primaryNavItems`に「社員一覧」（`/members`）を足した** | — |
 | 他部署の拠点ラベルの印 | 作らない | 担当 Issue なし（C-119 の細部が未決定） |
@@ -45,14 +46,14 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | ファイル | 役割 |
 | --- | --- |
 | `AppShell.tsx` | レイアウトルートの要素。スキップリンク・`Header`・`Sidebar`・`<main id="main-content" tabIndex={-1}>`（`<Outlet />`）・`MobileNav`・`Drawer`を並べ、`AvatarMenuProvider`で包む。ドロワーの開閉は`useState`で持つ。`body`の左右の余白（ログイン前の画面用）を打ち消して画面いっぱいに広げる |
-| `Header.tsx` | `<header>`。左にメニューボタン（768px未満だけ）とロゴ、右にステータスのボタン（`StatusButton`。全幅で出す。読み込み中・エラーでも灰色の丸と読み上げ名を出す。Issue #130）とアバターのボタン（768px以上だけ） |
+| `Header.tsx` | `<header>`。左にメニューボタン（768px未満だけ）とロゴ、右に通知（`NotificationBell`。未読の件数の印つきのリンクで、S-14へ直接移る。`StatusButton`の前。Issue #124）とステータスのボタン（`StatusButton`。全幅で出す。読み込み中・エラーでも灰色の丸と読み上げ名を出す。Issue #130）とアバターのボタン（768px以上だけ） |
 | `Sidebar.tsx` | `<nav aria-label="メインメニュー">`。768px以上だけ表示。中身は`SidebarNav` |
 | `SidebarNav.tsx` | サイドバーとドロワーが共用するメニューの中身。参加中のチャンネルのセクション（`JoinedChannelsSection`。Issue #200）、`primaryNavItems`のリンク、下部の`AdminMenu` |
 | `AdminMenu.tsx` | 管理メニュー。`visibleAdminGroups`の結果が0件なら何も描画しない。まとまりごとの開閉は`<details>`と`<summary>` |
-| `MobileNav.tsx` | `<nav aria-label="下部メニュー">`。768px未満だけ表示。今は「ホーム」のリンクと「自分」（アバターメニューを開くボタン） |
+| `MobileNav.tsx` | `<nav aria-label="下部メニュー">`。768px未満だけ表示。今は「ホーム」「通知」（Issue #124。`/notifications`へのリンク）のリンクと「自分」（アバターメニューを開くボタン） |
 | `Drawer.tsx` | スマホのメニュー。ネイティブ`<dialog>`を`showModal()`で開く。中身は`SidebarNav` |
 | `AvatarMenu.tsx` | `AvatarMenuProvider`（popover本体と開閉状態）と`AvatarMenuTrigger`（開くボタン。`variant`が`avatar`ならヘッダー用、`self`なら下部メニューの「自分」）。中身は、`/profile`へのリンク「プロフィール設定」、`StatusPicker`（ステータスの切り替え）、`/password`へのリンク、`LogoutButton`の順（Issue #130。`StatusPicker`は`features/profile/index.ts`から使う） |
-| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`primaryNavItems`（ホーム・「チャンネルを探す」（Issue #200）・「社員一覧」（Issue #130））・`adminNavGroups`、純粋関数`visibleAdminGroups` |
+| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`notificationsNavItem`（通知。サイドバーには置かず、ヘッダーのベルと下部メニューが使う。Issue #124）・`primaryNavItems`（ホーム・「チャンネルを探す」（Issue #200）・「社員一覧」（Issue #130））・`adminNavGroups`、純粋関数`visibleAdminGroups` |
 | `nav-link-classes.ts` | リンクの見た目のクラスの固定の表`NAV_LINK_CLASSES`（現在のページは色だけでなく太字でも示す） |
 | `main-content.ts` | `MAIN_CONTENT_ID`（本文のid）・`DESKTOP_QUERY`（768px以上のメディアクエリ）・`focusMainContent`（幅の変更でメニューを閉じたときのフォーカスの移し先） |
 
@@ -97,8 +98,8 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 ### ヘッダー右の部品
 
-- `Header.tsx`の右側に、**検索 → 通知 → ステータス → アバター**の順で、1行ずつ足す（今はステータス（Issue #130）とアバター。検索・通知は未実装）。ステータスは`StatusButton`で、popoverで5種類と戻り予定を選ぶ（`StatusPicker`のヒント文：入力してから種類を押すと一緒に送る／同じ種類をもう一度押すと戻り予定だけ変える／在席を選ぶと消える）。アバターメニューと同じ`popover="auto"`なので、同時に開くのは1つだけ
-- スマホ幅での扱い：検索・通知はアイコン、ステータスは色つきの丸だけ。アバターはヘッダーに出さず、下部メニューの「自分」から開く（今の作りと同じ）
+- `Header.tsx`の右側に、**検索 → 通知 → ステータス → アバター**の順で、1行ずつ足す（今は通知（Issue #124）・ステータス（Issue #130）・アバター。検索は未実装）。通知は`NotificationBell`で、`features/notifications/index.ts`を通して使う。ステータスは`StatusButton`で、popoverで5種類と戻り予定を選ぶ（`StatusPicker`のヒント文：入力してから種類を押すと一緒に送る／同じ種類をもう一度押すと戻り予定だけ変える／在席を選ぶと消える）。アバターメニューと同じ`popover="auto"`なので、同時に開くのは1つだけ
+- スマホ幅での扱い：検索・通知はアイコン（通知は今は文字のまま。アイコン化は後続）、ステータスは色つきの丸だけ。アバターはヘッダーに出さず、下部メニューの「自分」から開く（今の作りと同じ）
 
 ### アバターメニューの項目
 
@@ -107,7 +108,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 ### 下部メニュー
 
-- `MobileNav.tsx`に、**ホーム → DM → 案件 → 通知**の順で足す。「自分」は常に最後に固定する
+- `MobileNav.tsx`に、**ホーム → DM → 案件 → 通知**の順で足す（通知はIssue #124で追加済み。今は「ホーム」「通知」「自分」）。「自分」は常に最後に固定する
 
 ## 管理メニューの仕組みと権限の扱い
 

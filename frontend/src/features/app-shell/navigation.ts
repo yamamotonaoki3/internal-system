@@ -20,6 +20,13 @@ export type AdminNavGroup = {
 
 export const homeNavItem: NavItem = { id: "home", label: "ホーム", to: "/" };
 
+// 通知（S-14）。サイドバーには置かず、ヘッダーのベル（パソコン幅）と下部メニュー（スマホ幅）から開く
+export const notificationsNavItem: NavItem = {
+  id: "notifications",
+  label: "通知",
+  to: "/notifications",
+};
+
 export const primaryNavItems: NavItem[] = [
   homeNavItem,
   { id: "channels", label: "チャンネルを探す", to: "/channels" },

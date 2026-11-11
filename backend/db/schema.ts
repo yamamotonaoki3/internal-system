@@ -375,3 +375,32 @@ export const messages = sqliteTable(
     index("messages_room_id_id_idx").on(t.roomId, t.id),
   ],
 );
+
+// 通知（#124）。文言は持たず、種類と対象の ID だけを保存する（文言・移動先は画面で組み立てる。本名・本文を行に入れない）。
+// kind に CHECK は付けない（種類を足すたびに表の作り直しが要るため。値は shared/notification-kinds.ts で守る）。
+// room_id・message_id・target_id は外部キーにしない（直接削除・物理削除の通知が、消えた対象を指しうるため）。
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    kind: text("kind").notNull(),
+    roomId: text("room_id"),
+    messageId: text("message_id"),
+    targetId: text("target_id"),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    readAt: text("read_at"),
+  },
+  (t) => [
+    index("notifications_user_id_created_at_id_idx").on(
+      t.userId,
+      t.createdAt,
+      t.id,
+    ),
+    index("notifications_user_id_unread_idx")
+      .on(t.userId)
+      .where(sql`${t.readAt} is null`),
+  ],
+);
