@@ -13,7 +13,17 @@ import {
   type MessageFormValues,
 } from "../schemas/message-form";
 
-export function MessageComposer({ roomId }: { roomId: string }) {
+type MessageComposerProps = {
+  roomId: string;
+  onPosted?: () => void;
+  onPostError?: (error: unknown) => void;
+};
+
+export function MessageComposer({
+  roomId,
+  onPosted,
+  onPostError,
+}: MessageComposerProps) {
   const post = usePostMessage(roomId);
   const {
     register,
@@ -29,14 +39,18 @@ export function MessageComposer({ roomId }: { roomId: string }) {
   const onSubmit = async (values: MessageFormValues) => {
     try {
       await post.mutateAsync(values.body);
-      reset();
     } catch (e) {
+      onPostError?.(e);
       if (!isApiError(e)) throw e;
       // サーバーが返した fields に body があれば入力欄のエラーに、それ以外は上に出す
       if (e.status === 422 && (e.fields ?? []).includes("body"))
         setError("body", { message: e.message });
       else setError("root.server", { message: describeError(e) });
+      return;
     }
+    reset();
+    // 呼び出し側の後始末（一覧の取り直しなど）の失敗は、送信の失敗として表示しない。その場では受け止めず、外へ伝える（利用者の決定）
+    onPosted?.();
   };
 
   const submitByShortcut = (event: KeyboardEvent<HTMLTextAreaElement>) => {

@@ -1,6 +1,8 @@
 // チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
+import { useSession } from "../../auth";
+import { StartDmButton } from "../../dms";
 import { RoomMessages } from "../../messages";
 import { describeError, isApiError } from "../describe-error";
 import { useChannelDetail } from "../hooks/useChannelDetail";
@@ -9,6 +11,8 @@ import { useJoinChannel } from "../hooks/useJoinChannel";
 export function ChannelDetailView({ channelId }: { channelId: string }) {
   const channel = useChannelDetail(channelId);
   const join = useJoinChannel();
+  const session = useSession();
+  const selfId = session.data?.user.id;
 
   if (channel.isPending) return <p role="status">読み込み中です</p>;
   if (channel.isError) {
@@ -59,7 +63,15 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
           <h2 className="mb-2 font-bold">参加者（{data.memberCount}人）</h2>
           <ul>
             {data.members?.map((member) => (
-              <li key={member.id}>{member.displayName}</li>
+              <li key={member.id}>
+                {member.displayName}
+                {selfId !== undefined && member.id !== selfId && (
+                  <StartDmButton
+                    partnerUserId={member.id}
+                    partnerDisplayName={member.displayName}
+                  />
+                )}
+              </li>
             ))}
           </ul>
         </div>

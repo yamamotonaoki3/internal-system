@@ -12,6 +12,7 @@ import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
+import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
@@ -37,6 +38,7 @@ export const app = createApp({
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/channels", app: channelRoutes() },
+    { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
   ],
 });

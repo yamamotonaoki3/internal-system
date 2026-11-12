@@ -1,8 +1,9 @@
 // Repository：メッセージの一覧と投稿（#201）。DB へのアクセスはこの層に閉じ込める。
 // 投稿は条件付きの INSERT 1文。「部屋の中では、コミットの順に ID が必ず増える」を DB で保証する（D1 は書き込みを直列に実行する）。
 // ID が部屋の最大以下だと挿入されない（0 行）。取りこぼし防止の理由は docs/design/messages.md。
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { messages } from "../../db/schema";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import { conversationMembers, messages, users } from "../../db/schema";
 import { afterCursor, afterId, toAfterIdPage, toPage } from "../lib/cursor";
 import type { CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
@@ -62,9 +63,37 @@ function cursorFor(row: { id: string }): CursorPayload {
 
 export function createMessageRepository(db: Database) {
   const channels = createChannelRepository(db);
+  const partnerMember = alias(conversationMembers, "partner_member");
   return {
     // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）
     findRoomForViewer: channels.findForViewer,
+    /** 自分が当事者の DM なら、相手が有効かを返す（当事者でない・DM でない部屋は null） */
+    async findDirectForParticipant(
+      roomId: string,
+      userId: string,
+    ): Promise<{ partnerIsActive: boolean } | null> {
+      const rows = await db
+        .select({ partnerIsActive: users.isActive })
+        .from(conversationMembers)
+        .innerJoin(
+          partnerMember,
+          and(
+            eq(
+              partnerMember.conversationId,
+              conversationMembers.conversationId,
+            ),
+            ne(partnerMember.userId, userId),
+          ),
+        )
+        .innerJoin(users, eq(users.id, partnerMember.userId))
+        .where(
+          and(
+            eq(conversationMembers.conversationId, roomId),
+            eq(conversationMembers.userId, userId),
+          ),
+        );
+      return rows[0] ?? null;
+    },
     async findDisplayName(userId: string): Promise<string | null> {
       const row = await db.query.users.findFirst({
         columns: { displayName: true },
@@ -119,6 +148,7 @@ export function createMessageRepository(db: Database) {
      * 次のすべてを満たすときだけ1行を挿入し、挿入した行数（1 か 0）を返す。確認から書き込みまでに状態が変わっても条件を破る行を残さない。
      * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も参加者
      * ④ お知らせ専用なら、投稿者がそのチャンネルの部署のオーナーか全体管理者
+     * ①のほかは、チャンネルなら②〜④、DM なら「投稿者が当事者で、当事者に無効な社員がいない」（DM の権限 perm.dm.message.send は固定ロールがすべて持つため、ここには入れず Service が確かめる）
      * ※ ④の役割は perm.announcement.post を持つ役割（lib/permissions.ts）と一致させる必要がある。一致は services/message.postable-permission.test.ts が固定している
      */
     async insertIfOrdered(input: MessageInsert): Promise<number> {
@@ -129,11 +159,14 @@ export function createMessageRepository(db: Database) {
           AND (c.purpose <> 'announcement'
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.owner} AND a.department_id = c.department_id)
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.globalAdmin})))`;
+      const directPostable = sql`(
+        EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
+        AND NOT EXISTS (SELECT 1 FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ${input.roomId} AND u.is_active = 0))`;
       const result = await db.insert(messages).select(sql`
         SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body},
           ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`}
         WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
-          AND ${postable}`);
+          AND (${postable} OR ${directPostable})`);
       return result.meta.changes;
     },
   };

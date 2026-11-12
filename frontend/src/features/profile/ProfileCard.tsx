@@ -1,7 +1,7 @@
 // プロフィールカード S-27。表示名のボタン（ProfileCardTrigger）を押すと、ネイティブ popover でカードを開く。
 // 本名はこのカードと自分のプロフィールだけに出す。カードの内容は開いたときに取り、閉じたら起動ボタンにフォーカスを戻す（ブラウザの既定だけに頼らない）。
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState, type ToggleEvent } from "react";
+import { useRef, useState, type ReactNode, type ToggleEvent } from "react";
 import { Alert } from "../../components/Alert";
 import { Button } from "../../components/Button";
 import { getProfileCard } from "./api/profile-api";
@@ -48,9 +48,12 @@ function ProfileCardBody({ userId }: { userId: string }) {
 export function ProfileCardTrigger({
   userId,
   displayName,
+  actions,
 }: {
   userId: string;
   displayName: string;
+  /** カードの中に足す操作（社員一覧の「DMを送る」等。呼び出し側から差し込む） */
+  actions?: ReactNode;
 }) {
   const panelId = `profile-card-${userId}`;
   const [open, setOpen] = useState(false);
@@ -79,7 +82,12 @@ export function ProfileCardTrigger({
         onToggle={handleToggle}
         className="inset-auto left-2 top-24 w-80 max-w-full rounded-md border border-border bg-surface p-4 text-text shadow-float"
       >
-        {open && <ProfileCardBody userId={userId} />}
+        {open && (
+          <>
+            <ProfileCardBody userId={userId} />
+            {actions}
+          </>
+        )}
         <Button
           variant="secondary"
           popoverTarget={panelId}

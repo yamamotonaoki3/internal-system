@@ -1558,7 +1558,7 @@
       "get": {
         "operationId": "listMessages",
         "summary": "チャンネルのメッセージを取得する",
-        "description": "ログイン済みの有効な社員。公開チャンネルは参加していなくても読める。参加していない非公開・アーカイブ済み・存在しない部屋（DMの部屋を含む）は、区別せず 404。after なしは新しい順（nextCursor で古い側へ）。after ありは、そのIDより後を ID 昇順で返す（after は含まない。hasMore が真なら続きがある）。after と cursor は同時に指定できない。",
+        "description": "ログイン済みの有効な社員。公開チャンネルは参加していなくても読める。参加していない非公開・アーカイブ済み・存在しない部屋（DMの部屋を含む）は、区別せず 404。after なしは新しい順（nextCursor で古い側へ）。after ありは、そのIDより後を ID 昇順で返す（after は含まない。hasMore が真なら続きがある）。after と cursor は同時に指定できない。DM の部屋は、当事者だけが読める（perm.dm.message.view。当事者でなければ 404、権限がなければ 403）。相手が無効になっていても、履歴は読める（200）。",
         "parameters": [
           {
             "name": "roomId",
@@ -1620,8 +1620,18 @@
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
           },
+          "403": {
+            "description": "DM の権限がない（FORBIDDEN。当事者に限る）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・チャンネルでない）",
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）",
             "content": {
               "application/json": {
                 "schema": {
@@ -1637,8 +1647,8 @@
       },
       "post": {
         "operationId": "postMessage",
-        "summary": "チャンネルにメッセージを投稿する",
-        "description": "チャンネルの参加者だけが投稿できる。お知らせ専用は、参加者のうち、その部署のオーナーと全体管理者だけ。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。",
+        "summary": "チャンネルまたは DM にメッセージを投稿する",
+        "description": "チャンネルの参加者だけが投稿できる。お知らせ専用は、参加者のうち、その部署のオーナーと全体管理者だけ。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。DM の部屋は、当事者だけが投稿できる（当事者でなければ 404、perm.dm.message.send がなければ 403）。相手のアカウントが無効なら 409（CONFLICT）で、行は増えない。",
         "parameters": [
           {
             "name": "roomId",
@@ -1676,7 +1686,7 @@
             "$ref": "#/components/responses/Unauthenticated"
           },
           "403": {
-            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または投稿できない（FORBIDDEN。未参加の公開チャンネル・お知らせ専用で権限がない）",
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または投稿できない（FORBIDDEN。未参加の公開チャンネル・お知らせ専用で権限がない・DM の権限がない）",
             "content": {
               "application/json": {
                 "schema": {
@@ -1686,7 +1696,17 @@
             }
           },
           "404": {
-            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・チャンネルでない）",
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）",
             "content": {
               "application/json": {
                 "schema": {
@@ -1707,6 +1727,195 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/dms": {
+      "post": {
+        "operationId": "startDm",
+        "summary": "DM を始める（あれば既存の DM を返す）",
+        "description": "ログイン済みの有効な社員（perm.dm.message.send）。相手の社員IDだけを受け取り、当事者は常にセッションの利用者と相手の2人。同じ2人の DM がすでにあれば、新規でなくてもその部屋を返す（どちらも 200。同時に開始しても DM は1つ）。判定の順：形式の誤り 422 → 権限 403 → 自分宛て 422（fields: partnerUserId）→ 相手がいない 404 → 相手が無効 422。メッセージのない DM もこの時点で作る。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DmStart"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DM の部屋と相手。 Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DmStarted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "相手の社員が存在しない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listDms",
+        "summary": "自分の DM を一覧取得する",
+        "description": "ログイン済みの有効な社員（perm.dm.message.view）。自分が当事者の DM だけを、最終活動（最後のメッセージ。なければ作成）の新しい順のカーソル方式で返す。他人の DM は、全体管理者・オーナーにも出ない。相手が無効でも一覧には残り、isActive が偽・status が null になる。limit は 1〜100（既定 20）。余分なクエリは 422。ページをまたいで、最終活動が変わった DM の重複・読み飛ばしがありうる。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次ページのカーソル"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DM の一覧。 Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DmListPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/dms/{roomId}": {
+      "get": {
+        "operationId": "getDm",
+        "summary": "DM の詳細（相手と投稿できるか）を取得する",
+        "description": "当事者だけが読める（perm.dm.message.view）。当事者でない・存在しない・チャンネルの部屋は、全体管理者・オーナーを含めて区別せず 404。判定の順：roomId の形式（ULID でなければ 422。fields: roomId）→ 当事者か（404）→ 権限（403）。相手が無効なら 200 で isActive が偽・status が null・canPost が偽。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DM の詳細。 Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DmDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "当事者でない・存在しない・チャンネルの部屋",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
           }
         }
       }
@@ -2433,7 +2642,7 @@
       "get": {
         "operationId": "listUsers",
         "summary": "社員を一覧取得する",
-        "description": "ログイン後の全員が閲覧できる。有効かつ所属ありの社員だけを、表示名・IDの昇順のカーソル方式で返す。本名は含めない。",
+        "description": "ログイン後の全員が閲覧できる。有効かつ所属ありの社員だけを、表示名・IDの昇順のカーソル方式で返す。本名は含めない。q を指定すると、表示名の部分一致（英字は大文字・小文字を区別しない）で絞り込む。本名・メール・内線は検索の対象にしない。q は前後の空白を除いて1〜100文字（空・空白だけ・101文字以上は 422。fields: q）で、部署・カーソルと組み合わせられる。",
         "parameters": [
           {
             "name": "departmentId",
@@ -2442,6 +2651,16 @@
               "type": "string"
             },
             "description": "部署で絞り込む"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "表示名の部分一致。前後の空白を除いて1〜100文字。`%`・`_`・`\\` も文字として扱う"
           },
           {
             "name": "cursor",
@@ -3384,6 +3603,212 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        }
+      }
+    },
+    "DmPartnerRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "DmStarted": {
+      "type": "object",
+      "required": [
+        "roomId",
+        "partner"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "partner": {
+          "$ref": "#/components/schemas/DmPartnerRef"
+        }
+      }
+    },
+    "DmStart": {
+      "type": "object",
+      "required": [
+        "partnerUserId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "partnerUserId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "DM の相手の社員ID。自分自身は指定できない（当事者は常にセッションの利用者と相手の2人）"
+        }
+      }
+    },
+    "DmListItem": {
+      "type": "object",
+      "required": [
+        "roomId",
+        "partner",
+        "lastMessageAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "partner": {
+          "type": "object",
+          "required": [
+            "id",
+            "displayName",
+            "isActive",
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "isActive": {
+              "type": "boolean"
+            },
+            "status": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "returnAt"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "$ref": "#/components/schemas/UserStatusKind"
+                    },
+                    "returnAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "相手のステータス（一言は含めない）。相手が無効なら null"
+            }
+          }
+        },
+        "lastMessageAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "最後のメッセージの日時。メッセージがなければ null"
+        }
+      }
+    },
+    "DmListPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/DmListItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DmDetail": {
+      "type": "object",
+      "required": [
+        "roomId",
+        "partner",
+        "canPost"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "partner": {
+          "type": "object",
+          "required": [
+            "id",
+            "displayName",
+            "department",
+            "isActive",
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "department": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ProfileDepartment"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "isActive": {
+              "type": "boolean"
+            },
+            "status": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/UserStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "相手のステータス。相手が無効なら null"
+            }
+          }
+        },
+        "canPost": {
+          "type": "boolean",
+          "description": "投稿できるか。相手が有効なときだけ真"
         }
       }
     },

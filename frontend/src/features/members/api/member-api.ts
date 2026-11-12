@@ -28,10 +28,16 @@ export type DepartmentRef = z.infer<typeof departmentRefSchema>;
 
 export async function fetchMembers(
   departmentId: string,
+  q: string,
   cursor?: string,
 ): Promise<MemberPage> {
   const response = await apiClient.get("/users", {
-    params: { cursor, departmentId: departmentId || undefined },
+    // 空の絞り込みは送らない（q は空だとサーバーが 422 にする）
+    params: {
+      cursor,
+      departmentId: departmentId || undefined,
+      q: q || undefined,
+    },
   });
   return memberPageSchema.parse(response.data);
 }

@@ -230,6 +230,16 @@ async function mockLoggedIn(page: Page): Promise<void> {
       body: JSON.stringify({ items: [], nextCursor: null }),
     }),
   );
+  // #136：サイドバーの DM の欄が呼ぶ DM の一覧。空の一覧を返す（frontend/src/features/dms/api/dm-api.ts の応答の形：items と nextCursor）。
+  // ログイン後の画面では一覧だけを呼ぶため、DM の詳細（/api/dms/:roomId）には当てない
+  await page.route(/\/api\/dms(\?.*)?$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ items: [], nextCursor: null }),
+    }),
+  );
   // #124：ヘッダーの通知が呼ぶ未読数（0 件）。frontend/src/test/server.ts の既定の応答と同じ形
   await page.route("**/api/me/notifications/unread-count", (route) =>
     route.fulfill({

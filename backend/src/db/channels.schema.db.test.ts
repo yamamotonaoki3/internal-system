@@ -165,12 +165,40 @@ describe("#196 channels の制約（D1）", () => {
     ).rejects.toThrow(/UNIQUE/i);
   });
 
-  it("#196 AC-5: rooms の kind は channel・conversation だけ", async () => {
-    await expect(
-      env.DB.prepare(
-        "INSERT INTO rooms (id, kind, created_at) VALUES ('01JUNITROOMKIND00000000000', 'other', '2026-11-09T00:00:00.000Z')",
-      ).run(),
-    ).rejects.toThrow();
+  // #136 C-168(1)：DM の部屋の種類は 'conversation' から 'direct' に変わった（migration 0016）。決めていない値を拒否する性質は変えない
+  it.each(["other", "conversation"])(
+    "#196 AC-5・#136 C-168(1): rooms の kind は channel・direct だけで、'%s' は拒否する",
+    async (kind) => {
+      const id = "01JUNITROOMKIND00000000000";
+      await expect(
+        env.DB.prepare(
+          "INSERT INTO rooms (id, kind, created_at) VALUES (?, ?, '2026-11-09T00:00:00.000Z')",
+        )
+          .bind(id, kind)
+          .run(),
+      ).rejects.toThrow(/CHECK/i);
+      const row = await env.DB.prepare("SELECT id FROM rooms WHERE id = ?")
+        .bind(id)
+        .first();
+      expect(row).toBeNull();
+    },
+  );
+
+  it("#136 C-168(1): rooms の kind に 'direct' は保存できる", async () => {
+    const id = "01JUNITROOMKINDDIRECT0000";
+    try {
+      await env.DB.prepare(
+        "INSERT INTO rooms (id, kind, created_at) VALUES (?, 'direct', '2026-11-09T00:00:00.000Z')",
+      )
+        .bind(id)
+        .run();
+      const row = await env.DB.prepare("SELECT kind FROM rooms WHERE id = ?")
+        .bind(id)
+        .first<{ kind: string }>();
+      expect(row?.kind).toBe("direct");
+    } finally {
+      await env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(id).run();
+    }
   });
 
   it("#196 AC-3: channel_members は同じ人を同じチャンネルに2回入れられず、存在しないチャンネル・社員は外部キーで拒否する", async () => {

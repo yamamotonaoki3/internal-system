@@ -9,8 +9,8 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | 自分のプロフィールの取得・変更（EP-0-03の詳細・EP-0-12）／ステータスの代理設定（EP-0-15）／社員一覧（EP-7-01）／一覧の部署の候補（新設。EP番号なし）／プロフィールカード（EP-0-18）／`users`へのステータスの5列と索引（migration 0013）／画面S-19（プロフィール設定）・S-20（社員一覧）・S-27（プロフィールカード）／ヘッダーのステータスボタン／アバターメニューの切り替え／ナビの「社員一覧」／ステータスの色のトークン |
-| 別Issueに分けたもの | #221：全体管理者による社員情報（役職・メール・内線）の変更（0-4 AC-7・8・12・13）。#222：本名変更届の提出と承認（0-4 AC-14・15）。#136：DMの画面S-06での相手のステータス表示と、DMの相手選択での表示（6-1 AC-1・AC-4のDM部分）。#223：拠点ラベルでの絞り込み（7-3 AC-3の後半。拠点ラベル7-1 AC-5〜8の新Issue）。アバター画像（0-4 AC-2・AC-2a）は#141 |
-| 作らないもの | 表示名・ステータスの変更の通知やリアルタイム反映（#117）、S-19の「本名変更届を提出」（動かない仮の項目は置かない）、S-20・S-27の「DMを送る」（#136で足す）、本人のステータス変更の監査 |
+| 別Issueに分けたもの | #221：全体管理者による社員情報（役職・メール・内線）の変更（0-4 AC-7・8・12・13）。#222：本名変更届の提出と承認（0-4 AC-14・15）。#136：DMの画面S-06での相手のステータス表示と、DMの相手選択での表示（6-1 AC-1・AC-4のDM部分。**Issue #136で実装した**。[dms.md](dms.md)）。#223：拠点ラベルでの絞り込み（7-3 AC-3の後半。拠点ラベル7-1 AC-5〜8の新Issue）。アバター画像（0-4 AC-2・AC-2a）は#141 |
+| 作らないもの | 表示名・ステータスの変更の通知やリアルタイム反映（#117）、S-19の「本名変更届を提出」（動かない仮の項目は置かない）、S-20・S-27の「DMを送る」（#136で足した。[dms.md](dms.md)）、本人のステータス変更の監査 |
 
 分割した結果、「0-4のアバター以外をすべて満たす」とは言えない（AC-7・8・12〜15が未達）。決定は[C-165](../requirements/decision-register.md)に記録した。
 
@@ -44,7 +44,7 @@
 | ファイル | 役割 |
 | --- | --- |
 | `frontend/src/features/profile/`（新） | `index.ts`が公開する部品。`api/profile-api.ts`（`getMyProfile`・`updateMyProfile`・`getProfileCard`。応答をZodで検証）、`api/query-keys.ts`（`profileKeys`）、`hooks/useMyProfile.ts`・`useUpdateMyProfile.ts`、`schemas/profile-form.ts`（S-19の入力チェック）、`ProfileForm.tsx`（S-19の中身）、`StatusBadge.tsx`、`StatusPicker.tsx`、`StatusButton.tsx`、`StatusKindRadios.tsx`、`ProfileCard.tsx`（`ProfileCardTrigger`）、`status-labels.ts`、`return-at.ts`（入力欄の日時とUTCのISO 8601の変換）、`server-errors.ts`・`describe-error.ts` |
-| `frontend/src/features/members/`（新） | `index.ts`が公開する部品。`api/member-api.ts`（`fetchMembers`・`fetchDepartments`・`setMemberStatus`）、`query-keys.ts`（`memberKeys`。`profileKeys`の下に置く）、`hooks/useMembers.ts`・`useSetMemberStatus.ts`、`MembersList.tsx`、`DepartmentFilter.tsx`、`ProxyStatusDialog.tsx` |
+| `frontend/src/features/members/`（新） | `index.ts`が公開する部品。`api/member-api.ts`（`fetchMembers`・`fetchDepartments`・`setMemberStatus`）、`query-keys.ts`（`memberKeys`。`profileKeys`の下に置く）、`hooks/useMembers.ts`・`useSetMemberStatus.ts`、`MembersList.tsx`、`DepartmentFilter.tsx`、`ProxyStatusDialog.tsx`。**Issue #136で追加**：`MemberSearchField.tsx`（表示名の検索欄。S-20とDMの相手の選択で共用。検索語は`shared/search-rules.ts`が定義元）、`useMembers(departmentId, q)`と`Member`型の公開、`MembersList`の`q`・`renderMemberAction`・`renderProfileActions`（「DMを送る」は`pages/MembersPage.tsx`から差し込み、`members`から`dms`を参照しない）、`memberKeys.list(departmentId, q)`。`ProfileCardTrigger`には任意の`actions`を足した |
 | `frontend/src/pages/ProfilePage.tsx`・`MembersPage.tsx`（新） | 画面の構成だけ。APIや状態は持たない |
 | `frontend/src/App.tsx` | レイアウトルートの子に`/profile`と`/members`を足した |
 | `frontend/src/features/app-shell/Header.tsx`・`AvatarMenu.tsx`・`navigation.ts` | ヘッダーに`StatusButton`、アバターメニューに「プロフィール設定」リンクと`StatusPicker`、ナビに「社員一覧」を足した（[app-shell.md](app-shell.md)）。`features/profile/index.ts`を通して使う |
@@ -86,8 +86,9 @@
 ### 社員一覧のページ送り（GET /api/users）
 
 1. `perm.employee.view`（会社範囲）の認可。一般メンバーも閲覧できる
-2. クエリは`departmentId`（任意。形式が不正なら422）・`limit`（既定20・最大100）・`cursor`。余剰のクエリは422
+2. クエリは`departmentId`（任意。形式が不正なら422）・`q`（任意。**Issue #136で追加**。前後の空白を除いて1〜100文字。空・空白だけ・101文字以上は422。`shared/search-rules.ts`の`searchKeywordSchema`）・`limit`（既定20・最大100）・`cursor`。余剰のクエリは422
 3. `listDirectory`が、有効かつ所属ありの社員だけを、表示名・IDの昇順で読む（自分も含む）。続きは`cursor.ts`の`afterCursor`（並び替えの値＝表示名、ID）で取り、OFFSETは使わない。`limit+1`件を読み`toPage`で`nextCursor`を作る。壊れたカーソルは422
+   - **表示名の検索（Issue #136。C-168）**：`q`があるとき、`listDirectory`は`keyword`として受け、`instr(lower(表示名), lower(検索語)) > 0`の条件を足す（本名は対象にしない。C-75）。`LIKE`を使わない理由：D1の`LIKE`はパターンが50バイトまでで、日本語30文字（92バイト）で`LIKE or GLOB pattern too complex`（500）になり、100文字を受けられないため。`instr`は`%`・`_`・``を文字として扱い、値はパラメータで渡す（SQLの組み立てに検索語を埋め込まない）。大文字小文字は、`lower`の性質でASCIIだけ区別しない。部分一致なので全件を見る（部署の指定なしは`users_display_name_idx`で表示名の順に走査し、部署の指定ありは`users_directory_idx`で絞る。EXPLAINの実測は[dms.md](dms.md)。有効な社員の数が上限。性能は#160で実測）。部署・カーソル・並び順と組み合わせられる
 4. 本名は読まない。項目は`id`・`displayName`・`department`（`id`・`name`）・`extension`・`email`・`status`（`kind`・`returnAt`・`message`）・`canSetStatus`だけ
 5. `canSetStatus`は、一覧の部署のIDを`canForDepartments`に渡し、**割り当ての読み込み1回**で部署ごとに算出する（行ごとに`authorize`を呼ばない）。これは表示の制御で、認可は`PUT`で対象ごとに行う
 
@@ -141,7 +142,7 @@ migration 0013は、定数の既定値を持つ列の追加なので、既存の
 | 自分のプロフィール | `GET /api/me/profile`。200で`id`・`loginId`・`displayName`・`legalName`・`department`（`id`・`name`。なければ`null`）・`jobTitle`・`email`・`extension`・`status`（`kind`・`returnAt`・`message`）。401／404／503 |
 | 自分の変更 | `PATCH /api/me/profile`。入力は`displayName`・`status`・`returnAt`・`statusMessage`の一部（0項目は422）。200で`displayName`・`status`・`returnAt`・`statusMessage`・`updatedAt`。401／403（`FORBIDDEN_ORIGIN`・`FORBIDDEN`）／422（`fields`） |
 | 代理設定 | `PUT /api/users/{userId}/status`。入力は`status`（必須）・`returnAt`（任意）。200で`userId`・`status`・`returnAt`・`updatedAt`。401／403（`FORBIDDEN`・`FORBIDDEN_ORIGIN`）／404／422 |
-| 社員一覧 | `GET /api/users`。クエリは`departmentId`・`limit`・`cursor`。200で`items`と`nextCursor`。401／403／422 |
+| 社員一覧 | `GET /api/users`。クエリは`departmentId`・`q`（Issue #136）・`limit`・`cursor`。200で`items`と`nextCursor`。401／403／422 |
 | 部署の候補 | `GET /api/users/departments`。200で`items`（`id`・`name`）。401／403 |
 | プロフィールカード | `GET /api/users/{userId}/profile-card`。200で`userId`・`displayName`・`legalName`・`department`・`status`。401／403／404／422／503 |
 
@@ -154,7 +155,7 @@ migration 0013は、定数の既定値を持つ列の追加なので、既存の
 | `createProfileService().getOwnProfile` | 操作者 | 本名を復号した自分のプロフィール |
 | `.updateOwnProfile` | 操作者、`displayName?`・`status?`・`returnAt?`・`statusMessage?` | 更新後の表示名・種類・戻り予定・一言・更新日時 |
 | `.setStatusByProxy` | 操作者、対象の利用者ID、`status`、`returnAt?` | 対象のID・種類・戻り予定・更新日時 |
-| `.listDirectory` | 操作者、`departmentId?`・`limit`・`cursor?` | `canSetStatus`つきの社員の一覧と`nextCursor` |
+| `.listDirectory` | 操作者、`departmentId?`・`keyword?`（Issue #136）・`limit`・`cursor?` | `canSetStatus`つきの社員の一覧と`nextCursor` |
 | `.listDepartments` | 操作者 | 有効な部署の`id`・`name` |
 | `.getProfileCard` | 操作者、対象の利用者ID | 本名を復号したカードの内容 |
 | `canForDepartments(repository, userId, permission, departmentIds)` | 割り当ての取得元、利用者ID、権限、部署IDの一覧 | 部署IDごとの真偽（重複は1つにまとめる。存在しない・無効な利用者は全部`false`） |
@@ -177,7 +178,7 @@ migration 0013は、定数の既定値を持つ列の追加なので、既存の
 | --- | --- |
 | 本番のD1へのmigration 0013の適用 | 未実施（利用者の承認が別途必要） |
 | 全体管理者による社員情報の変更（0-4 AC-7・8・12・13）、本名変更届（AC-14・15） | #221・#222 |
-| DMの画面・相手選択でのステータス表示 | #136。`StatusBadge`・`ProfileCardTrigger`と取得APIは用意済み |
+| DMの画面・相手選択でのステータス表示 | **Issue #136で実装した**（[dms.md](dms.md)）。`StatusBadge`・`ProfileCardTrigger`と取得APIを使う |
 | 拠点ラベルでの絞り込み | #223 |
 | 表示名・ステータスのリアルタイム反映 | #117 |
 | ヘッダーのステータス表示のための自分のプロフィール取得 | `GET /api/me/profile`は本名の復号を伴う。ステータスだけを返す、復号を伴わないAPIにする改善は#224 |
@@ -186,6 +187,6 @@ migration 0013は、定数の既定値を持つ列の追加なので、既存の
 
 ## 関係するIssue・ADR
 
-- Issue #130：本Issue。親Issue #109。分割先は#221・#222・#223、後続は#136
+- Issue #130：本Issue。親Issue #109。分割先は#221・#222・#223、後続は#136（実装済み。[dms.md](dms.md)）
 - [ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)：列の追加でテーブルの作り直しが生成されたときの、ADD COLUMNへの書き換え／[ADR-0012](../adr/0012-zero-trust-principle.md)：サーバー側で毎回認可する／[ADR-0006](../adr/0006-id-cursor-unread.md)：IDとカーソル／[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)：ミューテーション・E2Eの実行範囲
 - 要件：0-4 AC-1・3〜6・9〜11、6-1 AC-2〜4、7-3 AC-1・2・4（AC-3は部署の絞り込みのみ）、S-19・S-20・S-27。決定記録[C-165](../requirements/decision-register.md)

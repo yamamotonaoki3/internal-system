@@ -15,6 +15,9 @@ import { ChannelsPage } from "./pages/ChannelsPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { DepartmentCreatePage } from "./pages/DepartmentCreatePage";
 import { DepartmentsPage } from "./pages/DepartmentsPage";
+import { DmNewPage } from "./pages/DmNewPage";
+import { DmPage } from "./pages/DmPage";
+import { DmsPage } from "./pages/DmsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MembersPage } from "./pages/MembersPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -89,6 +92,9 @@ export function App() {
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/channel-requests" element={<ChannelRequestPage />} />
         <Route path="/channel-approvals" element={<ChannelApprovalsRoute />} />
+        <Route path="/dms" element={<DmsPage />} />
+        <Route path="/dms/new" element={<DmNewPage />} />
+        <Route path="/dms/:roomId" element={<DmPage />} />
         <Route path="/members" element={<MembersPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

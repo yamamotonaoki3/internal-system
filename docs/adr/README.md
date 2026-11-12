@@ -34,3 +34,5 @@
 | [0021](0021-department-channel-backfill-migration-exception.md) | 初代部署の専用チャンネルを補うmigrationを1本だけ手作成する | 採用 |
 | [0022](0022-company-general-channel-seed-migration-exception.md) | 全社連絡を補うmigrationを1本だけ手作成する | 採用 |
 | [0023](0023-mutation-equivalent-mutants-exception.md) | ファイル別ミューテーションスコア80%の基準に、同値変異体による例外を設ける | 採用 |
+| [0024](0024-add-column-rewrite-for-table-rebuild.md) | 既存テーブルへの列追加でテーブルの作り直しが生成されたとき、migrationをADD COLUMNに書き換える | 採用 |
+| [0025](0025-rebuild-referenced-table-defer-foreign-keys.md) | 他の表から参照されるroomsのCHECKを変えるための作り直し（D1ではPRAGMA foreign_keys=OFFが効かないためdefer_foreign_keysに置き換える。0016の1本だけ） | 採用 |

@@ -1,8 +1,10 @@
 // Service：チャンネルのメッセージの一覧・投稿の業務ルール（#201）。HTTP も DB のライブラリも知らない。
 // 判定の順（この順を変えない）：
-//   ① 見えるか（見えなければ 404。非公開・アーカイブ済み・存在しない・DMの部屋を区別しない）
+//   ① 見えるか（見えなければ 404。非公開・アーカイブ済み・存在しない・当事者でない DM を区別しない）
 //   → ② 参加者か（未参加は 403。公開チャンネルは未参加でも読める）
 //   → ③ お知らせ専用なら権限（perm.announcement.post を部署の範囲で。拒否は authorize が監査に記録する）
+//   DM の部屋（#136）：当事者か（違えば 404。文言はチャンネルと同じ）
+//   → 権限（一覧は perm.dm.message.view、投稿は perm.dm.message.send。拒否は 403）→（投稿だけ）相手が無効なら 409。一覧は相手が無効でも読める。
 //   ※ 本文の形の検証（422）は Controller が先に行う。
 // 書き込みは条件付きの INSERT 1文。挿入できなかった（0 行）ときは、原因を読み直して分ける：
 //   状態が崩れた → 404／403、IDが部屋の最大以下 → 最大より大きいIDで作り直して再試行（上限あり。超えたら 503）。
@@ -56,16 +58,56 @@ export function createMessageService(
   repository: MessageRepository,
   { authorizer }: Dependencies,
 ) {
-  async function requireVisible(roomId: string, actor: MessageActor) {
+  // チャンネルでなければ DM として探す（チャンネルの経路の問い合わせは増やさない）
+  async function findRoom(roomId: string, actor: MessageActor) {
     const channel = await repository.findRoomForViewer(roomId, actor.userId);
-    if (channel === null || !canViewChannel(channel, channel.joinedAt !== null))
-      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
-    return channel;
+    if (channel !== null) return { kind: "channel", channel } as const;
+    const direct = await repository.findDirectForParticipant(
+      roomId,
+      actor.userId,
+    );
+    return direct === null
+      ? null
+      : ({ kind: "direct", partnerIsActive: direct.partnerIsActive } as const);
   }
 
-  // ①②③の順で、投稿してよいかを確かめる
+  function authorizeDm(
+    actor: MessageActor,
+    permission: "perm.dm.message.view" | "perm.dm.message.send",
+  ) {
+    return authorizer.authorize({ userId: actor.userId }, permission, {
+      type: "company",
+    });
+  }
+
+  async function requireVisible(roomId: string, actor: MessageActor) {
+    const room = await findRoom(roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct") {
+      await authorizeDm(actor, "perm.dm.message.view");
+      return;
+    }
+    const { channel } = room;
+    if (!canViewChannel(channel, channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+  }
+
+  // ①②③の順（DM は当事者か → 権限 → 相手が有効か）で、投稿してよいかを確かめる
   async function requirePostable(roomId: string, actor: MessageActor) {
-    const channel = await requireVisible(roomId, actor);
+    const room = await findRoom(roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct") {
+      await authorizeDm(actor, "perm.dm.message.send");
+      if (!room.partnerIsActive)
+        throw new AppError(
+          "CONFLICT",
+          "相手のアカウントが無効になっているため、送信できません",
+        );
+      return;
+    }
+    const { channel } = room;
+    if (!canViewChannel(channel, channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     if (channel.joinedAt === null)
       throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
     // 全社連絡（部署なし）は、参加者なら誰でも投稿できる。権限で制限するのはお知らせ専用だけ（canPostToChannel と同じ規則）

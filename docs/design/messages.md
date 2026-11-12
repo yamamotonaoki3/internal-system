@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-01（一覧）・EP-1-02（投稿）のうち、本文だけのチャンネルの部分／`messages`テーブル（migration 0012）／EP-2-06への`canPost`の追加／S-05の一覧・入力欄・2秒ポーリング／共通部品`TextAreaField` |
-| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |
+| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM【Issue #136で、DMの部屋の一覧・投稿は実装した。下の「DMの部屋（Issue #136）」。元の記述は残す】、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |
 | 範囲外（別の起票先に残す） | **無効にした部署のチャンネルを読み取り専用にすること**（部署の無効化が未実装のため。`department.repository.ts`に無効化の処理がない）。**投稿のレート制限**（上限がX-8で未決定のため入れず、別Issueで扱う）。キャッシュの件数の上限（長時間開いたときのメモリ。親#133に残す）。同時50人・2秒の実測（#160） |
 
 ## ファイルと役割
@@ -22,8 +22,8 @@
 | `shared/message-rules.ts` | 本文の上限`MESSAGE_BODY_MAX_LENGTH`・`messageBodySchema`・純粋関数`canPostToChannel`の**定義元**。サーバーと画面が参照する。サーバー側の検証は省略しない |
 | `backend/src/lib/ulid.ts` | `ulidAfter(previous, now)`を足した。指定したIDより必ず大きいULIDを返す（既存の`createUlidFactory`・`newUlid`は変えていない） |
 | `backend/src/lib/cursor.ts` | 「最後のID以降」の共通部品`afterIdQuerySchema`（`after`は必須・ULID形式、`limit`は1〜100で既定100）と`toAfterIdPage`（`limit+1`件から`items`と`hasMore`を作る）を足した。DM・スレッドなどが同じ部品を使う |
-| `backend/src/db/message.repository.ts` | `createMessageRepository`が`listLatest`（新しい順）・`listAfter`（ID昇順）・`maxId`・`findDisplayName`・`insertIfOrdered`（条件付きの投稿）を扱う。見えるかの読み取りは`channel.repository.ts`の`findForViewer`を再利用する。`withMessages`が構成する |
-| `backend/src/services/message.service.ts` | `createMessageService`が`list`・`post`を扱う。判定の順、お知らせ専用の権限（`authorize`）、表示名の取得、IDの作り直し（再試行）と503への変換。`withMessageService`が構成する |
+| `backend/src/db/message.repository.ts` | `createMessageRepository`が`listLatest`（新しい順）・`listAfter`（ID昇順）・`maxId`・`findDisplayName`・`insertIfOrdered`（条件付きの投稿）を扱う。見えるかの読み取りは`channel.repository.ts`の`findForViewer`を再利用する。`withMessages`が構成する【Issue #136で、`findDirectForParticipant`（自分が当事者のDMか・相手が有効か）と、`insertIfOrdered`のDMの条件を足した】 |
+| `backend/src/services/message.service.ts` | `createMessageService`が`list`・`post`を扱う。判定の順、お知らせ専用の権限（`authorize`）、表示名の取得、IDの作り直し（再試行）と503への変換。`withMessageService`が構成する【Issue #136で、DMの部屋の枝（当事者か → 権限 → 相手が有効か）を足した。下の「DMの部屋の判定の順」】 |
 | `backend/src/routes/messages.ts` | `messageRoutes`（`GET /:roomId/messages`・`POST /:roomId/messages`）。入力は`validate`で確かめ（不正は422）、受付と返却だけを行う。`backend/src/index.ts`が`/api/rooms`へ登録する |
 | `backend/src/db/channel.repository.ts` | `findForViewer`の取得項目に`purpose`を足した（足しただけ） |
 | `backend/src/services/channel.service.ts` | EP-2-06の応答に`canPost`を足した。判定は`can`（拒否を監査に記録しない）で行い、規則は`canPostToChannel`の1か所にする |
@@ -43,7 +43,7 @@
 | `frontend/src/features/messages/hooks/useRoomMessages.ts` | 2秒ごとの取得。`refetchInterval`で繰り返す |
 | `frontend/src/features/messages/hooks/usePostMessage.ts` | 投稿。成功したらその部屋の一覧を`invalidateQueries`で取り直し、取り直しが終わるまで送信中のままにする |
 | `frontend/src/features/messages/schemas/message-form.ts` | 入力チェック。本文の規則は`shared/message-rules.ts`を参照する |
-| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod） |
+| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】 |
 | `frontend/src/features/messages/describe-error.ts` | 通信の失敗を利用者向けの文にする。`features/channels/describe-error.ts`と**内容が重複している**（下の「未実施・未決定」） |
 | `frontend/src/components/TextAreaField.tsx` | 複数行の入力欄の共通部品（`TextField`と同じ作り）。素の`textarea`にクラスを書かない規則（ADR-0015）のために足した |
 | `frontend/src/features/channels/api/channel-api.ts` | 詳細のスキーマに`canPost`を足した |
@@ -66,6 +66,10 @@
 2. チャンネルがアーカイブされていない
 3. 投稿者が今も参加者である
 4. お知らせ専用（`purpose = announcement`）なら、投稿者がそのチャンネルの部署のオーナー、または全体管理者である
+
+**【Issue #136で、DMの部屋を足した（C-168）。元の記述は残す】** 1に加えて、2〜4（チャンネルの条件）**または**次の条件のどちらかを満たすときに挿入する（SQLでは`(チャンネルの条件) OR (DMの条件)`）。5. DMの条件：投稿者がその部屋の当事者であり（`conversation_members`に行がある）、かつ当事者に無効な社員（`users.is_active = 0`）がいない。チャンネルの部屋は`conversation_members`に行がなく、DMの部屋は`channels`に行がないので、2つの条件が同時に成り立つことはない
+
+DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロール（メンバー・オーナー・全体管理者）がすべて持つため、チャンネルの通常の投稿（権限の判定がSQLにない）と同じ扱いにし、Serviceの`authorize`だけで確かめる。権限を持たせない（カスタムロール等）仕組みが入るときは、お知らせ専用のように、SQLの条件との一致をテストで固定する。
 
 2〜4は、Serviceが投稿の前に確かめた後で状態が変わっても（アーカイブ・退出・オーナー交代）、条件を破る行を残さないための二重の守り。1文なので、確認から書き込みまでの間に別の投稿が入ることがない。
 
@@ -94,6 +98,16 @@
 2. **参加者か**：未参加なら**403**（公開チャンネルは未参加でも**読める**ので、一覧は200、投稿だけが403）
 3. **お知らせ専用なら権限**（`purpose = announcement`のとき）：`perm.announcement.post`を部署の範囲（`channel.departmentId`）で`authorize`する。持たなければ**403**。拒否は`authorize`が`logger.audit`に記録する。全体管理者・オーナーでも、**未参加なら②で403**（参加者だけが投稿できる、を先に判定する）
 4. 本文の形（1〜4,000文字、空白だけは不可、余分な項目は不可）は**Controllerの`validate`が先に422**にする。見えないチャンネルに不正な本文を送ると422になり得るが、本文の形だけの判定で、存在の開示にはならない（既存の`channels`のルートと同じ順序）
+
+#### DMの部屋の判定の順（Issue #136。C-168。元の記述は残す）
+
+上の1の「チャンネルでない部屋（DMなど）を区別しない」は、**当事者でないDM**を指すように変わった。部屋の種類は、まずチャンネルとして探し（`findRoomForViewer`）、見つからなければDMとして探す（`findDirectForParticipant`。自分が当事者のDMなら、相手が有効かを返す）。チャンネルの経路の問い合わせは増やしていない。DMの部屋は、次の順で判定する。
+
+1. **当事者か**：当事者でない・存在しない部屋は**404**（文言はチャンネルと同じ。全体管理者・オーナーも当事者でなければ404）
+2. **権限**：一覧は`perm.dm.message.view`、投稿は`perm.dm.message.send`を`authorize`する。持たなければ**403**（拒否は`authorize`が監査に残す）
+3. **（投稿だけ）相手が有効か**：無効なら**409**（`CONFLICT`）。一覧は相手が無効でも**200**で読める
+
+投稿の0行のときの再判定でも、同じ順で確かめる（当事者でなくなれば404、相手が無効になっていれば409）。DMの詳細（`GET /api/dms/:roomId`）は`dm.service.ts`が扱い、詳しい順番は[dms.md](dms.md)に書く。
 
 ### 投稿（`POST /api/rooms/:roomId/messages`）
 
@@ -202,7 +216,7 @@
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない |
+| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない。**DMの「退職者」の併記だけはIssue #136で実装した**（チャンネルは#133に残す。[dms.md](dms.md)） |
 | 無効にした部署のチャンネルの読み取り専用 | 範囲外。部署の無効化が未実装のため。実装したら、条件付きのINSERTの条件に**部署が有効であること**を足す |
 | 投稿のレート制限 | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)。Skill「セキュリティ」の「公開するAPIすべてにレート制限」に従えない点） |
 | U-14：全社連絡の投稿規則 | **仮定**（参加者なら誰でも投稿できる）。デモで利用者に確認する |
@@ -216,6 +230,7 @@
 ## 関係するIssue・ADR
 
 - Issue #201：本Issue。親Issue #133。#200（チャンネル。`channel.repository`・EP-2-06・S-05が重なる）が先行。DM・スレッド・案件（#133の後続）が「最後のID以降」の部品を使う
+- Issue #136：DMの部屋の一覧・投稿を、この設計の上に足した（`insertIfOrdered`のDMの条件、判定の順のDMの枝、`RoomMessages`の任意のprops）。詳細は[dms.md](dms.md)。決定記録C-168
 - [channels.md](channels.md)（#200）、[department-management.md](department-management.md)（#196。`rooms`・`channels`・`channel_members`の約束）
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0015：共通部品を使う／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：1-1 AC-1〜6、1-9 AC-1、2-3 AC-4、S-05。EP-1-01・EP-1-02・EP-2-06

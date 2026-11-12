@@ -113,6 +113,20 @@
       "when": 1794458197022,
       "tag": "0015_add_channel_creation_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1794489001855,
+      "tag": "0016_change_room_kind_to_direct",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794490336864,
+      "tag": "0017_add_conversations",
+      "breakpoints": true
     }
   ]
 }

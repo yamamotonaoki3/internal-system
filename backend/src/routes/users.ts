@@ -6,6 +6,7 @@ import {
   returnAtSchema,
   userStatusKindSchema,
 } from "../../../shared/profile-rules";
+import { searchKeywordSchema } from "../../../shared/search-rules";
 import { actorOf } from "../lib/actor";
 import { cursorQuerySchema, PAGE_LIMIT } from "../lib/cursor";
 import { noStore } from "../lib/security";
@@ -16,7 +17,10 @@ import { withProfileService } from "../services/profile.service";
 const idSchema = z.string().refine(isUlid);
 const userIdParamSchema = z.object({ userId: idSchema });
 const listSchema = cursorQuerySchema({ defaultLimit: PAGE_LIMIT.default })
-  .extend({ departmentId: idSchema.optional() })
+  .extend({
+    departmentId: idSchema.optional(),
+    q: searchKeywordSchema.optional(),
+  })
   .strict();
 // 代理設定では一言を扱わない（P-5）。未知の項目は 422
 const proxyStatusSchema = z
@@ -27,8 +31,12 @@ export function userRoutes() {
   return new Hono<{ Bindings: Env }>()
     .get("/", noStore, validate("query", listSchema), async (c) => {
       const actor = actorOf(c);
+      const { q, ...query } = c.req.valid("query");
       const page = await withProfileService(c.env, (service) =>
-        service.listDirectory(actor, c.req.valid("query")),
+        service.listDirectory(
+          actor,
+          q === undefined ? query : { ...query, keyword: q },
+        ),
       );
       return c.json(page);
     })

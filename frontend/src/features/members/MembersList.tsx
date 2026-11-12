@@ -1,6 +1,7 @@
 // S-20 の一覧。読み込み中・エラー・なし・ありの4つの状態を出し分ける。
+// 他の機能の操作（DM を送る等）は、renderMemberAction（行）・renderProfileActions（カード）で呼び出し側から差し込む（members から他の機能を参照しない）。
 // 代理設定の操作は、サーバーが canSetStatus を true にした他人の行にだけ出す（表示の制御。認可は PUT でサーバーが行う）。
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert } from "../../components/Alert";
 import { Button } from "../../components/Button";
 import { useSession } from "../auth";
@@ -9,8 +10,23 @@ import type { Member } from "./api/member-api";
 import { useMembers } from "./hooks/useMembers";
 import { ProxyStatusDialog } from "./ProxyStatusDialog";
 
-export function MembersList({ departmentId }: { departmentId: string }) {
-  const members = useMembers(departmentId);
+type MembersListProps = {
+  departmentId: string;
+  /** 表示名の検索語（空なら絞り込まない） */
+  q: string;
+  /** 行の操作の欄に足す操作 */
+  renderMemberAction?: (member: Member) => ReactNode;
+  /** プロフィールカードに足す操作 */
+  renderProfileActions?: (member: Member) => ReactNode;
+};
+
+export function MembersList({
+  departmentId,
+  q,
+  renderMemberAction,
+  renderProfileActions,
+}: MembersListProps) {
+  const members = useMembers(departmentId, q);
   const session = useSession();
   const [target, setTarget] = useState<Member | null>(null);
   const selfId = session.data?.user.id;
@@ -59,6 +75,7 @@ export function MembersList({ departmentId }: { departmentId: string }) {
                   <ProfileCardTrigger
                     userId={member.id}
                     displayName={member.displayName}
+                    actions={renderProfileActions?.(member)}
                   />
                 </td>
                 <td className="p-2">{member.department.name}</td>
@@ -75,6 +92,7 @@ export function MembersList({ departmentId }: { departmentId: string }) {
                   <StatusBadge status={member.status} />
                 </td>
                 <td className="p-2">
+                  {renderMemberAction?.(member)}
                   {member.canSetStatus && member.id !== selfId && (
                     <Button
                       variant="secondary"

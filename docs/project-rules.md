@@ -23,6 +23,7 @@
 | AGENTS.md「絶対にしないこと」の秘密情報（秘密情報の値は利用者が入力する） | 開発・テスト用の、乱数で作る使い捨ての値に限り、AIが`.env.development`・`.env.test`に書いてよい。本番・実在の認証情報は、これまでどおり利用者が入力する | [0014](adr/0014-ai-may-set-dev-test-secrets.md) |
 | AGENTS.md「作業の流れ」・「実装の進め方」、Skill「実装の進め方」の利用者確認・直列実行のMUST | 承認済み要件・既存Issueを対象として本プロジェクトを完成まで進める今回の継続作業に限り、統括が監視・指示し、実装・Issue記録・commit/push/PR作成・全品質/テスト/別AIレビュー合格後のSquash mergeを包括承認する。コミット前の通常動作確認は、AIによる自動検証・画面確認に置き換える。変更ファイルが競合しない作業は統括の判断で複数エージェントに並列分担できる。未承認の仕様や第2段階への移行等は自動承認とみなさず、仕様変更・新規ライブラリ・破壊的操作・本番反映も引き続き個別確認する。2026-11-07の追加指示により、同日の監査で確認して親Issueに固定した既存未完了Issue50件を統括して進め、統合後の最後の全体動作確認は利用者と行う。統括は確認準備が整った時点で利用者へ知らせ、確認結果と利用者の完了判断が得られるまで作業全体を完了とせず、親Issueを閉じない。本親Issue自体や後発Issueは元の50件へ自動追加せず、追加が必要な場合は目的・依存関係・既存承認との関係を確認して別途記録する。未決仕様の判断を利用者に求めている間も、それに依存しない承認済みの調査や既存完了成果の整理を継続し、回答待ちを承認・完了と扱わない。 | [0016](adr/0016-supervised-automation.md) |
 | Skill「data-access-drizzle」の migration を手で書き換えない | 既存テーブルへの列追加で drizzle-kit がテーブルの作り直しを生成したときに限り、生成された SQL を `ALTER TABLE … ADD COLUMN …` と `CREATE INDEX` に書き換えてよい。テーブルの DROP・再作成・全行コピーは行わない | [0024](adr/0024-add-column-rewrite-for-table-rebuild.md) |
+| Skill「data-access-drizzle」の migration を手で書き換えない（0016の1本に限る） | 他の表から参照される `rooms` の CHECK を変える作り直し（Issue #136）で、D1 では `PRAGMA foreign_keys=OFF` が効かず生成物が失敗するため、0016 の PRAGMA の2行だけを `PRAGMA defer_foreign_keys = on;`・`PRAGMA defer_foreign_keys = off;` に置き換えた。ほかの文・snapshot・journal は生成されたまま。参照される表をまた作り直すときは、止まって利用者に戻す | [0025](adr/0025-rebuild-referenced-table-defer-foreign-keys.md) |
 
 ## このプロジェクトのルール
 

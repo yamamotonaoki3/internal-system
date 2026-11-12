@@ -15,7 +15,8 @@ import {
 import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { respondShellUser } from "../../test/app-shell-harness";
 import {
   DEPT_DEV,
   DEPT_SALES,
@@ -29,6 +30,12 @@ import { ChannelList } from "./components/ChannelList";
 import { ChannelSummary } from "./components/ChannelSummary";
 import { DepartmentFilter } from "./components/DepartmentFilter";
 import { JoinedChannelsSection } from "./components/JoinedChannelsSection";
+
+// #136：S-05 の参加者の「DMを送る」を自分に出さないため、ChannelDetailView がセッション（GET /api/auth/session）を取る。
+// 想定外の要求を残さないよう、ログイン済み（testuser_001）の応答を、各テストの前に用意する（確かめる内容は変えない）
+beforeEach(() => {
+  respondShellUser();
+});
 
 function newClient() {
   return new QueryClient({
@@ -181,7 +188,12 @@ describe("#200 AC-2・AC-3 チャンネルの詳細（ChannelDetailView）", () 
     });
     renderWith(<ChannelDetailView channelId={ID} />);
     expect(await screen.findByText("参加者（3人）")).toBeTruthy();
-    const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+    // #136（方針9）：参加者の行に「DMを送る」などの操作のボタンが加わったため、ボタンを除いた行の文字（表示名）を、並びも含めて完全一致で比べる
+    const items = screen.getAllByRole("listitem").map((li) => {
+      const copy = li.cloneNode(true) as HTMLElement;
+      for (const button of copy.querySelectorAll("button")) button.remove();
+      return copy.textContent;
+    });
     expect(items).toEqual(["テスト太郎", "テスト花子"]);
     expect(screen.queryByRole("button", { name: "参加する" })).toBeNull();
   });

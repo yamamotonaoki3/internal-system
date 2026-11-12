@@ -8,6 +8,9 @@ type MessageListProps = {
   messages: RoomMessage[] | undefined;
   isPending: boolean;
   error: unknown;
+  emptyText?: string;
+  /** 表示名に「退職者」を併記する投稿者の利用者ID（既定は併記しない） */
+  retiredAuthorIds?: readonly string[];
 };
 
 function formatTime(iso: string): string {
@@ -17,7 +20,13 @@ function formatTime(iso: string): string {
   });
 }
 
-export function MessageList({ messages, isPending, error }: MessageListProps) {
+export function MessageList({
+  messages,
+  isPending,
+  error,
+  emptyText = "まだメッセージはありません",
+  retiredAuthorIds = [],
+}: MessageListProps) {
   const failure =
     error === null ? null : (
       <Alert tone="error" role="alert">
@@ -37,7 +46,7 @@ export function MessageList({ messages, isPending, error }: MessageListProps) {
         className="mb-4 max-h-96 overflow-y-auto"
       >
         {messages.length === 0 ? (
-          <p className="text-text-muted">まだメッセージはありません</p>
+          <p className="text-text-muted">{emptyText}</p>
         ) : (
           <ul>
             {messages.map((message) => (
@@ -45,7 +54,10 @@ export function MessageList({ messages, isPending, error }: MessageListProps) {
                 <p className="text-sm">
                   <span className="font-bold">
                     {message.author.displayName}
-                  </span>{" "}
+                  </span>
+                  {retiredAuthorIds.includes(message.author.id) && (
+                    <span className="text-text-muted">（退職者）</span>
+                  )}{" "}
                   <time
                     dateTime={message.createdAt}
                     className="text-text-muted"
