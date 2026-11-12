@@ -1118,6 +1118,442 @@
         }
       }
     },
+    "/api/channel-requests": {
+      "post": {
+        "operationId": "createChannelRequest",
+        "summary": "チャンネルの作成を申請する",
+        "description": "ログイン済みの有効な社員。作る場所（scope）は自部署（department）か会社直属（company）で、部署はサーバーが本人の所属から決める（部署の ID は受け取らない）。所属のない社員が department を指定すると 422（fields: scope）。名前は全角英数字・全角のハイフン・アンダースコアを半角に、前後の空白を除いて保存する。同じ名前のチャンネル（アーカイブ済みを含む）または承認待ちの申請があると 409。承認されるまでチャンネルは作られない。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "作成した申請（承認待ち）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "同じ名前のチャンネルまたは承認待ちの申請がある",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listChannelRequestsForReview",
+        "summary": "審査できる申請を新しい順に取得する",
+        "description": "全体管理者か、いずれかの部署のオーナーだけ（それ以外は 403）。見える範囲は、決裁できる申請（canApprove=true）と、オーナーが自部署で出した自分の申請（canApprove=false）。範囲の条件はサーバーで絞り、status・departmentId は範囲の中でだけ効く。決裁済みの行の canApprove は false。ID の降順のカーソル方式。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "withdrawn"
+              ]
+            },
+            "description": "状態で絞る。省略はすべて"
+          },
+          {
+            "name": "departmentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "description": "この部署の申請に絞る（見える範囲は広がらない）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "審査一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestReviewPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者（全体管理者か、いずれかの部署のオーナー）ではない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channel-requests/mine": {
+      "get": {
+        "operationId": "listMyChannelRequests",
+        "summary": "自分の申請を新しい順に取得する",
+        "description": "本人の申請だけ（他人の申請を取る手段はない）。却下された申請は理由（rejectReason）を持つ。ID の降順のカーソル方式。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "自分の申請の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channel-requests/{requestId}/approve": {
+      "post": {
+        "operationId": "approveChannelRequest",
+        "summary": "チャンネルの作成申請を承認する",
+        "description": "再認証（5 分以内）が必要。判定の順番：審査者でなければ 403 → 再認証がなければ 403（REAUTH_REQUIRED）→ 見えない申請（存在しない・範囲外）は 404 → オーナー自身の申請をそのオーナーが承認すると 403 → 決裁済み・取り下げ済み・名前の重複・部署が無効は 409（メッセージで区別する）。承認でチャンネルを作り、申請者だけを参加させる（管理権限は付けない）。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "承認した結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestApproved"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者ではない、再認証が必要（REAUTH_REQUIRED）、オーナー自身の申請、または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または見える範囲の外",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている、同じ名前のチャンネルがある、または部署が無効",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channel-requests/{requestId}/reject": {
+      "post": {
+        "operationId": "rejectChannelRequest",
+        "summary": "チャンネルの作成申請を却下する",
+        "description": "再認証（5 分以内）が必要。理由は前後の空白を除いて 1〜200 文字。判定の順番は承認と同じ。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRequestReject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "却下した結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者ではない、再認証が必要（REAUTH_REQUIRED）、オーナー自身の申請、または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または見える範囲の外",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channel-requests/{requestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawChannelRequest",
+        "summary": "チャンネルの作成申請を取り下げる",
+        "description": "申請者本人だけが、承認待ちの申請を取り下げられる（再認証は不要。通知は送らない）。他人の申請・存在しない申請は、存在を明かさず 404。決裁済み・取り下げ済みは 409。取り下げた申請の名前は重複の比較から外れる。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取り下げた結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRequestWithdrawn"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または本人の申請ではない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/rooms/{roomId}/messages": {
       "get": {
         "operationId": "listMessages",
@@ -2523,6 +2959,320 @@
         }
       }
     },
+    "ChannelRequestCreate": {
+      "type": "object",
+      "required": [
+        "scope",
+        "name",
+        "visibility"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "department",
+            "company"
+          ],
+          "description": "自部署のチャンネルか、会社直属か"
+        },
+        "name": {
+          "type": "string",
+          "description": "整形後（全角英数字・全角ハイフン・アンダースコアを半角に、前後の空白を除く）で 1〜50 文字。ひらがな・カタカナ・長音符・漢字・々・〆・英数字・-・_ だけ"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "省略は空"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ]
+        }
+      }
+    },
+    "ChannelRequestItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "departmentId",
+        "name",
+        "visibility",
+        "status",
+        "rejectReason",
+        "createdAt",
+        "decidedAt",
+        "channelId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "departmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "null は会社直属"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "withdrawn"
+          ]
+        },
+        "rejectReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "却下のときだけ。文字列としてそのまま表示する"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "decidedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "channelId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "承認で作ったチャンネルの ID"
+        }
+      }
+    },
+    "ChannelRequestPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ChannelRequestItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ChannelRequestReviewItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "departmentId",
+        "name",
+        "visibility",
+        "status",
+        "rejectReason",
+        "createdAt",
+        "decidedAt",
+        "channelId",
+        "requesterId",
+        "requesterDisplayName",
+        "canApprove"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "departmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "null は会社直属"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "withdrawn"
+          ]
+        },
+        "rejectReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "却下のときだけ。文字列としてそのまま表示する"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "decidedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "channelId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "承認で作ったチャンネルの ID"
+        },
+        "requesterId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "requesterDisplayName": {
+          "type": "string"
+        },
+        "canApprove": {
+          "type": "boolean",
+          "description": "承認・却下できるか（オーナー自身の申請と決裁済みは false）"
+        }
+      }
+    },
+    "ChannelRequestReviewPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ChannelRequestReviewItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ChannelRequestReject": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "前後の空白を除いて 1〜200 文字"
+        }
+      }
+    },
+    "ChannelRequestApproved": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "status",
+        "channelId",
+        "roomId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "type": "string",
+          "const": "approved"
+        },
+        "channelId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    "ChannelRequestRejected": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "type": "string",
+          "const": "rejected"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "ChannelRequestWithdrawn": {
+      "type": "object",
+      "required": [
+        "requestId",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "type": "string",
+          "const": "withdrawn"
+        }
+      }
+    },
     "NotificationPage": {
       "type": "object",
       "required": [
@@ -3571,13 +4321,14 @@
             "properties": {
               "permissions": {
                 "type": "array",
-                "description": "現在の利用者が持つ取引先管理権限。管理者以外は空配列",
+                "description": "現在の利用者が持つ管理権限（表示の制御用。認可はサーバー側で行う）。perm.channel.request.approve.owner は全体管理者かいずれかの部署のオーナー。それ以外は空配列",
                 "items": {
                   "type": "string",
                   "enum": [
                     "perm.client.manage",
                     "perm.account.create",
-                    "perm.workspace.create"
+                    "perm.workspace.create",
+                    "perm.channel.request.approve.owner"
                   ]
                 }
               }

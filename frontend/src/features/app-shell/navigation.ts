@@ -35,7 +35,18 @@ export const primaryNavItems: NavItem[] = [
 
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す
 export const adminNavGroups: AdminNavGroup[] = [
-  { id: "approval", label: "承認", items: [] },
+  {
+    id: "approval",
+    label: "承認",
+    items: [
+      {
+        id: "channel-approvals",
+        label: "チャンネル承認",
+        to: "/channel-approvals",
+        requires: "perm.channel.request.approve.owner",
+      },
+    ],
+  },
   {
     id: "account",
     label: "アカウント",

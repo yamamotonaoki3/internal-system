@@ -6,6 +6,7 @@ import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
+import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
@@ -41,6 +42,8 @@ const app = createApp({
     { path: "/api/users", app: userRoutes() },
     // #124：通知の一覧・未読数・既読。index.ts と同じパスに組み込む
     { path: "/api/me/notifications", app: notificationRoutes() },
+    // #131：チャンネルの作成申請・自分の申請・審査一覧・承認・却下・取り下げ。index.ts と同じパスに組み込む
+    { path: "/api/channel-requests", app: channelRequestRoutes() },
   ],
 });
 
@@ -171,6 +174,44 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         "404",
         "422",
         "503",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#131 AC-1・AC-3・AC-4・AC-6・AC-7・AC-15: チャンネルの作成申請・自分の申請・審査一覧・承認・却下・取り下げの契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/channel-requests": ["201", "401", "403", "409", "422"],
+      "GET /api/channel-requests/mine": ["200", "401", "422"],
+      "GET /api/channel-requests": ["200", "401", "403", "422"],
+      "POST /api/channel-requests/{requestId}/approve": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+      ],
+      "POST /api/channel-requests/{requestId}/reject": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/channel-requests/{requestId}/withdraw": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
       ],
     };
     for (const [name, codes] of Object.entries(expected)) {

@@ -26,6 +26,7 @@ import {
   canManageAccounts,
   canManageClients,
   canManageDepartments,
+  canReviewChannelRequests,
 } from "../services/authorizer";
 import {
   reauthenticate,
@@ -170,6 +171,7 @@ export function authRoutes(
         principal.userId,
         traceIdOf(c),
       );
+      const canReview = await canReviewChannelRequests(c.env, principal.userId);
       return c.json({
         user: {
           id: principal.userId,
@@ -182,6 +184,7 @@ export function authRoutes(
           ...(canManage ? ["perm.client.manage"] : []),
           ...(canManageAccount ? ["perm.account.create"] : []),
           ...(canManageDepartment ? ["perm.workspace.create"] : []),
+          ...(canReview ? ["perm.channel.request.approve.owner"] : []),
         ],
       });
     });

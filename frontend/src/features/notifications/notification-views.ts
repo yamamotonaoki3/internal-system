@@ -11,7 +11,20 @@ export type NotificationView = {
 
 export const NOTIFICATION_VIEWS: Readonly<
   Record<NotificationKind, NotificationView>
-> = {};
+> = {
+  "channel_request.submitted": {
+    label: "チャンネルの作成の申請が届きました",
+    to: () => "/channel-approvals",
+  },
+  "channel_request.approved": {
+    label: "チャンネルの作成の申請が承認されました",
+    to: (item) => (item.roomId === null ? null : `/channels/${item.roomId}`),
+  },
+  "channel_request.rejected": {
+    label: "チャンネルの作成の申請が却下されました",
+    to: () => "/channel-requests",
+  },
+};
 
 const GENERIC_LABEL = "通知";
 

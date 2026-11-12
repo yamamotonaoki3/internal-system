@@ -8,3 +8,4 @@ export { StatusBadge } from "./StatusBadge";
 export { StatusButton } from "./StatusButton";
 export { StatusKindRadios } from "./StatusKindRadios";
 export { StatusPicker } from "./StatusPicker";
+export { useMyProfile } from "./hooks/useMyProfile";

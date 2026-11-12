@@ -8,7 +8,7 @@
 
 | 区分 | 内容 |
 | --- | --- |
-| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**種類は0件**）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
+| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**#124の時点で種類は0件**。**#131で`channel_request.submitted`・`.approved`・`.rejected`の3種類を足した**。宛先・文言・移動先は[channel-requests.md](channel-requests.md)）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
 | 作らないもの | 通知の種類（0件）、種類ごとの文言・移動先、理由の列、メール送信、他人宛ての通知を取るAPI（R-57）、「最後のID以降」を取るAPI、作成・既読の監査、スマホ幅のベルのアイコン化 |
 | 後続のIssueが足すもの | 下の「後続のIssueへの申し送り」 |
 
@@ -29,7 +29,7 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`が今は空。後続のIssueはここに1件足す |
+| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`は、#124の時点では空で、#131で3種類（`channel_request.*`。いずれも`containsRoomContent: false`）を足した。後続のIssueはここに1件足す |
 | `backend/db/schema.ts` | `notifications`を追加した。列は`id`・`user_id`（`users.id`を参照）・`kind`・`room_id`・`message_id`・`target_id`・`created_at`・`read_at`。索引は`(user_id, created_at, id)`（一覧）と、`read_at is null`の行だけの`(user_id)`部分索引（未読数） |
 | `backend/db/migrations/0014_add_notifications.sql`、`meta/0014_snapshot.json`、`meta/_journal.json` | 新規テーブルと索引のmigration。`drizzle-kit generate --name add_notifications`で生成し、手で書き換えていない（新規テーブルなので作り直しは起きない） |
 | `backend/db/seeds/cleanup.sql` | `notifications`の削除を足した。`user_id`の外部キーのため、利用者より先に消す |
@@ -130,7 +130,7 @@
 | 閲覧権限を失った通知は消さず、読むときに除外する | C-65の「一覧から除く」を満たしつつ、権限が戻れば再び見える。アーカイブ・復元の通知を`containsRoomContent: false`で残せる |
 | 1件既読も`visibleToRecipient`を通す | 一覧に出ない通知を、IDを直接指定して既読にできてしまうのを防ぐ。読み取りの四つの経路が同じ条件になる |
 | 作成・既読は監査に残さない | 作成は人の操作でなく業務の付随で、既読は本人の閲覧の記録。`logger`のauditの対象に当たらない（既定の方針4）。認可の拒否は`authorize`が記録する |
-| 種類を0件で進める | 既存の機能（#196・#206・#130）は要件に通知の規定がなく、申請・審査・お知らせの依頼・アーカイブは機能が未実装のため。テスト用の種類は本番コードに作らない（テストは型引数で任意の文字列を使う） |
+| 種類を0件で進める（#124の時点） | 既存の機能（#196・#206・#130）は要件に通知の規定がなく、申請・審査・お知らせの依頼・アーカイブは機能が未実装のため。テスト用の種類は本番コードに作らない（テストは型引数で任意の文字列を使う） |
 | 取得に失敗している間は件数を出さない | 誤った件数（古い値・0）を出すと、未読の見落としにつながるため |
 
 ## 個人情報・権限
@@ -184,8 +184,8 @@
 | 項目 | 状態 |
 | --- | --- |
 | 本番のD1へのmigration 0014の適用 | 未実施（利用者の承認が別途必要） |
-| 通知の種類・種類ごとの文言と移動先 | 0件。後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
-| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表） |
+| 通知の種類・種類ごとの文言と移動先 | #124の時点は0件。**#131でチャンネル作成申請の3種類を足した**（[channel-requests.md](channel-requests.md)）。残りは後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
+| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした** |
 | 部屋の閲覧権限による除外（3-1 AC-3） | #133が`visibleToRecipient`に足す |
 | スマホ幅でのベルのアイコン化 | 後続（今は文字のまま） |
 | 理由の列（C-120・C-124） | 使うIssueが足す |
