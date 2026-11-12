@@ -805,11 +805,13 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     const response = await getSession({ cookie: session.token });
     expect(response.status).toBe(200);
     // #196 AC-4（S-12で承認）：部署管理（作成・改名・一覧）の権限 perm.workspace.create が加わる
+    // #131（利用者決定 D）：チャンネル作成の承認（管理メニュー「承認」）の perm.channel.request.approve.owner が加わる
     expect(await response.json()).toMatchObject({
       permissions: [
         "perm.client.manage",
         "perm.account.create",
         "perm.workspace.create",
+        "perm.channel.request.approve.owner",
       ],
     });
   });
@@ -832,6 +834,47 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     });
     const response = await getSession({ cookie: session.token });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ permissions: [] });
+    // #131（利用者決定 D）：オーナーにはチャンネル作成の承認の権限が付くため、管理権限が付かないことを個別に確かめる
+    const { permissions } = (await response.json()) as {
+      permissions: string[];
+    };
+    expect(permissions).not.toContain("perm.client.manage");
+    expect(permissions).not.toContain("perm.account.create");
+    expect(permissions).not.toContain("perm.workspace.create");
+  });
+});
+
+// #131 AC-7（2-2 AC-7・AC-8・AC-10、R-45）：管理メニュー「承認＞チャンネル承認」の表示用に、審査者（全体管理者か、いずれかの部署のオーナー）の
+// セッションへ perm.channel.request.approve.owner を返す。表示の制御であり、認可はサーバー側で申請ごとに行う。
+describe("#131 AC-7: セッションのチャンネル作成の承認の権限", () => {
+  const sessionPermissions = async (user: string) => {
+    const session = await insertSession(user, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: session.token });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { permissions: string[] }).permissions;
+  };
+
+  it("#131 AC-7: 部署のオーナーのセッションは perm.channel.request.approve.owner を返す（オーナーの権限はこれだけ）", async () => {
+    const department = await insertDepartment("チャンネル承認テスト部署");
+    const owner = await insertUser("testuser_chreq_session_owner", department);
+    await insertAssignment(owner, ROLE_IDS.owner, "department", department);
+    expect(await sessionPermissions(owner)).toEqual([
+      "perm.channel.request.approve.owner",
+    ]);
+  });
+
+  it("#131 AC-10: 全体管理者（任命された部署がなくても）のセッションは perm.channel.request.approve.owner を返す", async () => {
+    await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
+    expect(await sessionPermissions(userId)).toContain(
+      "perm.channel.request.approve.owner",
+    );
+  });
+
+  it("#131 AC-7: 一般社員のセッションは perm.channel.request.approve.owner を返さない", async () => {
+    expect(await sessionPermissions(userId)).not.toContain(
+      "perm.channel.request.approve.owner",
+    );
   });
 });

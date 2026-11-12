@@ -8,7 +8,9 @@ import { ReauthProvider } from "./features/auth/ReauthProvider";
 import { HomePage } from "./pages/HomePage";
 import { AccountCreatePage } from "./pages/AccountCreatePage";
 import { AccountsPage } from "./pages/AccountsPage";
+import { ChannelApprovalsPage } from "./pages/ChannelApprovalsPage";
 import { ChannelDetailPage } from "./pages/ChannelDetailPage";
+import { ChannelRequestPage } from "./pages/ChannelRequestPage";
 import { ChannelsPage } from "./pages/ChannelsPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { DepartmentCreatePage } from "./pages/DepartmentCreatePage";
@@ -38,6 +40,16 @@ function DepartmentManageRoute({ create }: { create?: boolean }) {
   if (!session.data.permissions?.includes("perm.workspace.create"))
     return <NotFoundPage />;
   return create ? <DepartmentCreatePage /> : <DepartmentsPage />;
+}
+
+// チャンネル作成の承認（全体管理者かいずれかの部署のオーナー）。セッション確認中は拒否せず待つ。表示の制御であり、認可はサーバーが申請ごとに行う
+function ChannelApprovalsRoute() {
+  const session = useSession();
+  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isError) return null;
+  if (!session.data.permissions?.includes("perm.channel.request.approve.owner"))
+    return <NotFoundPage />;
+  return <ChannelApprovalsPage />;
 }
 
 function AccountManageRoute({ page }: { page: "list" | "create" }) {
@@ -75,6 +87,8 @@ export function App() {
         />
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
+        <Route path="/channel-requests" element={<ChannelRequestPage />} />
+        <Route path="/channel-approvals" element={<ChannelApprovalsRoute />} />
         <Route path="/members" element={<MembersPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

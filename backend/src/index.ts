@@ -8,6 +8,7 @@ import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
 import { adminAccountRoutes } from "./routes/accounts";
 import { authRoutes } from "./routes/auth";
+import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
@@ -34,6 +35,7 @@ export const app = createApp({
     { path: "/api/admin/departments", app: adminDepartmentRoutes() },
     { path: "/api/departments", app: departmentRoutes() },
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
+    { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/channels", app: channelRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
   ],

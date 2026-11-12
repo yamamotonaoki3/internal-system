@@ -7,7 +7,10 @@ export type SessionInfo = {
   mustChangePassword: boolean;
   reauthenticatedAt: string | null;
   permissions?: (
-    "perm.client.manage" | "perm.account.create" | "perm.workspace.create"
+    | "perm.client.manage"
+    | "perm.account.create"
+    | "perm.workspace.create"
+    | "perm.channel.request.approve.owner"
   )[];
 };
 
@@ -35,6 +38,7 @@ const sessionWithPermissionsSchema = sessionInfoSchema.extend({
       "perm.client.manage",
       "perm.account.create",
       "perm.workspace.create",
+      "perm.channel.request.approve.owner",
     ]),
   ),
 });

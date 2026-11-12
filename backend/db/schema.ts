@@ -404,3 +404,68 @@ export const notifications = sqliteTable(
       .where(sql`${t.readAt} is null`),
   ],
 );
+
+// チャンネルの作成申請（#131。2-2）。チャンネルは承認の時に初めて作り、申請の内容はこの表に持つ（承認待ちの間は channels に行がない）。
+// department_id が null なら会社直属。name は整形後、name_normalized は重複判定の比較キー（channelNameKey）。
+// 承認待ち同士の名前の重複は、部分一意索引（status = 'pending'）で拒否する。却下・取り下げ・承認済みの名前は比較から外れる（承認済みは channels 側で拾う）。
+// version は二重決裁の検出用。decided_by は、取り下げでは申請者本人。channel_id は承認で作ったチャンネルの room_id で、
+// 将来の物理削除（2-6 AC-6）を止めないため外部キーにしない。決裁の履歴は、この行の列と監査ログで残す。
+export const channelCreationRequests = sqliteTable(
+  "channel_creation_requests",
+  {
+    id: text("id").primaryKey(),
+    departmentId: text("department_id").references(() => departments.id),
+    name: text("name").notNull(),
+    nameNormalized: text("name_normalized").notNull(),
+    description: text("description").notNull().default(""),
+    visibility: text("visibility", { enum: ["public", "private"] }).notNull(),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "withdrawn"],
+    })
+      .notNull()
+      .default("pending"),
+    version: integer("version").notNull().default(1),
+    decidedBy: text("decided_by").references(() => users.id),
+    decisionReason: text("decision_reason"),
+    channelId: text("channel_id"),
+    requestedAt: text("requested_at").notNull().default(nowUtc),
+    decidedAt: text("decided_at"),
+  },
+  (t) => [
+    check(
+      "channel_creation_requests_visibility_check",
+      sql`${t.visibility} in ('public', 'private')`,
+    ),
+    check(
+      "channel_creation_requests_status_check",
+      sql`${t.status} in ('pending', 'approved', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      "channel_creation_requests_rejected_reason_check",
+      sql`${t.status} <> 'rejected' or ${t.decisionReason} is not null`,
+    ),
+    check(
+      "channel_creation_requests_approved_channel_check",
+      sql`${t.status} <> 'approved' or ${t.channelId} is not null`,
+    ),
+    check(
+      "channel_creation_requests_decided_check",
+      sql`${t.status} = 'pending' or (${t.decidedAt} is not null and ${t.decidedBy} is not null)`,
+    ),
+    uniqueIndex("channel_creation_requests_pending_name_unique")
+      .on(t.nameNormalized)
+      .where(sql`${t.status} = 'pending'`),
+    index("channel_creation_requests_requested_by_id_idx").on(
+      t.requestedBy,
+      t.id,
+    ),
+    index("channel_creation_requests_status_department_id_idx").on(
+      t.status,
+      t.departmentId,
+      t.id,
+    ),
+  ],
+);

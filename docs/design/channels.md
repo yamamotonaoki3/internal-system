@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-2-04（一覧）・EP-2-05（参加）・EP-2-06（詳細）／全社連絡の用意（部分一意インデックスのmigration 0010と、初期データのmigration 0011）／アカウント発行・初回セットアップでの全社連絡と部署の専用チャンネルへの参加／S-09（チャンネルを探す）・詳細画面の入口・サイドバーの「参加中のチャンネル」／監査操作`channel.join`・`channel.company_general_backfill` |
-| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（#131）、非公開チャンネルの招待（2-4 AC-1〜4。#135）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出。なお、お知らせ専用チャンネルの投稿制限（2-3 AC-4）とメッセージは**#201で実装した**（[messages.md](messages.md)） |
+| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（**#131で実装した**。[channel-requests.md](channel-requests.md)）、非公開チャンネルの招待（2-4 AC-1〜4。#135）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出。なお、お知らせ専用チャンネルの投稿制限（2-3 AC-4）とメッセージは**#201で実装した**（[messages.md](messages.md)） |
 | 作らないもの | 退出のAPI（全社連絡にも作らない。Q-2）、新しい権限ID（認証済みの有効な社員であれば足りる。Q-7）、レート制限（上限がX-8で未決定のため入れない。別Issueで扱う。Q-8） |
 
 ## ファイルと役割
@@ -42,7 +42,7 @@
 | `frontend/src/features/channels/hooks/` | `useChannels`（絞り込みごとに別のキャッシュ。カーソルで続きを取る無限スクロール型）・`useJoinedChannels`（`useChannels`に`joined: true`を渡すだけ）・`useChannelDetail`・`useJoinChannel`（成功したら`channelKeys.all`を無効にし、一覧・サイドバー・詳細を取り直す。取り直しが終わるまで送信中のまま） |
 | `frontend/src/features/channels/components/` | `ChannelList`（読み込み中・エラー・なし・ありの4つの状態）・`ChannelSummary`（1行。参加ボタンは参加済みなら出さず、送信中は押せない）・`DepartmentFilter`・`JoinedChannelsSection`（サイドバー用）・`ChannelDetailView`（詳細。#201でS-05になり、`features/messages`の`RoomMessages`を使う。下の「S-05への統合」） |
 | `frontend/src/features/channels/describe-error.ts` | 通信の失敗を利用者向けの文にする。`ApiError`のメッセージはそのまま使い、それ以外は一般的な文にする |
-| `frontend/src/pages/ChannelsPage.tsx`（S-09）・`ChannelDetailPage.tsx` | 画面の構成だけ。API通信は書かない |
+| `frontend/src/pages/ChannelsPage.tsx`（S-09）・`ChannelDetailPage.tsx` | 画面の構成だけ。API通信は書かない。**Issue #131で、S-09に「チャンネルを申請」リンク（`/channel-requests`。S-10への入口）を足した** |
 | `frontend/src/App.tsx` | レイアウトルートの子に`/channels`・`/channels/:channelId`を足した |
 | `frontend/src/features/app-shell/navigation.ts`、`SidebarNav.tsx` | `primaryNavItems`に「チャンネルを探す」を足し、`SidebarNav`の「ここに差し込む」の位置に`JoinedChannelsSection`を1行で差し込んだ（[app-shell.md](app-shell.md)） |
 
@@ -150,7 +150,7 @@
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（お知らせ専用の投稿制限とメッセージは#201で実装） |
+| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（お知らせ専用の投稿制限とメッセージは#201で実装。申請で作るチャンネルは#131で実装） |
 | Q-9：0009で名前が衝突して専用チャンネルが作られなかった部署の扱い | 未決。このIssueでは何も作らない。デモの前に、`audit_logs`の`department.channel_backfill`と`channel.company_general_backfill`の`failure`の有無を確かめる |
 | 全社連絡の退出 | APIを作っていない。全社連絡から外れる経路はない |
 | レート制限（EP-2-04〜06） | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)） |
@@ -161,6 +161,7 @@
 
 - Issue #200：本Issue。親Issue #132。#201（メッセージ。`channel.repository`・EP-2-06・S-05が重なる）が後続。#201で実装済み（[messages.md](messages.md)）
 - [department-management.md](department-management.md)（#196。`rooms`・`channels`・`channel_members`の約束）、[accounts.md](accounts.md)（#199）
+- [channel-requests.md](channel-requests.md)（#131）：通常のチャンネルは、申請の承認の時に初めて作られる（`rooms`→`channels`→`channel_members`を承認の`db.batch`で作る。承認待ちの間は`channels`に行がないため、このIssueの一覧・詳細・参加には出ない）。申請の名前の重複は、`channels.name_normalized`（アーカイブ済みを含む）と、承認待ちの申請が対象
 - ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0020：ミューテーション・E2Eの実行範囲
 - [ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)：全社連絡を補う手作成migrationの例外
 - 要件：2-1 AC-16・17、0-1 AC-15、2-3 AC-1・2、S-09。決定記録C-94・C-95・C-163

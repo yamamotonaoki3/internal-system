@@ -112,6 +112,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 - 無効化された利用者（`is_active`が偽）のセッションは使えない
 - 使えないCookie（失効・期限切れ・偽物）が付いてきたときは、`loadSession`がCookieを削除する。ただし`POST /api/auth/logout`では、失効が確定した後にハンドラが消す（DBの失敗で500のときにCookieを消さないため）
 - `GET /api/auth/session`とログイン成功応答は`SessionInfo`を返す。`user`にはID・表示名・社員IDを含み、`reauthenticatedAt`はログイン直後・未再認証では`null`、再認証済みならUTC ISO 8601時刻になる。未ログインのsession確認は401`UNAUTHENTICATED`。
+- `GET /api/auth/session`の`permissions`は、管理メニューの表示の制御に使う権限IDの一覧（`backend/src/routes/auth.ts`）。取引先管理・アカウント管理・部署管理の権限に加えて、**Issue #131で`perm.channel.request.approve.owner`を足した**。全体管理者と、いずれかの部署のオーナーに載る（`authorizer.ts`の`canReviewChannelRequests`。中で`reviewerFactsOf`を使い、`resolvePermissions`と同じ条件にする）。部署のオーナーに載るのはこの権限だけで、取引先管理などの権限は載らない。これは表示の制御であり、認可はサーバーが申請ごとに行う（[channel-requests.md](channel-requests.md)）
 
 ### ログアウト
 

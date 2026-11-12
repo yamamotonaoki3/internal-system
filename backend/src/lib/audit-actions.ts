@@ -19,6 +19,10 @@ export const AUDIT_ACTIONS = [
   "channel.company_general_backfill",
   "status.proxy_set",
   "profile.display_name_change",
+  "channel_request.create",
+  "channel_request.approve",
+  "channel_request.reject",
+  "channel_request.withdraw",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
