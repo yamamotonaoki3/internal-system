@@ -8,7 +8,7 @@
 //  - 画面幅が 768px 以上に変わったら hidePopover を呼び、フォーカスがメニューの中・起動ボタンにあれば #main-content に移す
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fireToggle,
   findHome,
@@ -18,6 +18,7 @@ import {
   SHELL_USER,
   type DomStubs,
 } from "../../test/app-shell-harness";
+import { respondProfileWorld } from "../../test/profile-handlers";
 import { respondLoggedOut } from "../../test/auth-handlers";
 import { server } from "../../test/server";
 
@@ -185,5 +186,98 @@ describe("#130 AC-2 AvatarMenu の項目", () => {
         .getByRole("button", { name: AVATAR_NAME })
         .getAttribute("aria-expanded"),
     ).toBe("false");
+  });
+});
+
+// #229 AC-1：メニューの中のリンクで画面を移ると、popover を閉じる（開閉の実際の動作は e2e/app-shell.spec.ts）。
+// jsdom では hidePopover はスタブ。実ブラウザが hidePopover の後に出す toggle（newState=closed）は fireToggle で模す。
+describe("#229 AC-1 画面遷移でアバターメニューを閉じる", () => {
+  it("#229 AC-1: 開いて「プロフィール設定」で /profile へ移ると、hidePopover が呼ばれ、aria-expanded が false になる", async () => {
+    const { user, avatar, panel } = await renderMenu();
+    fireToggle(panel, "open");
+    await waitFor(() =>
+      expect(avatar.getAttribute("aria-expanded")).toBe("true"),
+    );
+    expect(stubs.hidePopover).not.toHaveBeenCalled();
+    await user.click(
+      within(panel).getByRole("link", { name: "プロフィール設定" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("path").textContent).toBe("/profile"),
+    );
+    await waitFor(() => expect(stubs.hidePopover).toHaveBeenCalledTimes(1));
+    fireToggle(panel, "closed");
+    await waitFor(() =>
+      expect(avatar.getAttribute("aria-expanded")).toBe("false"),
+    );
+  });
+
+  it("#229 AC-1: 開いて「パスワードを変更」で /password へ移ると、hidePopover が呼ばれ、aria-expanded が false になる", async () => {
+    const { user, avatar, panel } = await renderMenu();
+    fireToggle(panel, "open");
+    await waitFor(() =>
+      expect(avatar.getAttribute("aria-expanded")).toBe("true"),
+    );
+    await user.click(
+      within(panel).getByRole("link", { name: "パスワードを変更" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("path").textContent).toBe("/password"),
+    );
+    await waitFor(() => expect(stubs.hidePopover).toHaveBeenCalledTimes(1));
+    fireToggle(panel, "closed");
+    await waitFor(() =>
+      expect(avatar.getAttribute("aria-expanded")).toBe("false"),
+    );
+  });
+
+  it("#229 AC-1: 遷移して閉じるとき、メニュー内にあったフォーカスは #main-content に移る", async () => {
+    const { user, panel } = await renderMenu();
+    fireToggle(panel, "open");
+    await user.click(
+      within(panel).getByRole("link", { name: "プロフィール設定" }),
+    );
+    await waitFor(() => expect(stubs.hidePopover).toHaveBeenCalled());
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+
+  it("#229 AC-1: 場所が変わらない操作（ステータスの切り替え）では閉じない", async () => {
+    const world = respondProfileWorld();
+    const { user, panel } = await renderMenu();
+    fireToggle(panel, "open");
+    await user.click(within(panel).getByRole("button", { name: /外出/ }));
+    await waitFor(() => expect(world.patchBodies).toHaveLength(1));
+    expect(screen.getByTestId("path").textContent).toBe("/");
+    expect(stubs.hidePopover).not.toHaveBeenCalled();
+  });
+
+  it("#229 AC-1: 場所が変わっていない初回表示では、popover が開いて見えても hidePopover を呼ばない（場所の変化だけで閉じる）", async () => {
+    // pathname の比較を外すと、初回表示の effect が開いている popover を閉じてしまう。開いた状態を :popover-open で模して確かめる
+    const originalMatches = Element.prototype.matches;
+    const spy = vi
+      .spyOn(Element.prototype, "matches")
+      .mockImplementation(function (this: Element, selector: string) {
+        return selector === ":popover-open"
+          ? true
+          : originalMatches.call(this, selector);
+      });
+    try {
+      await renderMenu();
+      expect(stubs.hidePopover).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("#229 AC-1: 開いていないときの画面遷移では hidePopover を呼ばない", async () => {
+    const { user, panel } = await renderMenu();
+    // popover が閉じていても、リンクは DOM にあり操作できる（jsdom）
+    await user.click(
+      within(panel).getByRole("link", { name: "プロフィール設定" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("path").textContent).toBe("/profile"),
+    );
+    expect(stubs.hidePopover).not.toHaveBeenCalled();
   });
 });
