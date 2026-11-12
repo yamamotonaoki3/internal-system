@@ -25,15 +25,17 @@ import {
   ANY_DM_BUTTON,
   DM_DEPT,
   dmDetail,
+  dmItem,
   dmRoomId,
   partnerId,
   partnerName,
+  respondDmPosts,
   respondDms,
 } from "../../test/dm-handlers";
 import { message, respondMessages } from "../../test/message-handlers";
 import { member, respondProfileWorld } from "../../test/profile-handlers";
 import { server } from "../../test/server";
-import { DmView } from "./index";
+import { DmSection, DmView } from "./index";
 
 const ROOM = dmRoomId(1);
 const NAME = partnerName(1);
@@ -297,5 +299,191 @@ describe("#136 AC-1（1-2 AC-1〜AC-3）やり取りと状態", () => {
     expect((await screen.findByRole("status")).textContent).toContain(
       "読み込み中",
     );
+  });
+});
+
+const NOTICE_409 = "相手のアカウントが無効になったため、送信できませんでした";
+
+// 一覧（GET /api/dms）の取り直しを要求の回数で確かめるため、サイドバー（DmSection）を並べて出す
+function renderViewWithSidebar() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[`/dms/${ROOM}`]}>
+        <nav aria-label="テスト用サイドバー">
+          <DmSection linkClassName={() => ""} />
+        </nav>
+        <DmView roomId={ROOM} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  client.setQueryData(["unrelated-probe"], "[UNIT_TEST]別のデータ");
+  return client;
+}
+
+function send(text: string) {
+  fireEvent.change(screen.getByRole("textbox", { name: "メッセージ" }), {
+    target: { value: text },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "送信" }));
+}
+
+describe("#136 AC-1（1-2 AC-2）404 の表示（生存した変異体の追加）", () => {
+  it("#136 AC-1（1-2 AC-2）: 詳細が 404 なら、API のメッセージではなく「この DM は見つかりません」を出し、エラー（role=alert）としては出さない", async () => {
+    respondMessages([]);
+    server.use(
+      http.get("/api/dms/:roomId", () =>
+        HttpResponse.json(
+          { code: "NOT_FOUND", message: "[UNIT_TEST]別の文言" },
+          { status: 404 },
+        ),
+      ),
+    );
+    renderView();
+    expect(await screen.findByText("この DM は見つかりません")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("[UNIT_TEST]別の文言")).toBeNull();
+  });
+});
+
+describe("#136 AC-1（1-2 AC-1・AC-6）相手の部署・お知らせの表示（生存した変異体の追加）", () => {
+  it("#136 AC-1（1-2 AC-1）: 部署が無い相手は「所属なし」を出す", async () => {
+    respondMessages([]);
+    respondDms({ details: [dmDetail(1, { partner: { department: null } })] });
+    renderView();
+    expect(await screen.findByText("所属なし")).toBeDefined();
+    expect(partnerButton()).not.toBeNull();
+  });
+
+  it("#136 AC-1（1-2 AC-1）: 部署がある相手には「所属なし」を出さない", async () => {
+    respondMessages([]);
+    respondDms({ details: [dmDetail(1)] });
+    renderView();
+    expect(await screen.findByText(DM_DEPT.name)).toBeDefined();
+    expect(screen.queryByText("所属なし")).toBeNull();
+  });
+
+  it("#136 AC-3（C-168(2)）: 何も送っていない間は、送信できなかったお知らせ（role=alert）を出さない", async () => {
+    respondMessages([]);
+    respondDms({ details: [dmDetail(1)] });
+    renderView();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(NOTICE_409)).toBeNull();
+  });
+
+  it("#136 AC-1（1-2 AC-6）: 相手が有効なら、相手のメッセージの投稿者（一覧の中）に「退職者」を併記しない", async () => {
+    respondMessages([fromPartner(1, "[E2E_TEST]有効な相手")]);
+    respondDms({ details: [dmDetail(1)] });
+    renderView();
+    const log = await screen.findByRole("log");
+    await within(log).findByText("[E2E_TEST]有効な相手");
+    expect(log.textContent).toContain(NAME);
+    expect(log.textContent).not.toContain("退職者");
+  });
+});
+
+describe("#136 AC-3（C-168(2)）投稿の失敗と取り直し（生存した変異体の追加）", () => {
+  it("#136 AC-3（C-168(2)）: 409 以外の失敗（500）では、「相手が無効になった」お知らせを出さず、詳細も一覧も取り直さない", async () => {
+    respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        HttpResponse.json(
+          { code: "INTERNAL", message: "一時的なエラーが発生しました" },
+          { status: 500 },
+        ),
+      ),
+    );
+    renderViewWithSidebar();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    await screen.findByRole("link", { name: partnerName(1) });
+    const detailBefore = world.detailRequests.length;
+    const listBefore = world.listRequests.length;
+    send("[E2E_TEST]失敗する投稿");
+    expect(
+      await screen.findByText("一時的なエラーが発生しました"),
+    ).toBeDefined();
+    expect(screen.queryByText(NOTICE_409)).toBeNull();
+    expect(world.detailRequests.length).toBe(detailBefore);
+    expect(world.listRequests.length).toBe(listBefore);
+    expect(box()).not.toBeNull();
+  });
+
+  it("#136 AC-3（C-168(2)）: 409 のあと、詳細（GET /api/dms/:roomId）と一覧（GET /api/dms）を取り直す。DM と関係のないデータは取り直し対象にしない", async () => {
+    respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        HttpResponse.json(
+          { code: "CONFLICT", message: "送信できませんでした" },
+          { status: 409 },
+        ),
+      ),
+    );
+    const client = renderViewWithSidebar();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    await screen.findByRole("link", { name: partnerName(1) });
+    const detailBefore = world.detailRequests.length;
+    const listBefore = world.listRequests.length;
+    send("[E2E_TEST]届かない投稿");
+    await screen.findByText(NOTICE_409);
+    await waitFor(() =>
+      expect(world.detailRequests.length).toBeGreaterThan(detailBefore),
+    );
+    await waitFor(() =>
+      expect(world.listRequests.length).toBeGreaterThan(listBefore),
+    );
+    expect(client.getQueryState(["unrelated-probe"])?.isInvalidated).toBe(
+      false,
+    );
+  });
+
+  it("#136 AC-1（1-2 AC-1）: 投稿に成功したあと、DM の一覧は取り直すが、詳細は取り直さない。DM と関係のないデータは取り直し対象にしない", async () => {
+    const messages = respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    respondDmPosts(world, messages);
+    const client = renderViewWithSidebar();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    await screen.findByRole("link", { name: partnerName(1) });
+    const detailBefore = world.detailRequests.length;
+    const listBefore = world.listRequests.length;
+    send("[E2E_TEST]届く投稿");
+    await waitFor(() => expect(messages.posts).toEqual(["[E2E_TEST]届く投稿"]));
+    await waitFor(() =>
+      expect(world.listRequests.length).toBeGreaterThan(listBefore),
+    );
+    expect(world.detailRequests.length).toBe(detailBefore);
+    expect(client.getQueryState(["unrelated-probe"])?.isInvalidated).toBe(
+      false,
+    );
+  });
+
+  it("#136 AC-3（C-168(2)）: 409 のお知らせは、その後の投稿が成功したら消える", async () => {
+    const messages = respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    respondDmPosts(world, messages);
+    // 1回目だけ 409（詳細は canPost のままなので入力欄は開いたまま）。2回目は成功する
+    server.use(
+      http.post(
+        "/api/rooms/:roomId/messages",
+        () =>
+          HttpResponse.json(
+            { code: "CONFLICT", message: "送信できませんでした" },
+            { status: 409 },
+          ),
+        { once: true },
+      ),
+    );
+    renderView();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    send("[E2E_TEST]1回目");
+    await screen.findByText(NOTICE_409);
+    await waitFor(() => expect(box()).not.toBeNull());
+    send("[E2E_TEST]2回目");
+    await waitFor(() => expect(messages.posts).toEqual(["[E2E_TEST]2回目"]));
+    await waitFor(() => expect(screen.queryByText(NOTICE_409)).toBeNull());
   });
 });

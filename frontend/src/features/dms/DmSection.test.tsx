@@ -316,6 +316,13 @@ describe("#136 AC-1（1-2 AC-5・AC-6）DmList（/dms）", () => {
     );
   });
 
+  it("#136 AC-1（1-2 AC-5）: DM ごとのリンクには、リンクとして見える見た目の指定（クラス）が付く（何も付けず素の表示にしない）", async () => {
+    respondDms({ items: [dmItem(1)] });
+    renderWith(<DmList />);
+    const link = await screen.findByRole("link", { name: partnerName(1) });
+    expect(link.className.trim()).not.toBe("");
+  });
+
   it("#136 AC-1（1-2 AC-5）: 0件なら「ありません」を含む文を出す", async () => {
     respondDms({ items: [] });
     renderWith(<DmList />);
