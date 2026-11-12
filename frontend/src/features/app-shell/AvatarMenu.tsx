@@ -22,6 +22,23 @@ const AVATAR_MENU_ID = "avatar-menu";
 
 const AvatarMenuContext = createContext<{ expanded: boolean } | null>(null);
 
+// 開いていれば閉じ、フォーカスが失われる場合だけ本文へ移す
+function closeAndRestoreFocus(panel: HTMLElement | null, tracked: boolean) {
+  // toggle イベントは非同期で届くため、開いた直後に幅が変わると追跡が遅れる。その分は :popover-open で補う
+  if (panel === null) return;
+  if (!tracked && !panel.matches(":popover-open")) return;
+  panel.hidePopover();
+  const active = document.activeElement;
+  const focusLost =
+    active === null ||
+    active === document.body ||
+    (active instanceof HTMLElement &&
+      (panel.contains(active) ||
+        active.getAttribute("popovertarget") === AVATAR_MENU_ID));
+  // 他の有効な要素にフォーカスがあるときは奪わない
+  if (focusLost) focusMainContent();
+}
+
 export function AvatarMenuProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
@@ -40,24 +57,20 @@ export function AvatarMenuProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const query = window.matchMedia(DESKTOP_QUERY);
     function handleChange() {
-      const panel = panelRef.current;
-      // toggle イベントは非同期で届くため、開いた直後に幅が変わると追跡が遅れる。その分は :popover-open で補う
-      if (panel === null) return;
-      if (!openRef.current && !panel.matches(":popover-open")) return;
-      panel.hidePopover();
-      const active = document.activeElement;
-      const focusLost =
-        active === null ||
-        active === document.body ||
-        (active instanceof HTMLElement &&
-          (panel.contains(active) ||
-            active.getAttribute("popovertarget") === AVATAR_MENU_ID));
-      // 他の有効な要素にフォーカスがあるときは奪わない
-      if (focusLost) focusMainContent();
+      closeAndRestoreFocus(panelRef.current, openRef.current);
     }
     query.addEventListener("change", handleChange);
     return () => query.removeEventListener("change", handleChange);
   }, []);
+
+  // メニュー内のリンクで画面が変わっても popover は残るため、場所が変わったら閉じる（初回表示では何もしない）
+  const pathname = location.pathname;
+  const previousPathname = useRef(pathname);
+  useEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    closeAndRestoreFocus(panelRef.current, openRef.current);
+  }, [pathname]);
 
   return (
     <AvatarMenuContext value={{ expanded }}>

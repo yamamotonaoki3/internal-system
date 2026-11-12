@@ -246,6 +246,23 @@ test("#121 AC-1: アバターメニューの外側をクリックすると閉じ
   await expect(logoutButton(page)).toHaveCount(0);
 });
 
+test("#229 AC-1: アバターメニューの「プロフィール設定」で画面を移ると、メニューが閉じる（パソコン幅）", async ({
+  page,
+}) => {
+  await openHome(page, SIZES.desktop);
+  const avatar = page.getByRole("button", { name: AVATAR_NAME });
+  await avatar.click();
+  await expect(logoutButton(page)).toBeVisible();
+  await page.getByRole("link", { name: "プロフィール設定" }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "プロフィール設定" }),
+  ).toBeVisible();
+  await expect(logoutButton(page)).not.toBeVisible();
+  await expect(avatar).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#main-content")).toBeFocused();
+});
+
 test("#121 AC-1: アバターメニューは、ヘッダー・サイドバー・本文より手前に出る（最前面）", async ({
   page,
 }) => {

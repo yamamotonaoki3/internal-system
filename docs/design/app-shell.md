@@ -152,6 +152,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 - `role="menu"`と`aria-haspopup`は**使わない**。`role="menu"`にすると矢印キーで項目を移る約束を作る必要があるが、中身はTabで操作するボタンだけのため。付けるのは`aria-expanded`・`aria-controls`・ボタンの名前（ヘッダーは「アカウントメニュー（{表示名}）」、下部メニューは「自分」）
 - ヘッダーのアバターと下部メニューの「自分」は、`AvatarMenuProvider`が持つ**同じ1つのpopover**を開く。開閉状態（`aria-expanded`）は、popoverの`toggle`イベントで更新する
 - 開いたまま768pxの境界を越えたとき（どちらの向きでも）、起動したボタンが非表示になる。popoverを閉じ（`hidePopover`）、フォーカスがメニューの中・起動ボタン・`body`にあれば`#main-content`に移す。他の有効な要素にフォーカスがあるときは奪わない。「閉じたら必ず起動ボタンへ戻る」とは書かない（ネイティブの復帰動作に任せ、外側クリックで閉じたときはクリックした先を尊重する）
+- 画面遷移（`location.pathname`の変化）でも、同じ処理で閉じる（Issue #229）。メニュー内のリンクで移ってもpopoverが残るため。幅の境界の処理と画面遷移の`useEffect`の両方が、`AvatarMenu.tsx`の`closeAndRestoreFocus`（開いていれば`hidePopover`し、フォーカスが失われる場合だけ`#main-content`へ移す）を呼ぶ。初回表示では何もしない。`aria-expanded`は`toggle`イベントに任せる
 
 ## ドロワー
 
