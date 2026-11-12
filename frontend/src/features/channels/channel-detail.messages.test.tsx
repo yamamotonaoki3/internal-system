@@ -8,10 +8,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { respondShellUser } from "../../test/app-shell-harness";
 import { message, respondMessages } from "../../test/message-handlers";
 import { server } from "../../test/server";
 import { ChannelDetailView } from "./components/ChannelDetailView";
+
+// #136：S-05 の参加者の「DMを送る」を自分に出さないため、ChannelDetailView がセッション（GET /api/auth/session）を取る。
+// 想定外の要求を残さないよう、ログイン済み（testuser_001）の応答を、各テストの前に用意する（確かめる内容は変えない）
+beforeEach(() => {
+  respondShellUser();
+});
 
 const ID = "01JTESTROOM00000000000R001";
 

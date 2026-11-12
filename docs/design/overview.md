@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。2026-11-12に、Issue #136でダイレクトメッセージ（S-06）を実装した（[dms.md](dms.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -55,6 +55,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | 連番の採番（案件番号など） | 1文の`INSERT ... ON CONFLICT DO UPDATE ... RETURNING`で採番する（読む・足す・返すが1文で完結する）。ローカルで20件を同時に発行して重複しなかった。ユニーク制約を最後の守りにする。欠番は再利用しない（C-122） |
 | FTS5を含むDBのエクスポート不可 | C-127で定期エクスポートを設けないため衝突しない。手動エクスポートは、仮想テーブルを削除して書き出し、`'rebuild'`で索引を作り直す（ADR-0010） |
 | 一意性の最後の守り | ユーザーIDの正規化値、チャンネル名の大文字小文字を区別しない重複、`direct_key`、案件番号は、アプリの確認に加えて、DBの一意索引を置く |
+| 他の表から参照される表の作り直し（CHECKだけを変える等） | D1では`PRAGMA foreign_keys=OFF`が効かず、生成された作り直しは外部キー違反で失敗する。`rooms`（Issue #136の migration 0016）は、PRAGMAの2行だけを`defer_foreign_keys`に置き換えて通した（ADR-0025。0016の1本だけの例外。使い捨てのD1でのリハーサルが条件。ほかの表をまた作り直すときは利用者に戻す） |
 
 ## 索引の候補
 
@@ -65,6 +66,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `messages` | （ルーム, ID）【Issue #201で`messages_room_id_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果はIssueに記録】。スレッド用に（親メッセージ, ID）は未作成 | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
 | `read_positions` | 主キー（ユーザー, ルーム） | 未読の判定。ユーザーの全ルームをまとめて引く |
 | `channel_members` / `case_participants` | （ユーザー, 状態）など | サイドバー、見られる範囲の判定 |
+| `conversation_members` | （ユーザー）【Issue #136で`conversation_members_user_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果は[dms.md](dms.md)】。複合主キー（会話, ユーザー） | 自分のDMの一覧、当事者か |
 | `audit_logs` | （発生日時, ID）。絞り込み列は使われ方を見て追加 | 監査ログの絞り込みとページ送り、1年保持の掃除 |
 | `sessions` | 主キー（ID＝トークンのハッシュ）。（ユーザー, 作成日時）【Issue #120で確定した索引】 | 認証、全端末の失効、掃除 |
 | `login_attempts` | 主キー（種別, キー）。（最終更新日時）【Issue #120で確定した索引。掃除用】 | 試行制限、掃除 |
@@ -115,6 +117,10 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/src/routes/channel-requests.ts`、`backend/src/services/channel-request.service.ts`、`backend/src/db/channel-request.repository.ts`、`backend/src/lib/channel-request-rules.ts`、`shared/channel-name-rules.ts` | チャンネルの作成申請・自分の申請・審査一覧・承認・却下・取り下げ（Issue #131）。`channelRequestRoutes`を`backend/src/index.ts`で`/api/channel-requests`へ登録。判定の順番（審査者の門 → 再認証 → 範囲 → 条件 → 決裁済み）はService、認可の判定と通知の宛先は`channel-request-rules.ts`の純粋関数、1操作＝1回の`db.batch`。名前の規則は`shared/`が定義元。`authorizer.ts`の`reviewerFactsOf`・`canReviewChannelRequests`がセッションの`permissions`に使われる。詳細は[channel-requests.md](channel-requests.md) |
 | `backend/db/migrations/0015_add_channel_creation_requests.sql` | `channel_creation_requests`テーブルと索引3つ（Issue #131）。承認待ちの名前の部分一意索引。`channel_id`は外部キーにしない |
 | `frontend/src/features/channel-requests/`、`frontend/src/pages/ChannelRequestPage.tsx`・`ChannelApprovalsPage.tsx` | S-10（申請と自分の申請・取り下げ）・S-11（審査一覧・承認・却下）（Issue #131）。管理メニュー「承認＞チャンネル承認」、S-09の「チャンネルを申請」リンク。詳細は[channel-requests.md](channel-requests.md) |
+| `backend/src/routes/dms.ts`、`backend/src/services/dm.service.ts`、`backend/src/db/conversation.repository.ts`、`backend/src/db/conversation-list.sql.ts`、`backend/src/lib/dm-rules.ts` | DM（1対1）の開始・一覧・詳細（Issue #136）。`dmRoutes`を`backend/src/index.ts`で`/api/dms`へ登録。判定の順（開始：権限 → 自分宛て → 相手なし → 無効な相手、詳細：形 → 当事者か → 権限）はService、部屋・会話・当事者2人の作成は1回の`db.batch`、同時作成は`direct_key`の一意制約で1つにまとめる。一覧はDAO＋Zod。`directKeyOf`は2人の組を一意にするキーの純粋関数。詳細は[dms.md](dms.md) |
+| `backend/db/migrations/0016_change_room_kind_to_direct.sql`、`0017_add_conversations.sql` | `rooms.kind`を`direct`に置き換える作り直し（ADR-0025の例外：PRAGMAの2行を`defer_foreign_keys`に置き換えた手書き変更。0016の1本だけ）と、`conversations`・`conversation_members`の表（Issue #136） |
+| `shared/search-rules.ts` | 検索語の定義元（前後の空白を除いて1〜100文字。`SEARCH_KEYWORD_MAX_LENGTH`・`searchKeywordSchema`）。社員一覧の`q`の検証と、画面の検索欄が参照する（Issue #136） |
+| `frontend/src/features/dms/`、`frontend/src/pages/DmsPage.tsx`・`DmNewPage.tsx`・`DmPage.tsx` | S-06（DMの画面）・相手の選択`/dms/new`・一覧`/dms`・サイドバーの`DmSection`・「DMを送る」（`StartDmButton`）（Issue #136）。`features/members`・`features/messages`・`features/profile`・`features/channels`に、機能の境界を保つ差し込み口（任意のprops）を足した。詳細は[dms.md](dms.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
@@ -157,6 +163,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | プロフィール・社員一覧・ステータス（S-19・S-20・S-27・ヘッダーのボタン。ステータス5列と索引（migration 0013）、PATCHの検証と戻り予定の規則、代理設定を対象者の部署の範囲で認可する流れと`canForDepartments`、表示名の監査と自分への代理設定の監査、本名を復号する経路は2つだけ、一覧のカーソル、取り直しの方針、分割・未実施の記録） | [profile-status.md](profile-status.md) | #130（親 #109）、ADR-0024・0012 |
 | 通知の土台（S-14・ヘッダーの通知・下部メニュー。通知の表と索引（migration 0014）、業務の`db.batch`に入れる作成の部品、宛先の絞り込みは呼び出し側の責務、読み取りの条件`visibleToRecipient`と`containsRoomContent`、一覧のカーソル・未読数の打ち切り・既読、後続のIssueへの申し送り、`kind`にCHECKを付けない理由、未実施の記録） | [notifications.md](notifications.md) | #124（親 #109）、ADR-0004・0006・0012・0024 |
 | チャンネルの作成申請と承認（S-10・S-11。申請専用のテーブルに持ち承認で初めてチャンネルを作る決定、判定の順番と404・403の分け方、`db.batch`の文の順序と失敗の409への変換、名前の規則、通知3種類と宛先、監査、取り下げ、既知の差、未実施の記録） | [channel-requests.md](channel-requests.md) | #131（親 #111）、ADR-0006・0012・0020、C-167 |
+| ダイレクトメッセージ（S-06・相手の選択・DM一覧・サイドバーの欄・「DMを送る」。表の構成と`rooms.kind`の置き換え（migration 0016・0017。ADR-0025）、判定の順（当事者か → 権限 → 相手が有効か）と404・403・409、`insertIfOrdered`のDMの条件、同時作成の扱い、一覧のカーソル、取り直しの時機、機能の境界を保つ差し込み口、`q`を`instr`にした理由、未実施の記録） | [dms.md](dms.md) | #136（親 #133）、ADR-0004・0006・0012・0020・0025、C-168 |
 
 ## 関係する文書
 

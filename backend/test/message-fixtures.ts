@@ -88,17 +88,20 @@ export async function messageCount(roomId: string): Promise<number> {
   return (await messageIds(roomId)).length;
 }
 
-const conversationRooms: string[] = [];
+const directRooms: string[] = [];
 
-/** チャンネルではない部屋（DM。kind='conversation'）を作る */
-export async function insertConversationRoom(): Promise<string> {
-  const id = testId("CONV");
+/**
+ * チャンネルではない部屋（DM。kind='direct'。#136 C-168(1)）だけを作る。会話（conversations）・当事者の行は作らない。
+ * 当事者のいる DM は dm-fixtures の insertDm を使う。
+ */
+export async function insertDirectRoom(): Promise<string> {
+  const id = testId("DIRECT");
   await env.DB.prepare(
-    "INSERT INTO rooms (id, kind, created_at) VALUES (?, 'conversation', ?)",
+    "INSERT INTO rooms (id, kind, created_at) VALUES (?, 'direct', ?)",
   )
     .bind(id, MESSAGE_TEST_NOW)
     .run();
-  conversationRooms.push(id);
+  directRooms.push(id);
   return id;
 }
 
@@ -112,7 +115,7 @@ export async function cleanupMessageTestData() {
   const taggedRooms =
     "SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE ?1) OR name LIKE ?1";
   const tagged = `${TEST_TAG}%`;
-  const rooms = conversationRooms.splice(0);
+  const rooms = directRooms.splice(0);
   await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM messages WHERE sender_id IN (${testUsers}) OR room_id IN (${taggedRooms})`,

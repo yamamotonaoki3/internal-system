@@ -151,7 +151,7 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 
 | 項目 | 決まり |
 | --- | --- |
-| `rooms` | チャンネルとDMの共通の入れ物。`kind`は`channel`か`conversation`。#201は`messages.room_id`を`rooms.id`に結ぶ |
+| `rooms` | チャンネルとDMの共通の入れ物。`kind`は`channel`か`conversation`【C-168により、`channel`か`direct`に置き換えた（Issue #136。ADR-0025）。元の記述は残す】。#201は`messages.room_id`を`rooms.id`に結ぶ |
 | `channels.department_id` | NULLは会社直属。部署のチャンネルはその部署のID |
 | `channels.purpose` | `normal`（通常）・`department`（部署の専用）・`announcement`（部署のお知らせ専用）・`company_general`（全社連絡。会社直属）・`case`（案件専用。**値の予約だけで、案件のテーブルや行は作らない**） |
 | CHECK | `department`・`announcement`は`department_id`が必須かつ公開。`company_general`は`department_id`がNULL |

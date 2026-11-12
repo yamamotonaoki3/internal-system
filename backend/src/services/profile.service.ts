@@ -170,6 +170,7 @@ export function createProfileService(
       actor: ProfileActor,
       options: {
         departmentId?: string;
+        keyword?: string;
         limit: number;
         cursor?: CursorPayload;
       },

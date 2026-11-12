@@ -71,7 +71,16 @@
     "frontend/src/features/notifications/api/*.ts",
     "frontend/src/features/notifications/hooks/*.ts",
     "frontend/src/features/notifications/notification-views.ts",
-    "!**/*.test.ts"
+    "shared/search-rules.ts",
+    "backend/src/lib/dm-rules.ts",
+    "backend/src/db/conversation.repository.ts",
+    "backend/src/db/conversation-list.sql.ts",
+    "backend/src/routes/dms.ts",
+    "frontend/src/features/dms/**/*.ts",
+    "frontend/src/features/dms/**/*.tsx",
+    "frontend/src/features/members/MemberSearchField.tsx",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "reporters": ["clear-text", "html"],
   "thresholds": { "break": 80 }

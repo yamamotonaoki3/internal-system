@@ -2,6 +2,7 @@
 // 後続のIssueが足す場所：データを取るセクションは、下の「ここに差し込む」の位置に機能の部品を1行で足す。固定のリンクは navigation.ts に足す。
 import { NavLink } from "react-router";
 import { JoinedChannelsSection } from "../channels";
+import { DmSection } from "../dms";
 import { useSession } from "../auth/hooks/useSession";
 import { AdminMenu } from "./AdminMenu";
 import { NAV_LINK_CLASSES } from "./nav-link-classes";
@@ -23,6 +24,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         linkClassName={navLinkClassName}
         onNavigate={onNavigate}
       />
+      <DmSection linkClassName={navLinkClassName} onNavigate={onNavigate} />
       <ul>
         {primaryNavItems.map((item) => (
           <li key={item.id}>

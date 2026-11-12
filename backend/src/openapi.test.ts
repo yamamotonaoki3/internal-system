@@ -10,6 +10,7 @@ import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
+import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
@@ -44,6 +45,8 @@ const app = createApp({
     { path: "/api/me/notifications", app: notificationRoutes() },
     // #131：チャンネルの作成申請・自分の申請・審査一覧・承認・却下・取り下げ。index.ts と同じパスに組み込む
     { path: "/api/channel-requests", app: channelRequestRoutes() },
+    // #136：DM の開始・一覧・詳細。index.ts と同じパスに組み込む
+    { path: "/api/dms", app: dmRoutes() },
   ],
 });
 
@@ -224,6 +227,50 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
+  it("#136 AC-1・AC-3（C-168(2)・(4)・(5)・(7)）: DM の開始・一覧・詳細と、メッセージの DM の枝の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/dms": ["200", "401", "403", "404", "422"],
+      "GET /api/dms": ["200", "401", "403", "422"],
+      "GET /api/dms/{roomId}": ["200", "401", "403", "404", "422"],
+      // DM の一覧は perm.dm.message.view の拒否で 403、投稿は相手が無効なら 409（C-168(2)）
+      "GET /api/rooms/{roomId}/messages": ["200", "401", "403", "404", "422"],
+      "POST /api/rooms/{roomId}/messages": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+
+  it("#136 C-168(3): GET /api/users は、表示名の検索 q（1〜100文字）をクエリに書いている", () => {
+    const parameters = (
+      spec.paths["/api/users"].get as {
+        parameters?: {
+          name: string;
+          in: string;
+          schema?: { minLength?: number; maxLength?: number };
+        }[];
+      }
+    ).parameters;
+    const q = parameters?.find((p) => p.name === "q" && p.in === "query");
+    expect(q).toBeDefined();
+    expect(q?.schema?.minLength).toBe(1);
+    expect(q?.schema?.maxLength).toBe(100);
+  });
+
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
     expect(operations.map((o) => o.name).sort()).toEqual(actual);
   });

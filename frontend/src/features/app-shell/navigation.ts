@@ -27,6 +27,9 @@ export const notificationsNavItem: NavItem = {
   to: "/notifications",
 };
 
+// DM（S-06 の入口）。ダイレクトメッセージはログイン後の全員が使える（権限の条件は付けない）。サイドバーでは DmSection が出し、下部メニューでは固定のリンクにする
+export const dmsNavItem: NavItem = { id: "dms", label: "DM", to: "/dms" };
+
 export const primaryNavItems: NavItem[] = [
   homeNavItem,
   { id: "channels", label: "チャンネルを探す", to: "/channels" },

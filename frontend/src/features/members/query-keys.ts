@@ -2,7 +2,7 @@
 import { profileKeys } from "../profile";
 
 export const memberKeys = {
-  list: (departmentId: string) =>
-    [...profileKeys.directory, "list", departmentId] as const,
+  list: (departmentId: string, q: string) =>
+    [...profileKeys.directory, "list", departmentId, q] as const,
   departments: profileKeys.departments,
 };

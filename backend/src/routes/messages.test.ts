@@ -22,7 +22,7 @@ import {
 import {
   ZERO_ID,
   cleanupMessageScenario,
-  insertConversationRoom,
+  insertDirectRoom,
   insertMessage,
   insertMessages,
   messageCount,
@@ -168,8 +168,9 @@ describe("#201 AC-1 閲覧と投稿の認可", () => {
     expect(await messageIds(deptA.dedicatedChannelId)).toEqual([existing]);
   });
 
-  it.each(["private", "archived", "missing", "conversation"] as const)(
-    "#201 AC-1: 見えない部屋（%s）は、取得も投稿も404 NOT_FOUNDで区別がつかず、行は増えない",
+  // #136 C-168(1)：DM の部屋の種類は 'conversation' から 'direct' に変わった。当事者のいない DM の部屋は、誰にも見えない
+  it.each(["private", "archived", "missing", "direct"] as const)(
+    "#201 AC-1・#136 C-168(1): 見えない部屋（%s）は、取得も投稿も404 NOT_FOUNDで区別がつかず、行は増えない",
     async (kind) => {
       const roomId = {
         private: () =>
@@ -190,7 +191,7 @@ describe("#201 AC-1 閲覧と投稿の認可", () => {
           return id;
         },
         missing: async () => testId("NOROOM"),
-        conversation: () => insertConversationRoom(),
+        direct: () => insertDirectRoom(),
       }[kind]();
       const id = await roomId;
       const read = await get(id);

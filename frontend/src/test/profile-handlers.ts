@@ -1,6 +1,7 @@
 // #130：プロフィール・社員一覧・ステータスのテストで使う MSW の応答（架空のデータのみ）。サーバーの状態を持つ簡易な模擬。
 // GET/PATCH /api/me/profile・GET /api/auth/session（表示名を状態から返す）・GET /api/users・GET /api/users/departments・
 // GET /api/users/:userId/profile-card・PUT /api/users/:userId/status を、テストの中の状態で返す。書き込みは状態に反映する（再読込なしの更新を確かめるため）。
+// #136：GET /api/users は q（表示名の部分一致）でも絞り込む。
 // 名前を use〜 にしない（React Hooks の規則の誤検知を避ける）。
 import { http, HttpResponse } from "msw";
 import { SHELL_USER } from "./app-shell-harness";
@@ -179,8 +180,12 @@ export function respondProfileWorld(
       world.listRequests.push(url);
       const departmentId = url.searchParams.get("departmentId");
       const cursor = url.searchParams.get("cursor");
+      // #136（C-168(3)）：q は表示名の部分一致（本名は対象外）。送られなければ絞り込まない
+      const q = url.searchParams.get("q");
       const filtered = world.members.filter(
-        (m) => departmentId === null || m.department.id === departmentId,
+        (m) =>
+          (departmentId === null || m.department.id === departmentId) &&
+          (q === null || m.displayName.includes(q)),
       );
       const start = cursor === null ? 0 : Number(cursor.replace("c", ""));
       const items = filtered.slice(start, start + world.pageSize);

@@ -229,9 +229,10 @@ export function createProfileRepository(db: Database) {
       };
     },
 
-    /** 有効かつ所属ありの社員を、表示名・IDの昇順で読む。本名は読まない */
+    /** 有効かつ所属ありの社員を、表示名・IDの昇順で読む。本名は読まない。keyword は表示名の部分一致だけ（本名は対象にしない。C-75） */
     async listDirectory(options: {
       departmentId?: string;
+      keyword?: string;
       limit: number;
       cursor?: CursorPayload;
     }) {
@@ -241,6 +242,12 @@ export function createProfileRepository(db: Database) {
       ];
       if (options.departmentId !== undefined)
         conditions.push(eq(users.departmentId, options.departmentId));
+      // LIKE は使わない：D1 の LIKE はパターンが 50 バイトまでで、100 文字の検索語（日本語は 300 バイト）を受けられない。
+      // instr(lower(...)) は ASCII だけ大小無視の部分一致で、`%`・`_`・`\` も文字として扱う。値はパラメータで渡す
+      if (options.keyword !== undefined)
+        conditions.push(
+          sql`instr(lower(${users.displayName}), lower(${options.keyword})) > 0`,
+        );
       if (options.cursor !== undefined)
         conditions.push(
           afterCursor(

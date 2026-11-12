@@ -98,6 +98,7 @@
 ### S-05への統合（Issue #201）
 
 - `ChannelDetailView`は、見出し・説明の下に`RoomMessages`（`roomId`・`canPost`・`joined`を渡す）を置き、参加者の一覧を下に出す。メッセージの一覧・投稿・ポーリングの設計は[messages.md](messages.md)
+- **Issue #136で足したこと**：参加者の一覧の各行（自分以外）に、`features/dms`の`StartDmButton`（「DMを送る」）を置いた。`channels`から`dms`を、`dms/index.ts`の公開部分だけを通して直接参照する（`dms`は`channels`を参照しないので循環しない）。自分の行かは`useSession`の利用者IDで判定し、セッションが届くまでは出さない（表示の制御。認可はサーバー）。押すと、新規・既存とも同じDM（S-06）に移る。詳細は [dms.md](dms.md)
 - 参加中で`canPost`が真：入力欄を出す／参加中でお知らせ専用の権限なし：入力欄の代わりに案内を出す／未参加の公開：入力欄を出さず、既存の「参加する」の案内を出す（本文は読める）
 - `channel-api.ts`の詳細のスキーマに`canPost`（必須の真偽）を足した。テストのMSWの応答（`channels.components.test.tsx`・`channels-route.test.tsx`・`frontend/src/test/server.ts`）にも`canPost`を足した
 - `findForViewer`（`channel.repository.ts`）の取得項目に`purpose`を足した（足しただけ）

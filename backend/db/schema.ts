@@ -275,12 +275,10 @@ export const rooms = sqliteTable(
   "rooms",
   {
     id: text("id").primaryKey(),
-    kind: text("kind", { enum: ["channel", "conversation"] }).notNull(),
+    kind: text("kind", { enum: ["channel", "direct"] }).notNull(),
     createdAt: text("created_at").notNull().default(nowUtc),
   },
-  (t) => [
-    check("rooms_kind_check", sql`${t.kind} in ('channel', 'conversation')`),
-  ],
+  (t) => [check("rooms_kind_check", sql`${t.kind} in ('channel', 'direct')`)],
 );
 
 // チャンネル。purpose：normal=通常、department=部署の専用、announcement=部署のお知らせ専用、company_general=全社連絡、case=案件（値の予約だけ）。
@@ -349,6 +347,31 @@ export const channelMembers = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.channelId, t.userId] }),
     index("channel_members_user_id_idx").on(t.userId),
+  ],
+);
+
+// DM（1対1）。direct_key は2人の組を一意にするキー（同じ2人のDMを重ねて作らない）。
+export const conversations = sqliteTable("conversations", {
+  roomId: text("room_id")
+    .primaryKey()
+    .references(() => rooms.id),
+  directKey: text("direct_key").notNull().unique(),
+  createdAt: text("created_at").notNull().default(nowUtc),
+});
+
+export const conversationMembers = sqliteTable(
+  "conversation_members",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.roomId),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversationId, t.userId] }),
+    index("conversation_members_user_id_idx").on(t.userId),
   ],
 );
 

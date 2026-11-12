@@ -95,7 +95,7 @@ test("#124 AC-1（3-4 AC-3・R-57・AC-5）: ヘッダーの件数から S-14 �
   await expect(headerBell(page)).not.toContainText(/\d/);
   await expect(main.getByRole("listitem")).toHaveCount(4);
 
-  // スマホ幅：下部メニューに「ホーム」「通知」「自分」の順で並び、「通知」から S-14 を開ける
+  // スマホ幅：下部メニューに「ホーム」「DM」「通知」「自分」の順で並び、「通知」から S-14 を開ける
   await page.setViewportSize({ width: 375, height: 800 });
   const bottom = page.getByRole("navigation", { name: "下部メニュー" });
   await expect(bottom).toBeVisible();
