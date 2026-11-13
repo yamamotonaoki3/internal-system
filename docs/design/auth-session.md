@@ -57,8 +57,8 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `frontend/src/pages/HomePage.tsx` | ログイン後のホーム（`h1`「ホーム」と`WelcomeMessage`）。枠（`main`）と、ログイン済みの確認は、`App.tsx`のレイアウトルート（`RequireAuth`→`AppShell`）が持つ（#121。[app-shell.md](app-shell.md)） |
 | `frontend/src/features/auth/components/LoginForm.tsx` | 入力フォームと送信。401（`INVALID_CREDENTIALS`）・429・422・通信エラー・その他で文言を分ける。どちらが違うかは示さない |
 | `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`は枠なしで`PageLayout`に包み、後者は`PasswordChangePending`からS-03のフォームを出す |
-| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |
-| `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |
+| `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |【Issue #239：`LogoutButton`は、入力中の変更があるとき、ログアウトのAPIの前に確認を出す。失敗の案内は`LogoutFailureNotice`（共通レイアウト）、ログイン画面の案内は`DraftCleanupNotice`。詳細は[drafts.md](drafts.md)。元の記述は残す】
+| `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |【Issue #239：`useLogout`に`mutationKey`（`authKeys.logout`）を付け、成功時にその利用者の端末の下書きを消す。`useSignedInUserId`（キャッシュの`user.id`を購読して返す）を足した。元の記述は残す】
 | `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `SessionInfo`型と`fetchSession`・`login`・`logout`・`changePassword`・`reauthenticate`。共通の`apiClient`を使い、ログイン時の`reauthenticatedAt`は`null` |
 | `frontend/src/features/auth/schemas/password-change-form.ts`・`components/PasswordChangeForm.tsx` | `createPasswordChangeSchema`は`shared/password-rules.ts`の構成・禁止判定を使い、確認欄と画面固有の項目エラーも検証する。これは入力時の案内であり、確定処理ではサーバーが`isPasswordAllowed`で再検証する。`PasswordChangeForm`は共有する長さ定数から説明を表示し、確認欄は送信しない |
 | `frontend/src/features/auth/hooks/usePasswordChange.ts` | `usePasswordChange`が`changePassword`を呼び、成功した`SessionInfo`でセッションQueryを更新する |
@@ -213,7 +213,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 ## 画面とE2E
 
 - S-02：ユーザーIDとパスワードの入力、パスワードの表示切り替え（`SecretField`）、送信中は押せない。失敗の文言：401は「ユーザーIDまたはパスワードが違います」（どちらが違うかを示さない）、429は「しばらくしてからお試しください」（制限の種類・残り時間を示さない）、422は「入力内容を確かめてください」、通信エラーは「接続できませんでした。もう一度お試しください」
-- ログアウトで`queryClient.clear()`を行い、`/login`へ移る（0-2 AC-8の前半）。**端末の下書きの消去は、下書きの機能（1-1）が未実装のため、1-1へ申し送る**（無操作・期限切れの自動ログアウトでは消さない。C-82）
+- ログアウトで`queryClient.clear()`を行い、`/login`へ移る（0-2 AC-8の前半）。**端末の下書きの消去は、下書きの機能（1-1）が未実装のため、1-1へ申し送る**（無操作・期限切れの自動ログアウトでは消さない。C-82）【Issue #239で、端末の下書きの消去を実装した：ログアウトのAPIの成功時、`queryClient.clear()`の前に、押した時点の利用者の下書きをすべて消す（`removeUserDrafts`）。APIの失敗・自動ログアウト（401）では消さない。消去に失敗してもログアウトは進め、`/login`への`state`でログイン画面に案内を出す。移動は`replace: true`のまま。詳細は[drafts.md](drafts.md)。元の記述は残す】
 - ログイン・ログアウトの遷移は履歴を置き換え、戻る操作でも保護された画面を見られない
 - E2E（`e2e/login.spec.ts`）：ログイン→ようこそ→ログアウト→戻る・進む・直接アクセスで`/login`／誤ったパスワード／初回パスワードでS-03が表示され、変更完了まで他画面へ進めないこと／`http://localhost`でも`__Host-session`のCookieが保存され（`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`）、次の要求で送られること。未ログインのセッション確認の401は仕様どおりのため、`e2e/session-console.ts`の`allowSessionCheck401`で許す。シードは`e2e/seeds/login.sql`（架空の`e2euser_login_001`・`002`）、後始末は`e2e/seeds/login-cleanup.sql`
 - E2E（`e2e/password-change.spec.ts`）：初回変更と通常変更、規則エラー、現在画面への復帰。架空の専用seedとcleanupは`e2e/seeds/password-change.sql`・`password-change-cleanup.sql`
@@ -247,7 +247,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 
 - **#122（TOTP）**：`verifyFirstFactor`と`issueSession`の間に第二要素を挿入する。#122までは全体管理者もパスワードだけでログインできるため、本番に出さない
 - **#127（再発行）・無効化のIssue**：`revokeAllForUserStatement`を同じ`db.batch`に入れる（0-3 AC-8、0-1 AC-9）
-- **1-1（下書き）**：手動ログアウトで、端末の下書きをすべて消す（0-2 AC-8）。今は`queryClient.clear()`のみ
+- **1-1（下書き）**：手動ログアウトで、端末の下書きをすべて消す（0-2 AC-8）。今は`queryClient.clear()`のみ【Issue #239で実装した。[drafts.md](drafts.md)。元の記述は残す】
 - **#121（共通レイアウト）**：実装済み。`HomePage`の最小の枠は`AppShell`に置き換わった（[app-shell.md](app-shell.md)）
 - **運用**：本番の`LOGIN_THROTTLE_KEY`は利用者が`wrangler secret put`で入れる（`docs/secrets.md`）。Cron Triggersは利用者のデプロイ後に有効になる。`wrangler.jsonc`には`limits.cpu_ms`の設定がまだない。scryptの計算（1回約270〜530ミリ秒）がCPU時間の既定に収まるか、Workers Paidでの`cpu_ms`の扱いは、本番のデプロイ前に利用者が確認する（ADR-0007、spike-d1-hash.mdの6章）
 

@@ -121,6 +121,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/db/migrations/0016_change_room_kind_to_direct.sql`、`0017_add_conversations.sql` | `rooms.kind`を`direct`に置き換える作り直し（ADR-0025の例外：PRAGMAの2行を`defer_foreign_keys`に置き換えた手書き変更。0016の1本だけ）と、`conversations`・`conversation_members`の表（Issue #136） |
 | `shared/search-rules.ts` | 検索語の定義元（前後の空白を除いて1〜100文字。`SEARCH_KEYWORD_MAX_LENGTH`・`searchKeywordSchema`）。社員一覧の`q`の検証と、画面の検索欄が参照する（Issue #136） |
 | `frontend/src/features/dms/`、`frontend/src/pages/DmsPage.tsx`・`DmNewPage.tsx`・`DmPage.tsx` | S-06（DMの画面）・相手の選択`/dms/new`・一覧`/dms`・サイドバーの`DmSection`・「DMを送る」（`StartDmButton`）（Issue #136）。`features/members`・`features/messages`・`features/profile`・`features/channels`に、機能の境界を保つ差し込み口（任意のprops）を足した。詳細は[dms.md](dms.md) |
+| `frontend/src/features/drafts/`、`frontend/src/features/leave-guard/` | 入力欄の下書きの端末への一時保存と、離脱の確認（画面の移動・ログアウト・再読み込み）（Issue #239）。`main.tsx`で画面の振り分けを`LeaveGuardProvider`で包む。設計は[drafts.md](drafts.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
@@ -165,6 +166,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | チャンネルの作成申請と承認（S-10・S-11。申請専用のテーブルに持ち承認で初めてチャンネルを作る決定、判定の順番と404・403の分け方、`db.batch`の文の順序と失敗の409への変換、名前の規則、通知3種類と宛先、監査、取り下げ、既知の差、未実施の記録） | [channel-requests.md](channel-requests.md) | #131（親 #111）、ADR-0006・0012・0020、C-167 |
 | ダイレクトメッセージ（S-06・相手の選択・DM一覧・サイドバーの欄・「DMを送る」。表の構成と`rooms.kind`の置き換え（migration 0016・0017。ADR-0025）、判定の順（当事者か → 権限 → 相手が有効か）と404・403・409、`insertIfOrdered`のDMの条件、同時作成の扱い、一覧のカーソル、取り直しの時機、機能の境界を保つ差し込み口、`q`を`instr`にした理由、未実施の記録） | [dms.md](dms.md) | #136（親 #133）、ADR-0004・0006・0012・0020・0025、C-168 |
 | チャンネル・DMの未読の件数と既読（サイドバーとDM一覧の件数。表`read_positions`（migration 0018）、未読の対象と下限（参加の時刻・既読位置）、自分の投稿を数えない、2本のSQLで部屋の数に比例しない取得、`items`が少なくても`nextCursor`がありうるページ送り、権限を失った部屋の扱い、既読の送信の時機（部屋ごとの状態）、既存データの初期合わせのSQLと本番の手順、EXPLAINの結果、未実施の記録） | [unread.md](unread.md) | #237（親 #133）、ADR-0004・0006・0012・0020、C-169 |
+| メッセージ入力欄の下書きの端末への一時保存と離脱の確認（Issue #239。`features/drafts/`・`features/leave-guard/`。キーと値・期限・消す時点、保存の失敗の扱い、確認の待ちを1つにする`LeaveGuardProvider`、手動ログアウトの前の確認と消去、ログアウトの失敗の案内、既知の限界）【C-170】 | [drafts.md](drafts.md) |
 
 ## 関係する文書
 

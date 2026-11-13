@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-01（一覧）・EP-1-02（投稿）のうち、本文だけのチャンネルの部分／`messages`テーブル（migration 0012）／EP-2-06への`canPost`の追加／S-05の一覧・入力欄・2秒ポーリング／共通部品`TextAreaField` |
-| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）【Issue #237で、チャンネル・DMの未読の件数と既読を実装した。[unread.md](unread.md)。元の記述は残す】、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）【Issue #238で、チャンネルの退職者の併記を実装した。下の「退職者の併記（Issue #238）」。元の記述は残す】、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM【Issue #136で、DMの部屋の一覧・投稿は実装した。下の「DMの部屋（Issue #136）」。元の記述は残す】、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |
+| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）【Issue #237で、チャンネル・DMの未読の件数と既読を実装した。[unread.md](unread.md)。元の記述は残す】、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）【Issue #238で、チャンネルの退職者の併記を実装した。下の「退職者の併記（Issue #238）」。元の記述は残す】、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM【Issue #136で、DMの部屋の一覧・投稿は実装した。下の「DMの部屋（Issue #136）」。元の記述は残す】、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |【Issue #239で、チャンネル・DMの入力欄の下書きと離脱の確認を実装した。[drafts.md](drafts.md)。元の記述は残す】
 | 範囲外（別の起票先に残す） | **無効にした部署のチャンネルを読み取り専用にすること**（部署の無効化が未実装のため。`department.repository.ts`に無効化の処理がない）。**投稿のレート制限**（上限がX-8で未決定のため入れず、別Issueで扱う）。キャッシュの件数の上限（長時間開いたときのメモリ。親#133に残す）。同時50人・2秒の実測（#160） |
 
 ## ファイルと役割
@@ -43,7 +43,7 @@
 | `frontend/src/features/messages/hooks/useRoomMessages.ts` | 2秒ごとの取得。`refetchInterval`で繰り返す |
 | `frontend/src/features/messages/hooks/usePostMessage.ts` | 投稿。成功したらその部屋の一覧を`invalidateQueries`で取り直し、取り直しが終わるまで送信中のままにする |
 | `frontend/src/features/messages/schemas/message-form.ts` | 入力チェック。本文の規則は`shared/message-rules.ts`を参照する |
-| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】【Issue #238で、`MessageList`が`author.isActive`が偽の投稿者の表示名に「（退職者）」を、文字だけで併記するようにした（`isRetired`＝`!isActive`または`retiredAuthorIds`に含まれる）。退職者の名前にはボタン・リンクを付けない。下の「退職者の併記（Issue #238）」】【Issue #237で、`RoomMessages`に任意のprop`onLatestMessageIdChange`を足した。表示している最新のメッセージIDが変わったときに呼ぶ（0件・取得失敗では呼ばない）。渡さなければ既存の動きのまま。既読の送信は`features/unread`が行い、`messages`は`unread`を参照しない。[unread.md](unread.md)】 |
+| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】【Issue #238で、`MessageList`が`author.isActive`が偽の投稿者の表示名に「（退職者）」を、文字だけで併記するようにした（`isRetired`＝`!isActive`または`retiredAuthorIds`に含まれる）。退職者の名前にはボタン・リンクを付けない。下の「退職者の併記（Issue #238）」】【Issue #237で、`RoomMessages`に任意のprop`onLatestMessageIdChange`を足した。表示している最新のメッセージIDが変わったときに呼ぶ（0件・取得失敗では呼ばない）。渡さなければ既存の動きのまま。既読の送信は`features/unread`が行い、`messages`は`unread`を参照しない。[unread.md](unread.md)】 |【Issue #239：`RoomMessages`が`useSignedInUserId`で利用者IDを取り、`MessageComposer`の`key`を`<利用者ID>:<部屋ID>`にして渡す。`MessageComposer`は`useDraft`・`useLeaveGuard`で下書きの復元・保存と離脱の確認を行う。元の記述は残す】
 | `frontend/src/features/messages/describe-error.ts` | 通信の失敗を利用者向けの文にする。`features/channels/describe-error.ts`と**内容が重複している**（下の「未実施・未決定」） |
 | `frontend/src/components/TextAreaField.tsx` | 複数行の入力欄の共通部品（`TextField`と同じ作り）。素の`textarea`にクラスを書かない規則（ADR-0015）のために足した |
 | `frontend/src/features/channels/api/channel-api.ts` | 詳細のスキーマに`canPost`を足した |
@@ -183,6 +183,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - **Enterは改行**。**Ctrl+Enter（MacはCmd+Enter）か「送信」ボタンで送る**。送信中は「送信」を押せず、Ctrl+Enterでも送らない（多重送信の防止）
 - 画面でも入力を確かめる（空白だけ・4,000文字超）が、サーバーの検証が正（422の`fields`に`body`があれば入力欄の下に出す）
 - 成功したら入力欄を空にする。本文はテキストとして出し、`dangerouslySetInnerHTML`を使わない（改行は表示のスタイルで保つ）
+- 【Issue #239：書きかけの本文は、入力のたびに端末の`localStorage`へ下書きとして保存し（キーは利用者と部屋ごと、最終編集から7日で期限切れ）、入力欄を作り直すと復元する。成功したら下書きを消して入力欄を空にする（復元値には戻さない）。失敗（422・500）では残す。保存できない環境では、入力欄の下に「この環境では下書きを一時保存できません。」（`role="status"`）を出し、送信はそのまま使える。復元した値から変わっているあいだは、画面の移動・再読み込みの前に確認を出す。詳細は[drafts.md](drafts.md)。元の記述は残す】
 
 ## API契約
 
@@ -226,7 +227,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない。**未読は後からIssue #237で実装した**（[unread.md](unread.md)）。**DMの「退職者」の併記だけはIssue #136で実装した**（チャンネルは#133に残す。[dms.md](dms.md)）。**チャンネルの「退職者」の併記は、後からIssue #238で実装した**（上の「退職者の併記（Issue #238）」） |
+| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない。**未読は後からIssue #237で実装した**（[unread.md](unread.md)）。**DMの「退職者」の併記だけはIssue #136で実装した**（チャンネルは#133に残す。[dms.md](dms.md)）。**チャンネルの「退職者」の併記は、後からIssue #238で実装した**（上の「退職者の併記（Issue #238）」） |【Issue #239で下書きを実装した（[drafts.md](drafts.md)）。スレッド・案件の下書きは各Issueに残す】
 | **既知の制限（#238）**：開いている間に投稿者が無効になったときの併記 | ポーリング（`after`）は表示済みの行を取り直さない。このため、メッセージ一覧を開いている間に投稿者が無効になると、表示済みの行には「（退職者）」が付かず、キャッシュが残る間は、ほかの画面へ移って戻っても同じ。再読み込み（開き直してキャッシュが作り直される）で反映される。追従は#117（リアルタイム化）で扱う |
 | 無効にした部署のチャンネルの読み取り専用 | 範囲外。部署の無効化が未実装のため。実装したら、条件付きのINSERTの条件に**部署が有効であること**を足す |
 | 投稿のレート制限 | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)。Skill「セキュリティ」の「公開するAPIすべてにレート制限」に従えない点） |
