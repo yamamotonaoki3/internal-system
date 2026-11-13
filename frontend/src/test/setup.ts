@@ -8,6 +8,9 @@ beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  // #239：端末の下書き（localStorage）をテストの間で持ち越さない
+  window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 afterAll(() => server.close());
 

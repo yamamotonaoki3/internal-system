@@ -3,6 +3,7 @@
 // 文言・退職者の併記・投稿の通知は任意の props で差し替える（既定はチャンネルの動き。DM は features/dms から渡す）。
 import { useEffect } from "react";
 import { Alert } from "../../../components/Alert";
+import { useSignedInUserId } from "../../auth";
 import { isApiError } from "../describe-error";
 import { useRoomMessages } from "../hooks/useRoomMessages";
 import { MessageComposer } from "./MessageComposer";
@@ -41,6 +42,7 @@ export function RoomMessages({
   onLatestMessageIdChange,
 }: RoomMessagesProps) {
   const messages = useRoomMessages(roomId);
+  const userId = useSignedInUserId();
   const latestId = messages.data?.at(-1)?.id;
   // 表示している最新の ID を、外部（既読の送信）へ知らせる同期
   useEffect(() => {
@@ -60,8 +62,11 @@ export function RoomMessages({
       />
       {joined &&
         (canPost ? (
+          // 部屋や利用者が替わったら作り直す（入力と下書きを持ち越さない）
           <MessageComposer
+            key={`${userId ?? "anonymous"}:${roomId}`}
             roomId={roomId}
+            userId={userId}
             onPosted={onPosted}
             onPostError={onPostError}
           />

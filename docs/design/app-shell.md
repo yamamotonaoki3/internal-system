@@ -45,7 +45,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 | ファイル | 役割 |
 | --- | --- |
-| `AppShell.tsx` | レイアウトルートの要素。スキップリンク・`Header`・`Sidebar`・`<main id="main-content" tabIndex={-1}>`（`<Outlet />`）・`MobileNav`・`Drawer`を並べ、`AvatarMenuProvider`で包む。ドロワーの開閉は`useState`で持つ。`body`の左右の余白（ログイン前の画面用）を打ち消して画面いっぱいに広げる |
+| `AppShell.tsx` | レイアウトルートの要素。スキップリンク・`Header`・`Sidebar`・`<main id="main-content" tabIndex={-1}>`（`<Outlet />`）・`MobileNav`・`Drawer`を並べ、`AvatarMenuProvider`で包む。ドロワーの開閉は`useState`で持つ。`body`の左右の余白（ログイン前の画面用）を打ち消して画面いっぱいに広げる |【Issue #239：`Header`の直下に、ログアウトの失敗の案内`LogoutFailureNotice`（`features/auth`から公開）を置く。アバターメニュー（popover）は離脱の確認の`showModal()`で閉じ、メニューの中の失敗表示が隠れるため。依存の向きは`app-shell → auth`。[drafts.md](drafts.md)。元の記述は残す】
 | `Header.tsx` | `<header>`。左にメニューボタン（768px未満だけ）とロゴ、右に通知（`NotificationBell`。未読の件数の印つきのリンクで、S-14へ直接移る。`StatusButton`の前。Issue #124）とステータスのボタン（`StatusButton`。全幅で出す。読み込み中・エラーでも灰色の丸と読み上げ名を出す。Issue #130）とアバターのボタン（768px以上だけ） |
 | `Sidebar.tsx` | `<nav aria-label="メインメニュー">`。768px以上だけ表示。中身は`SidebarNav` |
 | `SidebarNav.tsx` | サイドバーとドロワーが共用するメニューの中身。参加中のチャンネルのセクション（`JoinedChannelsSection`。Issue #200）、その直後のダイレクトメッセージのセクション（`DmSection`。Issue #136）、`primaryNavItems`のリンク、下部の`AdminMenu` |

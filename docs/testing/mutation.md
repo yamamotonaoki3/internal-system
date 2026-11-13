@@ -24,6 +24,7 @@
 
 - 開発中は、変更した重要処理と、その参照元の重要処理に絞って80%以上を確かめる。全体（`stryker.config.json` の対象すべて）は、リリース前の検証（#160）と#189の最終確認の前、および範囲を広げる条件に当たる変更で実行する（[ADR0020](../adr/0020-test-scope-mutation-e2e.md)）
 - 所要時間の目安（2026-11-10の実測）：全体（約3,900変異体）で約34分、絞った実行（約220〜1,000変異体）で4〜10分
+- 対象の追加（Issue #239）：`frontend/src/features/drafts/`・`features/leave-guard/`、`features/auth/hooks/useLogout.ts`・`useSignedInUserId.ts`、`features/auth/components/LogoutButton.tsx`・`LogoutFailureNotice.tsx`・`DraftCleanupNotice.tsx`・`logout-failure-focus.ts`を足した。理由：書きかけの本文（個人情報や業務の内容を含みうる）の保存・期限切れ・ユーザーごとの分離・ログアウトでの消去は、取りこぼすと情報漏えいにつながるため、検出力（80%以上）を確かめる。ADR-0020 (c)（ルーティングの枠・認証・テスト基盤の変更）に当たるため、全体のミューテーションとE2Eの全件を実行する。**等価な変異体の受け入れ**：`LeaveConfirmDialog.tsx`は変異体8件のうち3件が等価（effect の中の`?.`を外す2件、依存配列を定数の配列にする1件）で、テストで届く上限が62.5%。80%に届かないが、等価として受け入れた（統括の判断）
 
 ## 5. 後始末
 
