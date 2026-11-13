@@ -22,6 +22,16 @@ export const server = setupServer(
   http.get("/api/me/notifications/unread-count", () =>
     HttpResponse.json({ count: 0 }),
   ),
+  // #237：サイドバー（JoinedChannelsSection・DmItems）が未読の件数（GET /api/me/unread）を 2 秒ごとに取り、部屋（S-05・S-06）を開くと
+  // 既読（PUT /api/rooms/:roomId/read-position）を送るため、枠・部屋を描画する全テストで「未処理の通信」にならないよう、
+  // 未読なし・既読の成功（204）を既定の応答にする。個別のテストは test/unread-handlers.ts の respondUnread で上書きする。
+  http.get("/api/me/unread", () =>
+    HttpResponse.json({ items: [], nextCursor: null }),
+  ),
+  http.put(
+    "/api/rooms/:roomId/read-position",
+    () => new HttpResponse(null, { status: 204 }),
+  ),
   // #130：ヘッダーのステータスボタンが自分のプロフィール（GET /api/me/profile）を取るため、在席の架空の値を既定の応答にする。
   // 個別のテストは test/profile-handlers.ts の respondProfileWorld で上書きする。
   http.get("/api/me/profile", () =>

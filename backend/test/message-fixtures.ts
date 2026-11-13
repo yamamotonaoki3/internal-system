@@ -10,6 +10,7 @@ import { createAppAuthorizer } from "../src/services/authorizer";
 import { createMessageService } from "../src/services/message.service";
 import { cleanupAuthTestData } from "./auth-fixtures";
 import { cleanupDepartmentTestData } from "./department-fixtures";
+import { cleanupReadPositions } from "./read-position-fixtures";
 import { TEST_TAG, testId } from "./role-fixtures";
 
 export { TEST_TAG };
@@ -116,6 +117,8 @@ export async function cleanupMessageTestData() {
     "SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE ?1) OR name LIKE ?1";
   const tagged = `${TEST_TAG}%`;
   const rooms = directRooms.splice(0);
+  // #237：既読位置（read_positions）は部屋を外部キーで指すため、DM の部屋より先に消す
+  await cleanupReadPositions();
   await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM messages WHERE sender_id IN (${testUsers}) OR room_id IN (${taggedRooms})`,

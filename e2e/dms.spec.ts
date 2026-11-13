@@ -9,6 +9,7 @@
 import { execFile } from "node:child_process";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { expect, test } from "./console-guard";
+import { roomLinkName } from "./room-link";
 
 const ORIGIN = "http://localhost:5173";
 const PASSWORD = "TestPass123!";
@@ -316,7 +317,7 @@ test("#136 AC-1（1-2 AC-4）・AC-3（C-168(5)）: S-20 の行・S-27 のカー
 
   // S-05：参加中のチャンネルの参加者一覧から。B の行には出て、自分の行には出ない
   await mainNav(page)
-    .getByRole("link", { name: CHANNEL_NAME, exact: true })
+    .getByRole("link", { name: roomLinkName(CHANNEL_NAME) })
     .click();
   await expect(
     page.getByRole("heading", { level: 1, name: CHANNEL_NAME }),

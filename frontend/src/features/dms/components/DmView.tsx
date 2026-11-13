@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { RoomMessages } from "../../messages";
 import { ProfileCardTrigger, StatusBadge } from "../../profile";
+import { useMarkRoomRead } from "../../unread";
 import { dmKeys } from "../api/query-keys";
 import { describeError, isApiError } from "../describe-error";
 import { useDm } from "../hooks/useDm";
@@ -13,6 +14,7 @@ export function DmView({ roomId }: { roomId: string }) {
   const dm = useDm(roomId);
   const queryClient = useQueryClient();
   const [postNotice, setPostNotice] = useState<string | null>(null);
+  const read = useMarkRoomRead(roomId);
 
   if (dm.isPending) return <p role="status">読み込み中です</p>;
   if (dm.isError) {
@@ -74,7 +76,13 @@ export function DmView({ roomId }: { roomId: string }) {
         retiredAuthorIds={partner.isActive ? [] : [partner.id]}
         onPosted={handlePosted}
         onPostError={handlePostError}
+        onLatestMessageIdChange={read.markRead}
       />
+      {read.error !== null && (
+        <Alert tone="error" role="alert">
+          既読の状態を更新できませんでした。{describeError(read.error)}
+        </Alert>
+      )}
     </section>
   );
 }

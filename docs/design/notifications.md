@@ -20,7 +20,7 @@
 | 3-4 AC-3（関係しない社員に送らない・メールなし） | 一覧・未読数・既読はすべて「本人宛て」の条件を通る。メール送信の仕組みは作らない | 各Issueが宛先の選定をテストする |
 | 3-4 AC-4（お知らせの依頼・緊急削除・取消・直接削除） | 種類の定義元と画面の対応表に1件ずつ足せる作り | #142（理由の列もここで足す） |
 | 3-4 AC-5（アーカイブ・復元） | 通知を消さずに残す。種類ごとに部屋の可視性による除外を外せる作り | #143・#151 |
-| 3-1 AC-3（参考） | `room_id`列と、読み取りの条件を1関数に集めた | #133 |
+| 3-1 AC-3（参考） | `room_id`列と、読み取りの条件を1関数に集めた【Issue #237で、部屋の閲覧条件を足した】 | #133（#237で実装） |
 | 3-2・3-3（参考） | 同上 | #139・#150 |
 
 ## ファイルと役割
@@ -89,6 +89,9 @@
 - 常に「本人宛て」（`user_id = 本人`）
 - 定義元で`containsRoomContent: true`の種類にだけ、部屋の条件を足す。`roomContentKinds()`が空のとき（今の0件）は部屋の条件を付けない（空の`IN ()`を作らない）。今の部屋の条件は「その種類の通知が`room_id`を持つこと」だけ
 - **#133が条件を足す位置はここ**：3-1 AC-3の「閲覧権限を失った部屋の内容を含む通知を除く」を、`containsRoomContent`が真の種類の部屋の条件として足す。権限が戻れば通知は再び見える（行は消さないため）
+- **【Issue #237で足した。元の記述は残す】** 部屋の内容を含む種類には、`room_id`を持つことに加えて、**閲覧できる部屋であること**（`viewableRoom`。未アーカイブで、公開または自分が参加中のチャンネル、または自分が当事者のDM）を求める。`canViewChannel`と同じ規則をSQLで書いた二重定義なので、公開・非公開×参加・未参加×アーカイブの全組で一致することを`notification.room-visibility.db.test.ts`で固定している。`roomContentKinds()`が空の今の本番の定義（`channel_request.*`は`containsRoomContent: false`）では条件が付かず、SQLは変わらない。テストは定義を差し替えて行い、本番の定義元にテスト用の種類を足していない
+- 見られる範囲が別の規則の部屋（例：案件の参加者で決まる案件専用チャンネル）を足すIssueは、`viewableRoom`と、未読の対象の部屋（`unread-targets.sql.ts`。[unread.md](unread.md)）の**両方**を広げる
+- 公開チャンネルは抜けても閲覧できるため、部屋の内容を含む通知は残る。未読の対象は参加者だけ（C-94）、通知を消すのは閲覧権限を失ったとき（3-1 AC-3）、という違いがある
 - `containsRoomContent`が偽の種類（アーカイブ・復元）は、権限を失っても残る
 
 ## 画面
@@ -114,7 +117,7 @@
 3. 業務のServiceで、`notificationInserts`の戻り値を業務の`db.batch`に入れる。宛先の選定（承認権限者・申請者・操作した本人を除く等）は、このIssueで決めてテストする
 4. 理由の文（C-120・C-124）を持たせる種類は、**使うIssueがnullableの`reason`列を足す**（`ALTER TABLE … ADD COLUMN`で済む。drizzle-kitが作り直しを生成したらADR-0024の手順）。今は使う機能がないので足していない
 5. アーカイブ・復元の通知（#143・#151）は`containsRoomContent: false`にする。「アーカイブされました」の表示は、そのIssueが対応表と移動先で作る
-6. #133は、`visibleToRecipient`に部屋の閲覧権限の条件を足す（`containsRoomContent`が真の種類にだけ）
+6. #133は、`visibleToRecipient`に部屋の閲覧権限の条件を足す（`containsRoomContent`が真の種類にだけ）【Issue #237で足した。後続の種類は`containsRoomContent: true`を付けるだけで、この条件に従う】
 7. 種類の文字列を、定義元以外に書かない（型で守る）。DBの`kind`にCHECKは付いていない
 
 ## 設計判断の理由
@@ -153,7 +156,7 @@
 | 1件既読（EP-3-06） | `POST /api/me/notifications/{notificationId}/read`。204（既読済みも204）。401／403（`FORBIDDEN_ORIGIN`）／404（存在しない・他人宛て・ULIDでない）／429 |
 | すべて既読（EP-3-07） | `POST /api/me/notifications/read-all`。204。401／403（`FORBIDDEN_ORIGIN`）／429 |
 
-応答の最終の形はOpenAPI（`docs/api/openapi.json`）に従う。EP-3-03（`POST /api/me/read-all`。部屋の未読。#133）とは別物。レート制限は入れていない（上限がX-8で未決定のため。channels・messages・profileと同じ扱い）。
+応答の最終の形はOpenAPI（`docs/api/openapi.json`）に従う。EP-3-03（`POST /api/me/read-all`。部屋の未読。#240で扱う）とは別物。部屋ごとの未読の件数と既読（EP-3-01・EP-3-02）は#237で実装した（[unread.md](unread.md)）。レート制限は入れていない（上限がX-8で未決定のため。channels・messages・profileと同じ扱い）。
 
 ## 主な入出力
 
@@ -172,7 +175,7 @@
 ## テストの場所
 
 - 共有：`backend/src/lib/notification-kinds.test.ts`
-- DB結合：`backend/src/db/notification.repository.db.test.ts`（業務の更新と同じ`db.batch`での原子性、宛先の絞り込み・重複・0人、四つの経路が同じ条件を通ること、`containsRoomContent`の種類にだけ部屋の条件が当たること、定義0件で本人宛てがすべて見えること、既読にしても行が残ること）
+- DB結合：`backend/src/db/notification.repository.db.test.ts`（業務の更新と同じ`db.batch`での原子性、宛先の絞り込み・重複・0人、四つの経路が同じ条件を通ること、`containsRoomContent`の種類にだけ部屋の条件が当たること、定義0件で本人宛てがすべて見えること、既読にしても行が残ること。**#237で、閲覧できなくなった部屋（非公開で参加を外れた・アーカイブ・他人のDM）の通知が四つの経路から除かれ、権限が戻れば再び見えること**も確かめる。SQLの閲覧条件と`canViewChannel`の全組の一致は`notification.room-visibility.db.test.ts`）
 - Service・route：`backend/src/services/notification.service.test.ts`、`backend/src/routes/notifications.test.ts`（他人宛てが出ない・404・新しい順とカーソル・`limit`の境界・100件の打ち切り・401／403）。API仕様との契約：`backend/src/openapi.test.ts`
 - テスト部品：`backend/test/notification-fixtures.ts`（任意の種類の文字列で通知の行を作る）、`frontend/src/test/notification-handlers.ts`（MSW）。`frontend/src/test/server.ts`に、未読数0件の既定の応答を足した（枠を描画する全テストで、ヘッダーの未読数の通信が未処理にならないため）
 - フロントエンド：`frontend/src/features/notifications/notifications.test.tsx`、`notification-views.test.ts`
@@ -186,7 +189,7 @@
 | 本番のD1へのmigration 0014の適用 | 未実施（利用者の承認が別途必要） |
 | 通知の種類・種類ごとの文言と移動先 | #124の時点は0件。**#131でチャンネル作成申請の3種類を足した**（[channel-requests.md](channel-requests.md)）。残りは後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
 | 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした** |
-| 部屋の閲覧権限による除外（3-1 AC-3） | #133が`visibleToRecipient`に足す |
+| 部屋の閲覧権限による除外（3-1 AC-3） | **Issue #237で`visibleToRecipient`に足した**（今の種類には該当がなく、本番のSQLは変わらない。[unread.md](unread.md)） |
 | スマホ幅でのベルのアイコン化 | 後続（今は文字のまま） |
 | 理由の列（C-120・C-124） | 使うIssueが足す |
 | 通知の作成・既読のレート制限 | 入れていない（X-8が未決定） |

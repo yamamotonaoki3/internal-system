@@ -1,6 +1,7 @@
 // #119 のDBテストで使う、架空のテストデータの作成と後始末（識別子で消す。C-05）。
 // 利用者のIDは testuser_ で始まる社員ID、部署名・会社名は [UNIT_TEST] で始まる。値はすべて架空のもの。
 import { env } from "cloudflare:workers";
+import { cleanupReadPositions } from "./read-position-fixtures";
 
 export const TEST_TAG = "[UNIT_TEST]";
 // ハッシュ・暗号文の形だけを持つダミー（本物の認証情報・本名ではない）
@@ -85,6 +86,8 @@ export async function insertAssignment(
 export async function cleanupRoleTestData() {
   const testUsers =
     "SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'";
+  // #237：部屋を既読にしたテストの利用者には read_positions の行があり、外部キーで利用者を消せないため、先に消す
+  await cleanupReadPositions();
   await env.DB.batch([
     // #200：アカウント発行・セットアップは全社連絡などの channel_members に参加の行を作るため、利用者より先に消す
     env.DB.prepare(

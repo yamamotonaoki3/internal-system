@@ -16,8 +16,10 @@ import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
+import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
 import { authCleanupJob } from "./services/auth.service";
 import { createScheduledHandler } from "./scheduled";
@@ -29,6 +31,7 @@ export const app = createApp({
     { path: "/api/setup", app: setupRoutes(withSetup, withAuth) },
     { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
     { path: "/api/me/notifications", app: notificationRoutes() },
+    { path: "/api/me/unread", app: unreadRoutes() },
     { path: "/api/me", app: meRoutes(withCredentials) },
     { path: "/api/users", app: userRoutes() },
     { path: "/api/admin/clients", app: adminClientRoutes() },
@@ -40,6 +43,7 @@ export const app = createApp({
     { path: "/api/channels", app: channelRoutes() },
     { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
+    { path: "/api/rooms", app: readPositionRoutes() },
   ],
 });
 

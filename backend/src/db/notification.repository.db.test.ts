@@ -43,6 +43,7 @@ import {
   insertUser,
   testId,
 } from "../../test/role-fixtures";
+import { COMPANY_GENERAL_ROOM_ID } from "../lib/channel-rules";
 import { decodeCursor } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import { withDatabase, type BatchItem } from "./database";
@@ -529,11 +530,12 @@ describe("#124 AC-1・AC-2（3-1 AC-3 の土台）visibleToRecipient：一覧と
       kind: "test_room_kind",
       roomId: null,
     });
+    // #237 AC-3：部屋の内容を含む種類は、閲覧できる部屋の通知だけが見える。誰でも閲覧できる全社連絡（公開。migration 0011 の固定の部屋）を使う
     const shown = await insertNotification({
       userId: userA,
       id: notificationIdAt(1_800_000_000_202),
       kind: "test_room_kind",
-      roomId: "01JTESTNOTIFROOM0000000001",
+      roomId: COMPANY_GENERAL_ROOM_ID,
     });
     expect(await repo((r) => r.markRead(userA, hidden, NOW), MIXED)).toBe(
       false,
@@ -544,7 +546,8 @@ describe("#124 AC-1・AC-2（3-1 AC-3 の土台）visibleToRecipient：一覧と
   });
 
   it("#124 AC-1: 一覧に出る未読の件数と未読数が、同じ条件のため必ず一致する（種類・部屋が混ざっていても）", async () => {
-    const room = "01JTESTNOTIFROOM0000000001";
+    // #237 AC-3：閲覧できる部屋（全社連絡）にして、部屋の内容を含む種類の通知が一覧に出る組み合わせを保つ
+    const room = COMPANY_GENERAL_ROOM_ID;
     const kinds = ["test_room_kind", "test_plain_kind", "test_room_kind"];
     for (const [i, kind] of kinds.entries())
       await insertNotification({

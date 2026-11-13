@@ -4,6 +4,7 @@
 import { env } from "cloudflare:workers";
 import { ROLE_IDS } from "../src/lib/permissions";
 import { AUTH_TRACE_PREFIX } from "./auth-fixtures";
+import { cleanupReadPositions } from "./read-position-fixtures";
 import {
   TEST_TAG,
   cleanupRoleTestData,
@@ -313,6 +314,8 @@ export async function cleanupDepartmentTestData() {
     .bind(tagged)
     .all<{ room_id: string }>();
   const roomIds = results.map((r) => r.room_id);
+  // #237：既読位置（read_positions）は部屋・利用者を外部キーで指すため、部屋より先に消す
+  await cleanupReadPositions();
   await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM channel_members WHERE user_id IN (${testUsers}) OR channel_id IN (SELECT room_id FROM channels WHERE ${channelFilter})`,

@@ -1,6 +1,11 @@
 // サイドバーの「参加中のチャンネル」。取得に失敗しても、枠全体は壊さず、このセクションの中にエラーを出す。
 import { NavLink } from "react-router";
 import { describeError } from "../describe-error";
+import {
+  RoomLinkLabel,
+  UnreadCountsError,
+  useUnreadCounts,
+} from "../../unread";
 import { useJoinedChannels } from "../hooks/useJoinedChannels";
 
 // リンクの見た目は、枠（app-shell）が決める。機能から枠を参照しないよう、呼び出し側から受け取る
@@ -14,12 +19,16 @@ export function JoinedChannelsSection({
   onNavigate,
 }: JoinedChannelsSectionProps) {
   const joined = useJoinedChannels();
+  const unread = useUnreadCounts();
+  // 取得に失敗している間は、件数を出さない（古い件数を出し続けない）
+  const counts = unread.isError ? undefined : unread.data;
   const items = joined.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <div className="mb-4">
       <p className="mb-2 px-3 text-xs font-bold text-text-muted">
         参加中のチャンネル
       </p>
+      {unread.isError && <UnreadCountsError />}
       {joined.isPending && <p className="px-3 text-sm">読み込み中です</p>}
       {joined.isError && (
         <p role="alert" className="px-3 text-sm text-danger">
@@ -37,7 +46,10 @@ export function JoinedChannelsSection({
               onClick={onNavigate}
               className={linkClassName}
             >
-              {channel.name}
+              <RoomLinkLabel
+                name={channel.name}
+                count={counts?.get(channel.roomId)}
+              />
             </NavLink>
           </li>
         ))}

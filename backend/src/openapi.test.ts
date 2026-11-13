@@ -14,8 +14,10 @@ import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
+import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
 
 // DB につなぐ処理は使わない代役（このテストは、ルートの組み立てだけを確かめる）
@@ -28,6 +30,8 @@ const app = createApp({
     { path: "/api/setup", app: setupRoutes(unusedDb) },
     // #120：ログイン・ログアウト・セッション。index.ts と同じパスに組み込む
     { path: "/api/auth", app: authRoutes(unusedDb) },
+    // #237：未読の一覧。index.ts と同じく /api/me より前に組み込む
+    { path: "/api/me/unread", app: unreadRoutes() },
     { path: "/api/me", app: meRoutes(unusedDb) },
     { path: "/api/admin/clients", app: adminClientRoutes() },
     // #199：アカウントの発行と一覧。index.ts と同じパスに組み込む
@@ -40,6 +44,8 @@ const app = createApp({
     { path: "/api/channels", app: channelRoutes() },
     // #201：メッセージの一覧・投稿。index.ts と同じパスに組み込む
     { path: "/api/rooms", app: messageRoutes() },
+    // #237：部屋の既読。index.ts と同じパスに組み込む
+    { path: "/api/rooms", app: readPositionRoutes() },
     { path: "/api/users", app: userRoutes() },
     // #124：通知の一覧・未読数・既読。index.ts と同じパスに組み込む
     { path: "/api/me/notifications", app: notificationRoutes() },
@@ -269,6 +275,30 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     expect(q).toBeDefined();
     expect(q?.schema?.minLength).toBe(1);
     expect(q?.schema?.maxLength).toBe(100);
+  });
+
+  it("#237 AC-1・AC-2（EP-3-01・EP-3-02）: 未読の一覧と既読の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      // 未読の一覧：perm.notification.own の拒否で 403（改訂2 C）
+      "GET /api/me/unread": ["200", "401", "403", "422"],
+      // 既読：未参加の公開チャンネルと送信元の不正で 403、見えない部屋・別の部屋のメッセージで 404
+      "PUT /api/rooms/{roomId}/read-position": [
+        "204",
+        "401",
+        "403",
+        "404",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
   });
 
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {

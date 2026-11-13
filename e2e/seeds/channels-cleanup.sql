@@ -1,6 +1,11 @@
 -- #200 E2E の後始末。社員ID e2euser_chan_ で始まる利用者（画面から発行した利用者を含む）と、部署名 [E2E_TEST]部署200 の部署・そのチャンネルだけを消す。
 -- 全社連絡（migration が作る初期データ）は消さない。消すのは、e2euser_chan_ の利用者の参加の行だけ。
 -- 外部キーの順：監査 → セッション → 参加者 → チャンネル → ルーム → ロール → 社員 → 部署。
+-- #237：部屋を開くと既読位置（read_positions）の行ができ、利用者・部屋を外部キーで指すため、利用者・部屋より先に消す。
+DELETE FROM read_positions
+WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chan!_%' ESCAPE '!')
+   OR room_id IN ('01JTE2E2000000000000000C01', '01JTE2E2000000000000000C02', '01JTE2E2000000000000000C03', '01JTE2E2000000000000000C04')
+   OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署200'));
 DELETE FROM audit_logs
 WHERE actor_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chan!_%' ESCAPE '!')
    OR target_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chan!_%' ESCAPE '!')

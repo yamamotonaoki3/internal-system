@@ -5,6 +5,7 @@
 import { execFile } from "node:child_process";
 import type { Browser, Page } from "@playwright/test";
 import { expect, test } from "./console-guard";
+import { roomLinkName } from "./room-link";
 import { allowSessionCheck401 } from "./session-console";
 
 const PASSWORD = "TestPass123!";
@@ -109,17 +110,17 @@ test("#200 AC-1〜AC-4: 管理者が発行 → 発行した社員でログイン
     });
     // 発行のときに、全社連絡と自部署（営業）の専用チャンネル2つへ参加している
     await expect(
-      mainMenu.getByRole("link", { name: "全社連絡" }),
+      mainMenu.getByRole("link", { name: roomLinkName("全社連絡") }),
     ).toBeVisible();
     await expect(
-      mainMenu.getByRole("link", { name: SALES, exact: true }),
+      mainMenu.getByRole("link", { name: roomLinkName(SALES) }),
     ).toBeVisible();
     await expect(
-      mainMenu.getByRole("link", { name: SALES_ANNOUNCEMENT, exact: true }),
+      mainMenu.getByRole("link", { name: roomLinkName(SALES_ANNOUNCEMENT) }),
     ).toBeVisible();
     // 他部署（開発）のチャンネルには、まだ参加していない
     await expect(
-      mainMenu.getByRole("link", { name: DEV, exact: true }),
+      mainMenu.getByRole("link", { name: roomLinkName(DEV) }),
     ).toHaveCount(0);
 
     // 「チャンネルを探す」から、他部署の専用チャンネルに参加する
@@ -147,11 +148,11 @@ test("#200 AC-1〜AC-4: 管理者が発行 → 発行した社員でログイン
       main.getByRole("button", { name: `${DEV}に参加する`, exact: true }),
     ).toHaveCount(0);
     await expect(
-      mainMenu.getByRole("link", { name: DEV, exact: true }),
+      mainMenu.getByRole("link", { name: roomLinkName(DEV) }),
     ).toBeVisible();
     // 参加していないチャンネルは、サイドバーに出ない
     await expect(
-      mainMenu.getByRole("link", { name: DEV_ANNOUNCEMENT, exact: true }),
+      mainMenu.getByRole("link", { name: roomLinkName(DEV_ANNOUNCEMENT) }),
     ).toHaveCount(0);
   } finally {
     await issued.context.close();

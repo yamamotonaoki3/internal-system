@@ -249,6 +249,16 @@ async function mockLoggedIn(page: Page): Promise<void> {
       body: JSON.stringify({ count: 0 }),
     }),
   );
+  // #237：サイドバー（参加中のチャンネル・DM の欄）が 2 秒ごとに呼ぶ未読の件数。未読なしの空の一覧を返す
+  // （frontend/src/test/server.ts の既定の応答と同じ形：items と nextCursor）。クエリ（limit・cursor）を含む
+  await page.route(/\/api\/me\/unread(\?.*)?$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ items: [], nextCursor: null }),
+    }),
+  );
   // #130：ヘッダーのステータスボタンが呼ぶ自分のプロフィール。在席の架空の値を返す（frontend/src/test/server.ts の既定の応答と同じ形）
   await page.route("**/api/me/profile", (route) =>
     route.fulfill({

@@ -2486,6 +2486,137 @@
         }
       }
     },
+    "/api/me/unread": {
+      "get": {
+        "operationId": "listUnreadRooms",
+        "summary": "自分の未読の部屋と件数を取得する",
+        "description": "参加中の未アーカイブのチャンネルと、当事者の DM のうち、未読が 1 件以上の部屋だけを room_id の昇順で返す（公開チャンネルを未参加で読んでいるだけの部屋・他人の DM は対象外）。count は 1〜100（100 件で打ち切る。画面は 99 を超えたら「99+」と表示する）。自分の投稿は数えない。既読位置がなければ、チャンネルは参加した後のメッセージだけ、DM は全件を数える。ページ送りは対象の部屋を limit 件ずつ調べるため、items は limit より少なく、空でも nextCursor がありうる。nextCursor が null になるまで続けて取る。perm.notification.own が必要（拒否は 403）。サイドバーが 2 秒ごとに取る。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "調べる部屋の件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "未読の部屋と件数。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/rooms/{roomId}/read-position": {
+      "put": {
+        "operationId": "markRoomRead",
+        "summary": "部屋の既読位置を、指定したメッセージまで進める",
+        "description": "参加中の未アーカイブのチャンネル、または当事者の DM だけ。既読位置は後戻りしない（すでに同じかより新しい位置まで既読なら、何も変えずに 204）。公開チャンネルを未参加で読んでいるだけの部屋は 403（FORBIDDEN）。非公開で未参加・アーカイブ済み・存在しない・当事者でない DM・その部屋にないメッセージは、区別せず 404。roomId・lastReadMessageId が ULID でない、本文に余分な項目がある場合は 422。既読は本人の閲覧の記録で、監査ログに残さない。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRoomReadInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "既読にした（Cache-Control: no-store）",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または未参加の公開チャンネル・権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）、またはその部屋にないメッセージ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "operationId": "changeMyPassword",
@@ -3525,6 +3656,61 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 100
+        }
+      }
+    },
+    "UnreadRoom": {
+      "type": "object",
+      "required": [
+        "roomId",
+        "count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "UnreadPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/UnreadRoom"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "MarkRoomReadInput": {
+      "type": "object",
+      "required": [
+        "lastReadMessageId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lastReadMessageId": {
+          "type": "string",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "description": "どのメッセージまで読んだか（ULID）"
         }
       }
     },

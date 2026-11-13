@@ -6,6 +6,7 @@
 import { env } from "cloudflare:workers";
 import { apiRequest, insertReadyUser } from "./api-request";
 import { cleanupMessageScenario, ulidAt } from "./message-fixtures";
+import { cleanupReadPositions } from "./read-position-fixtures";
 import { TEST_TAG, testId } from "./role-fixtures";
 import { AppError } from "../src/lib/app-error";
 import type { Principal } from "../src/lib/authorization";
@@ -174,6 +175,8 @@ export const dmApi = {
  * 外部キーの順：メッセージ → 当事者（その会話の全員分）→ 会話 → 部屋。利用者を消す後始末より先に呼ぶ。
  */
 export async function cleanupDmTestData() {
+  // #237：既読位置（read_positions）は DM の部屋を外部キーで指すため、部屋より先に消す
+  await cleanupReadPositions();
   const testUsers =
     "SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'";
   const { results } = await env.DB.prepare(

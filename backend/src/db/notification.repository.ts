@@ -73,9 +73,28 @@ export function notificationInserts<K extends string = NotificationKind>(
 }
 
 /**
- * 本人が一覧・未読数・すべて既読で扱ってよい通知の条件。三つが同じ条件を通る。
- * 部屋の内容を含む種類（containsRoomContent が true）にだけ部屋の条件を当てる。含む種類がなければ部屋の条件を付けない（空の IN を作らない）。
- * 部屋の閲覧権限による除外（3-1 AC-3）は #133 がここに足す。今は、部屋の内容を含む通知が部屋の ID を持つことだけを求める。
+ * 閲覧できる部屋の条件（部屋の内容を含む通知を、閲覧権限を失った部屋の分だけ除くため。3-1 AC-3）。
+ * 未アーカイブで（公開、または自分が参加中）のチャンネル、または自分が当事者の DM。存在しない部屋は見えない。
+ * channel-rules の canViewChannel と同じ規則を SQL で書いたもの（二重定義）。全組の一致は notification.room-visibility.db.test.ts で固定している。
+ */
+function viewableRoom(recipientId: string): SQL {
+  return sql`(exists (
+    select 1 from channels c
+    where c.room_id = ${notifications.roomId}
+      and c.deleted_at is null
+      and (c.visibility = 'public' or exists (
+        select 1 from channel_members cm where cm.channel_id = c.room_id and cm.user_id = ${recipientId})))
+    or exists (
+      select 1 from conversation_members conv
+      where conv.conversation_id = ${notifications.roomId} and conv.user_id = ${recipientId}))`;
+}
+
+/**
+ * 本人が一覧・未読数・1件既読・すべて既読で扱ってよい通知の条件。四つが同じ条件を通る。
+ * 部屋の内容を含む種類（containsRoomContent が true）にだけ部屋の条件（部屋の ID を持ち、その部屋を閲覧できること）を当てる。
+ * 含む種類がなければ部屋の条件を付けない（空の IN を作らない。今の本番の定義はこの場合）。
+ * 部屋の内容を含まない種類（アーカイブ・復元など、権限を失っても残したい通知）は、部屋の閲覧権限に影響されない。
+ * 見られる範囲が別の規則の部屋を足すときは、viewableRoom と未読の対象の部屋（unread-targets.sql.ts）の両方を広げる。
  */
 export function visibleToRecipient(
   recipientId: string,
@@ -84,7 +103,7 @@ export function visibleToRecipient(
   const own = eq(notifications.userId, recipientId);
   const roomKinds = roomContentKinds(definitions);
   if (roomKinds.length === 0) return own;
-  return sql`(${own} and ${or(notInArray(notifications.kind, roomKinds), isNotNull(notifications.roomId))})`;
+  return sql`(${own} and ${or(notInArray(notifications.kind, roomKinds), and(isNotNull(notifications.roomId), viewableRoom(recipientId)))})`;
 }
 
 export function createNotificationRepository(
