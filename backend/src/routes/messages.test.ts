@@ -483,6 +483,7 @@ describe("#201 AC-6 投稿時の表示名", () => {
     expect(item?.author).toEqual({
       id: member.userId,
       displayName: "テスト太郎",
+      isActive: true,
     });
   });
 });

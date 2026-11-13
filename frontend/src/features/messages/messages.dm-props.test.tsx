@@ -99,7 +99,7 @@ describe("#136 AC-3（C-168(6)）既定値ではチャンネルの動きのま�
     expect(await screen.findByText(/オーナーと全体管理者/)).toBeDefined();
   });
 
-  it("#136 AC-3（C-168(6)）: props を渡さなければ、どの投稿者にも「退職者」を併記しない（チャンネルは #133 で扱う）", async () => {
+  it("#136 AC-3（C-168(6)）: 投稿者が有効（isActive が真）で props を渡さなければ、「退職者」を併記しない", async () => {
     respondMessages([
       message(1, { author: RETIRED, body: "[E2E_TEST]元社員の投稿" }),
     ]);

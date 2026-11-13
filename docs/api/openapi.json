@@ -3234,7 +3234,8 @@
           "type": "object",
           "required": [
             "id",
-            "displayName"
+            "displayName",
+            "isActive"
           ],
           "additionalProperties": false,
           "properties": {
@@ -3245,6 +3246,10 @@
             "displayName": {
               "type": "string",
               "description": "投稿時点の表示名"
+            },
+            "isActive": {
+              "type": "boolean",
+              "description": "投稿者の今の有効・無効（無効なら画面で「退職者」を併記する）"
             }
           }
         },

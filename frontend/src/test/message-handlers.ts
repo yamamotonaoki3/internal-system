@@ -10,9 +10,14 @@ import { server } from "./server";
 export type TestMessage = {
   id: string;
   roomId: string;
-  author: { id: string; displayName: string };
+  author: { id: string; displayName: string; isActive: boolean };
   body: string;
   createdAt: string;
+};
+
+/** message() の上書き。author の isActive は省略でき、省略したときは true（有効）で補う */
+export type MessageOverrides = Omit<Partial<TestMessage>, "author"> & {
+  author?: { id: string; displayName: string; isActive?: boolean };
 };
 
 export const ROOM_ID = "01JTESTROOM00000000000R001";
@@ -20,15 +25,19 @@ export const ROOM_ID = "01JTESTROOM00000000000R001";
 /** n 番目のメッセージ。IDは n の昇順で並ぶ（辞書順＝時刻順） */
 export function message(
   n: number,
-  overrides: Partial<TestMessage> = {},
+  overrides: MessageOverrides = {},
 ): TestMessage {
+  const author = overrides.author ?? {
+    id: "01JTESTUSER000000000000001",
+    displayName: "テスト太郎",
+  };
   return {
     id: `01JTESTMSG${String(n).padStart(16, "0")}`,
     roomId: ROOM_ID,
-    author: { id: "01JTESTUSER000000000000001", displayName: "テスト太郎" },
     body: `[E2E_TEST]本文${n}`,
     createdAt: "2026-11-09T00:00:00.000Z",
     ...overrides,
+    author: { ...author, isActive: author.isActive ?? true },
   };
 }
 

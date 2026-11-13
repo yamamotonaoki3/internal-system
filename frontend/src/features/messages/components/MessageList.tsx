@@ -9,7 +9,7 @@ type MessageListProps = {
   isPending: boolean;
   error: unknown;
   emptyText?: string;
-  /** 表示名に「退職者」を併記する投稿者の利用者ID（既定は併記しない） */
+  /** サーバーの isActive に加えて「退職者」を併記する投稿者の利用者ID（既定は追加なし） */
   retiredAuthorIds?: readonly string[];
 };
 
@@ -18,6 +18,13 @@ function formatTime(iso: string): string {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+function isRetired(
+  author: RoomMessage["author"],
+  retiredAuthorIds: readonly string[],
+): boolean {
+  return !author.isActive || retiredAuthorIds.includes(author.id);
 }
 
 export function MessageList({
@@ -55,7 +62,7 @@ export function MessageList({
                   <span className="font-bold">
                     {message.author.displayName}
                   </span>
-                  {retiredAuthorIds.includes(message.author.id) && (
+                  {isRetired(message.author, retiredAuthorIds) && (
                     <span className="text-text-muted">（退職者）</span>
                   )}{" "}
                   <time

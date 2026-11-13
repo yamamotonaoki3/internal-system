@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-01（一覧）・EP-1-02（投稿）のうち、本文だけのチャンネルの部分／`messages`テーブル（migration 0012）／EP-2-06への`canPost`の追加／S-05の一覧・入力欄・2秒ポーリング／共通部品`TextAreaField` |
-| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）【Issue #237で、チャンネル・DMの未読の件数と既読を実装した。[unread.md](unread.md)。元の記述は残す】、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM【Issue #136で、DMの部屋の一覧・投稿は実装した。下の「DMの部屋（Issue #136）」。元の記述は残す】、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |
+| 親#133に残すもの（未実施） | 未読（3-1。#124が要る）【Issue #237で、チャンネル・DMの未読の件数と既読を実装した。[unread.md](unread.md)。元の記述は残す】、下書き（1-1 AC-4）、退職者の併記（1-1 AC-3の後半）【Issue #238で、チャンネルの退職者の併記を実装した。下の「退職者の併記（Issue #238）」。元の記述は残す】、編集・削除（#134）、Markdown、添付、メンション、リアクション、スレッド（返信）、DM【Issue #136で、DMの部屋の一覧・投稿は実装した。下の「DMの部屋（Issue #136）」。元の記述は残す】、過去へのスクロール（画面の「さらに古いメッセージ」）、自動スクロール、投稿の印（`pendingMarks`）、WebSocket（#117） |
 | 範囲外（別の起票先に残す） | **無効にした部署のチャンネルを読み取り専用にすること**（部署の無効化が未実装のため。`department.repository.ts`に無効化の処理がない）。**投稿のレート制限**（上限がX-8で未決定のため入れず、別Issueで扱う）。キャッシュの件数の上限（長時間開いたときのメモリ。親#133に残す）。同時50人・2秒の実測（#160） |
 
 ## ファイルと役割
@@ -22,7 +22,7 @@
 | `shared/message-rules.ts` | 本文の上限`MESSAGE_BODY_MAX_LENGTH`・`messageBodySchema`・純粋関数`canPostToChannel`の**定義元**。サーバーと画面が参照する。サーバー側の検証は省略しない |
 | `backend/src/lib/ulid.ts` | `ulidAfter(previous, now)`を足した。指定したIDより必ず大きいULIDを返す（既存の`createUlidFactory`・`newUlid`は変えていない） |
 | `backend/src/lib/cursor.ts` | 「最後のID以降」の共通部品`afterIdQuerySchema`（`after`は必須・ULID形式、`limit`は1〜100で既定100）と`toAfterIdPage`（`limit+1`件から`items`と`hasMore`を作る）を足した。DM・スレッドなどが同じ部品を使う |
-| `backend/src/db/message.repository.ts` | `createMessageRepository`が`listLatest`（新しい順）・`listAfter`（ID昇順）・`maxId`・`findDisplayName`・`insertIfOrdered`（条件付きの投稿）を扱う。見えるかの読み取りは`channel.repository.ts`の`findForViewer`を再利用する。`withMessages`が構成する【Issue #136で、`findDirectForParticipant`（自分が当事者のDMか・相手が有効か）と、`insertIfOrdered`のDMの条件を足した】 |
+| `backend/src/db/message.repository.ts` | `createMessageRepository`が`listLatest`（新しい順）・`listAfter`（ID昇順）・`maxId`・`findDisplayName`・`insertIfOrdered`（条件付きの投稿）を扱う。見えるかの読み取りは`channel.repository.ts`の`findForViewer`を再利用する。`withMessages`が構成する【Issue #136で、`findDirectForParticipant`（自分が当事者のDMか・相手が有効か）と、`insertIfOrdered`のDMの条件を足した】【Issue #238で、内部の関数`selectWithAuthor`が`users`を主キーでINNER JOINし、投稿者の今の有効・無効（`users.is_active`）を一覧の各行に付けるようにした。`listLatest`・`listAfter`が共用する。SQLは1ページ1文のまま。元の記述は残す】 |
 | `backend/src/services/message.service.ts` | `createMessageService`が`list`・`post`を扱う。判定の順、お知らせ専用の権限（`authorize`）、表示名の取得、IDの作り直し（再試行）と503への変換。`withMessageService`が構成する【Issue #136で、DMの部屋の枝（当事者か → 権限 → 相手が有効か）を足した。下の「DMの部屋の判定の順」】 |
 | `backend/src/routes/messages.ts` | `messageRoutes`（`GET /:roomId/messages`・`POST /:roomId/messages`）。入力は`validate`で確かめ（不正は422）、受付と返却だけを行う。`backend/src/index.ts`が`/api/rooms`へ登録する |
 | `backend/src/db/channel.repository.ts` | `findForViewer`の取得項目に`purpose`を足した（足しただけ） |
@@ -37,13 +37,13 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/messages/api/message-api.ts`、`query-keys.ts` | `fetchLatestMessages`・`fetchMessagesAfter`・`postMessage`。共通の`apiClient`だけを使い、応答はzodで検証する。`messageKeys.room(roomId)`が部屋ごとのキー |
+| `frontend/src/features/messages/api/message-api.ts`、`query-keys.ts` | `fetchLatestMessages`・`fetchMessagesAfter`・`postMessage`。共通の`apiClient`だけを使い、応答はzodで検証する。`messageKeys.room(roomId)`が部屋ごとのキー【Issue #238で、zodのスキーマの`author.isActive`を必須にした。欠けた応答は、取得の失敗として扱う】 |
 | `frontend/src/features/messages/polling.ts` | `MESSAGE_POLL_INTERVAL_MS`（2000）と`MESSAGE_POLL_MAX_CONSECUTIVE_FETCHES`（5）。画面だけで使う値のため`shared/`には置かない |
 | `frontend/src/features/messages/merge-messages.ts` | `mergeMessages`。既存の一覧と新着を、IDで重複を除いてID昇順に並べる純粋関数 |
 | `frontend/src/features/messages/hooks/useRoomMessages.ts` | 2秒ごとの取得。`refetchInterval`で繰り返す |
 | `frontend/src/features/messages/hooks/usePostMessage.ts` | 投稿。成功したらその部屋の一覧を`invalidateQueries`で取り直し、取り直しが終わるまで送信中のままにする |
 | `frontend/src/features/messages/schemas/message-form.ts` | 入力チェック。本文の規則は`shared/message-rules.ts`を参照する |
-| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】【Issue #237で、`RoomMessages`に任意のprop`onLatestMessageIdChange`を足した。表示している最新のメッセージIDが変わったときに呼ぶ（0件・取得失敗では呼ばない）。渡さなければ既存の動きのまま。既読の送信は`features/unread`が行い、`messages`は`unread`を参照しない。[unread.md](unread.md)】 |
+| `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】【Issue #238で、`MessageList`が`author.isActive`が偽の投稿者の表示名に「（退職者）」を、文字だけで併記するようにした（`isRetired`＝`!isActive`または`retiredAuthorIds`に含まれる）。退職者の名前にはボタン・リンクを付けない。下の「退職者の併記（Issue #238）」】【Issue #237で、`RoomMessages`に任意のprop`onLatestMessageIdChange`を足した。表示している最新のメッセージIDが変わったときに呼ぶ（0件・取得失敗では呼ばない）。渡さなければ既存の動きのまま。既読の送信は`features/unread`が行い、`messages`は`unread`を参照しない。[unread.md](unread.md)】 |
 | `frontend/src/features/messages/describe-error.ts` | 通信の失敗を利用者向けの文にする。`features/channels/describe-error.ts`と**内容が重複している**（下の「未実施・未決定」） |
 | `frontend/src/components/TextAreaField.tsx` | 複数行の入力欄の共通部品（`TextField`と同じ作り）。素の`textarea`にクラスを書かない規則（ADR-0015）のために足した |
 | `frontend/src/features/channels/api/channel-api.ts` | 詳細のスキーマに`canPost`を足した |
@@ -130,12 +130,21 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - クエリは`after`・`cursor`・`limit`。**`after`と`cursor`の同時指定は422**（排他）。余分なクエリは422
 - **`after`なし**：新しい順に`limit`件（既定`PAGE_LIMIT.message`＝50）と`nextCursor`（より古い側の続き。`cursor.ts`の`afterCursor`・`toPage`）。画面の初回の取得に使う
 - **`after`あり**：ID昇順で、`after`**より後**（`after`自身は含まない。`afterId`は`gt`）を`limit`件（既定100、最大100）。**取得上限**を超える分があるとき`hasMore`が真になる（`limit+1`件を読み、`limit`件に切る）。壊れた`after`は422
-- 項目は`id`・`roomId`・`author`（`id`・`displayName`）・`body`・`createdAt`。EP-1-01のそのほかの項目（`editedAt`・`deleted`・`attachments`・`reactions`・`replyCount`・`pendingMarks`）は範囲外のため返さない
-- GETはDBを変えない。一覧は`messages`だけを読む（表示名はスナップショット列のため`users`を結合しない）
+- 項目は`id`・`roomId`・`author`（`id`・`displayName`）・`body`・`createdAt`。EP-1-01のそのほかの項目（`editedAt`・`deleted`・`attachments`・`reactions`・`replyCount`・`pendingMarks`）は範囲外のため返さない【Issue #238で、`author`に`isActive`（投稿者のアカウントが今有効か。`users.is_active`の今の値）を足した。`after`あり・なしの両方。本名などは返さない。元の記述は残す】
+- GETはDBを変えない。一覧は`messages`だけを読む（表示名はスナップショット列のため`users`を結合しない）【Issue #238で、`isActive`のために`users`を主キーでINNER JOINするようにした。表示名はスナップショットのままで、結合は有効・無効だけのため。SQLは1ページ1文のまま。実行計画は`messages_room_id_id_idx`と`users`の主キー。テストでSQLの数と実行計画を固定している。元の記述は残す】
 
 ### 表示名のスナップショット
 
-`messages.sender_display_name`に、**投稿時点**の`users.display_name`を保存する。応答の`author.displayName`はこの値を返すので、投稿者が後で表示名を変えても、過去の投稿は変わらない（AC-6）。退職者の併記は親#133に残す。
+`messages.sender_display_name`に、**投稿時点**の`users.display_name`を保存する。応答の`author.displayName`はこの値を返すので、投稿者が後で表示名を変えても、過去の投稿は変わらない（AC-6）。退職者の併記は親#133に残す。【Issue #238で、併記を実装した。下の「退職者の併記（Issue #238）」。元の記述は残す】
+
+### 退職者の併記（Issue #238）
+
+チャンネルの一覧でも、投稿者のアカウントが今は無効なら、表示名に「（退職者）」を併記する（1-1 AC-3の後半）。表示名は投稿時点のスナップショットのまま変えず、併記は「今は無効」であることだけを示す。
+
+- バックエンド：EP-1-01の`items[].author.isActive`を、`message.repository.ts`の`selectWithAuthor`が`users`との主キーのJOINで返す。応答に出すのは真偽だけで、本名・ステータスなどは返さない
+- フロントエンド：`message-api.ts`のzodで`isActive`を必須にする。`MessageList.tsx`の`isRetired`が、`isActive`が偽、またはDMの`retiredAuthorIds`に含まれるときに、文字だけで併記する。退職者の名前には、ボタン・リンクを付けない（プロフィール・DMへ進ませない。C-74）
+- DMの`retiredAuthorIds`は残す。同じ表示を2つの経路で出す重複の整理は#242で行う（[dms.md](dms.md)）
+- 有効な投稿者の名前にプロフィールカードを付けることは、このIssueの範囲外。画面一覧S-05の記述との食い違いとして、#243で扱う
 
 ### 認可：お知らせ専用の権限（ServiceとSQLの両方）
 
@@ -211,12 +220,14 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - テスト部品：`backend/test/api-request.ts`・`message-fixtures.ts`、`frontend/src/test/message-handlers.ts`
 - フロントエンド：`frontend/src/features/messages/merge-messages.test.ts`、`hooks/useRoomMessages.test.tsx`（fake timers）、`messages.components.test.tsx`、`messages.mutation.test.tsx`、`frontend/src/features/channels/channel-detail.messages.test.tsx`、`channels.components.test.tsx`、`frontend/src/channels-route.test.tsx`
 - E2E：`e2e/messages.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/messages.sql`・`messages-cleanup.sql`
+- 退職者の併記（Issue #238）：`backend/src/db/message.repository.author-active.db.test.ts`（`isActive`の値・SQLの数・実行計画）、`backend/src/routes/messages.retired-author.test.ts`、`frontend/src/features/messages/messages.retired-author.test.tsx`、`frontend/src/features/channels/channel-detail.retired-author.test.tsx`。既存の`backend/src/routes/messages.test.ts`・`messages.dm.test.ts`、`frontend/src/features/messages/messages.dm-props.test.tsx`、`frontend/src/test/message-handlers.ts`は、期待・応答に`isActive`を足した。E2Eは`e2e/messages-retired.spec.ts`（シードは`e2e/seeds/messages-retired.sql`・`messages-retired-cleanup.sql`）
 
 ## 未実施・未決定として記録するもの
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない。**未読は後からIssue #237で実装した**（[unread.md](unread.md)）。**DMの「退職者」の併記だけはIssue #136で実装した**（チャンネルは#133に残す。[dms.md](dms.md)） |
+| 親#133の残りの受け入れ条件（未読、下書き、退職者の併記） | 親に残す。このIssueでは作っていない。**未読は後からIssue #237で実装した**（[unread.md](unread.md)）。**DMの「退職者」の併記だけはIssue #136で実装した**（チャンネルは#133に残す。[dms.md](dms.md)）。**チャンネルの「退職者」の併記は、後からIssue #238で実装した**（上の「退職者の併記（Issue #238）」） |
+| **既知の制限（#238）**：開いている間に投稿者が無効になったときの併記 | ポーリング（`after`）は表示済みの行を取り直さない。このため、メッセージ一覧を開いている間に投稿者が無効になると、表示済みの行には「（退職者）」が付かず、キャッシュが残る間は、ほかの画面へ移って戻っても同じ。再読み込み（開き直してキャッシュが作り直される）で反映される。追従は#117（リアルタイム化）で扱う |
 | 無効にした部署のチャンネルの読み取り専用 | 範囲外。部署の無効化が未実装のため。実装したら、条件付きのINSERTの条件に**部署が有効であること**を足す |
 | 投稿のレート制限 | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)。Skill「セキュリティ」の「公開するAPIすべてにレート制限」に従えない点） |
 | U-14：全社連絡の投稿規則 | **仮定**（参加者なら誰でも投稿できる）。デモで利用者に確認する |
@@ -231,6 +242,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 
 - Issue #201：本Issue。親Issue #133。#200（チャンネル。`channel.repository`・EP-2-06・S-05が重なる）が先行。DM・スレッド・案件（#133の後続）が「最後のID以降」の部品を使う
 - Issue #136：DMの部屋の一覧・投稿を、この設計の上に足した（`insertIfOrdered`のDMの条件、判定の順のDMの枝、`RoomMessages`の任意のprops）。詳細は[dms.md](dms.md)。決定記録C-168
+- Issue #238：チャンネルの退職者の併記（`author.isActive`）。関連：#242（DMの`retiredAuthorIds`の整理）、#243（有効な投稿者の名前へのプロフィールカード）、#117（開いている間の追従）
 - [channels.md](channels.md)（#200）、[department-management.md](department-management.md)（#196。`rooms`・`channels`・`channel_members`の約束）
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0015：共通部品を使う／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：1-1 AC-1〜6、1-9 AC-1、2-3 AC-4、S-05。EP-1-01・EP-1-02・EP-2-06
