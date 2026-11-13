@@ -135,6 +135,7 @@ describe("#136 AC-1（1-2 AC-1・AC-3）当事者のやり取り", () => {
     expect(latest[0]?.author).toEqual({
       id: bob.userId,
       displayName: "テストDMボブ",
+      isActive: true,
     });
   });
 
@@ -240,6 +241,7 @@ describe("#136 AC-1（1-2 AC-6）・C-168(2) 相手が無効な DM", () => {
     expect(page.items[0]?.author).toEqual({
       id: bob.userId,
       displayName: "テストDMボブ",
+      isActive: false,
     });
   });
 

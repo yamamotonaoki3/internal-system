@@ -14,8 +14,8 @@ import { withDatabase, type Database } from "./database";
 export type MessageItem = {
   id: string;
   roomId: string;
-  /** displayName は投稿時点の表示名 */
-  author: { id: string; displayName: string };
+  /** displayName は投稿時点の表示名、isActive は投稿者の今の有効・無効 */
+  author: { id: string; displayName: string; isActive: boolean };
   body: string;
   createdAt: string;
 };
@@ -37,6 +37,7 @@ const messageColumns = {
   senderDisplayName: messages.senderDisplayName,
   body: messages.body,
   createdAt: messages.createdAt,
+  authorIsActive: users.isActive,
 };
 
 function toItem(row: {
@@ -46,11 +47,16 @@ function toItem(row: {
   senderDisplayName: string;
   body: string;
   createdAt: string;
+  authorIsActive: boolean;
 }): MessageItem {
   return {
     id: row.id,
     roomId: row.roomId,
-    author: { id: row.senderId, displayName: row.senderDisplayName },
+    author: {
+      id: row.senderId,
+      displayName: row.senderDisplayName,
+      isActive: row.authorIsActive,
+    },
     body: row.body,
     createdAt: row.createdAt,
   };
@@ -64,6 +70,12 @@ function cursorFor(row: { id: string }): CursorPayload {
 export function createMessageRepository(db: Database) {
   const channels = createChannelRepository(db);
   const partnerMember = alias(conversationMembers, "partner_member");
+  // messages.sender_id は NOT NULL の外部キーなので、INNER JOIN で行は減らない（users は主キーで引く）
+  const selectWithAuthor = () =>
+    db
+      .select(messageColumns)
+      .from(messages)
+      .innerJoin(users, eq(users.id, messages.senderId));
   return {
     // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）
     findRoomForViewer: channels.findForViewer,
@@ -113,9 +125,7 @@ export function createMessageRepository(db: Database) {
     },
     /** 新しい順。nextCursor は古い側の続き */
     async listLatest(roomId: string, limit: number, cursor?: CursorPayload) {
-      const rows = await db
-        .select(messageColumns)
-        .from(messages)
+      const rows = await selectWithAuthor()
         .where(
           and(
             eq(messages.roomId, roomId),
@@ -135,9 +145,7 @@ export function createMessageRepository(db: Database) {
     },
     /** ID昇順で after より後（after は含まない） */
     async listAfter(roomId: string, after: string, limit: number) {
-      const rows = await db
-        .select(messageColumns)
-        .from(messages)
+      const rows = await selectWithAuthor()
         .where(and(eq(messages.roomId, roomId), afterId(messages.id, after)))
         .orderBy(asc(messages.id))
         .limit(limit + 1);

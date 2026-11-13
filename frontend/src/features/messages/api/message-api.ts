@@ -5,7 +5,11 @@ import { apiClient } from "../../../services/api-client";
 const messageSchema = z.object({
   id: z.string().min(1),
   roomId: z.string().min(1),
-  author: z.object({ id: z.string().min(1), displayName: z.string() }),
+  author: z.object({
+    id: z.string().min(1),
+    displayName: z.string(),
+    isActive: z.boolean(),
+  }),
   body: z.string(),
   createdAt: z.string(),
 });
