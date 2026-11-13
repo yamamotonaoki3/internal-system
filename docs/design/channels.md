@@ -107,6 +107,7 @@
 
 - `JoinedChannelsSection`は`GET /api/channels?joined=true`を取り、参加中のチャンネルを名前順に並べる。1ページ（既定20件）を超えるときは「さらに表示」で続きを取る。上限の定数は設けず、ページ送りで対応した
 - 読み込み中・エラー・なしの表示は、このセクションの中に出し、枠全体は壊さない。エラーは`describeError`の文にする
+- **未読の件数（Issue #237。元の記述は残す）**：`JoinedChannelsSection`が`useUnreadCounts`で部屋ごとの件数を引き、各リンクに件数を出す（`RoomLinkLabel`。未読があれば名前を太字に）。取得に失敗している間は件数を出さず、`UnreadCountsError`を出す。`ChannelDetailView`は、詳細の取得が成功して参加中のときだけ、`useMarkRoomRead`の`markRead`を`RoomMessages`に渡す（公開チャンネルを未参加で読んでいるだけでは既読にしない）。既読の失敗は部屋の近くに出す。`ChannelDetailPage`は変えていない。[unread.md](unread.md)
 - **401のとき**：サイドバーの取得も共通の`apiClient`を通る。401（`UNAUTHENTICATED`）は、`main.tsx`が登録した共通の処理（`features/auth/unauthenticated-handler.ts`）が、セッションのキャッシュを捨てて`/login`へ移す。サイドバー固有の処理は書かない
 - リンクの見た目は枠（app-shell）が決める。機能から枠を参照しないよう、`JoinedChannelsSection`はリンクのクラス関数を引数で受け取る
 - S-09の部署の絞り込み（`DepartmentFilter`）は、絞り込まない一覧に出てくる部署から選択肢を作る。読み込み済みの分だけが選択肢になるため、ページ送りの先にしかない部署は、先を読み込むまで選べない（今の件数では問題にならないが、制限として記録する）
@@ -151,7 +152,7 @@
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（お知らせ専用の投稿制限とメッセージは#201で実装。申請で作るチャンネルは#131で実装） |
+| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（**未読は後から#237で実装した**。[unread.md](unread.md)。お知らせ専用の投稿制限とメッセージは#201で実装。申請で作るチャンネルは#131で実装） |
 | Q-9：0009で名前が衝突して専用チャンネルが作られなかった部署の扱い | 未決。このIssueでは何も作らない。デモの前に、`audit_logs`の`department.channel_backfill`と`channel.company_general_backfill`の`failure`の有無を確かめる |
 | 全社連絡の退出 | APIを作っていない。全社連絡から外れる経路はない |
 | レート制限（EP-2-04〜06） | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)） |

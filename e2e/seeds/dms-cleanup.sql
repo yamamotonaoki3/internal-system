@@ -3,6 +3,15 @@
 -- 外部キーの順：DM のメッセージ → その DM の全員分の当事者（conversation_members）→ その DM（conversations）→ その部屋（rooms）
 --   → チャンネルのメッセージ → 通知 → 監査 → セッション → 参加者 → チャンネル → ルーム → ロール → 社員 → 部署。
 -- 1. テストの利用者が当事者に含まれる DM のメッセージ（相手の投稿も含む）
+-- #237：部屋を開くと既読位置（read_positions）の行ができ、利用者・部屋を外部キーで指すため、利用者・部屋より先に消す。
+DELETE FROM read_positions
+WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_dm!_%' ESCAPE '!')
+   OR room_id IN (
+     SELECT conversation_id FROM conversation_members
+     WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_dm!_%' ESCAPE '!')
+   )
+   OR room_id = '01JTE2E1360000000000000C01'
+   OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署136'));
 DELETE FROM messages
 WHERE room_id IN (
   SELECT conversation_id FROM conversation_members

@@ -1,5 +1,8 @@
 -- #124 E2E専用。社員ID e2euser_notif_ と、部署名 [E2E_TEST]部署124 で始まる部署だけを後始末する。
 -- 外部キーの順：通知（user_id の外部キーのため、利用者より先）→ 監査 → セッション → ロール → 社員 → 部署。
+-- #237：部屋を開くと既読位置（read_positions）の行ができ、利用者・部屋を外部キーで指すため、利用者・部屋より先に消す。
+DELETE FROM read_positions
+WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_notif!_%' ESCAPE '!');
 DELETE FROM notifications
 WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_notif!_%' ESCAPE '!');
 DELETE FROM audit_logs

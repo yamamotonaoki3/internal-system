@@ -12,6 +12,8 @@ DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE login_id LI
 DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 -- 通知（#124）。user_id の外部キーのため、利用者より先に消す。宛先がテストの利用者のものを消す。
 DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
+-- 既読位置（#237）。user_id・room_id の外部キーのため、利用者・部屋より先に消す。テストの利用者の行と、テストの部署のチャンネル・テストの利用者の DM の部屋の行。
+DELETE FROM read_positions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!')) OR room_id IN (SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'));
 -- DM（#136）。テストの利用者が当事者に含まれる会話を、外部キーの順に消す：メッセージ → 当事者（その会話の全員分）→ 会話。部屋は、テストの利用者の投稿を消した後（下）に消す。利用者を消すより前に行う。
 DELETE FROM messages WHERE room_id IN (SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'));
 DELETE FROM conversation_members WHERE conversation_id IN (SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'));
@@ -38,4 +40,5 @@ SELECT
   (SELECT COUNT(*) FROM company_settings WHERE company_name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR company_name LIKE '[E2E!_TEST]%' ESCAPE '!') AS remaining_company_settings,
   (SELECT COUNT(*) FROM conversations WHERE room_id IN (SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'))
     OR (room_id NOT IN (SELECT conversation_id FROM conversation_members) AND EXISTS (SELECT 1 FROM users u WHERE (u.login_id LIKE 'testuser!_%' ESCAPE '!' OR u.login_id LIKE 'e2euser!_%' ESCAPE '!') AND instr(conversations.direct_key, u.id) > 0))) AS remaining_conversations,
-  (SELECT COUNT(*) FROM rooms WHERE kind = 'direct' AND id NOT IN (SELECT room_id FROM conversations)) AS remaining_direct_rooms;
+  (SELECT COUNT(*) FROM rooms WHERE kind = 'direct' AND id NOT IN (SELECT room_id FROM conversations)) AS remaining_direct_rooms,
+  (SELECT COUNT(*) FROM read_positions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!')) OR room_id IN (SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!'))) AS remaining_read_positions;

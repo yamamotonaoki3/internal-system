@@ -4,6 +4,7 @@ import { Button } from "../../../components/Button";
 import { useSession } from "../../auth";
 import { StartDmButton } from "../../dms";
 import { RoomMessages } from "../../messages";
+import { useMarkRoomRead } from "../../unread";
 import { describeError, isApiError } from "../describe-error";
 import { useChannelDetail } from "../hooks/useChannelDetail";
 import { useJoinChannel } from "../hooks/useJoinChannel";
@@ -13,6 +14,7 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
   const join = useJoinChannel();
   const session = useSession();
   const selfId = session.data?.user.id;
+  const read = useMarkRoomRead(channelId);
 
   if (channel.isPending) return <p role="status">読み込み中です</p>;
   if (channel.isError) {
@@ -57,7 +59,14 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
         roomId={data.roomId}
         canPost={data.canPost}
         joined={data.joined}
+        // 参加中のときだけ既読にする（公開チャンネルを未参加で読んでいるだけでは、未読の対象ではない）
+        onLatestMessageIdChange={data.joined ? read.markRead : undefined}
       />
+      {read.error !== null && (
+        <Alert tone="error" role="alert">
+          既読の状態を更新できませんでした。{describeError(read.error)}
+        </Alert>
+      )}
       {data.joined && (
         <div>
           <h2 className="mb-2 font-bold">参加者（{data.memberCount}人）</h2>

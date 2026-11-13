@@ -6,7 +6,8 @@ const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const ULID_PATTERN = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const TIME_LENGTH = 10;
 const RANDOM_BYTES = 10;
-const MAX_TIME = 2 ** 48 - 1;
+/** ULID の時刻部分の最大（48bit） */
+export const MAX_TIME = 2 ** 48 - 1;
 
 /** ULIDの文字列（形式の確認は isUlid） */
 export type Ulid = string;
@@ -28,6 +29,13 @@ function encodeTime(time: number): string {
     rest = Math.floor(rest / 32);
   }
   return out;
+}
+
+/** ULID の時刻部分（先頭10文字）。参加の時刻など、ID の範囲の下限を作るのに使う。0〜2^48−1 の整数 */
+export function ulidTimePrefix(ms: number): string {
+  if (!Number.isInteger(ms) || ms < 0 || ms > MAX_TIME)
+    throw new Error("ULIDの時刻が範囲外です");
+  return encodeTime(ms);
 }
 
 function encodeRandom(bytes: Uint8Array): string {

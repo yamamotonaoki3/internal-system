@@ -2,6 +2,16 @@
 -- 識別子を持つ申請（申請者が e2euser_chreq_ か、部署が [E2E_TEST]部署131）の承認で作られたチャンネル（申請の channel_id）だけを後始末する。
 -- ルームは識別子で絞れないため、シードの固定の ID と、識別子を持つ申請の channel_id だけを対象にする。そのため、申請は channels・rooms を消した後に消す。
 -- 外部キーの順：通知 → 参加者 → チャンネル → ルーム → 申請（requested_by・decided_by・department_id の外部キーのため、利用者・部署より先）→ 監査 → セッション → ロール → 社員 → 部署。
+-- #237：部屋を開くと既読位置（read_positions）の行ができ、利用者・部屋を外部キーで指すため、利用者・部屋より先に消す。
+DELETE FROM read_positions
+WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chreq!_%' ESCAPE '!')
+   OR room_id IN ('01JTE2E0000000000000003131', '01JTE2E0000000000000004131')
+   OR room_id IN (
+     SELECT channel_id FROM channel_creation_requests
+     WHERE channel_id IS NOT NULL
+       AND (requested_by IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chreq!_%' ESCAPE '!')
+         OR department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署131'))
+   );
 DELETE FROM notifications
 WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_chreq!_%' ESCAPE '!');
 DELETE FROM channel_members

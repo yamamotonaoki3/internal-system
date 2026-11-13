@@ -428,6 +428,24 @@ export const notifications = sqliteTable(
   ],
 );
 
+// 既読位置（#237。ADR-0006）。利用者×部屋ごとに、最後に読んだメッセージの ID を持つ。未読数はこの ID より後のメッセージを上限つきで数え直して得る（カウンターは持たない）。
+// last_read_message_id は外部キーにしない（メッセージの直接削除・物理削除を止めず、既読位置が一緒に消えることも避けるため。notifications.message_id と同じ判断。C-169）。
+// 後戻りさせない更新は、DAO の条件付き upsert（read-position-advance.sql.ts）が行う。追加の索引は作らない（主キーで「利用者×部屋」を引く）。
+export const readPositions = sqliteTable(
+  "read_positions",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id),
+    lastReadMessageId: text("last_read_message_id").notNull(),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.roomId] })],
+);
+
 // チャンネルの作成申請（#131。2-2）。チャンネルは承認の時に初めて作り、申請の内容はこの表に持つ（承認待ちの間は channels に行がない）。
 // department_id が null なら会社直属。name は整形後、name_normalized は重複判定の比較キー（channelNameKey）。
 // 承認待ち同士の名前の重複は、部分一意索引（status = 'pending'）で拒否する。却下・取り下げ・承認済みの名前は比較から外れる（承認済みは channels 側で拾う）。

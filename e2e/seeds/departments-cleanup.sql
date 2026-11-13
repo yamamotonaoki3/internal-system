@@ -1,5 +1,9 @@
 -- #196 E2E専用。社員ID e2euser_dept_ と、部署名 [E2E_TEST]部署196 で始まる部署（画面から作った部署を含む）だけを後始末する。
 -- 外部キーの順：監査 → セッション → 参加者 → チャンネル → ルーム → ロール → 社員 → 部署。
+-- #237：部屋を開くと既読位置（read_positions）の行ができ、利用者・部屋を外部キーで指すため、利用者・部屋より先に消す。
+DELETE FROM read_positions
+WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_dept!_%' ESCAPE '!')
+   OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署196'));
 DELETE FROM audit_logs
 WHERE actor_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_dept!_%' ESCAPE '!')
    OR target_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署196');

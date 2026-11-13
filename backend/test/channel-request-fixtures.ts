@@ -20,6 +20,7 @@ import {
   type SeededDepartment,
 } from "./department-fixtures";
 import { cleanupNotificationTestData } from "./notification-fixtures";
+import { cleanupReadPositions } from "./read-position-fixtures";
 import { insertUser } from "./role-fixtures";
 
 export const CHREQ_NOW = "2026-11-12T00:00:00.000Z";
@@ -433,6 +434,8 @@ export async function cleanupChannelRequestTestData() {
   ).all<{ room_id: string }>();
   const roomIds = results.map((r) => r.room_id);
   const inRooms = roomIds.map(() => "?").join(", ");
+  // #237：既読位置（read_positions）は承認で作った部屋・利用者を外部キーで指すため、部屋より先に消す
+  await cleanupReadPositions();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM messages WHERE sender_id IN (${testUsers})`),
     ...(roomIds.length === 0

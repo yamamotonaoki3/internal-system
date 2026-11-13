@@ -3,6 +3,7 @@
 // 「全社連絡がない状態」を作るテストは、removeCompanyGeneral で取り除き、終わったら restoreCompanyGeneral で戻す。
 import { type D1Migration } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { cleanupReadPositions } from "./read-position-fixtures";
 
 const migrations = (env as typeof env & { TEST_MIGRATIONS: D1Migration[] })
   .TEST_MIGRATIONS;
@@ -82,6 +83,8 @@ export async function backfillAudits() {
 /** 全社連絡（参加者・チャンネル・ルーム）と、補完の監査ログを取り除く。外部キーの順 */
 export async function removeCompanyGeneral() {
   const rows = await companyGeneralRows();
+  // #237：全社連絡を開いたテストの利用者の既読位置は、全社連絡の部屋を外部キーで指すため、部屋より先に消す
+  await cleanupReadPositions();
   await env.DB.batch([
     env.DB.prepare(
       "DELETE FROM channel_members WHERE channel_id IN (SELECT room_id FROM channels WHERE purpose = 'company_general')",

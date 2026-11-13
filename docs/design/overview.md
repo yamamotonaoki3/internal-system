@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。2026-11-12に、Issue #136でダイレクトメッセージ（S-06）を実装した（[dms.md](dms.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。2026-11-12に、Issue #136でダイレクトメッセージ（S-06）を実装した（[dms.md](dms.md)）。2026-11-13に、Issue #237でチャンネル・DMの未読の件数と既読（表`read_positions`、EP-3-01・EP-3-02、サイドバーとDM一覧の件数）を実装した（[unread.md](unread.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -64,7 +64,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | 対象 | 索引の候補 | 使う場面 |
 | --- | --- | --- |
 | `messages` | （ルーム, ID）【Issue #201で`messages_room_id_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果はIssueに記録】。スレッド用に（親メッセージ, ID）は未作成 | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
-| `read_positions` | 主キー（ユーザー, ルーム） | 未読の判定。ユーザーの全ルームをまとめて引く |
+| `read_positions` | 主キー（ユーザー, ルーム）【Issue #237で確定。追加の索引は作らない。`EXPLAIN QUERY PLAN`の結果は[unread.md](unread.md)】 | 未読の判定。ユーザーの全ルームをまとめて引く |
 | `channel_members` / `case_participants` | （ユーザー, 状態）など | サイドバー、見られる範囲の判定 |
 | `conversation_members` | （ユーザー）【Issue #136で`conversation_members_user_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果は[dms.md](dms.md)】。複合主キー（会話, ユーザー） | 自分のDMの一覧、当事者か |
 | `audit_logs` | （発生日時, ID）。絞り込み列は使われ方を見て追加 | 監査ログの絞り込みとページ送り、1年保持の掃除 |
@@ -131,7 +131,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 
 | 部品 | ファイル | 役割・決まり |
 | --- | --- | --- |
-| ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ（メッセージの投稿では、`ulidAfter`と条件付きINSERTで、部屋の中の順序を補う。[messages.md](messages.md)）。根拠は[調査メモ](../research/design-foundation.md)の12章 |
+| ULID | `backend/src/lib/ulid.ts` | `newUlid`で時刻順のIDを作る（`createUlidFactory`で時計と乱数を差し替えられる）。`isUlid`で形式を確かめる。`ulidTimePrefix`でULIDの時刻部分（先頭10文字）だけを作れる（Issue #237。未読の下限に使う。[unread.md](unread.md)）。同じ要求の中で、同時刻・時計が戻った場合は直前の乱数に1を足して昇順を保つ（単調）。保証するのは同じWorkerのインスタンス内だけで、別インスタンス間は時刻順になるだけ（メッセージの投稿では、`ulidAfter`と条件付きINSERTで、部屋の中の順序を補う。[messages.md](messages.md)）。根拠は[調査メモ](../research/design-foundation.md)の12章 |
 | カーソル | `backend/src/lib/cursor.ts` | 一覧はOFFSETを使わず、`(並び替えの値, ID)`の組で続きを取る。`cursorQuerySchema`が`cursor`と`limit`を検証し、`afterIdQuerySchema`・`toAfterIdPage`が「最後のID以降」（`after`・`hasMore`。Issue #201）を扱い、`afterCursor`（並び替えの値＋ID）または`afterId`（IDだけ）が条件を作り、`toPage`が`limit+1`件の結果から1ページ分と`nextCursor`を作る。壊れたカーソルは`decodeCursor`が`VALIDATION_ERROR`（422）にする。件数は`PAGE_LIMIT`（メッセージ50・その他20・最大100）。並び替えの値の文字列は128文字まで、カーソル全体は1024文字まで |
 | 監査ログの書き込み | `backend/src/db/audit-log.repository.ts` | `auditLogInsert`は挿入の文を**返すだけ**で実行しない。業務の更新と同じ`db.batch([...])`に入れて、同時に確定・失敗させる（`backend/src/db/database.ts`の`BatchItem`型）。`detail`に入れてよいのは件数・変更前後の識別子や状態・失敗の分類・文字数などの概要で、入れ子にしない。本文・氏名・メール・電話・CSVの行の値・秘密情報は入れない。`redact`は項目名による保険であり、個人情報を取り除く仕組みではない |
 | 監査ログの操作の種類 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`の一覧。機能のIssueが操作を足すときにここへ足す。Issue #119で`setup.initial_admin.create`を、Issue #120で`auth.login`・`auth.logout`・`auth.rate_limited`・`setup.rate_limited`を足した。Issue #130で`status.proxy_set`・`profile.display_name_change`を足した。Issue #124の通知の作成・既読は、監査に残さない（足していない。[notifications.md](notifications.md)）。Issue #131で`channel_request.create`・`channel_request.approve`・`channel_request.reject`・`channel_request.withdraw`を足した（[channel-requests.md](channel-requests.md)）。`auditLogInsertForSession`は、セッションがあるときだけ書く条件付きの監査（ログインの成功・ログアウト） |
@@ -164,6 +164,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | 通知の土台（S-14・ヘッダーの通知・下部メニュー。通知の表と索引（migration 0014）、業務の`db.batch`に入れる作成の部品、宛先の絞り込みは呼び出し側の責務、読み取りの条件`visibleToRecipient`と`containsRoomContent`、一覧のカーソル・未読数の打ち切り・既読、後続のIssueへの申し送り、`kind`にCHECKを付けない理由、未実施の記録） | [notifications.md](notifications.md) | #124（親 #109）、ADR-0004・0006・0012・0024 |
 | チャンネルの作成申請と承認（S-10・S-11。申請専用のテーブルに持ち承認で初めてチャンネルを作る決定、判定の順番と404・403の分け方、`db.batch`の文の順序と失敗の409への変換、名前の規則、通知3種類と宛先、監査、取り下げ、既知の差、未実施の記録） | [channel-requests.md](channel-requests.md) | #131（親 #111）、ADR-0006・0012・0020、C-167 |
 | ダイレクトメッセージ（S-06・相手の選択・DM一覧・サイドバーの欄・「DMを送る」。表の構成と`rooms.kind`の置き換え（migration 0016・0017。ADR-0025）、判定の順（当事者か → 権限 → 相手が有効か）と404・403・409、`insertIfOrdered`のDMの条件、同時作成の扱い、一覧のカーソル、取り直しの時機、機能の境界を保つ差し込み口、`q`を`instr`にした理由、未実施の記録） | [dms.md](dms.md) | #136（親 #133）、ADR-0004・0006・0012・0020・0025、C-168 |
+| チャンネル・DMの未読の件数と既読（サイドバーとDM一覧の件数。表`read_positions`（migration 0018）、未読の対象と下限（参加の時刻・既読位置）、自分の投稿を数えない、2本のSQLで部屋の数に比例しない取得、`items`が少なくても`nextCursor`がありうるページ送り、権限を失った部屋の扱い、既読の送信の時機（部屋ごとの状態）、既存データの初期合わせのSQLと本番の手順、EXPLAINの結果、未実施の記録） | [unread.md](unread.md) | #237（親 #133）、ADR-0004・0006・0012・0020、C-169 |
 
 ## 関係する文書
 

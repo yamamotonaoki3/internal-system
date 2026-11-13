@@ -1,6 +1,7 @@
 // 部屋のメッセージ（一覧と入力欄）。チャンネルの詳細（S-05）から使う。DM・スレッドも同じ部品を使えるよう、channels の外に置く。
 // 入力欄は、参加していて（joined）投稿できる（canPost）ときだけ出す。
 // 文言・退職者の併記・投稿の通知は任意の props で差し替える（既定はチャンネルの動き。DM は features/dms から渡す）。
+import { useEffect } from "react";
 import { Alert } from "../../../components/Alert";
 import { isApiError } from "../describe-error";
 import { useRoomMessages } from "../hooks/useRoomMessages";
@@ -23,6 +24,8 @@ type RoomMessagesProps = {
   onPosted?: () => void;
   /** 投稿が失敗したときに、エラーのまま呼ぶ */
   onPostError?: (error: unknown) => void;
+  /** 表示している最新のメッセージの ID が変わったときに呼ぶ（既読のため）。0件・取得失敗では呼ばない */
+  onLatestMessageIdChange?: (messageId: string) => void;
 };
 
 export function RoomMessages({
@@ -35,8 +38,14 @@ export function RoomMessages({
   retiredAuthorIds,
   onPosted,
   onPostError,
+  onLatestMessageIdChange,
 }: RoomMessagesProps) {
   const messages = useRoomMessages(roomId);
+  const latestId = messages.data?.at(-1)?.id;
+  // 表示している最新の ID を、外部（既読の送信）へ知らせる同期
+  useEffect(() => {
+    if (latestId !== undefined) onLatestMessageIdChange?.(latestId);
+  }, [latestId, onLatestMessageIdChange]);
   // 見えなくなった（非公開にされた・アーカイブされた等）。一覧も入力欄も出さない
   if (isApiError(messages.error) && messages.error.status === 404)
     return <p>{notFoundText}</p>;

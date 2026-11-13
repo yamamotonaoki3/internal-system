@@ -3,6 +3,11 @@
 import { NavLink } from "react-router";
 import { Button } from "../../../components/Button";
 import { describeError } from "../describe-error";
+import {
+  RoomLinkLabel,
+  UnreadCountsError,
+  useUnreadCounts,
+} from "../../unread";
 import { uniqueDms, useDms } from "../hooks/useDms";
 
 type DmItemsProps = {
@@ -13,8 +18,12 @@ type DmItemsProps = {
 export function DmItems({ linkClassName, onNavigate }: DmItemsProps) {
   const dms = useDms();
   const items = uniqueDms(dms.data?.pages);
+  const unread = useUnreadCounts();
+  // 取得に失敗している間は、件数を出さない（古い件数を出し続けない）
+  const counts = unread.isError ? undefined : unread.data;
   return (
     <>
+      {unread.isError && <UnreadCountsError />}
       {dms.isPending && (
         <p role="status" className="px-3 text-sm">
           読み込み中です
@@ -36,9 +45,14 @@ export function DmItems({ linkClassName, onNavigate }: DmItemsProps) {
               onClick={onNavigate}
               className={linkClassName}
             >
-              {dm.partner.isActive
-                ? dm.partner.displayName
-                : `${dm.partner.displayName}（退職者）`}
+              <RoomLinkLabel
+                name={
+                  dm.partner.isActive
+                    ? dm.partner.displayName
+                    : `${dm.partner.displayName}（退職者）`
+                }
+                count={counts?.get(dm.roomId)}
+              />
             </NavLink>
           </li>
         ))}
