@@ -5,6 +5,8 @@
 # - github_token にジョブの GITHUB_TOKEN を渡し、Claude の GitHub App を入れずに動かす。このため id-token: write は要らない（OIDC は使わない）
 # - Action は SHA で固定する（利用者が v1.0.276 を承認）。版を上げるときは、公開日・依存・OSV を確かめてから行う
 # - ジョブ名 review は、ブランチ保護の必須チェックにしない（マージの判断は、CI と Claude のレビューの両方を統括が確かめて行う）
+# - 2026-11-15 時点、`claude setup-token` のトークンが Actions で 401 になる公式の不具合（anthropics/claude-code-action#1614）のため無効にしている。
+#   直ったら `gh variable set CLAUDE_REVIEW_ENABLED --body true` で有効にする（コードの変更は不要。リポジトリの変数で、秘密情報ではない。未設定ならジョブはスキップされ、失敗にはならない）
 name: Claude レビュー
 
 on:
@@ -22,7 +24,7 @@ permissions:
 
 jobs:
   review:
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' && github.actor != 'dependabot[bot]'
+    if: vars.CLAUDE_REVIEW_ENABLED == 'true' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -38,6 +40,7 @@ jobs:
           # use_sticky_comment は agent mode では効かない（追跡用のコメントがない）ため付けない。同じコメントの書き直しはプロンプトで指示する
           # --disallowedTools の Read の規則：// は根（/）から、~/ はホームから、/ 1つはプロジェクトの根からの意味。deny は allow より優先されるため、作業ディレクトリ（AGENTS.md・Skill）に重ならない場所だけを塞ぐ
           claude_args: >-
+            --model claude-opus-5-5
             --permission-mode default
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff ${{ github.event.pull_request.number }}:*),Bash(gh pr view ${{ github.event.pull_request.number }}:*),Bash(gh pr comment ${{ github.event.pull_request.number }}:*),Bash(gh issue view:*)"
             --disallowedTools "Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(~/.config/**),Read(//home/runner/work/_temp/**)"
