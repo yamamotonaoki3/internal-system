@@ -15,6 +15,8 @@ import {
 
 type MessageEditFormProps = {
   roomId: string;
+  /** 返信のときは、スレッドの親の ID（結果をスレッドのキャッシュに反映する） */
+  parentMessageId?: string | null;
   messageId: string;
   /** 編集の前の本文 */
   originalBody: string;
@@ -23,11 +25,12 @@ type MessageEditFormProps = {
 
 export function MessageEditForm({
   roomId,
+  parentMessageId,
   messageId,
   originalBody,
   onClose,
 }: MessageEditFormProps) {
-  const edit = useEditMessage(roomId);
+  const edit = useEditMessage(roomId, parentMessageId);
   const {
     register,
     handleSubmit,

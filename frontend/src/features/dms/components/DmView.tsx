@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { RoomMessages } from "../../messages";
 import { ProfileCardTrigger, StatusBadge } from "../../profile";
+import { ThreadLayout, useThreadParam } from "../../threads";
 import { useMarkRoomRead } from "../../unread";
 import { dmKeys } from "../api/query-keys";
 import { describeError, isApiError } from "../describe-error";
@@ -15,6 +16,7 @@ export function DmView({ roomId }: { roomId: string }) {
   const queryClient = useQueryClient();
   const [postNotice, setPostNotice] = useState<string | null>(null);
   const read = useMarkRoomRead(roomId);
+  const thread = useThreadParam();
 
   if (dm.isPending) return <p role="status">読み込み中です</p>;
   if (dm.isError) {
@@ -43,47 +45,53 @@ export function DmView({ roomId }: { roomId: string }) {
   }
 
   return (
-    <section className="mx-auto max-w-3xl rounded-lg bg-surface p-4 md:p-6">
-      <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h1 className="text-xl font-bold">
-          {partner.isActive ? (
-            <ProfileCardTrigger
-              userId={partner.id}
-              displayName={`@${partner.displayName}`}
-            />
-          ) : (
-            <span>
-              @{partner.displayName}
-              <span className="text-text-muted">（退職者）</span>
-            </span>
-          )}
-        </h1>
-        <span>{partner.department?.name ?? "所属なし"}</span>
-        {partner.status !== null && <StatusBadge status={partner.status} />}
-      </header>
-      {postNotice !== null && (
-        <Alert tone="error" role="alert">
-          {postNotice}
-        </Alert>
-      )}
-      <RoomMessages
-        roomId={roomId}
-        canPost={canPost}
-        joined
-        canModifyOwn={canPost}
-        notFoundText="この DM は見つかりません"
-        emptyText={`${partner.displayName} さんへの最初のメッセージを送りましょう。相手が不在でも、ログインしたときに読まれます`}
-        cannotPostText="相手のアカウントが無効になっているため、送信できません"
-        retiredAuthorIds={partner.isActive ? [] : [partner.id]}
-        onPosted={handlePosted}
-        onPostError={handlePostError}
-        onLatestMessageIdChange={read.markRead}
-      />
-      {read.error !== null && (
-        <Alert tone="error" role="alert">
-          既読の状態を更新できませんでした。{describeError(read.error)}
-        </Alert>
-      )}
-    </section>
+    <ThreadLayout
+      roomId={roomId}
+      retiredAuthorIds={partner.isActive ? [] : [partner.id]}
+    >
+      <section className="mx-auto w-full min-w-0 max-w-3xl flex-1 rounded-lg bg-surface p-4 md:p-6">
+        <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <h1 className="text-xl font-bold">
+            {partner.isActive ? (
+              <ProfileCardTrigger
+                userId={partner.id}
+                displayName={`@${partner.displayName}`}
+              />
+            ) : (
+              <span>
+                @{partner.displayName}
+                <span className="text-text-muted">（退職者）</span>
+              </span>
+            )}
+          </h1>
+          <span>{partner.department?.name ?? "所属なし"}</span>
+          {partner.status !== null && <StatusBadge status={partner.status} />}
+        </header>
+        {postNotice !== null && (
+          <Alert tone="error" role="alert">
+            {postNotice}
+          </Alert>
+        )}
+        <RoomMessages
+          roomId={roomId}
+          canPost={canPost}
+          joined
+          canModifyOwn={canPost}
+          notFoundText="この DM は見つかりません"
+          emptyText={`${partner.displayName} さんへの最初のメッセージを送りましょう。相手が不在でも、ログインしたときに読まれます`}
+          cannotPostText="相手のアカウントが無効になっているため、送信できません"
+          retiredAuthorIds={partner.isActive ? [] : [partner.id]}
+          onPosted={handlePosted}
+          onPostError={handlePostError}
+          onLatestMessageIdChange={read.markRead}
+          onOpenThread={thread.open}
+        />
+        {read.error !== null && (
+          <Alert tone="error" role="alert">
+            既読の状態を更新できませんでした。{describeError(read.error)}
+          </Alert>
+        )}
+      </section>
+    </ThreadLayout>
   );
 }

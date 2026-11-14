@@ -34,6 +34,8 @@ export const primaryNavItems: NavItem[] = [
   homeNavItem,
   { id: "channels", label: "チャンネルを探す", to: "/channels" },
   { id: "members", label: "社員一覧", to: "/members" },
+  // 自分が関わるスレッドの一覧（S-35）。ログイン後の全員が使える（権限の条件は付けない）
+  { id: "threads", label: "スレッド", to: "/threads" },
 ];
 
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す

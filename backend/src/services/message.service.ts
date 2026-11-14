@@ -6,6 +6,10 @@
 //   DM の部屋（#136）：当事者か（違えば 404。文言はチャンネルと同じ）
 //   → 権限（一覧は perm.dm.message.view、投稿は perm.dm.message.send。拒否は 403）→（投稿だけ）相手が無効なら 409。一覧は相手が無効でも読める。
 //   ※ 本文の形の検証（422）は Controller が先に行う。
+// 返信（#137。EP-1-07・EP-1-08）：親を ID で引き、部屋の判定は親の部屋で行う。
+//   postReply の判定の順（この順を変えない）：① 親が存在して見えるか（404）→ ② 親が返信でないか（404）→ ③ チャンネルで参加しているか（403）
+//   → ④ perm.message.reply（R-30。拒否は authorize が監査に記録する）→ ⑤ 親が削除済みか（409。C-59）→ ⑥ 部屋の状態（部署が無効・DM の相手が無効は 409）→ ⑦ 条件付きの INSERT。
+//   お知らせ専用の投稿権限は問わない（U-6）。listReplies は ①② まで（未参加の公開チャンネルも読める）で、返信できない理由 replyBlockedReason を添える。
 // 書き込みは条件付きの INSERT 1文。挿入できなかった（0 行）ときは、原因を読み直して分ける：
 //   状態が崩れた → 404／403、IDが部屋の最大以下 → 最大より大きいIDで作り直して再試行（上限あり。超えたら 503）。
 import { withMessages, type MessageRepository } from "../db/message.repository";
@@ -14,6 +18,7 @@ import { AppError } from "../lib/app-error";
 import { canViewChannel } from "../lib/channel-rules";
 import { createLogger } from "../lib/logger/logger";
 import { newUlid, ulidAfter } from "../lib/ulid";
+import { REPLY_BLOCKED_REASONS } from "../../../shared/message-rules";
 import { createAppAuthorizer } from "./authorizer";
 import { assertRecentReauth } from "./credentials.service";
 import type { CursorPayload } from "../lib/cursor";
@@ -29,6 +34,8 @@ export type MessageListQuery =
   { after: string; limit: number } | { cursor?: CursorPayload; limit: number };
 
 export type MessageCreated = { id: string; roomId: string; createdAt: string };
+
+export type ReplyCreated = MessageCreated & { parentMessageId: string };
 
 /** IDの作り直しの上限（最初の1回に加えて） */
 const MAX_ID_RETRIES = 3;
@@ -133,6 +140,85 @@ export function createMessageService(
         "perm.announcement.post",
         { type: "department", departmentId: channel.departmentId },
       );
+  }
+
+  // 返信の ①〜⑥（上の判定の順）。親（と部屋）を返す
+  async function requireReplyable(actor: MessageActor, parentId: string) {
+    const parent = await repository.findThreadParent(parentId);
+    if (parent === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    const room = await findRoom(parent.roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "channel") {
+      const { channel } = room;
+      if (!canViewChannel(channel, channel.joinedAt !== null))
+        throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    }
+    if (parent.parentMessageId !== null)
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "channel" && room.channel.joinedAt === null)
+      throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+    await authorizer.authorize({ userId: actor.userId }, "perm.message.reply", {
+      type: "company",
+    });
+    if (parent.deletedAt !== null)
+      throw new AppError("CONFLICT", "削除された投稿には返信できません");
+    if (room.kind === "direct") {
+      if (!room.partnerIsActive)
+        throw new AppError(
+          "CONFLICT",
+          "相手のアカウントが無効になっているため、送信できません",
+        );
+    } else if (
+      room.channel.departmentId !== null &&
+      !(await repository.isDepartmentActive(room.channel.departmentId))
+    )
+      throw new AppError(
+        "CONFLICT",
+        "部署が無効になっているため、返信できません",
+      );
+    return parent;
+  }
+
+  // 返信の取得の ①②（親が見えるか・返信でないか）と、返信できない理由。理由は表示の制御だけで、認可は postReply が改めて行う
+  async function requireReadableThread(actor: MessageActor, parentId: string) {
+    const parent = await repository.findThreadParent(parentId);
+    if (parent === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    const room = await findRoom(parent.roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct")
+      await authorizeDm(actor, "perm.dm.message.view");
+    else if (!canViewChannel(room.channel, room.channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (parent.parentMessageId !== null)
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    return { parent, room };
+  }
+
+  // 部屋の側の状態（親の削除は含めない）。joined・roomWritable・部屋が原因の理由を、同じ材料から1か所で求める。
+  // 理由の優先順は not_joined → read_only → partner_inactive（親が削除済みなら、呼び出し側が deleted_parent を最優先にする）
+  async function roomReplyState(
+    room: NonNullable<Awaited<ReturnType<typeof findRoom>>>,
+  ) {
+    if (room.kind === "direct") {
+      const reason = room.partnerIsActive
+        ? null
+        : REPLY_BLOCKED_REASONS.partnerInactive;
+      return { joined: true, roomWritable: reason === null, reason };
+    }
+    if (room.channel.joinedAt === null)
+      return {
+        joined: false,
+        roomWritable: false,
+        reason: REPLY_BLOCKED_REASONS.notJoined,
+      };
+    const inactive =
+      room.channel.departmentId !== null &&
+      !(await repository.isDepartmentActive(room.channel.departmentId));
+    return {
+      joined: true,
+      roomWritable: !inactive,
+      reason: inactive ? REPLY_BLOCKED_REASONS.readOnly : null,
+    };
   }
 
   // 編集・削除してよいかを、①〜⑤の順に確かめる（⑥再認証・⑦書き込みは呼び出し側）。
@@ -243,6 +329,81 @@ export function createMessageService(
       if ("after" in query)
         return repository.listAfter(roomId, query.after, query.limit);
       return repository.listLatest(roomId, query.limit, query.cursor);
+    },
+    async listReplies(
+      actor: MessageActor,
+      parentId: string,
+      query: MessageListQuery,
+    ) {
+      const { parent, room } = await requireReadableThread(actor, parentId);
+      const parentItem = await repository.findItem(parentId);
+      if (parentItem === null)
+        throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+      const state = await roomReplyState(room);
+      const replyBlockedReason =
+        parent.deletedAt !== null
+          ? REPLY_BLOCKED_REASONS.deletedParent
+          : state.reason;
+      const page =
+        "after" in query
+          ? await repository.listRepliesAfter(
+              parentId,
+              query.after,
+              query.limit,
+            )
+          : await repository.listRepliesLatest(
+              parentId,
+              query.limit,
+              query.cursor,
+            );
+      // joined・roomWritable は表示の制御用（認可は postReply が改めて行う）
+      return {
+        parent: parentItem,
+        replyBlockedReason,
+        joined: state.joined,
+        roomWritable: state.roomWritable,
+        ...page,
+      };
+    },
+    async postReply(
+      actor: MessageActor,
+      parentId: string,
+      body: string,
+    ): Promise<ReplyCreated> {
+      const parent = await requireReplyable(actor, parentId);
+      const displayName = await repository.findDisplayName(actor.userId);
+      if (displayName === null)
+        throw new AppError("UNAUTHENTICATED", "ログインしてください");
+      const { roomId } = parent;
+      let id = newUlid();
+      for (let retry = 0; ; retry += 1) {
+        // 作り直したIDの返信が、直前の投稿より過去の時刻にならないよう、試行のたびに取り直す
+        const createdAt = new Date().toISOString();
+        const inserted = await repository.insertReplyIfOrdered({
+          id,
+          roomId,
+          parentMessageId: parentId,
+          senderId: actor.userId,
+          senderDisplayName: displayName,
+          body,
+          createdAt,
+        });
+        if (inserted > 0)
+          return { id, roomId, parentMessageId: parentId, createdAt };
+        // 状態が崩れていれば 404／403／409 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
+        await requireReplyable(actor, parentId);
+        if (retry >= MAX_ID_RETRIES) break;
+        const max = await repository.maxId(roomId);
+        id = max === null ? newUlid() : ulidAfter(max);
+      }
+      createLogger({ traceId: actor.traceId, userId: actor.userId }).warn(
+        "返信のIDの作り直しが上限を超えた",
+        { roomId },
+      );
+      throw new AppError(
+        "SERVICE_UNAVAILABLE",
+        "混み合っています。しばらくしてからもう一度お試しください",
+      );
     },
     async post(
       actor: MessageActor,

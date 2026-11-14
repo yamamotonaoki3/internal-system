@@ -5,7 +5,7 @@
 - コードは書き写さない。ファイル名・関数名で指し示す
 - 機能ごとの設計書は、このフォルダに`<機能の名前>.md`として置き、下の「機能ごとの設計書」に足す。**機能ごとの設計書は、各機能のIssueで書く**（このIssue #105では書かない）
 - 書き方（目的・ファイルと役割・処理の流れ・主な関数の入力と出力・テストの場所・関係するIssueとADR）は、`doc-writer`の「設計書の書き方」に従う
-- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。2026-11-12に、Issue #136でダイレクトメッセージ（S-06）を実装した（[dms.md](dms.md)）。2026-11-13に、Issue #237でチャンネル・DMの未読の件数と既読（表`read_positions`、EP-3-01・EP-3-02、サイドバーとDM一覧の件数）を実装した（[unread.md](unread.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
+- 2026-11-02に、Issue #105（全体に関わる設計の方針）で、全体の構成と方針の要点を書いた。2026-11-03に、Issue #118で共通部品を実装した（下の「共通部品（Issue #118）」）。2026-11-03に、Issue #119でロール・権限・初回セットアップを実装した（[roles-and-setup.md](roles-and-setup.md)）。2026-11-03に、Issue #120でログイン・セッション・試行制限を実装した（[auth-session.md](auth-session.md)）。2026-11-04に、Issue #171でデザインの土台を実装した（[style-foundation.md](style-foundation.md)）。2026-11-05に、Issue #121で共通レイアウトの骨格を実装した（[app-shell.md](app-shell.md)）。2026-11-08に、Issue #192で取引先管理APIとS-36画面を実装した（[client-management.md](client-management.md)）。ただし、全体QAは未完了。2026-11-09に、Issue #199でアカウントの個別発行とアカウント一覧を実装した（[accounts.md](accounts.md)）。2026-11-09に、Issue #200で全社連絡と、公開チャンネルの一覧・閲覧・参加を実装した（[channels.md](channels.md)）。2026-11-10に、Issue #201でチャンネルのメッセージの投稿・一覧と2秒ポーリングを実装した（[messages.md](messages.md)）。2026-11-11に、Issue #130でプロフィール・社員一覧・ステータス（ヘッダーのボタンを含む）を実装した（[profile-status.md](profile-status.md)）。2026-11-11に、Issue #124で通知の土台（通知の表・作成の部品・一覧／未読数／既読のAPI・S-14・ヘッダーの通知）を実装した（[notifications.md](notifications.md)）。2026-11-12に、Issue #131でチャンネルの作成申請と承認（S-10・S-11）を実装した（[channel-requests.md](channel-requests.md)）。2026-11-12に、Issue #136でダイレクトメッセージ（S-06）を実装した（[dms.md](dms.md)）。2026-11-13に、Issue #237でチャンネル・DMの未読の件数と既読（表`read_positions`、EP-3-01・EP-3-02、サイドバーとDM一覧の件数）を実装した（[unread.md](unread.md)）。2026-11-15に、Issue #137でスレッドの返信とスレッド一覧（S-07・S-35、表`thread_read_positions`、EP-1-07・EP-1-08・EP-3-08・EP-3-09）を実装した（[threads.md](threads.md)）。それ以外の内容は**方針**であり、実装したときに、実際のファイル・関数に合わせて直す
 
 ## 全体の構成
 
@@ -63,7 +63,8 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 
 | 対象 | 索引の候補 | 使う場面 |
 | --- | --- | --- |
-| `messages` | （ルーム, ID）【Issue #201で`messages_room_id_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果はIssueに記録】。スレッド用に（親メッセージ, ID）は未作成 | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
+| `messages` | （ルーム, ID）【Issue #201で`messages_room_id_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果はIssueに記録】。スレッド用に（親メッセージ, ID）は【Issue #137で`messages_parent_message_id_id_idx`として確定。さらに一覧の「自分の投稿から引く」ため`messages_sender_id_parent_message_id_idx`（`sender_id`, `parent_message_id`）を足した。`EXPLAIN QUERY PLAN`の結果は[threads.md](threads.md)】 | ルームの新しい順の一覧、スレッドの返信、未読の数え直し、「最後のID以降」の取得 |
+| `thread_read_positions` | 主キー（ユーザー, 親メッセージ）【Issue #137で確定。追加の索引は作らない。[threads.md](threads.md)】 | スレッドの未読の判定。一覧の行の既読位置を主キーで引く |
 | `read_positions` | 主キー（ユーザー, ルーム）【Issue #237で確定。追加の索引は作らない。`EXPLAIN QUERY PLAN`の結果は[unread.md](unread.md)】 | 未読の判定。ユーザーの全ルームをまとめて引く |
 | `channel_members` / `case_participants` | （ユーザー, 状態）など | サイドバー、見られる範囲の判定 |
 | `conversation_members` | （ユーザー）【Issue #136で`conversation_members_user_id_idx`として確定。`EXPLAIN QUERY PLAN`の結果は[dms.md](dms.md)】。複合主キー（会話, ユーザー） | 自分のDMの一覧、当事者か |
@@ -121,6 +122,9 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/db/migrations/0016_change_room_kind_to_direct.sql`、`0017_add_conversations.sql` | `rooms.kind`を`direct`に置き換える作り直し（ADR-0025の例外：PRAGMAの2行を`defer_foreign_keys`に置き換えた手書き変更。0016の1本だけ）と、`conversations`・`conversation_members`の表（Issue #136） |
 | `shared/search-rules.ts` | 検索語の定義元（前後の空白を除いて1〜100文字。`SEARCH_KEYWORD_MAX_LENGTH`・`searchKeywordSchema`）。社員一覧の`q`の検証と、画面の検索欄が参照する（Issue #136） |
 | `frontend/src/features/dms/`、`frontend/src/pages/DmsPage.tsx`・`DmNewPage.tsx`・`DmPage.tsx` | S-06（DMの画面）・相手の選択`/dms/new`・一覧`/dms`・サイドバーの`DmSection`・「DMを送る」（`StartDmButton`）（Issue #136）。`features/members`・`features/messages`・`features/profile`・`features/channels`に、機能の境界を保つ差し込み口（任意のprops）を足した。詳細は[dms.md](dms.md) |
+| `backend/src/routes/threads.ts`・`thread-read-positions.ts`、`backend/src/services/thread.service.ts`、`backend/src/db/thread.repository.ts`・`reply-insert.sql.ts`・`thread-list.sql.ts`・`thread-unread-counts.sql.ts`・`thread-read-advance.sql.ts`、`message.service.ts`の`listReplies`・`postReply` | スレッドの返信の取得・投稿とスレッド一覧・スレッドの既読（Issue #137）。`/api/me/threads`は`/api/me`より前に、`/api/messages`の既読のルートも`backend/src/index.ts`で登録。判定の順と書き込みの条件は[threads.md](threads.md) |
+| `backend/db/migrations/0020_add_message_threads.sql` | `messages.parent_message_id`・表`thread_read_positions`・索引2つ（Issue #137）。生成物のまま |
+| `frontend/src/features/threads/`、`frontend/src/features/messages/components/ThreadReplies.tsx`・`hooks/useThreadReplies.ts`・`hooks/message-polling.ts`、`frontend/src/pages/ThreadsPage.tsx` | S-07（スレッドの領域）・S-35（`/threads`）・各投稿の「返信 n 件」（Issue #137）。依存は`channels`・`dms`・`pages` → `threads` → `messages`・`unread`・`drafts`の一方向。`ThreadLayout`は開閉で同じ構造を返す。詳細は[threads.md](threads.md) |
 | `frontend/src/features/drafts/`、`frontend/src/features/leave-guard/` | 入力欄の下書きの端末への一時保存と、離脱の確認（画面の移動・ログアウト・再読み込み）（Issue #239）。`main.tsx`で画面の振り分けを`LeaveGuardProvider`で包む。設計は[drafts.md](drafts.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
 
@@ -168,6 +172,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | チャンネル・DMの未読の件数と既読（サイドバーとDM一覧の件数。表`read_positions`（migration 0018）、未読の対象と下限（参加の時刻・既読位置）、自分の投稿を数えない、2本のSQLで部屋の数に比例しない取得、`items`が少なくても`nextCursor`がありうるページ送り、権限を失った部屋の扱い、既読の送信の時機（部屋ごとの状態）、既存データの初期合わせのSQLと本番の手順、EXPLAINの結果、未実施の記録） | [unread.md](unread.md) | #237（親 #133）、ADR-0004・0006・0012・0020、C-169 |
 | メッセージ入力欄の下書きの端末への一時保存と離脱の確認（Issue #239。`features/drafts/`・`features/leave-guard/`。キーと値・期限・消す時点、保存の失敗の扱い、確認の待ちを1つにする`LeaveGuardProvider`、手動ログアウトの前の確認と消去、ログアウトの失敗の案内、既知の限界）【C-170】 | [drafts.md](drafts.md) |
 | 投稿の編集・削除とマークダウンの表示（Issue #134。EP-1-03・EP-1-04、migration 0019、判定の順①〜⑦と条件付きのUPDATE、削除の監査、`readOnly`、未読で削除済みを数えない、`react-markdown`の許可リストと自前のremarkプラグイン、動的な読み込みとエラー境界、開き直しで取り直す、既知の限界）【C-171、ADR-0026】 | [message-edit-markdown.md](message-edit-markdown.md) |
+| スレッドの返信とスレッド一覧（Issue #137。S-07・S-35。EP-1-07・EP-1-08・EP-3-08・EP-3-09、migration 0020、返信の判定の順と書き込みの条件、返信も部屋のIDの並びに入る不変条件、`replyBlockedReason`と`joined`・`roomWritable`、一覧の含める条件と100件の上限、`ThreadLayout`が同じ構造を返す理由、既知の限界）【C-172】 | [threads.md](threads.md) | #137（親 #133）、ADR-0006 |
 
 ## 関係する文書
 

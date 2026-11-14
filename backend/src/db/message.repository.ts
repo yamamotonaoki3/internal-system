@@ -1,7 +1,7 @@
 // Repository：メッセージの一覧と投稿（#201）。DB へのアクセスはこの層に閉じ込める。
 // 投稿は条件付きの INSERT 1文。「部屋の中では、コミットの順に ID が必ず増える」を DB で保証する（D1 は書き込みを直列に実行する）。
 // ID が部屋の最大以下だと挿入されない（0 行）。取りこぼし防止の理由は docs/design/messages.md。
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
   conversationMembers,
@@ -19,6 +19,7 @@ import {
   deleteIfModifiable,
   updateBodyIfModifiable,
 } from "./message-modify.sql";
+import { insertReplyIfOrdered } from "./reply-insert.sql";
 
 export type MessageItem = {
   id: string;
@@ -31,6 +32,10 @@ export type MessageItem = {
   /** 編集済みなら最後の編集の日時。削除済みは null */
   editedAt: string | null;
   deleted: boolean;
+  /** 返信なら親の ID、通常の投稿は null（#137。返信は1段だけ） */
+  parentMessageId: string | null;
+  /** 通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0 */
+  replyCount: number;
 };
 
 export type MessageInsert = {
@@ -43,6 +48,9 @@ export type MessageInsert = {
   createdAt?: string;
 };
 
+/** 通常の投稿への返信の件数（削除済みも数える）。messages_parent_message_id_id_idx で数える。1つの SELECT に入れるので、項目の数でクエリは増えない */
+const replyCountColumn = sql<number>`(SELECT COUNT(*) FROM messages r WHERE r.parent_message_id = ${messages.id})`;
+
 const messageColumns = {
   id: messages.id,
   roomId: messages.roomId,
@@ -52,10 +60,16 @@ const messageColumns = {
   createdAt: messages.createdAt,
   editedAt: messages.editedAt,
   deletedAt: messages.deletedAt,
+  parentMessageId: messages.parentMessageId,
+  replyCount: replyCountColumn,
   authorIsActive: users.isActive,
 };
 
-function toItem(row: {
+/** 返信の一覧の項目。返信への返信はないので、件数は数えずに 0 とする */
+const replyColumns = { ...messageColumns, replyCount: sql<number>`0` };
+
+/** DB の行から API の項目を作る（スレッド一覧の親の項目も同じ形） */
+export function toItem(row: {
   id: string;
   roomId: string;
   senderId: string;
@@ -64,6 +78,8 @@ function toItem(row: {
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
+  parentMessageId: string | null;
+  replyCount: number;
   authorIsActive: boolean;
 }): MessageItem {
   const deleted = row.deletedAt !== null;
@@ -79,6 +95,8 @@ function toItem(row: {
     createdAt: row.createdAt,
     editedAt: deleted ? null : row.editedAt,
     deleted,
+    parentMessageId: row.parentMessageId,
+    replyCount: row.replyCount,
   };
 }
 
@@ -94,6 +112,11 @@ export function createMessageRepository(db: Database) {
   const selectWithAuthor = () =>
     db
       .select(messageColumns)
+      .from(messages)
+      .innerJoin(users, eq(users.id, messages.senderId));
+  const selectReplyWithAuthor = () =>
+    db
+      .select(replyColumns)
       .from(messages)
       .innerJoin(users, eq(users.id, messages.senderId));
   return {
@@ -145,6 +168,38 @@ export function createMessageRepository(db: Database) {
         .limit(1);
       return rows[0] ?? null;
     },
+    /**
+     * スレッドの親の確認用（#137）。ID で引くだけで、通常の投稿か返信かは parentMessageId で呼び出し側が見る。
+     * 見えるか・参加者かは Service が部屋の情報で判定する。
+     */
+    async findThreadParent(messageId: string): Promise<{
+      id: string;
+      roomId: string;
+      senderId: string;
+      deletedAt: string | null;
+      parentMessageId: string | null;
+    } | null> {
+      const rows = await db
+        .select({
+          id: messages.id,
+          roomId: messages.roomId,
+          senderId: messages.senderId,
+          deletedAt: messages.deletedAt,
+          parentMessageId: messages.parentMessageId,
+        })
+        .from(messages)
+        .where(eq(messages.id, messageId))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    /** 1件の項目（スレッドの親の表示用。replyCount を含む） */
+    async findItem(messageId: string): Promise<MessageItem | null> {
+      const rows = await selectWithAuthor()
+        .where(eq(messages.id, messageId))
+        .limit(1);
+      const row = rows[0];
+      return row === undefined ? null : toItem(row);
+    },
     async isDepartmentActive(departmentId: string): Promise<boolean> {
       const rows = await db
         .select({ isActive: departments.isActive })
@@ -165,7 +220,7 @@ export function createMessageRepository(db: Database) {
       });
       return row?.displayName ?? null;
     },
-    /** 部屋の最大のID（メッセージがなければ null） */
+    /** 部屋の最大のID（返信も含む。メッセージがなければ null）。返信を除くと、ID の作り直しが終わらなくなる */
     async maxId(roomId: string): Promise<string | null> {
       const rows = await db
         .select({ id: messages.id })
@@ -181,6 +236,7 @@ export function createMessageRepository(db: Database) {
         .where(
           and(
             eq(messages.roomId, roomId),
+            isNull(messages.parentMessageId),
             cursor === undefined
               ? undefined
               : afterCursor(
@@ -198,7 +254,55 @@ export function createMessageRepository(db: Database) {
     /** ID昇順で after より後（after は含まない） */
     async listAfter(roomId: string, after: string, limit: number) {
       const rows = await selectWithAuthor()
-        .where(and(eq(messages.roomId, roomId), afterId(messages.id, after)))
+        .where(
+          and(
+            eq(messages.roomId, roomId),
+            isNull(messages.parentMessageId),
+            afterId(messages.id, after),
+          ),
+        )
+        .orderBy(asc(messages.id))
+        .limit(limit + 1);
+      const page = toAfterIdPage(rows, limit);
+      return { items: page.items.map(toItem), hasMore: page.hasMore };
+    },
+    /** スレッドの返信を新しい順に（#137）。nextCursor は古い側の続き */
+    async listRepliesLatest(
+      parentMessageId: string,
+      limit: number,
+      cursor?: CursorPayload,
+    ) {
+      const rows = await selectReplyWithAuthor()
+        .where(
+          and(
+            eq(messages.parentMessageId, parentMessageId),
+            cursor === undefined
+              ? undefined
+              : afterCursor(
+                  { sort: messages.id, id: messages.id },
+                  cursor,
+                  "desc",
+                ),
+          ),
+        )
+        .orderBy(desc(messages.id))
+        .limit(limit + 1);
+      const page = toPage(rows, limit, cursorFor);
+      return { items: page.items.map(toItem), nextCursor: page.nextCursor };
+    },
+    /** スレッドの返信を ID 昇順で after より後（after は含まない。#137） */
+    async listRepliesAfter(
+      parentMessageId: string,
+      after: string,
+      limit: number,
+    ) {
+      const rows = await selectReplyWithAuthor()
+        .where(
+          and(
+            eq(messages.parentMessageId, parentMessageId),
+            afterId(messages.id, after),
+          ),
+        )
         .orderBy(asc(messages.id))
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
@@ -222,15 +326,18 @@ export function createMessageRepository(db: Database) {
       const directPostable = sql`(
         EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
         AND NOT EXISTS (SELECT 1 FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ${input.roomId} AND u.is_active = 0))`;
-      // 末尾の NULL は edited_at・deleted_at・deleted_by（Drizzle は挿入先に全列を並べるため、列数と順を合わせる）
+      // 末尾の NULL は edited_at・deleted_at・deleted_by・parent_message_id（Drizzle は挿入先に全列を並べるため、列数と順を合わせる）
       const result = await db.insert(messages).select(sql`
         SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body},
           ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`},
-          NULL, NULL, NULL
+          NULL, NULL, NULL, NULL
         WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
           AND (${postable} OR ${directPostable})`);
       return result.meta.changes;
     },
+    /** 返信の条件付きの INSERT（条件は reply-insert.sql.ts）。挿入した行数（1 か 0）を返す */
+    insertReplyIfOrdered: (input: Parameters<typeof insertReplyIfOrdered>[1]) =>
+      insertReplyIfOrdered(db, input),
   };
 }
 

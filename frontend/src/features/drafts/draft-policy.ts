@@ -15,6 +15,14 @@ export function roomDraftScope(roomId: string): string {
   return `room:${roomId}`;
 }
 
+/** スレッドの返信の入力欄の scope。部屋と親のIDの組で一意に決まる（同じ部屋の別のスレッドと混ざらない） */
+export function threadDraftScope(
+  roomId: string,
+  parentMessageId: string,
+): string {
+  return `thread:${roomId}:${parentMessageId}`;
+}
+
 export function draftKey(userId: string, scope: string): string {
   return `${userDraftKeyPrefix(userId)}${scope}`;
 }

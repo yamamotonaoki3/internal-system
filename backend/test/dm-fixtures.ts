@@ -23,8 +23,18 @@ export type AuthorizeCall = { userId: string | null; permission: Permission };
  */
 export function fakeAuthorizer(denied: readonly Permission[] = []) {
   const calls: AuthorizeCall[] = [];
+  const canCalls: AuthorizeCall[] = [];
   return {
     calls,
+    canCalls,
+    // 表示の判定用（真偽。拒否しても投げず、監査にも残さない）。authorize の calls とは別に記録する
+    async can(
+      principal: Principal | null,
+      permission: Permission,
+    ): Promise<boolean> {
+      canCalls.push({ userId: principal?.userId ?? null, permission });
+      return !denied.includes(permission);
+    },
     // 範囲（Scope）は判定に使わない。本物の authorize と同じ形で呼べるよう、第3引数は受け取らずに無視する
     async authorize(
       principal: Principal | null,

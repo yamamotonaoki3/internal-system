@@ -147,6 +147,8 @@ erDiagram
     users ||--o{ mentions : "指名される"
     users ||--o{ read_positions : "既読"
     rooms ||--o{ read_positions : "対象"
+    users ||--o{ thread_read_positions : "スレッドの既読"
+    messages ||--o{ thread_read_positions : "対象のスレッド（親）"
     users ||--o{ notifications : "受け取る"
     messages ||--o{ notifications : "もと"
     users ||--o{ personal_items : "登録"
@@ -409,6 +411,8 @@ erDiagram
     users ||--o{ mentions : "指名される"
     users ||--o{ read_positions : "既読"
     rooms ||--o{ read_positions : "対象"
+    users ||--o{ thread_read_positions : "スレッドの既読"
+    messages ||--o{ thread_read_positions : "対象のスレッド（親）"
     users ||--o{ notifications : "受け取る"
     messages ||--o{ notifications : "もと"
     users ||--o{ personal_items : "登録"
@@ -496,7 +500,7 @@ erDiagram
     messages {
         text id PK
         text room_id FK
-        text parent_message_id FK "返信のとき 同じ部屋の親"
+        text parent_message_id FK "返信のとき 同じ部屋の親 返信は1段だけ【#137で確定 最後の列 索引2つ】"
         text sender_id FK
         text sender_display_name "投稿時点の表示名（スナップショット。Issue #201で追加。1-1 AC-6）"
         text body "本文 マークダウンの原文"
@@ -531,6 +535,12 @@ erDiagram
         text user_id PK, FK
         text room_id PK, FK
         text last_read_message_id "外部キーにしない 比較はIDの大小だけ メッセージの削除を妨げない【C-169。#237で確定】"
+        text updated_at
+    }
+    thread_read_positions {
+        text user_id PK, FK
+        text parent_message_id PK, FK "親の投稿（返信でない）"
+        text last_read_message_id "外部キーにしない 比較はIDの大小だけ【C-172。#137で確定】"
         text updated_at
     }
     notifications {
@@ -596,7 +606,7 @@ erDiagram
   - 監査ログは既存の`audit_logs`を使い、`action`に操作の種類を足す。人の操作（依頼の作成、緊急削除の申請・承認・却下・取消、全体管理者による他人の投稿の直接削除）は記録する。自動の「対応済み」「無効」は記録しない（投稿の編集・削除の記録で分かる。C-115）。全体管理者が他人の投稿を直接削除するときの理由（必須。最大500文字）は`audit_logs.detail`に残す案で、`messages`に列は足さない（投稿者に理由を見せるか、削除後の表示に出すかは未決定。見せる場合は列が要る）。申請・依頼の理由の本文は、それぞれの行に持つ。業務の履歴（依頼・申請の行）と監査ログは区別する
   - 通知：申請の取消は全体管理者へ通知する（`notifications.kind`に`emergency_deletion_cancelled`を足す案）。「無効」は通知しない（C-115）。部署の無効化後の細部（読み取り専用の解除や部署の復帰時の扱いなど）は未決定
 - 未読（3-1）は、`read_positions.last_read_message_id`より新しいメッセージがあるかで判断する。未読の数を保存するか、毎回計算するかは未決定（設計-9。実装の計画で決める）【C-147により決定（2026-11-02〜03。Issue #105）：カウンターは持たず、既読位置から上限つきで数え直す。サイドバーが重いと実測で分かったときだけ`rooms.last_message_id`を足す案は将来の選択肢。スレッドごとの既読位置と画面に件数を出すかは未決定のまま。ADR-0006。元の記述は残す】【C-169により追記（2026-11-13。Issue #237）：サイドバーとDMの一覧に未読の件数を出し、99件を超えたら「99+」（数えるのは100件まで）。既読位置がない部屋は、チャンネルは参加の時刻より後のメッセージだけ、DMは全件を数える。自分の投稿は数えない。`read_positions`は`(user_id, room_id)`の主キーだけで追加の索引は作らず、`last_read_message_id`は外部キーにしない。スレッドごとの既読位置は未決定のまま。元の記述は残す】
-- スレッド一覧（1-4 AC-4、S-35。決定。C-91）：自分が返信した・自分のメッセージに返信があった・自分がメンションされたスレッドを、閲覧できるものだけ最後の返信が新しい順に並べる。スレッドごとの未読（未読の返信の有無と件数）と、開いたときの既読化の持ち方（スレッド単位の既読位置など）は、列・テーブルを今回確定せず、設計の段階で決める（設計-9と合わせて整理する）。
+- スレッド一覧（1-4 AC-4、S-35。決定。C-91）：自分が返信した・自分のメッセージに返信があった・自分がメンションされたスレッドを、閲覧できるものだけ最後の返信が新しい順に並べる。スレッドごとの未読（未読の返信の有無と件数）と、開いたときの既読化の持ち方（スレッド単位の既読位置など）は、列・テーブルを今回確定せず、設計の段階で決める（設計-9と合わせて整理する）。【Issue #137で確定（C-172。2026-11-15）：スレッドごとの既読の位置は、別の表`thread_read_positions`（主キー（`user_id`, `parent_message_id`）。`last_read_message_id`は外部キーにしない）に持つ。スレッドへの関与（親の投稿者か、返信したか）は表に持たず`messages`から導く。未読は、既読位置より新しい他人の返信を、上限つきで数え直す（ADR-0006）。`messages.parent_message_id`は最後の列にし、索引は（`parent_message_id`, `id`）と（`sender_id`, `parent_message_id`）の2つ。返信は1段だけ（返信の親は返信でない）。[設計書 threads.md](../design/threads.md)。元の記述は残す】
 - 検索（4-1・4-2）は、参加者の案件内容（件名・メッセージ・添付・TODOなど）と、非参加者の案件概要の検索を分ける（決定。Q-38）。非参加者は`cases.title`と、全社員に見える案件番号・取引先名だけを検索でき（C-89。案件番号は前方一致。C-117）、進行中・終了の両方で概要だけを返す。参加者の内容検索は見られる部屋（上記のメンバーの表）で絞り、参加していない非公開チャンネルや当事者でないDMは出さない（参加している非公開チャンネル・当事者のDMは検索できる）。参加していない公開チャンネルのメッセージは、検索の対象にする（C-94・C-117）。検索の方式は要調査（`docs/requirements/nonfunctional.md`の9）
 - ステータスの共有（6-1）は、`users`の属性を読む。専用のエンティティはない
 - 絵文字・スタンプの出どころは未決定事項#14。固定のスタンプの一覧を、DBのテーブルにするか、コードの定数にするかは、決まってから整理する
@@ -684,6 +694,7 @@ erDiagram
 | `reactions` | 絵文字・スタンプのリアクション | メッセージ、ユーザー、種類、値 | 1-7 |
 | `mentions` | メッセージでの指名 | メッセージ、指名された人 | 1-8、3-2 |
 | `read_positions` | 部屋ごとの既読の位置 | ユーザー、部屋、最後に読んだメッセージ | 3-1 |
+| `thread_read_positions` | スレッドごとの既読の位置（Issue #137で確定。C-172） | ユーザー、親の投稿、最後に読んだ返信 | 1-4 AC-4 |
 | `notifications` | アプリ内の通知 | 受け取る人、種類（メンションのほか、依頼・緊急削除の申請・結果。C-114。チャンネル・案件のアーカイブ・復元【案】。C-124）、対象の部屋（`room_id`）、もとのメッセージ（`message_id`）、依頼・申請・案件などのID（`target_id`。旧`request_id`を一般化。【#124で確定。C-166】`room_id`・`message_id`・`target_id`は外部キーにしない。`kind`にCHECKを付けない。文言は保存しない）、既読の日時。アーカイブ・復元の通知が指すチャンネル・案件のID の持ち方は未決定（設計-14）。物理削除と編集は通知しない | 3-2、7-2 |
 | `message_change_requests` | お知らせ専用チャンネルの投稿者への編集・削除の依頼（C-114） | メッセージ、依頼した人、種類（編集・削除）、理由（任意）、状態（未処理・対応済み・無効【案】）、日時 | 7-2 AC-3・AC-6 |
 | `emergency_deletion_requests` | お知らせ専用チャンネルの投稿の緊急削除の申請（C-114） | メッセージ、申請した人、理由（必須）、状態（申請中・承認・却下・取消・無効）、承認・却下した人と日時、却下の理由（任意）、取消・無効の日時 | 7-2 AC-3・AC-7 |

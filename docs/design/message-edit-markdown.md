@@ -131,9 +131,14 @@
 | 画面（MSW） | `frontend/src/features/messages/messages.edit-delete.test.tsx`・`messages.markdown.test.tsx`・`api/message-api.test.ts`、`features/channels/channel-detail.edit-permission.test.tsx`・`channel-detail.reopen.test.tsx`・`channel-detail.markdown-load-error.test.tsx`・`channel-detail.markdown-render-error.test.tsx`、`features/dms/DmView.edit-permission.test.tsx` |
 | E2E | `e2e/messages-edit-delete.spec.ts`・`e2e/messages-markdown.spec.ts`（開発サーバー）、`e2e-prod/markdown-csp.spec.ts`（本番形）。詳細は[e2e.md](../testing/e2e.md) |
 
+## 削除した親への返信の不可（Issue #137で実装）
+
+上の「別のIssueに残すもの」の「削除した親への返信を不可にすること（#137）」は、#137で実装した（元の記述は残す）。親が削除済みなら、返信のPOSTは409（C-59）。判定の順（⑤）と、確認からINSERTまでの間に親が削除された場合（`reply-insert.sql.ts`の条件）は[threads.md](threads.md)。返信も既存の`PATCH`・`DELETE /api/messages/{messageId}`で編集・削除できる（`message-modify.sql.ts`の判定は返信にも同じ）。
+
 ## 関係するIssue・ADR
 
 - Issue #134（親：#133）。申し送り：#139・#137・#142・#154・#117・#160・#234
 - [ADR-0026](../adr/0026-markdown-rendering.md)、[ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)（列の追加）、[ADR-0015](../adr/0015-style-foundation.md)（`style`属性を使わない）、[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーション）
 - 決定：[C-171](../requirements/decision-register.md)
 - 関連する設計書：[messages.md](messages.md)・[dms.md](dms.md)・[unread.md](unread.md)・[channels.md](channels.md)・[drafts.md](drafts.md)
+- Issue #137：削除した親への返信の不可を実装した。設計は[threads.md](threads.md)。決定記録C-172

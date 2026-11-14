@@ -29,25 +29,56 @@ export type MessageSeed = {
   body?: string;
   id?: string;
   displayName?: string;
+  /** #137：返信なら親のメッセージID（migration 0020 の列。省略すると、列を使わない通常の投稿の INSERT になる） */
+  parentMessageId?: string;
+  /** 省略すると MESSAGE_TEST_NOW */
+  createdAt?: string;
 };
 
 function insertStatement(seed: MessageSeed, index = 0) {
-  return env.DB.prepare(
-    "INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).bind(
+  const values = [
     seed.id ?? ulidAt(1_800_000_000_000 + index),
     seed.roomId,
     seed.senderId,
     seed.displayName ?? "テスト太郎",
     seed.body ?? `${TEST_TAG}本文${index}`,
-    MESSAGE_TEST_NOW,
-  );
+    seed.createdAt ?? MESSAGE_TEST_NOW,
+  ];
+  // 返信でないときは、0020 より前の列だけの INSERT のまま（既存のテストが新しい列の有無に依存しないようにする）
+  if (seed.parentMessageId === undefined)
+    return env.DB.prepare(
+      "INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(...values);
+  return env.DB.prepare(
+    "INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at, parent_message_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(...values, seed.parentMessageId);
 }
 
 export async function insertMessage(seed: MessageSeed): Promise<string> {
   const id = seed.id ?? ulidAt(1_800_000_000_000);
   await insertStatement({ ...seed, id }).run();
   return id;
+}
+
+/** #137：返信（parent_message_id つきの行）を入れる。親と同じ部屋に入れること */
+export async function insertReply(
+  seed: MessageSeed & { parentMessageId: string },
+): Promise<string> {
+  return insertMessage(seed);
+}
+
+/** #137：返信を複数まとめて入れる（件数が多いテスト用に50件ずつ batch）。IDの配列を返す */
+export async function insertReplies(
+  seeds: (MessageSeed & { parentMessageId: string; id: string })[],
+): Promise<string[]> {
+  const chunk = 50;
+  for (let start = 0; start < seeds.length; start += chunk)
+    await env.DB.batch(
+      seeds
+        .slice(start, start + chunk)
+        .map((seed, i) => insertStatement(seed, start + i)),
+    );
+  return seeds.map((seed) => seed.id);
 }
 
 /** 昇順のIDで count 件を入れ、IDの配列（昇順）を返す */

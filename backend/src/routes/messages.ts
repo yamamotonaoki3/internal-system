@@ -73,7 +73,7 @@ function actorOf(c: Context<{ Bindings: Env }>): MessageActor {
   };
 }
 
-/** メッセージ 1 件の編集・削除（/api/messages/:messageId。#134） */
+/** メッセージ 1 件の編集・削除（#134）と、スレッドの返信の取得・投稿（#137）。/api/messages/:messageId */
 export function messageItemRoutes() {
   return new Hono<{ Bindings: Env }>()
     .patch(
@@ -98,7 +98,39 @@ export function messageItemRoutes() {
         service.remove(actor, c.req.valid("param").messageId),
       );
       return c.body(null, 204);
-    });
+    })
+    .get(
+      "/:messageId/replies",
+      validate("param", messageParamSchema),
+      validate("query", listQuerySchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const page = await withMessageService(c.env, actor, (service) =>
+          service.listReplies(
+            actor,
+            c.req.valid("param").messageId,
+            c.req.valid("query"),
+          ),
+        );
+        return c.json(page);
+      },
+    )
+    .post(
+      "/:messageId/replies",
+      validate("param", messageParamSchema),
+      validate("json", postSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const created = await withMessageService(c.env, actor, (service) =>
+          service.postReply(
+            actor,
+            c.req.valid("param").messageId,
+            c.req.valid("json").body,
+          ),
+        );
+        return c.json(created, 201);
+      },
+    );
 }
 
 export function messageRoutes() {

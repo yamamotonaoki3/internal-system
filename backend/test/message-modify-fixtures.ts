@@ -102,6 +102,10 @@ export type ListedItem = {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  /** #137：通常の投稿は常に null */
+  parentMessageId: string | null;
+  /** #137：その投稿への返信の件数（削除済みの返信も数える） */
+  replyCount: number;
 };
 
 /** 一覧（EP-1-01）から1件を取る。after を渡すと「最後のID以降」の一覧から取る */

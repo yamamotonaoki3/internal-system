@@ -186,9 +186,17 @@ EP-7-01の`q`は、`instr(lower(表示名), lower(検索語)) > 0`で絞る（`p
 | 投稿のレート制限 | 入れていない（X-8が未決定） |
 | **本番のD1へのmigration 0016・0017の適用** | **未実施**。利用者の承認が別途必要。手順はADR-0025（件数の確認 → time-travelのブックマーク → コードのデプロイより先に適用 → 件数と整合性の確認 → 失敗したら止める） |
 
+## スレッドの返信を足したときの変更（Issue #137）
+
+元の記述は残し、#137で変わった点だけをここに書く。詳細は[threads.md](threads.md)。
+
+- **DMの一覧の並び（最終活動）に返信を含めない（U-3）**：`conversation-list.sql.ts`の`activity_key`・`last_message_at`のサブクエリに`parent_message_id IS NULL`を足した。返信でDMの一覧の順は変わらない
+- DMでも各投稿に「返信 n 件」が出て、`?thread=`でS-07が開く（`DmView`を`ThreadLayout`で包んだ）。DMの返信のGETは`perm.dm.message.view`、POSTは`perm.message.reply`（返信の条件に、DMの相手が有効であることが入る。無効なら409）
+- スレッド一覧（S-35）には、当事者のDMのスレッドを、相手が無効でも含める。`perm.dm.message.view`がない利用者には、DMのスレッドを含めない
 ## 関係するIssue・ADR
 
 - Issue #136：本Issue。親Issue #133。#201（メッセージ）・#130（プロフィール・社員一覧。`StatusBadge`・`ProfileCardTrigger`・EP-7-01）・#121（共通レイアウト）・#200（チャンネル）が先行
 - [messages.md](messages.md)・[profile-status.md](profile-status.md)・[channels.md](channels.md)・[app-shell.md](app-shell.md)・[department-management.md](department-management.md)（`rooms`の約束）
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0020：ミューテーション・E2Eの実行範囲／[ADR-0025](../adr/0025-rebuild-referenced-table-defer-foreign-keys.md)：参照される表の作り直し
 - 要件：1-2 AC-1〜AC-6、6-1 AC-1・AC-4、7-3 AC-3。EP-1-01・EP-1-02・EP-1-05・EP-1-06・EP-7-01、S-06・S-20・S-27・S-05。決定記録C-168
+- Issue #137：DM一覧の並びに返信を含めない（U-3）、DMでもスレッドを開ける。詳細は[threads.md](threads.md)。決定記録C-172

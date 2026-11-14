@@ -25,6 +25,9 @@ const message = (n: number, body: string) => ({
   createdAt: "2026-11-12T23:00:00.000Z",
   editedAt: n === 1 ? "2026-11-13T00:00:00.000Z" : null,
   deleted: false,
+  // #137：一覧の項目の必須の項目（返信ではない親の投稿）
+  parentMessageId: null,
+  replyCount: 0,
 });
 
 // 新しい順（一覧の API の並び）

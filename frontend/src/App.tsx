@@ -25,6 +25,7 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SetupPage } from "./pages/SetupPage";
+import { ThreadsPage } from "./pages/ThreadsPage";
 
 function ClientManageRoute() {
   const session = useSession();
@@ -96,6 +97,7 @@ export function App() {
         <Route path="/dms/new" element={<DmNewPage />} />
         <Route path="/dms/:roomId" element={<DmPage />} />
         <Route path="/members" element={<MembersPage />} />
+        <Route path="/threads" element={<ThreadsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordChangePage />} />

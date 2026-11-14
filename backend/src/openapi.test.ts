@@ -17,6 +17,8 @@ import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { threadReadPositionRoutes } from "./routes/thread-read-positions";
+import { threadRoutes } from "./routes/threads";
 import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
 
@@ -32,6 +34,8 @@ const app = createApp({
     { path: "/api/auth", app: authRoutes(unusedDb) },
     // #237：未読の一覧。index.ts と同じく /api/me より前に組み込む
     { path: "/api/me/unread", app: unreadRoutes() },
+    // #137：スレッド一覧（EP-3-08）。index.ts と同じく /api/me より前に組み込む
+    { path: "/api/me/threads", app: threadRoutes() },
     { path: "/api/me", app: meRoutes(unusedDb) },
     { path: "/api/admin/clients", app: adminClientRoutes() },
     // #199：アカウントの発行と一覧。index.ts と同じパスに組み込む
@@ -55,6 +59,8 @@ const app = createApp({
     { path: "/api/dms", app: dmRoutes() },
     // #134：メッセージの編集・削除（EP-1-03・EP-1-04）。index.ts と同じパスに組み込む
     { path: "/api/messages", app: messageItemRoutes() },
+    // #137：スレッドの既読（EP-3-09）。返信の取得・投稿（EP-1-07・EP-1-08）は messageItemRoutes に入る。index.ts と同じパスに組み込む
+    { path: "/api/messages", app: threadReadPositionRoutes() },
   ],
 });
 
@@ -356,6 +362,60 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     expect(item?.properties?.body?.type).toEqual(
       expect.arrayContaining(["string", "null"]),
     );
+  });
+
+  it("#137 AC-1（1-4 AC-1〜4）: 返信の取得・投稿とスレッド一覧・スレッドの既読の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      // 返信の取得（EP-1-07）：見えない・返信への返信・存在しないは 404、本文の形は 422
+      "GET /api/messages/{messageId}/replies": ["200", "401", "404", "422"],
+      // 返信の投稿（EP-1-08）：未参加・権限・送信元の不正は 403、見えない・返信への返信は 404、削除済みの親・部屋の状態は 409、本文の誤りは 422、ID の競合の上限は 503
+      "POST /api/messages/{messageId}/replies": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503",
+      ],
+      // スレッド一覧（EP-3-08）：perm.notification.own の拒否は 403、limit・cursor の誤りは 422
+      "GET /api/me/threads": ["200", "401", "403", "422"],
+      // スレッドの既読（EP-3-09）：未参加・権限・送信元の不正は 403、見えない・別のスレッドの返信は 404、形の誤りは 422
+      "PUT /api/messages/{messageId}/thread-read-position": [
+        "204",
+        "401",
+        "403",
+        "404",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+
+  it("#137 AC-1（決めたこと3）: 一覧の項目（MessageItem）に parentMessageId（文字列か null）と replyCount（整数）がある", () => {
+    const item = (
+      spec.components.schemas as Record<
+        string,
+        {
+          required?: string[];
+          properties?: Record<string, { type?: string | string[] }>;
+        }
+      >
+    ).MessageItem;
+    for (const name of ["parentMessageId", "replyCount"])
+      expect(item?.required, name).toContain(name);
+    expect(item?.properties?.parentMessageId?.type).toEqual(
+      expect.arrayContaining(["string", "null"]),
+    );
+    expect(item?.properties?.replyCount?.type).toBe("integer");
   });
 
   it("#134 AC-1（1-3 AC-6・改訂1 指摘2）: チャンネルの詳細（ChannelDetail）に readOnly（真偽）がある", () => {

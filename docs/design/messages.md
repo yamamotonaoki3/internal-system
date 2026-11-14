@@ -240,6 +240,14 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 | D1の直列実行の公式文書の照合 | 確認済み（2026-11-10。上の「前提」）。ただし、Sessions API・読み取りレプリカを使わないことが前提 |
 | **本番のD1へのmigration 0012の適用** | **未実施**。利用者の承認が別途必要。ローカルの使い捨てD1でのリハーサルは実施済み：①0011まで適用済みでデータのあるDBに0012を適用、②新規のDBに全migrationを適用 |
 
+## スレッドの返信を足したときの変更（Issue #137）
+
+元の記述は残し、#137で変わった点だけをここに書く。詳細は[threads.md](threads.md)。
+
+- **EP-1-01に返信を含めない**：`message.repository.ts`の`listLatest`・`listAfter`に`parent_message_id IS NULL`を足した。項目に`parentMessageId`（部屋の一覧では常に`null`）と`replyCount`（その投稿への返信の件数。削除済みも数える）を足した。`replyCount`は相関サブクエリを1列として一覧のSELECTに入れるので、項目の数でクエリは増えない（`messages_parent_message_id_id_idx`のカバリング索引で数える）
+- **`insertIfOrdered`**：`messages`の最後の列に`parent_message_id`が増えたため、`INSERT … SELECT`の末尾のNULLを3つから4つにした（`edited_at`・`deleted_at`・`deleted_by`・`parent_message_id`）。列を足したら、ここも合わせる
+- **ID の不変条件**：返信も同じ部屋の並びに入る（返信の挿入は`reply-insert.sql.ts`が同じ条件で行う）。`maxId`は、返信も含めた部屋全体の最大のまま変えない（返信を除くと、IDの作り直しが終わらなくなる）
+- 「スレッド」は、このIssueで実装した（上の「未実装」の表の記述は元のまま残す）
 ## 関係するIssue・ADR
 
 - Issue #201：本Issue。親Issue #133。#200（チャンネル。`channel.repository`・EP-2-06・S-05が重なる）が先行。DM・スレッド・案件（#133の後続）が「最後のID以降」の部品を使う
@@ -248,3 +256,4 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - [channels.md](channels.md)（#200）、[department-management.md](department-management.md)（#196。`rooms`・`channels`・`channel_members`の約束）
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0015：共通部品を使う／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：1-1 AC-1〜6、1-9 AC-1、2-3 AC-4、S-05。EP-1-01・EP-1-02・EP-2-06。【Issue #134：1-3・1-5。[message-edit-markdown.md](message-edit-markdown.md)、ADR-0026、C-171】
+- Issue #137：スレッドの返信を足した（`parent_message_id`、EP-1-01から返信を除く、`replyCount`）。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08

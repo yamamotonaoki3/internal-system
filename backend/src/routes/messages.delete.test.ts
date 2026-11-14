@@ -131,6 +131,9 @@ describe("#134 AC-1（1-3 AC-1・AC-4）本人の削除", () => {
         createdAt: before?.createdAt,
         editedAt: null,
         deleted: true,
+        // #137：一覧の項目に足した、通常の投稿の parentMessageId（常に null）と replyCount
+        parentMessageId: null,
+        replyCount: 0,
       });
     }
   });
