@@ -137,6 +137,8 @@ describe("#200 AC-2 /channels/:channelId", () => {
           isCaseChannel: false,
           // #201：詳細の応答に canPost が加わった
           canPost: true,
+          // #134：詳細の応答に readOnly（部署が無効）が加わった
+          readOnly: false,
           memberCount: 1,
           members: [
             { id: "01JTESTUSER000000000000001", displayName: "テスト太郎" },

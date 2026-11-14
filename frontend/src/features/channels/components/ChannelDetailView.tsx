@@ -59,6 +59,8 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
         roomId={data.roomId}
         canPost={data.canPost}
         joined={data.joined}
+        // 自分の投稿の編集・削除は、投稿の権限（お知らせ専用など）とは別。参加中で、読み取り専用でなければ出す
+        canModifyOwn={data.joined && !data.readOnly}
         // 参加中のときだけ既読にする（公開チャンネルを未参加で読んでいるだけでは、未読の対象ではない）
         onLatestMessageIdChange={data.joined ? read.markRead : undefined}
       />

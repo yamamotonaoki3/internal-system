@@ -37,6 +37,9 @@ type Item = {
   author: { id: string; displayName: string };
   body: string;
   createdAt: string;
+  /** #134：編集の日時（未編集は null）と、削除済みか */
+  editedAt: string | null;
+  deleted: boolean;
 };
 type Page = { items: Item[]; nextCursor?: string | null; hasMore?: boolean };
 type User = { userId: string; token: string };
@@ -145,6 +148,8 @@ describe("#201 AC-1 閲覧と投稿の認可", () => {
       const items = (await pageOf(roomId)).items;
       expect(items.map((i) => i.id)).toEqual([created.id]);
       expect(items[0]?.body).toBe("[UNIT_TEST]こんにちは");
+      // #134 計画 7：投稿したばかりのメッセージは未編集・未削除
+      expect(items[0]).toMatchObject({ editedAt: null, deleted: false });
     },
   );
 

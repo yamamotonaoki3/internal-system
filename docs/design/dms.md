@@ -11,7 +11,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-05（開始）・EP-1-06（一覧）・新設の`GET /api/dms/:roomId`（詳細）／EP-1-01・EP-1-02のDMの枝／EP-7-01の`q`（表示名の検索）／migration 0016（`rooms.kind`を`direct`に）・0017（`conversations`・`conversation_members`）／S-06（`/dms/:roomId`）・相手の選択（`/dms/new`）・一覧（`/dms`）・サイドバーのDMの欄・下部メニューの「DM」／S-05・S-20・S-27の「DMを送る」／S-20の「表示名で検索」／DMの「退職者」の併記 |
-| 作らないもの（別の起票先） | 未読【後からIssue #237で実装した。[unread.md](unread.md)】・下書き（#133）／チャンネルの「退職者」の併記（#133）【後からIssue #238で実装した。[messages.md](messages.md)】／添付（#140）／編集・削除（#134）／返信・リアクション・メンション・整理スペース・WebSocketによるリアルタイム化（#117）／DMの通知／投稿のレート制限（X-8が未決定）／グループDM（C-55）／本番への migration 0016・0017 の適用（完了条件に含めない。手順はADR-0025） |【下書きは後からIssue #239で、チャンネルと同じ入力欄（`RoomMessages`・`MessageComposer`）に実装した。[drafts.md](drafts.md)。元の記述は残す】
+| 作らないもの（別の起票先） | 未読【後からIssue #237で実装した。[unread.md](unread.md)】・下書き（#133）／チャンネルの「退職者」の併記（#133）【後からIssue #238で実装した。[messages.md](messages.md)】／添付（#140）／編集・削除（#134）／返信・リアクション・メンション・整理スペース・WebSocketによるリアルタイム化（#117）／DMの通知／投稿のレート制限（X-8が未決定）／グループDM（C-55）／本番への migration 0016・0017 の適用（完了条件に含めない。手順はADR-0025） |【下書きは後からIssue #239で、チャンネルと同じ入力欄（`RoomMessages`・`MessageComposer`）に実装した。[drafts.md](drafts.md)。元の記述は残す】【Issue #134で、DMの編集・削除とマークダウンの表示を実装した。[message-edit-markdown.md](message-edit-markdown.md)。元の記述は残す】
 
 ## 全体の流れ
 

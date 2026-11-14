@@ -56,12 +56,49 @@ const listQuerySchema = z
     return parsed.data;
   });
 
+const messageParamSchema = z.object({ messageId: z.string().min(1).max(64) });
+
+// 編集は本文だけ。削除の理由（reason）は他人の投稿の削除（#142）で扱うため、ここでは受け付けない
+const editSchema = z.object({ body: messageBodySchema }).strict();
+
 function actorOf(c: Context<{ Bindings: Env }>): MessageActor {
   const principal = c.get("principal");
   if (principal === null) {
     throw new AppError("UNAUTHENTICATED", "ログインしてください");
   }
-  return { userId: principal.userId, traceId: traceIdOf(c) };
+  return {
+    userId: principal.userId,
+    traceId: traceIdOf(c),
+    reauthenticatedAt: principal.reauthenticatedAt,
+  };
+}
+
+/** メッセージ 1 件の編集・削除（/api/messages/:messageId。#134） */
+export function messageItemRoutes() {
+  return new Hono<{ Bindings: Env }>()
+    .patch(
+      "/:messageId",
+      validate("param", messageParamSchema),
+      validate("json", editSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const edited = await withMessageService(c.env, actor, (service) =>
+          service.edit(
+            actor,
+            c.req.valid("param").messageId,
+            c.req.valid("json").body,
+          ),
+        );
+        return c.json(edited, 200);
+      },
+    )
+    .delete("/:messageId", validate("param", messageParamSchema), async (c) => {
+      const actor = actorOf(c);
+      await withMessageService(c.env, actor, (service) =>
+        service.remove(actor, c.req.valid("param").messageId),
+      );
+      return c.body(null, 204);
+    });
 }
 
 export function messageRoutes() {

@@ -3,21 +3,34 @@
 // ID が部屋の最大以下だと挿入されない（0 行）。取りこぼし防止の理由は docs/design/messages.md。
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
-import { conversationMembers, messages, users } from "../../db/schema";
+import {
+  conversationMembers,
+  departments,
+  messages,
+  users,
+} from "../../db/schema";
 import { afterCursor, afterId, toAfterIdPage, toPage } from "../lib/cursor";
 import type { CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { createChannelRepository } from "./channel.repository";
 import { withDatabase, type Database } from "./database";
+import {
+  deleteIfModifiable,
+  updateBodyIfModifiable,
+} from "./message-modify.sql";
 
 export type MessageItem = {
   id: string;
   roomId: string;
   /** displayName は投稿時点の表示名、isActive は投稿者の今の有効・無効 */
   author: { id: string; displayName: string; isActive: boolean };
-  body: string;
+  /** 削除済みは null（本文は DB に残すが、API では返さない） */
+  body: string | null;
   createdAt: string;
+  /** 編集済みなら最後の編集の日時。削除済みは null */
+  editedAt: string | null;
+  deleted: boolean;
 };
 
 export type MessageInsert = {
@@ -37,6 +50,8 @@ const messageColumns = {
   senderDisplayName: messages.senderDisplayName,
   body: messages.body,
   createdAt: messages.createdAt,
+  editedAt: messages.editedAt,
+  deletedAt: messages.deletedAt,
   authorIsActive: users.isActive,
 };
 
@@ -47,8 +62,11 @@ function toItem(row: {
   senderDisplayName: string;
   body: string;
   createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
   authorIsActive: boolean;
 }): MessageItem {
+  const deleted = row.deletedAt !== null;
   return {
     id: row.id,
     roomId: row.roomId,
@@ -57,8 +75,10 @@ function toItem(row: {
       displayName: row.senderDisplayName,
       isActive: row.authorIsActive,
     },
-    body: row.body,
+    body: deleted ? null : row.body,
     createdAt: row.createdAt,
+    editedAt: deleted ? null : row.editedAt,
+    deleted,
   };
 }
 
@@ -106,6 +126,38 @@ export function createMessageRepository(db: Database) {
         );
       return rows[0] ?? null;
     },
+    /** 編集・削除の前の確認用（部屋と投稿者と削除済みかだけ） */
+    async findForModification(messageId: string): Promise<{
+      id: string;
+      roomId: string;
+      senderId: string;
+      deletedAt: string | null;
+    } | null> {
+      const rows = await db
+        .select({
+          id: messages.id,
+          roomId: messages.roomId,
+          senderId: messages.senderId,
+          deletedAt: messages.deletedAt,
+        })
+        .from(messages)
+        .where(eq(messages.id, messageId))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    async isDepartmentActive(departmentId: string): Promise<boolean> {
+      const rows = await db
+        .select({ isActive: departments.isActive })
+        .from(departments)
+        .where(eq(departments.id, departmentId))
+        .limit(1);
+      return rows[0]?.isActive ?? false;
+    },
+    updateBodyIfModifiable: (
+      input: Parameters<typeof updateBodyIfModifiable>[1],
+    ) => updateBodyIfModifiable(db, input),
+    deleteIfModifiable: (input: Parameters<typeof deleteIfModifiable>[1]) =>
+      deleteIfModifiable(db, input),
     async findDisplayName(userId: string): Promise<string | null> {
       const row = await db.query.users.findFirst({
         columns: { displayName: true },
@@ -170,9 +222,11 @@ export function createMessageRepository(db: Database) {
       const directPostable = sql`(
         EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
         AND NOT EXISTS (SELECT 1 FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ${input.roomId} AND u.is_active = 0))`;
+      // 末尾の NULL は edited_at・deleted_at・deleted_by（Drizzle は挿入先に全列を並べるため、列数と順を合わせる）
       const result = await db.insert(messages).select(sql`
         SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body},
-          ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`}
+          ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`},
+          NULL, NULL, NULL
         WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
           AND (${postable} OR ${directPostable})`);
       return result.meta.changes;

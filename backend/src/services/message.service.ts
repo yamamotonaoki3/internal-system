@@ -15,9 +15,15 @@ import { canViewChannel } from "../lib/channel-rules";
 import { createLogger } from "../lib/logger/logger";
 import { newUlid, ulidAfter } from "../lib/ulid";
 import { createAppAuthorizer } from "./authorizer";
+import { assertRecentReauth } from "./credentials.service";
 import type { CursorPayload } from "../lib/cursor";
 
-export type MessageActor = { userId: string; traceId: string };
+export type MessageActor = {
+  userId: string;
+  traceId: string;
+  /** 削除だけが使う（編集は再認証を求めない） */
+  reauthenticatedAt?: string | null;
+};
 
 export type MessageListQuery =
   { after: string; limit: number } | { cursor?: CursorPayload; limit: number };
@@ -31,7 +37,17 @@ const NOT_FOUND_MESSAGE = "チャンネルが見つかりません";
 
 type Dependencies = {
   authorizer: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
+  now?: () => Date;
 };
+
+export type MessageEdited = { id: string; body: string; editedAt: string };
+
+type ModifyOperation = "edit" | "delete";
+
+const MODIFY_PERMISSION = {
+  edit: "perm.message.edit.own",
+  delete: "perm.message.delete.own",
+} as const;
 
 export function withMessageService<T>(
   env: Env,
@@ -56,7 +72,7 @@ export function withMessageService<T>(
 
 export function createMessageService(
   repository: MessageRepository,
-  { authorizer }: Dependencies,
+  { authorizer, now = () => new Date() }: Dependencies,
 ) {
   // チャンネルでなければ DM として探す（チャンネルの経路の問い合わせは増やさない）
   async function findRoom(roomId: string, actor: MessageActor) {
@@ -119,7 +135,109 @@ export function createMessageService(
       );
   }
 
+  // 編集・削除してよいかを、①〜⑤の順に確かめる（⑥再認証・⑦書き込みは呼び出し側）。
+  // ①見えるか（404。アーカイブ済みも見えない扱い）②本人か（403・audit）③権限④削除済み（409）⑤部屋の状態（未参加403・部署が無効409・DM の相手が無効409）
+  // お知らせ専用の投稿権限は問わない（本人の投稿なら、今参加していれば編集・削除できる）。
+  async function requireModifiable(
+    actor: MessageActor,
+    messageId: string,
+    operation: ModifyOperation,
+  ) {
+    const message = await repository.findForModification(messageId);
+    if (message === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    const room = await findRoom(message.roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct")
+      await authorizeDm(actor, "perm.dm.message.view");
+    else if (!canViewChannel(room.channel, room.channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (message.senderId !== actor.userId) {
+      createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
+        `message.${operation}`,
+        messageId,
+        "failure",
+        { reason: "not_author" },
+      );
+      throw new AppError("FORBIDDEN", "他の人の投稿は編集・削除できません");
+    }
+    await authorizer.authorize(
+      { userId: actor.userId },
+      MODIFY_PERMISSION[operation],
+      { type: "company" },
+    );
+    if (message.deletedAt !== null)
+      throw new AppError("CONFLICT", "このメッセージはすでに削除されています");
+    if (room.kind === "direct") {
+      if (!room.partnerIsActive)
+        throw new AppError(
+          "CONFLICT",
+          "相手のアカウントが無効になっているため、操作できません",
+        );
+    } else {
+      const { channel } = room;
+      if (channel.joinedAt === null) {
+        createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
+          `message.${operation}`,
+          messageId,
+          "failure",
+          { reason: "not_member" },
+        );
+        throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+      }
+      if (
+        channel.departmentId !== null &&
+        !(await repository.isDepartmentActive(channel.departmentId))
+      )
+        throw new AppError(
+          "CONFLICT",
+          "部署が無効になっているため、操作できません",
+        );
+    }
+    return message;
+  }
+
+  // 書き込みが 0 行のとき、状態を読み直して原因に合う応答にする。原因が分からなくても成功にしない（書き込みはやり直さない）
+  async function failWrite(
+    actor: MessageActor,
+    messageId: string,
+    operation: ModifyOperation,
+  ): Promise<never> {
+    await requireModifiable(actor, messageId, operation);
+    throw new AppError(
+      "CONFLICT",
+      "状態が変わったため、操作できませんでした。読み込み直してからお試しください",
+    );
+  }
+
   return {
+    async edit(
+      actor: MessageActor,
+      messageId: string,
+      body: string,
+    ): Promise<MessageEdited> {
+      await requireModifiable(actor, messageId, "edit");
+      const editedAt = now().toISOString();
+      const updated = await repository.updateBodyIfModifiable({
+        messageId,
+        userId: actor.userId,
+        body,
+        editedAt,
+      });
+      if (updated === 0) return failWrite(actor, messageId, "edit");
+      return { id: messageId, body, editedAt };
+    },
+    async remove(actor: MessageActor, messageId: string): Promise<void> {
+      const message = await requireModifiable(actor, messageId, "delete");
+      assertRecentReauth(actor.reauthenticatedAt ?? null, now());
+      const deleted = await repository.deleteIfModifiable({
+        messageId,
+        userId: actor.userId,
+        roomId: message.roomId,
+        deletedAt: now().toISOString(),
+        traceId: actor.traceId,
+      });
+      if (deleted === 0) return failWrite(actor, messageId, "delete");
+    },
     async list(actor: MessageActor, roomId: string, query: MessageListQuery) {
       await requireVisible(roomId, actor);
       if ("after" in query)

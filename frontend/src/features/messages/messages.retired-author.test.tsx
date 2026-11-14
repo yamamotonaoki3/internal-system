@@ -86,6 +86,9 @@ describe("#238 AC-1 無効な投稿者に「退職者」を併記する", () => 
               author: { id: ACTIVE.id, displayName: ACTIVE.displayName },
               body: "[E2E_TEST]契約違反の応答",
               createdAt: "2026-11-09T00:00:00.000Z",
+              // #134：一覧の項目に editedAt・deleted が加わった（isActive の欠けだけを契約違反にする）
+              editedAt: null,
+              deleted: false,
             },
           ],
           nextCursor: null,
@@ -118,6 +121,9 @@ describe("#238 AC-1 無効な投稿者に「退職者」を併記する", () => 
               author: { id: RETIRED.id, displayName: RETIRED.displayName },
               body: "[E2E_TEST]契約違反の新着",
               createdAt: "2026-11-09T00:00:00.000Z",
+              // #134：一覧の項目に editedAt・deleted が加わった（isActive の欠けだけを契約違反にする）
+              editedAt: null,
+              deleted: false,
             },
           ],
           nextCursor: null,

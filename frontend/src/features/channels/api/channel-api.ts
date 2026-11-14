@@ -27,6 +27,8 @@ const channelDetailSchema = z
     isCaseChannel: z.boolean(),
     // このチャンネルに投稿できるか（参加者で、お知らせ専用なら権限がある）
     canPost: z.boolean(),
+    // 部署が無効で、読み取り専用か。真のあいだは、自分の投稿の編集・削除もできない
+    readOnly: z.boolean(),
     // 参加者にだけ返る
     memberCount: z.number().int().optional(),
     members: z

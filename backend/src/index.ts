@@ -14,7 +14,7 @@ import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
-import { messageRoutes } from "./routes/messages";
+import { messageItemRoutes, messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
@@ -43,6 +43,7 @@ export const app = createApp({
     { path: "/api/channels", app: channelRoutes() },
     { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
+    { path: "/api/messages", app: messageItemRoutes() },
     { path: "/api/rooms", app: readPositionRoutes() },
   ],
 });

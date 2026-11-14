@@ -37,6 +37,8 @@ export type ChannelDetail = {
   joined: boolean;
   /** このチャンネルに投稿できるか（参加者で、お知らせ専用なら部署のオーナーか全体管理者）。EP-2-06 */
   canPost: boolean;
+  /** チャンネルの部署が無効で読み取り専用か（C-143(1)）。投稿の権限とは別で、編集・削除のボタンの表示に使う */
+  readOnly: boolean;
   /** 案件チャンネル（#134 以降）。今はつねに false */
   isCaseChannel: false;
   /** 参加者にだけ返す */
@@ -111,6 +113,7 @@ export function createChannelService(
         visibility: channel.visibility,
         departmentId: channel.departmentId,
         isCaseChannel: false,
+        readOnly: !channel.departmentIsActive,
       } as const;
       if (channel.joinedAt === null)
         return { ...base, joined: false, canPost: false };

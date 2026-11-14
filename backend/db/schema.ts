@@ -392,6 +392,10 @@ export const messages = sqliteTable(
     senderDisplayName: text("sender_display_name").notNull(),
     body: text("body").notNull(),
     createdAt: text("created_at").notNull().default(nowUtc),
+    // 編集・削除（#134）。削除は本文を残して印を付けるだけで、API は削除済みの本文を返さない
+    editedAt: text("edited_at"),
+    deletedAt: text("deleted_at"),
+    deletedBy: text("deleted_by").references(() => users.id),
   },
   (t) => [
     check("messages_body_check", sql`length(${t.body}) >= 1`),

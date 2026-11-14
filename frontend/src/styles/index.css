@@ -1,5 +1,6 @@
 /* 画面全体の見た目の土台。色・文字・角丸・影のトークンはここ（@theme）の1か所だけで定義する */
 @import "tailwindcss" source(none);
+@import "./markdown-body.css";
 @source "../";
 
 @theme {

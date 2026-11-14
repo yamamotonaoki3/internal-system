@@ -36,3 +36,4 @@
 | [0023](0023-mutation-equivalent-mutants-exception.md) | ファイル別ミューテーションスコア80%の基準に、同値変異体による例外を設ける | 採用 |
 | [0024](0024-add-column-rewrite-for-table-rebuild.md) | 既存テーブルへの列追加でテーブルの作り直しが生成されたとき、migrationをADD COLUMNに書き換える | 採用 |
 | [0025](0025-rebuild-referenced-table-defer-foreign-keys.md) | 他の表から参照されるroomsのCHECKを変えるための作り直し（D1ではPRAGMA foreign_keys=OFFが効かないためdefer_foreign_keysに置き換える。0016の1本だけ） | 採用 |
+| [0026](0026-markdown-rendering.md) | マークダウンの描画にreact-markdownとremark-gfmを使い、生のHTMLを通さず、描画する要素とリンクを許可リストで限る | 採用 |

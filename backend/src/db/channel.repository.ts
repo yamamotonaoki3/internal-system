@@ -39,7 +39,11 @@ export type ChannelDetailRow = {
 };
 
 /** 閲覧者から見たチャンネル。メッセージの投稿の判定が purpose を使う */
-export type ChannelViewRow = ChannelDetailRow & { purpose: ChannelPurpose };
+export type ChannelViewRow = ChannelDetailRow & {
+  purpose: ChannelPurpose;
+  /** チャンネルの部署が有効か。部署のない会社直属のチャンネルは true */
+  departmentIsActive: boolean;
+};
 
 export type ChannelMember = { id: string; displayName: string };
 
@@ -142,8 +146,14 @@ export function createChannelRepository(db: Database) {
           purpose: channels.purpose,
           deletedAt: channels.deletedAt,
           joinedAt: channelMembers.joinedAt,
+          // 会社直属のチャンネルを落とさないよう、部署は外部結合で読む
+          departmentIsActive:
+            sql<boolean>`${departments.id} IS NULL OR ${departments.isActive} = 1`.mapWith(
+              Boolean,
+            ),
         })
         .from(channels)
+        .leftJoin(departments, eq(departments.id, channels.departmentId))
         .leftJoin(
           channelMembers,
           and(

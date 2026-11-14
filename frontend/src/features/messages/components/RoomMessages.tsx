@@ -21,6 +21,8 @@ type RoomMessagesProps = {
   cannotPostText?: string;
   /** 表示名に「退職者」を併記する投稿者の利用者ID */
   retiredAuthorIds?: readonly string[];
+  /** 自分の投稿に「編集」「削除」を出すか。投稿の権限（canPost）とは別（既定は出さない） */
+  canModifyOwn?: boolean;
   /** 投稿が成功したあとに呼ぶ */
   onPosted?: () => void;
   /** 投稿が失敗したときに、エラーのまま呼ぶ */
@@ -37,6 +39,7 @@ export function RoomMessages({
   emptyText,
   cannotPostText = "このチャンネルに投稿できるのは、部署のオーナーと全体管理者だけです",
   retiredAuthorIds,
+  canModifyOwn = false,
   onPosted,
   onPostError,
   onLatestMessageIdChange,
@@ -59,6 +62,8 @@ export function RoomMessages({
         error={messages.error}
         emptyText={emptyText}
         retiredAuthorIds={retiredAuthorIds}
+        currentUserId={userId}
+        canModifyOwn={canModifyOwn}
       />
       {joined &&
         (canPost ? (
