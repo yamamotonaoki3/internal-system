@@ -89,6 +89,40 @@ Cloudflare上に検証の環境を足した場合は、それぞれのコマン�
 - 他の秘密の項目を `.env.example` に足すとき、Secret から渡す方式が必要になるかは、足す時点で別途決める
 - 以前の手順で登録した Secret の `ENV_TEST` は不要になった。削除は利用者が行う（`gh secret delete ENV_TEST`。AI は実行しない）
 
+## PR の自動レビュー用の項目（CLAUDE_CODE_OAUTH_TOKEN）
+
+PR が作られた・更新されたときに、Claude Code が差分をレビューして PR に日本語でコメントする（`.github/workflows/claude-review.yml`）ための認証の値。GitHub Actions の Secret にだけ置き、`.env*` には入れない。
+
+### 値の作り方（利用者が実施。AI は実行しない）
+
+自分のターミナルで、次を実行する。ブラウザで Claude のアカウントにログインすると、トークンが表示される。
+
+```bash
+claude setup-token
+```
+
+### 登録する（利用者が実施。AI は実行しない）
+
+```bash
+gh secret set CLAUDE_CODE_OAUTH_TOKEN
+```
+
+値は、実行後の入力欄に貼る（保管場所から貼り付ける）。チャット・Issue・PR・コミット・ファイルには書かない。
+
+### 守ること（公開のリポジトリ）
+
+このリポジトリは公開のため、レビューの実行ログは誰でも読める。
+
+- `ACTIONS_STEP_DEBUG` を設定しない
+- ワークフローで `show_full_output` を有効にしない（ツールの出力が公開のログに出るため）
+
+### 有効期限が切れたとき
+
+トークンには有効期限があり、切れると Claude のレビューが失敗する。作り直して、同じコマンドで上書きする。
+
+- `claude setup-token` で新しい値を作る
+- `gh secret set CLAUDE_CODE_OAUTH_TOKEN` で登録し直す
+
 ## Terraform
 
 - 秘密情報はコードに書かず、環境変数で渡す。`.env.example` には入れない（`npm run dev` などの手元の実行には要らない。`infra/` で Terraform を使うときだけ、自分のターミナルで設定する）
