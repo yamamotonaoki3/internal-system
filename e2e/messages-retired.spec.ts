@@ -60,12 +60,16 @@ test("#238 AC-1・AC-2・AC-3: 無効な投稿者の投稿に投稿時点の名�
   await expect(retiredRow).toContainText("（退職者）");
   await expect(page.locator("body")).not.toContainText(CURRENT_RETIRED_NAME);
 
-  // AC-2：その行に、ボタン・リンク・「DMを送る」がない
-  await expect(retiredRow.getByRole("button")).toHaveCount(0);
+  // AC-2：その行に、ボタン・リンク・「DMを送る」がない。#137：全投稿のスレッドの「返信」ボタン（名前に投稿者名を含む）は除く
+  await expect(
+    retiredRow.getByRole("button").filter({ hasNotText: /返信/ }),
+  ).toHaveCount(0);
   await expect(retiredRow.getByRole("link")).toHaveCount(0);
   await expect(retiredRow).not.toContainText(/DM ?を送る/);
   await expect(
-    page.getByRole("button", { name: POSTED_RETIRED_NAME }),
+    page
+      .getByRole("button", { name: POSTED_RETIRED_NAME })
+      .filter({ hasNotText: /返信/ }),
   ).toHaveCount(0);
 
   // AC-3：有効な投稿者 B の行は、表示名だけで「退職者」が出ない

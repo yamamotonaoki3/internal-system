@@ -249,9 +249,19 @@ SQLは1回の取得で2本で、部屋の数に比例しない（N+1にしない
 | リアルタイム化 | #117 |
 | 未読のレート制限 | 入れていない（X-8が未決定） |
 
+## スレッドの返信を足したときの変更（Issue #137）
+
+元の記述は残し、#137で変わった点だけをここに書く。詳細は[threads.md](threads.md)。
+
+- **部屋の未読に返信を数えない（U-2）**：`unread-counts.sql.ts`に`parent_message_id IS NULL`を足した。サイドバー・DM一覧の件数は、返信で増えない。部屋の既読（EP-3-02）の送り方は変えていない
+- **スレッドの未読は別に持つ**：表`thread_read_positions`（利用者×親の投稿。主キー（`user_id`, `parent_message_id`）。`last_read_message_id`は外部キーにしない）と、`thread-unread-counts.sql.ts`（スレッドごとの未読数。自分の返信と削除済みを数えない。上限`UNREAD_COUNT_LIMIT`）。下限は`unreadLowerBound`を、スレッドの既読位置とチャンネルの`joined_at`で呼ぶ。ADR-0006の考え方（既読位置が正、件数は上限つきで数え直す）をそのまま当てはめた
+- **スレッドの既読（EP-3-09）**：`unread.service.ts`の`markThreadRead`と`thread-read-advance.sql.ts`（後戻りさせない条件付きupsert）。削除済みの返信のIDでも、部署が無効のチャンネルでも既読にできる
+- **送り方の共通化**：`frontend/src/features/unread/hooks/useReadPositionSender.ts`を`useMarkRoomRead`から切り出した（最新のIDが進んだときだけ送る・非表示の間は送らない・失敗したら送り直す）。部屋の既読とスレッドの既読が使う。動きは変えていない
+- サイドバーにスレッドの未読の合計は出さない（#240で検討）。スレッドの未読の印はS-35の行にだけ出す
 ## 関係するIssue・ADR
 
 - Issue #237：本Issue。親Issue #133。#201（メッセージ）・#136（DM）・#124（通知）が先行。#240：分けた範囲
 - 決定記録C-169
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル・未読の持ち方／ADR-0012：サーバー側で毎回認可する／ADR-0015：スタイルの土台／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：3-1 AC-1〜AC-3、1-1 AC-2、EP-3-01・EP-3-02、S-01・S-05・S-06
+- Issue #137：スレッドの未読・既読（`thread_read_positions`、EP-3-09）を足し、部屋の未読に返信を数えないようにした。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-4、EP-3-08・EP-3-09

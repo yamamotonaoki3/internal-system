@@ -2,13 +2,19 @@
 // 送信中（投稿と一覧の取り直しが終わるまで）は「送信」を押せない。成功したら入力欄を空にする。
 // 書きかけの本文は端末に下書きとして保存し（features/drafts）、入力欄を作り直すと復元する。送信に成功したら消す。
 // 復元した値（なければ空）から変わっているあいだは、画面を離れる前に確認を出す（features/leave-guard）。
+// parentMessageId を渡すと、そのスレッドへの返信の入力欄になる（名前は「返信」、下書きはスレッドごと）。部屋が替わっても、同じ部屋の別のスレッドへ替わっても、使う側が key で作り直す。
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { TextAreaField } from "../../../components/TextAreaField";
-import { isBlankDraft, roomDraftScope, useDraft } from "../../drafts";
+import {
+  isBlankDraft,
+  roomDraftScope,
+  threadDraftScope,
+  useDraft,
+} from "../../drafts";
 import { useLeaveGuard } from "../../leave-guard";
 import { describeError, isApiError } from "../describe-error";
 import { usePostMessage } from "../hooks/usePostMessage";
@@ -19,6 +25,8 @@ import {
 
 type MessageComposerProps = {
   roomId: string;
+  /** 返信の入力欄にするときの、スレッドの親の ID */
+  parentMessageId?: string;
   /** ログイン中の利用者のID。下書きのキーに使う。なければ下書きを読み書きしない */
   userId?: string;
   onPosted?: () => void;
@@ -27,12 +35,18 @@ type MessageComposerProps = {
 
 export function MessageComposer({
   roomId,
+  parentMessageId,
   userId,
   onPosted,
   onPostError,
 }: MessageComposerProps) {
-  const post = usePostMessage(roomId);
-  const draft = useDraft(userId, roomDraftScope(roomId));
+  const post = usePostMessage(roomId, parentMessageId);
+  const draft = useDraft(
+    userId,
+    parentMessageId === undefined
+      ? roomDraftScope(roomId)
+      : threadDraftScope(roomId, parentMessageId),
+  );
   const {
     register,
     handleSubmit,
@@ -86,7 +100,7 @@ export function MessageComposer({
         </Alert>
       )}
       <TextAreaField
-        label="メッセージ"
+        label={parentMessageId === undefined ? "メッセージ" : "返信"}
         hint="Enter で改行、Ctrl+Enter（Mac は Cmd+Enter）で送信します"
         error={errors.body?.message}
         {...register("body", {

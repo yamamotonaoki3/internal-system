@@ -1,5 +1,5 @@
 // DAO：自分の DM の一覧（#136）。SQL の実行と、結果の形の検証だけを行う。
-// 最終活動 = 最後のメッセージのID（なければ部屋のID）。ID は ULID で、辞書順が時刻順になる。
+// 最終活動 = 最後のメッセージのID（なければ部屋のID）。ID は ULID で、辞書順が時刻順になる。スレッドの返信は含めない（#137 U-3）。
 // 相手は、会話の当事者のうち自分でない方。メッセージの最大は messages_room_id_id_idx、当事者は conversation_members_user_id_idx を使う（EXPLAIN は docs/design/dms.md）。
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
@@ -38,8 +38,8 @@ export async function listConversationRows(
       partner_is_active, partner_status_kind, partner_status_return_at
     FROM (
       SELECT c.room_id AS room_id,
-        COALESCE((SELECT m.id FROM messages m WHERE m.room_id = c.room_id ORDER BY m.id DESC LIMIT 1), c.room_id) AS activity_key,
-        (SELECT m.created_at FROM messages m WHERE m.room_id = c.room_id ORDER BY m.id DESC LIMIT 1) AS last_message_at,
+        COALESCE((SELECT m.id FROM messages m WHERE m.room_id = c.room_id AND m.parent_message_id IS NULL ORDER BY m.id DESC LIMIT 1), c.room_id) AS activity_key,
+        (SELECT m.created_at FROM messages m WHERE m.room_id = c.room_id AND m.parent_message_id IS NULL ORDER BY m.id DESC LIMIT 1) AS last_message_at,
         u.id AS partner_id,
         u.display_name AS partner_display_name,
         u.is_active AS partner_is_active,

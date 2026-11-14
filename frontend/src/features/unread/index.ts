@@ -4,3 +4,5 @@ export { UnreadCountBadge } from "./components/UnreadCountBadge";
 export { UnreadCountsError } from "./components/UnreadCountsError";
 export { useMarkRoomRead } from "./hooks/useMarkRoomRead";
 export { useUnreadCounts } from "./hooks/useUnreadCounts";
+export { useReadPositionSender } from "./hooks/useReadPositionSender";
+export { pollIntervalUnlessDenied } from "./polling";

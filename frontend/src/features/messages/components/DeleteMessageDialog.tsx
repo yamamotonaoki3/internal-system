@@ -8,17 +8,20 @@ import { useDeleteMessage } from "../hooks/useDeleteMessage";
 
 type DeleteMessageDialogProps = {
   roomId: string;
+  /** 返信のときは、スレッドの親の ID（結果をスレッドのキャッシュに反映する） */
+  parentMessageId?: string | null;
   messageId: string;
   onClose: () => void;
 };
 
 export function DeleteMessageDialog({
   roomId,
+  parentMessageId,
   messageId,
   onClose,
 }: DeleteMessageDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const remove = useDeleteMessage(roomId);
+  const remove = useDeleteMessage(roomId, parentMessageId);
 
   useEffect(() => {
     const dialog = dialogRef.current;

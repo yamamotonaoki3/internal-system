@@ -377,7 +377,9 @@ test("#136 AC-1（1-2 AC-6）・AC-3（C-168(2)(5)(6)）: 無効な相手との 
   // 上部：表示名と「退職者」。プロフィール（カード）のボタン・リンクは出さない
   await expect(main).toContainText(NAME_RETIRED);
   await expect(
-    main.getByRole("button", { name: new RegExp(NAME_RETIRED) }),
+    main
+      .getByRole("button", { name: new RegExp(NAME_RETIRED) })
+      .filter({ hasNotText: /返信/ }),
   ).toHaveCount(0);
   await expect(
     main.getByRole("link", { name: new RegExp(NAME_RETIRED) }),

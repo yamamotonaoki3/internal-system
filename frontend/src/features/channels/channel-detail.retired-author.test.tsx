@@ -97,7 +97,17 @@ describe("#238 AC-1・AC-2 S-05 の一覧の退職者", () => {
     await within(log).findByText("[E2E_TEST]在籍者の投稿");
     const retiredRow = within(log).getAllByRole("listitem")[0] as HTMLElement;
     expect(retiredRow.textContent).toContain("退職者");
-    expect(within(retiredRow).queryAllByRole("button")).toEqual([]);
+    // #137：全投稿にスレッドの「返信」ボタンが付く。C-74 の趣旨（プロフィールカード・「DMを送る」を出さない）に絞る。返信のボタンはあってよい
+    expect(
+      within(retiredRow)
+        .queryAllByRole("button")
+        .filter(
+          (button) =>
+            !/返信/.test(
+              button.getAttribute("aria-label") ?? button.textContent ?? "",
+            ),
+        ),
+    ).toEqual([]);
     expect(within(retiredRow).queryAllByRole("link")).toEqual([]);
     expect(retiredRow.textContent).not.toMatch(ANY_DM_BUTTON);
     expect(retiredRow.querySelector("[popover]")).toBeNull();

@@ -181,8 +181,12 @@ test("#134 AC-1（1-3 AC-1・AC-3・AC-4）: チャンネルで自分の投稿�
   await expect(log(page)).not.toContainText("[E2E_TEST]Aの削除する投稿");
   const deletedRow = rowWith(page, DELETED_TEXT);
   await expect(deletedRow).toContainText(NAME_A);
-  await expect(deletedRow.getByRole("button", { name: "編集" })).toHaveCount(0);
-  await expect(deletedRow.getByRole("button", { name: "削除" })).toHaveCount(0);
+  await expect(
+    deletedRow.getByRole("button", { name: "編集", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    deletedRow.getByRole("button", { name: "削除", exact: true }),
+  ).toHaveCount(0);
 
   // 再読み込みしていない
   expect(loads()).toBe(loadsBefore);
@@ -206,8 +210,12 @@ test("#134 AC-1（1-3 AC-2）: 他人（B）の投稿には「編集」「削除
   await expect(page).toHaveURL(new RegExp(`/channels/${CHANNEL_ID}$`));
   const other = rowWith(page, "[E2E_TEST]Bの投稿");
   await expect(other).toContainText(NAME_B);
-  await expect(other.getByRole("button", { name: "編集" })).toHaveCount(0);
-  await expect(other.getByRole("button", { name: "削除" })).toHaveCount(0);
+  await expect(
+    other.getByRole("button", { name: "編集", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    other.getByRole("button", { name: "削除", exact: true }),
+  ).toHaveCount(0);
 
   const patch = await page.request.patch(`/api/messages/${MSG_B}`, {
     headers: { Origin: ORIGIN },
@@ -254,8 +262,12 @@ test("#134 AC-1（1-3 AC-1・AC-2）: DM（S-06）でも、自分の投稿を編
   expect(loads()).toBe(loadsBefore);
 
   const partner = rowWith(page, "[E2E_TEST]DMのBの投稿");
-  await expect(partner.getByRole("button", { name: "編集" })).toHaveCount(0);
-  await expect(partner.getByRole("button", { name: "削除" })).toHaveCount(0);
+  await expect(
+    partner.getByRole("button", { name: "編集", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    partner.getByRole("button", { name: "削除", exact: true }),
+  ).toHaveCount(0);
   const patch = await page.request.patch(`/api/messages/${MSG_DM_B}`, {
     headers: { Origin: ORIGIN },
     data: { body: "[E2E_TEST]他人が書き換えた本文" },
@@ -332,7 +344,7 @@ test("#134 AC-1（U-8）: B がチャンネルを開いた後に A が編集・�
   await expect(
     rowWith(pageB, "[E2E_TEST]開き直しで確かめた編集の結果").getByRole(
       "button",
-      { name: "編集" },
+      { name: "編集", exact: true },
     ),
   ).toHaveCount(0);
   await expect(

@@ -2,13 +2,14 @@
 // 未読数は、既読位置（なければ参加の時刻）より後のメッセージを上限つきで数え直す。カウンター・rooms.last_message_id は持たない。
 // 1回の取得は SQL 2本（対象の部屋 → 部屋ごとの数）で、部屋の数に比例しない。
 import { and, eq } from "drizzle-orm";
-import { messages } from "../../db/schema";
+import { messages, threadReadPositions } from "../../db/schema";
 import { toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import { unreadLowerBound } from "../lib/unread-bound";
 import { withDatabase, type Database } from "./database";
 import { advanceReadPosition } from "./read-position-advance.sql";
 import { listUnreadCountRows } from "./unread-counts.sql";
+import { advanceThreadReadPosition } from "./thread-read-advance.sql";
 import { listUnreadTargetRows } from "./unread-targets.sql";
 
 export type UnreadRoom = { roomId: string; count: number };
@@ -56,6 +57,52 @@ export function createReadPositionRepository(db: Database) {
       now: string;
     }): Promise<number> {
       return advanceReadPosition(db, input);
+    },
+
+    /** スレッドの既読位置を前に進めた行数（1 か 0）。0 の理由の読み分けは Service（#137） */
+    advanceThread(input: {
+      userId: string;
+      parentMessageId: string;
+      lastReadMessageId: string;
+      now: string;
+    }): Promise<number> {
+      return advanceThreadReadPosition(db, input);
+    },
+
+    /** その返信が、このスレッド（親の返信）のものか（親そのもの・別のスレッド・存在しない ID は false） */
+    async replyExistsInThread(
+      parentMessageId: string,
+      messageId: string,
+    ): Promise<boolean> {
+      const rows = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.id, messageId),
+            eq(messages.parentMessageId, parentMessageId),
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
+    },
+
+    /** 自分のスレッドの既読位置（なければ null） */
+    async threadPosition(
+      userId: string,
+      parentMessageId: string,
+    ): Promise<string | null> {
+      const rows = await db
+        .select({ id: threadReadPositions.lastReadMessageId })
+        .from(threadReadPositions)
+        .where(
+          and(
+            eq(threadReadPositions.userId, userId),
+            eq(threadReadPositions.parentMessageId, parentMessageId),
+          ),
+        )
+        .limit(1);
+      return rows[0]?.id ?? null;
     },
 
     async messageExistsInRoom(

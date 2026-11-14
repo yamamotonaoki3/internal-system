@@ -29,6 +29,8 @@ type RoomMessagesProps = {
   onPostError?: (error: unknown) => void;
   /** 表示している最新のメッセージの ID が変わったときに呼ぶ（既読のため）。0件・取得失敗では呼ばない */
   onLatestMessageIdChange?: (messageId: string) => void;
+  /** スレッドを開く。あれば、各メッセージに「返信 n 件」のボタンを出す */
+  onOpenThread?: (parentMessageId: string) => void;
 };
 
 export function RoomMessages({
@@ -43,6 +45,7 @@ export function RoomMessages({
   onPosted,
   onPostError,
   onLatestMessageIdChange,
+  onOpenThread,
 }: RoomMessagesProps) {
   const messages = useRoomMessages(roomId);
   const userId = useSignedInUserId();
@@ -64,6 +67,7 @@ export function RoomMessages({
         retiredAuthorIds={retiredAuthorIds}
         currentUserId={userId}
         canModifyOwn={canModifyOwn}
+        onOpenThread={onOpenThread}
       />
       {joined &&
         (canPost ? (

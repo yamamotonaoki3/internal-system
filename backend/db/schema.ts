@@ -396,10 +396,21 @@ export const messages = sqliteTable(
     editedAt: text("edited_at"),
     deletedAt: text("deleted_at"),
     deletedBy: text("deleted_by").references(() => users.id),
+    // スレッドの返信（#137）。返信は親（parent_message_id が NULL の投稿）と同じ部屋で、1段だけ（返信への返信は Service が拒否する）。
+    // 返信を持つ親の行は消せない（外部キー。投稿の削除は deleted_at の印だけで行は消さない）。必ず最後の列にする（message.repository の INSERT … SELECT の列の並びと合わせるため）。
+    parentMessageId: text("parent_message_id").references(
+      (): AnySQLiteColumn => messages.id,
+    ),
   },
   (t) => [
     check("messages_body_check", sql`length(${t.body}) >= 1`),
     index("messages_room_id_id_idx").on(t.roomId, t.id),
+    index("messages_parent_message_id_id_idx").on(t.parentMessageId, t.id),
+    // スレッド一覧（#137）が「自分が親の投稿者のスレッド・自分が返信したスレッド」を、自分の投稿だけから引くため（会社全体の返信を読まない）
+    index("messages_sender_id_parent_message_id_idx").on(
+      t.senderId,
+      t.parentMessageId,
+    ),
   ],
 );
 
@@ -448,6 +459,23 @@ export const readPositions = sqliteTable(
     updatedAt: text("updated_at").notNull().default(nowUtc),
   },
   (t) => [primaryKey({ columns: [t.userId, t.roomId] })],
+);
+
+// スレッドの既読位置（#137。C-147）。利用者×親の投稿ごとに、最後に読んだ返信の ID を持つ。未読数は部屋と同じ考え方で、この ID より後の返信を上限つきで数え直す。
+// last_read_message_id は read_positions と同じく外部キーにしない（C-169 (5)）。後戻りさせない更新は DAO の条件付き upsert（thread-read-advance.sql.ts）が行う。
+export const threadReadPositions = sqliteTable(
+  "thread_read_positions",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    parentMessageId: text("parent_message_id")
+      .notNull()
+      .references(() => messages.id),
+    lastReadMessageId: text("last_read_message_id").notNull(),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.parentMessageId] })],
 );
 
 // チャンネルの作成申請（#131。2-2）。チャンネルは承認の時に初めて作り、申請の内容はこの表に持つ（承認待ちの間は channels に行がない）。

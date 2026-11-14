@@ -132,6 +132,9 @@ describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
         "deleted",
         "editedAt",
         "id",
+        // #137：一覧の項目に足した parentMessageId・replyCount
+        "parentMessageId",
+        "replyCount",
         "roomId",
       ].sort(),
     );

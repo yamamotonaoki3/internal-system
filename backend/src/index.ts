@@ -19,6 +19,8 @@ import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
+import { threadReadPositionRoutes } from "./routes/thread-read-positions";
+import { threadRoutes } from "./routes/threads";
 import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
 import { authCleanupJob } from "./services/auth.service";
@@ -32,6 +34,7 @@ export const app = createApp({
     { path: "/api/auth", app: authRoutes(withAuth, withCredentials) },
     { path: "/api/me/notifications", app: notificationRoutes() },
     { path: "/api/me/unread", app: unreadRoutes() },
+    { path: "/api/me/threads", app: threadRoutes() },
     { path: "/api/me", app: meRoutes(withCredentials) },
     { path: "/api/users", app: userRoutes() },
     { path: "/api/admin/clients", app: adminClientRoutes() },
@@ -44,6 +47,7 @@ export const app = createApp({
     { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
     { path: "/api/messages", app: messageItemRoutes() },
+    { path: "/api/messages", app: threadReadPositionRoutes() },
     { path: "/api/rooms", app: readPositionRoutes() },
   ],
 });
