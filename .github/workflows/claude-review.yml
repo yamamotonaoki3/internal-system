@@ -34,6 +34,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # 一時的な切り分け用。原因を確かめたら消す（公開のログに出るため。docs/secrets.md）
+          show_full_output: true
           # agent mode では claude_args が後ろに付き、優先される。permission mode の既定は auto で、許可リストが厳格にならないため default にする
           # use_sticky_comment は agent mode では効かない（追跡用のコメントがない）ため付けない。同じコメントの書き直しはプロンプトで指示する
           # --disallowedTools の Read の規則：// は根（/）から、~/ はホームから、/ 1つはプロジェクトの根からの意味。deny は allow より優先されるため、作業ディレクトリ（AGENTS.md・Skill）に重ならない場所だけを塞ぐ
