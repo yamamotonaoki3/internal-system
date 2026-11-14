@@ -70,6 +70,7 @@ export function DmView({ roomId }: { roomId: string }) {
         roomId={roomId}
         canPost={canPost}
         joined
+        canModifyOwn={canPost}
         notFoundText="この DM は見つかりません"
         emptyText={`${partner.displayName} さんへの最初のメッセージを送りましょう。相手が不在でも、ログインしたときに読まれます`}
         cannotPostText="相手のアカウントが無効になっているため、送信できません"

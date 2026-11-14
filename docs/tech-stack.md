@@ -66,7 +66,7 @@
 | 添付の検査 | Office新形式のzip構造を自前で確認 | なし | [0011](adr/0011-attachment-inspection-and-virus-scan.md) |
 | スタイル | Tailwind CSS 4＋CSS変数のデザイントークン＋自前の共通部品。CSPは変えない（`style-src 'self'`）。UI部品のライブラリ・アイコン・Webフォントは入れない | `tailwindcss`・`@tailwindcss/vite`（2026-11-04、Issue #171で追加。下の「Tailwind CSS」） | [0015](adr/0015-style-foundation.md) |
 
-- 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）、emoji-picker-react 5.1.4（C-128。条件つき）
+- 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）【Issue #134で、2つを`--save-exact`で固定して追加した（下の「マークダウンの描画（Issue #134、ADR-0026）」）。元の記述は残す】、emoji-picker-react 5.1.4（C-128。条件つき）
 - `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）
 
 ## Tailwind CSS（Issue #171、ADR-0015）
@@ -81,6 +81,15 @@
 | 出所の証明 | `tailwindcss` 系はあり。`lightningcss` 系と `jiti` はなし（公式のリポジトリ・公開元が一致することを確認し、受け入れた） |
 | `source(none)` | `frontend/src/styles/index.css` で `@import "tailwindcss" source(none)` とし、クラスを探す範囲を `@source "../"`（`frontend/src/`）に限る。既定ではプロジェクトの全体を自動で探すため、意図しないファイルを読まないようにするため |
 | 初回のJS・CSSの大きさ | 導入前：JS 755,222 B（gzip 230,392 B）、CSS 0。導入後：JS 759,072 B（gzip 231,570 B）、CSS 10,513 B（gzip 3,005 B）。測り方と詳細は `docs/design/style-foundation.md` |
+
+## マークダウンの描画（Issue #134、ADR-0026）
+
+| 項目 | 内容 |
+| --- | --- |
+| 追加したライブラリ | `react-markdown` 10.1.0（公開2025-03-07）・`remark-gfm` 4.0.1（公開2025-02-10）。`package.json`の`dependencies`に`--save-exact`で固定（`^`・`~`なし）。2026-11-11に利用者が承認し、2026-11-14に導入前の安全性の検査（綴り・公式リポジトリ・公開者・公開日・インストール時のスクリプト・依存・既知の脆弱性）を行い、結果をIssue #134に記録した |
+| 入れないもの | `rehype-raw`・`rehype-sanitize`（生のHTMLを通さない設計。テスト`markdown-dependencies.test.ts`で`package.json`にないことを確かめる） |
+| 推移的な依存 | 新しく入ったパッケージは93個。インストール時のスクリプトを持つものは0件、公開から2週間未満のものは0件（下の8個を固定したあと）。`npm audit --omit=dev`は0件、`npm run security:osv`は成功 |
+| 使い方 | 許す要素12個・URLのスキーム（`http:`・`https:`・`mailto:`）の許可リストと、許可しない記法を原文に戻す自前のremarkプラグインで限る。設計は[message-edit-markdown.md](design/message-edit-markdown.md) |
 
 ## インフラ（Terraform、infra/）
 
@@ -171,6 +180,16 @@
 | 全依存のUndici 8系 | `undici@>=8.0.0 <8.12.4` → `8.12.4` | security修正版に限る。親の要求範囲が許す間も、この一時指定に固定され得る |
 | `@cloudflare/vitest-pool-workers@0.23.0`配下のZod | `zod@>=4.0.0 <4.6.6` → `$zod`（直依存`4.6.7`） | 既存の直依存版に合わせる |
 | `typed-rest-client@2.3.1`配下の`qs` | `qs@>=6.0.0 <6.16.1` → `6.16.1` | security修正版に限る |
+| `react-markdown`・`remark-gfm`の推移的な依存`mdast-util-to-hast`（Issue #134） | `mdast-util-to-hast` → `13.2.1`（公開2025-11-23。解決先は13.2.2、公開2026-11-13） | 公開から2週間未満の版を避ける。13.2.1はCVE-2025-66400（GHSA-4fh9-h7wg-q85m、13.0.0以上13.2.1未満）の修正済み。外す条件：公開から2週間を過ぎた後の依存の更新 |
+| 同（Issue #134） | `vfile-message` → `4.0.3`（公開2025-07-26。解決先は4.0.4、公開2026-11-06） | 公開から2週間未満の版を避ける。外す条件は同上 |
+| 同（Issue #134） | `mdast-util-to-markdown` → `2.2.1`（公開2026-10-27。解決先は2.2.3、公開2026-11-06） | 同上 |
+| 同（Issue #134） | `mdast-util-gfm-autolink-literal` → `2.0.1`（公開2024-08-19。解決先は2.1.0、公開2026-11-06） | 同上 |
+| 同（Issue #134） | `mdast-util-gfm-task-list-item` → `2.0.0`（公開2023-07-10。解決先は2.0.1、公開2026-11-06） | 同上 |
+| 同（Issue #134） | `mdast-util-mdx-jsx` → `3.2.0`（公開2025-01-13。解決先は3.2.1、公開2026-11-03） | 同上 |
+| 同（Issue #134） | `mdast-util-gfm-table` → `2.0.0`（公開2023-07-10。解決先は2.0.1、公開2026-11-03） | 同上 |
+| 同（Issue #134） | `markdown-table` → `3.0.4`（公開2024-10-22。解決先は3.1.0、公開2026-11-03） | 同上 |
+
+【Issue #134で、上の表に8行を足した。目的は脆弱性の修正ではなく、公開から2週間未満の版を避けること（利用者の決定U-1。ただし`mdast-util-to-hast`は13.2.1が既知の脆弱性の修正済み）。`package.json`の`overrides`には、パッケージ名だけで版を指定している（親の範囲との交差）。元の記述は残す】
 
 `sharp`は利用者承認によりこのPRの修正対象から分離し、overrideを撤去した。`sharp@0.35.2`のhigh脆弱性は残るためIssue #186で追跡する。全依存auditは19件（moderate 15、high 4、critical 0）。全体の`npm ls`では、今回未変更でHEAD・`origin/main`・現行lockに共通する`msw@3.0.3`と`@vitest/mocker@4.1.12`のoptional peer range（`^2.4.9`）不整合が報告される。全体の`npm ls`成功とは扱わない。最終checkはexit 0（92ファイル・1023テスト、Prettier全件、依存違反0、本番audit 0件、gitleaks・Semgrep・OSV全項目成功）、devE2E 54/54、prodE2E 9/9とbuild、mutation score 91.47%（基準80%）を確認した。buildの500kB超chunk警告は既存Issue #160で追跡する。隔離解決候補は既存lockに170エントリ（追加41、削除39、版変更90）と`lightningcss`関連12件のdowngradeを含むため採用しなかった。初回checkの経過はIssue #185に記録する。
 

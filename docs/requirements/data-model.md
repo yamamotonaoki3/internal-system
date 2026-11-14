@@ -500,10 +500,10 @@ erDiagram
         text sender_id FK
         text sender_display_name "投稿時点の表示名（スナップショット。Issue #201で追加。1-1 AC-6）"
         text body "本文 マークダウンの原文"
-        text created_at "Issue #201の実装は、ここまでの列（id・room_id・sender_id・sender_display_name・body・created_at）だけ。返信・編集・削除の列は後続で ADD COLUMN する"
-        text edited_at "編集済みの表示"
-        text deleted_at "削除の方式は未決定 11番"
-        text deleted_by FK
+        text created_at "Issue #201の実装は、ここまでの列（id・room_id・sender_id・sender_display_name・body・created_at）だけ。返信・編集・削除の列は後続で ADD COLUMN する （Issue #134で、編集・削除の3列を足した。返信の列は後続）"
+        text edited_at "編集済みの表示 Issue #134で実装（migration 0019。NULL可）"
+        text deleted_at "削除の方式は未決定 11番 Issue #134で実装（migration 0019。NULL可。方式は非表示で、本文は残す）"
+        text deleted_by FK "Issue #134で実装（migration 0019。NULL可。users.idを参照）"
     }
     attachments {
         text id PK

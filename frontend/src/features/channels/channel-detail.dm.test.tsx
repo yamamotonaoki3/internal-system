@@ -40,6 +40,8 @@ function respondDetail() {
         isCaseChannel: false,
         joined: true,
         canPost: true,
+        // #134：詳細の応答に readOnly（部署が無効）が加わった
+        readOnly: false,
         memberCount: 2,
         members: [
           { id: SHELL_USER.id, displayName: SHELL_USER.displayName },

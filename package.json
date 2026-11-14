@@ -65,7 +65,15 @@
     },
     "typed-rest-client@2.3.1": {
       "qs@>=6.0.0 <6.16.1": "6.16.1"
-    }
+    },
+    "mdast-util-to-hast": "13.2.1",
+    "vfile-message": "4.0.3",
+    "mdast-util-to-markdown": "2.2.1",
+    "mdast-util-gfm-autolink-literal": "2.0.1",
+    "mdast-util-gfm-task-list-item": "2.0.0",
+    "mdast-util-mdx-jsx": "3.2.0",
+    "mdast-util-gfm-table": "2.0.0",
+    "markdown-table": "3.0.4"
   },
   "allowScripts": {
     "msw": false,
@@ -82,7 +90,9 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "7.91.0",
+    "react-markdown": "10.1.0",
     "react-router": "8.5.1",
+    "remark-gfm": "4.0.1",
     "zod": "4.6.7"
   },
   "devDependencies": {

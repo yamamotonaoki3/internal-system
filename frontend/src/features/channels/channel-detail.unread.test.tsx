@@ -59,6 +59,8 @@ function respondRooms(
         isCaseChannel: false,
         joined: channel.joined,
         canPost: channel.joined,
+        // #134：詳細の応答に readOnly（部署が無効）が加わった
+        readOnly: false,
         ...(channel.joined
           ? {
               memberCount: 1,

@@ -58,6 +58,9 @@ export function useRoomMessages(roomId: string) {
       return merged;
     },
     retry: false,
+    // 部屋の画面を外れたら一覧を捨てる。開き直したら、最新の一覧（after なし）から取り直し、外れていた間の他の人の編集・削除を反映する（#134）。
+    // 投稿の下書きは別に（端末に）保存しているため、消えない
+    gcTime: 0,
     // 取得のたびの isFetching の切り替えでは描き直さない（2秒ごとの無駄な描画を避ける）。画面とテストが使う値だけ通知する
     notifyOnChangeProps: ["data", "error", "isError", "isPending"],
     refetchInterval: (query) =>

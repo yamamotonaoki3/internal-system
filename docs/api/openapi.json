@@ -2486,6 +2486,138 @@
         }
       }
     },
+    "/api/messages/{messageId}": {
+      "patch": {
+        "operationId": "updateMessage",
+        "summary": "自分の投稿の本文を編集する",
+        "description": "投稿した本人だけが編集できる（他人の投稿は、全体管理者・部署のオーナーでも 403）。今その部屋に参加している必要がある（公開チャンネルを抜けていれば 403。お知らせ専用の投稿権限は問わない）。本文は投稿と同じ規則（1〜4,000文字、空白・改行だけは不可）。再認証は求めない。部署が無効のチャンネル・相手が無効な DM は 409、削除済みも 409。同じ内容でも送られた編集は editedAt を更新する。過去の本文は返さない。編集の監査ログは残さない。",
+        "parameters": [
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "編集した",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageEdited"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "本人の投稿ではない・今その部屋に参加していない・権限がない（FORBIDDEN）、送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない投稿（存在しない・見えない部屋・アーカイブ済み・当事者でない DM）。区別せず 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMessage",
+        "summary": "自分の投稿を削除する",
+        "description": "投稿した本人だけが削除できる（他人の投稿の削除は、権限を持つ役割がないため全員 403）。再認証（5 分以内）が必要。判定の順：見えるか（404）→ 本人か（403）→ 権限（403）→ 削除済み（409）→ 部屋の状態（未参加 403・部署が無効 409・DM の相手が無効 409）→ 再認証（403 REAUTH_REQUIRED）。本文は DB に残すが、API では返さない。監査ログ（message.delete）を残す。要求の本文は読まない。",
+        "parameters": [
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "削除した（本文なし）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "本人の投稿ではない・今その部屋に参加していない・権限がない（FORBIDDEN）、再認証が必要（REAUTH_REQUIRED）、送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない投稿（存在しない・見えない部屋・アーカイブ済み・当事者でない DM）。区別せず 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/unread": {
       "get": {
         "operationId": "listUnreadRooms",
@@ -3133,7 +3265,8 @@
         "departmentId",
         "joined",
         "isCaseChannel",
-        "canPost"
+        "canPost",
+        "readOnly"
       ],
       "additionalProperties": false,
       "properties": {
@@ -3174,6 +3307,10 @@
         "canPost": {
           "type": "boolean",
           "description": "このチャンネルに投稿できるか。参加者で、お知らせ専用なら部署のオーナーか全体管理者のとき真"
+        },
+        "readOnly": {
+          "type": "boolean",
+          "description": "チャンネルの部署が無効で読み取り専用か（参加の有無にかかわらず返す。部署のない会社直属のチャンネルは偽）。投稿の権限（canPost）とは別で、画面が編集・削除のボタンを出すかの判断に使う"
         },
         "memberCount": {
           "type": "integer",
@@ -3218,7 +3355,9 @@
         "roomId",
         "author",
         "body",
-        "createdAt"
+        "createdAt",
+        "editedAt",
+        "deleted"
       ],
       "additionalProperties": false,
       "properties": {
@@ -3254,13 +3393,23 @@
           }
         },
         "body": {
-          "type": "string",
+          "type": ["string", "null"],
           "minLength": 1,
-          "maxLength": 4000
+          "maxLength": 4000,
+          "description": "本文。削除済み（deleted が真）なら null"
         },
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "editedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "最後に編集した日時。編集していない・削除済みなら null"
+        },
+        "deleted": {
+          "type": "boolean",
+          "description": "削除済みか。削除済みでも投稿者と日時は残り、本文は返さない"
         }
       }
     },
@@ -3771,6 +3920,26 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4000
+        }
+      }
+    },
+    "MessageEdited": {
+      "type": "object",
+      "required": ["id", "body", "editedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "editedAt": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },

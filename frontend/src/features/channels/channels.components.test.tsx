@@ -63,6 +63,8 @@ const detailBase = {
   isCaseChannel: false,
   // #201：詳細の応答に canPost が加わった（投稿できるか。お知らせ専用の権限）
   canPost: false,
+  // #134：詳細の応答に readOnly（部署が無効）が加わった
+  readOnly: false,
 };
 
 function respondDetail(body: Record<string, unknown>) {

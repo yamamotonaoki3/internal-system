@@ -35,6 +35,9 @@ type Item = {
   author: { id: string; displayName: string };
   body: string;
   createdAt: string;
+  /** #134：編集の日時（未編集は null）と、削除済みか */
+  editedAt: string | null;
+  deleted: boolean;
 };
 type Page = { items: Item[]; nextCursor?: string | null; hasMore?: boolean };
 
@@ -115,6 +118,9 @@ describe("#136 AC-1（1-2 AC-1・AC-3）当事者のやり取り", () => {
       roomId,
       author: { id: alice.userId, displayName: "テストDMアリス" },
       body: "[UNIT_TEST]こんにちは",
+      // #134 計画 7：投稿したばかりのメッセージは未編集・未削除
+      editedAt: null,
+      deleted: false,
     });
   });
 

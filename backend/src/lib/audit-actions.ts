@@ -23,6 +23,7 @@ export const AUDIT_ACTIONS = [
   "channel_request.approve",
   "channel_request.reject",
   "channel_request.withdraw",
+  "message.delete",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -12,7 +12,7 @@ import { adminClientRoutes, clientRoutes } from "./routes/clients";
 import { adminDepartmentRoutes, departmentRoutes } from "./routes/departments";
 import { dmRoutes } from "./routes/dms";
 import { meRoutes } from "./routes/me";
-import { messageRoutes } from "./routes/messages";
+import { messageItemRoutes, messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
 import { sampleUserRoutes } from "./routes/sample-users";
@@ -53,6 +53,8 @@ const app = createApp({
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     // #136：DM の開始・一覧・詳細。index.ts と同じパスに組み込む
     { path: "/api/dms", app: dmRoutes() },
+    // #134：メッセージの編集・削除（EP-1-03・EP-1-04）。index.ts と同じパスに組み込む
+    { path: "/api/messages", app: messageItemRoutes() },
   ],
 });
 
@@ -299,6 +301,75 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
           name,
         ).toContain(code);
     }
+  });
+
+  it("#134 AC-1（1-3 AC-1・AC-2・AC-4・AC-6）: メッセージの編集・削除の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      // 編集：本人以外・未参加・送信元の不正は 403、見えないは 404、削除済み・読み取り専用・DM の相手が無効は 409、本文の誤りは 422
+      "PATCH /api/messages/{messageId}": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      // 削除：成功は 204。403 は FORBIDDEN・FORBIDDEN_ORIGIN・REAUTH_REQUIRED
+      "DELETE /api/messages/{messageId}": ["204", "401", "403", "404", "409"],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+    const deleteForbidden = JSON.stringify(
+      (
+        spec.paths as Record<
+          string,
+          Record<string, { responses: Record<string, unknown> }>
+        >
+      )["/api/messages/{messageId}"]?.delete?.responses["403"] ?? {},
+    );
+    expect(deleteForbidden).toContain("REAUTH_REQUIRED");
+  });
+
+  it("#134 AC-1（1-3 AC-3・AC-4・計画 7）: 一覧の項目（MessageItem）に editedAt・deleted があり、body は削除済みのとき null になれる", () => {
+    const item = (
+      spec.components.schemas as Record<
+        string,
+        {
+          required?: string[];
+          properties?: Record<string, { type?: string | string[] }>;
+        }
+      >
+    ).MessageItem;
+    for (const name of ["editedAt", "deleted"])
+      expect(item?.required, name).toContain(name);
+    expect(item?.properties?.deleted?.type).toBe("boolean");
+    expect(item?.properties?.editedAt?.type).toEqual(
+      expect.arrayContaining(["string", "null"]),
+    );
+    expect(item?.properties?.body?.type).toEqual(
+      expect.arrayContaining(["string", "null"]),
+    );
+  });
+
+  it("#134 AC-1（1-3 AC-6・改訂1 指摘2）: チャンネルの詳細（ChannelDetail）に readOnly（真偽）がある", () => {
+    const detail = (
+      spec.components.schemas as Record<
+        string,
+        {
+          required?: string[];
+          properties?: Record<string, { type?: string | string[] }>;
+        }
+      >
+    ).ChannelDetail;
+    expect(detail?.required).toContain("readOnly");
+    expect(detail?.properties?.readOnly?.type).toBe("boolean");
   });
 
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
