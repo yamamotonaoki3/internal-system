@@ -27,7 +27,7 @@ Issue #139（親：#110）。メッセージ入力で社員を指名し、指名
 | `shared/message-rules.ts` | `mentionSchema`・`messageContentSchema`が指名配列と本文範囲の形を定義する。開始・終了はUTF-16単位の半開区間で、重なり、本文外、`@`以外から始まる範囲、サロゲートペアの分割を拒否する |
 | `backend/db/schema.ts`、`backend/db/migrations/0021_add_message_mentions.sql` | `message_mentions`表と主キー・索引・範囲制約を定義する |
 | `backend/src/routes/messages.ts` | `messageRoutes`で`GET /api/rooms/:roomId/mention-candidates`を受け、queryを検証してServiceへ渡す。投稿・返信・編集routeは本文と指名配列を渡す |
-| `backend/src/services/message.service.ts` | `mentionCandidates`は投稿可能性を先に判定し候補を返す。`validateMentions`は範囲形状・現在有効な社員ID・本文の表示文字列（`@表示名`）・コード範囲を検証する。`edit`は更新後の指名配列も返す |
+| `backend/src/services/message.service.ts` | `mentionCandidates`は部屋の閲覧・参加資格（DMは送信権限と相手の有効状態も）を先に判定し候補を返す。`validateMentions`は範囲形状・現在有効な社員ID・本文の表示文字列（`@表示名`）・コード範囲を検証する。`edit`は更新後の指名配列も返す |
 | `backend/src/db/profile.repository.ts`、`backend/src/db/message.repository.ts` | `listDirectory`が有効社員・部署所属に絞り、表示名順のカーソルページを返す。`listMentionCandidates`はID・表示名・部署名だけを返す。`toItem`と各一覧取得は`loadMessageMentions`の結果をDTOへ付ける |
 | `backend/src/db/message-mentions.sql.ts` | `insertMessageMentions`が指名範囲を保存し、`loadMessageMentions`が各メッセージの配列を作る。`activeMentionNames`が有効な表示名を取得する。`insertMentionNotifications`が適格な宛先の通知文を作る |
 | `backend/src/db/message.repository.ts`、`backend/src/db/reply-insert.sql.ts` | 条件付きの通常投稿・返信挿入、指名行、通知行を同じ`db.batch`に含める |
@@ -49,7 +49,7 @@ Issue #139（親：#110）。メッセージ入力で社員を指名し、指名
 
 ## 処理の流れ
 
-1. 入力欄の`@`候補を開く。候補routeはServiceで投稿可能性を判定し、プロフィール一覧からカーソル付き候補を取る。
+1. 入力欄の`@`候補を開く。候補routeはServiceで閲覧・参加資格を判定し、プロフィール一覧からカーソル付き候補を取る。チャンネルのお知らせ専用の投稿権限は問わず、DMでは送信権限と相手の有効状態も確認する。
 2. 候補を選ぶと本文に`@表示名`を挿入し、`userId`と文字範囲を保持する。文字編集で範囲が崩れた指名は解除する。
 3. 投稿・返信・編集要求をServiceで検証する。範囲形状、現在有効な社員、表示名との一致、コード内でないことを確認する。
 4. 投稿・返信では条件付きメッセージ挿入・指名行・通知行を同じbatchに含める。編集では旧指名行と比較して新規宛先だけへ通知し、指名行と本文を更新する。全て同時に確定する。
@@ -60,7 +60,7 @@ Issue #139（親：#110）。メッセージ入力で社員を指名し、指名
 
 | 関数 | 入力 | 出力・責務 |
 | --- | --- | --- |
-| `createMessageService().mentionCandidates` | 投稿者、部屋ID、`keyword?`・`limit`・`cursor?` | 候補ページ`{ items: [{ id, displayName, departmentName }], nextCursor }`。投稿可能性を確認する |
+| `createMessageService().mentionCandidates` | 投稿者、部屋ID、`keyword?`・`limit`・`cursor?` | 候補ページ`{ items: [{ id, displayName, departmentName }], nextCursor }`。閲覧・参加資格を確認する（DMは送信権限と相手の有効状態も） |
 | `createMessageService().edit` | 投稿者、メッセージID、本文、`Mention[]` | `{ id, body, editedAt, mentions }`。権限・指名検証後に編集し、新規宛先だけへ通知する |
 | `insertMessageMentions` | DB、メッセージID、部屋ID、指名配列、任意の許可条件 | 指名行を作るSQL文 |
 | `insertMentionNotifications` | DB、実メッセージID、部屋ID、送信者、親ID、指名配列、新規宛先限定 | 適格な宛先への通知SQL文 |

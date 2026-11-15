@@ -122,7 +122,7 @@ describe("#139 AC-1（1-8 AC-1）指名候補", () => {
     );
   });
 
-  it("#139 AC-1: 候補取得も投稿資格を要求し、未認証者と未参加者へ社員情報を返さない", async () => {
+  it("#139 AC-1: 候補取得も参加資格を要求し、未認証者と未参加者へ社員情報を返さない", async () => {
     const path = `/api/rooms/${room()}/mention-candidates`;
     const unauthenticated = await apiRequest("GET", path);
     expect(unauthenticated.status).toBe(401);
