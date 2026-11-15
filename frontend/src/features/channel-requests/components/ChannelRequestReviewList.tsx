@@ -83,8 +83,10 @@ export function ChannelRequestReviewList() {
               <div className="flex flex-wrap items-center gap-3">
                 <span className="font-bold">{item.name}</span>
                 <span className="text-sm text-text-muted">
-                  {item.departmentId === null ? "会社直属" : "部署"}・
-                  {VISIBILITY_LABELS[item.visibility]}
+                  {item.departmentId === null
+                    ? "会社直属"
+                    : item.departmentName}
+                  ・{VISIBILITY_LABELS[item.visibility]}
                 </span>
                 <span className="text-sm">
                   申請者：{item.requesterDisplayName}
