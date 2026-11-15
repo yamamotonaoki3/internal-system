@@ -394,3 +394,32 @@ describe("#134 AC-2（1-5 AC-7・U-6）メンション", () => {
     expect(textOf(root)).toBe("@testuser_001 さん、確認をお願いします");
   });
 });
+
+describe("#139 1-5 AC-7 指名とMarkdown記号", () => {
+  it("#139 1-5 AC-7: 指名された表示名のMarkdown記号は文字のまま強調し、隣のリンクだけをリンクとして出す", () => {
+    const body = "[E2E_TEST] @te*st*user と [例](https://example.com)";
+    const { container } = render(
+      <MarkdownBody
+        body={body}
+        mentions={[
+          { userId: "01JTESTACCT000000000000002", start: 11, end: 22 },
+        ]}
+      />,
+    );
+    const mention = container.querySelector(".mention");
+    expect(mention?.textContent).toBe("@te*st*user");
+    expect(mention?.querySelector("em, strong, a, button")).toBeNull();
+    expect(mention?.closest("a, button")).toBeNull();
+    const link = container.querySelector("a");
+    expect(link?.textContent).toBe("例");
+    expect(link?.getAttribute("href")).toBe("https://example.com");
+  });
+});
+
+describe("#139 1-5 AC-7 指名用spanの入力安全性", () => {
+  it("#139 1-5 AC-7: 利用者が書いた生のspanは指名の強調要素にならず文字として出る", () => {
+    const { root } = show('[E2E_TEST]<span class="mention">偽の指名</span>');
+    expect(root.querySelector("span")).toBeNull();
+    expect(textOf(root)).toContain('<span class="mention">偽の指名</span>');
+  });
+});

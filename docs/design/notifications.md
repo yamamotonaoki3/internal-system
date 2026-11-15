@@ -8,8 +8,8 @@
 
 | 区分 | 内容 |
 | --- | --- |
-| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**#124の時点で種類は0件**。**#131で`channel_request.submitted`・`.approved`・`.rejected`の3種類を足した**。宛先・文言・移動先は[channel-requests.md](channel-requests.md)）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
-| 作らないもの | 通知の種類（0件）、種類ごとの文言・移動先、理由の列、メール送信、他人宛ての通知を取るAPI（R-57）、「最後のID以降」を取るAPI、作成・既読の監査、スマホ幅のベルのアイコン化 |
+| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**#124の時点で種類は0件**。**#131でチャンネル申請の3種類、#139で`message.mentioned`（`containsRoomContent: true`）を追加した**。宛先・文言・移動先は[channel-requests.md](channel-requests.md)）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
+| 作らないもの | 種類ごとの文言・移動先、理由の列、メール送信、他人宛ての通知を取るAPI（R-57）、「最後のID以降」を取るAPI、作成・既読の監査、スマホ幅のベルのアイコン化 |
 | 後続のIssueが足すもの | 下の「後続のIssueへの申し送り」 |
 
 3-4 AC-1〜5は、このIssueでは「後続のIssueが満たせる土台」までを満たす（利用者の決定。[C-166](../requirements/decision-register.md)）。各ACの分担は次のとおり。
@@ -29,7 +29,7 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`は、#124の時点では空で、#131で3種類（`channel_request.*`。いずれも`containsRoomContent: false`）を足した。後続のIssueはここに1件足す |
+| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`は、#124の時点では空で、#131で3種類（`channel_request.*`。いずれも`containsRoomContent: false`）を足した。後続のIssueはここに1件足す。#139でmessage.mentioned（containsRoomContent: true）を追加 |
 | `backend/db/schema.ts` | `notifications`を追加した。列は`id`・`user_id`（`users.id`を参照）・`kind`・`room_id`・`message_id`・`target_id`・`created_at`・`read_at`。索引は`(user_id, created_at, id)`（一覧）と、`read_at is null`の行だけの`(user_id)`部分索引（未読数） |
 | `backend/db/migrations/0014_add_notifications.sql`、`meta/0014_snapshot.json`、`meta/_journal.json` | 新規テーブルと索引のmigration。`drizzle-kit generate --name add_notifications`で生成し、手で書き換えていない（新規テーブルなので作り直しは起きない） |
 | `backend/db/seeds/cleanup.sql` | `notifications`の削除を足した。`user_id`の外部キーのため、利用者より先に消す |
@@ -57,6 +57,7 @@
 
 ## 処理の流れ
 
+メッセージの指名通知はmessage-mentions.sql.tsのinsertMentionNotificationsが作り、本文・指名行の更新と同じdb.batchで確定する（詳細は[mentions.md](mentions.md)）。
 ### 通知を作る（`notificationInserts`。HTTPなし）
 
 1. 後続のIssueのServiceが、業務の更新（申請の提出など）の`db.batch([...])`に、`notificationInserts(db, 宛先の利用者ID, { kind, roomId?, messageId?, targetId? })`の戻り値を並べる。文を返すだけで実行しないので、業務の更新と通知の作成が**同時に確定・失敗する**（`auditLogInsert`と同じ型）

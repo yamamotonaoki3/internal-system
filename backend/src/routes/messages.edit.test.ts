@@ -83,7 +83,7 @@ afterEach(async () => {
 });
 
 describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
-  it("#134 AC-1（1-3 AC-1）: 本人はチャンネルの自分の投稿を編集でき、200 で { id, body, editedAt } だけを返す", async () => {
+  it("#134 AC-1（1-3 AC-1）: 本人はチャンネルの自分の投稿を編集でき、200 で { id, body, editedAt, mentions } だけを返す", async () => {
     const id = await seed(deptA.dedicatedChannelId);
     const response = await editMessage(id, { body: EDITED }, author.token);
     expect(response.status).toBe(200);
@@ -92,6 +92,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
       id,
       body: EDITED,
       editedAt: expect.stringMatching(ISO),
+      mentions: [],
     });
     const row = await messageRow(id);
     expect(row?.body).toBe(EDITED);
@@ -132,6 +133,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
         "deleted",
         "editedAt",
         "id",
+        "mentions",
         // #137：一覧の項目に足した parentMessageId・replyCount
         "parentMessageId",
         "replyCount",

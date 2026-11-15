@@ -1,5 +1,6 @@
 // メッセージの本文。マークダウンの部品（react-markdown など）は、初回の JavaScript を増やさないよう、動的に読み込む（ADR-0026）。
 // 読み込むまでは、今までの表示（書いたままの文字・改行を保つ）にする。
+import type { Mention } from "../../../../../shared/message-rules";
 import { lazy, Suspense } from "react";
 import { MarkdownLoadError, MessageBodyBoundary } from "./MessageBodyBoundary";
 
@@ -13,13 +14,19 @@ const MarkdownBody = lazy(() =>
   ),
 );
 
-export function MessageBody({ body }: { body: string }) {
+export function MessageBody({
+  body,
+  mentions = [],
+}: {
+  body: string;
+  mentions?: readonly Mention[];
+}) {
   return (
     <MessageBodyBoundary body={body}>
       <Suspense
         fallback={<p className="whitespace-pre-wrap break-words">{body}</p>}
       >
-        <MarkdownBody body={body} />
+        <MarkdownBody body={body} mentions={mentions} />
       </Suspense>
     </MessageBodyBoundary>
   );

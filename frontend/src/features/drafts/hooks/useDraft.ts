@@ -2,11 +2,12 @@
 // 利用者がわからない（userId なし）ときは読み書きしない。保存先が使えないとき（DraftStorageUnavailableError）だけ受け止め、
 // 以後の書き込みを止めて unavailable で案内を出させる。それ以外の例外は投げ直す。
 import { useState } from "react";
+import type { Mention } from "../../../../../shared/message-rules";
 import { isBlankDraft } from "../draft-policy";
 import {
   DraftStorageUnavailableError,
   openDraftStorage,
-  readDraft,
+  readDraftContent,
   removeDraft,
   writeDraft,
 } from "../draft-storage";
@@ -14,21 +15,42 @@ import {
 type Loaded = {
   storage: Storage | null;
   initialBody: string;
+  initialMentions: Mention[];
   unavailable: boolean;
 };
 
 function load(userId: string | undefined, scope: string): Loaded {
   if (userId === undefined)
-    return { storage: null, initialBody: "", unavailable: false };
+    return {
+      storage: null,
+      initialBody: "",
+      initialMentions: [],
+      unavailable: false,
+    };
   const storage = openDraftStorage();
   if (storage === null)
-    return { storage: null, initialBody: "", unavailable: true };
+    return {
+      storage: null,
+      initialBody: "",
+      initialMentions: [],
+      unavailable: true,
+    };
   try {
-    const body = readDraft(storage, userId, scope, Date.now());
-    return { storage, initialBody: body ?? "", unavailable: false };
+    const content = readDraftContent(storage, userId, scope, Date.now());
+    return {
+      storage,
+      initialBody: content?.body ?? "",
+      initialMentions: content?.mentions ?? [],
+      unavailable: false,
+    };
   } catch (error) {
     if (error instanceof DraftStorageUnavailableError)
-      return { storage: null, initialBody: "", unavailable: true };
+      return {
+        storage: null,
+        initialBody: "",
+        initialMentions: [],
+        unavailable: true,
+      };
     throw error;
   }
 }
@@ -59,12 +81,15 @@ export function useDraft(userId: string | undefined, scope: string) {
   return {
     /** 復元した本文（なければ空） */
     initialBody: loaded.initialBody,
+    initialMentions: loaded.initialMentions,
     /** 保存できない環境（案内を出す） */
     unavailable,
     // 保存できなくなった後も、消す操作（空の本文・送信後の削除）は止めない。止めるのは書き込みだけ
-    save: (body: string) => {
+    save: (body: string, mentions: readonly Mention[] = []) => {
       if (unavailable && !isBlankDraft(body)) return;
-      run((storage, id, now) => writeDraft(storage, id, scope, body, now));
+      run((storage, id, now) =>
+        writeDraft(storage, id, scope, body, now, mentions),
+      );
     },
     discard: () => run((storage, id) => removeDraft(storage, id, scope)),
   };

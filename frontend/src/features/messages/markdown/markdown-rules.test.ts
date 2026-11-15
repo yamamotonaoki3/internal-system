@@ -1,6 +1,6 @@
 // #134 AC-2（1-5 AC-3・AC-4・AC-8）: マークダウンの許可リスト（features/messages/markdown/markdown-rules.ts）。
 // 契約（実装前の仮置き。計画 plan-134 の「9. マークダウンの描画」・ADR-0026）：
-//   ALLOWED_ELEMENTS：描画してよい要素の名前（小文字）の読み取り専用の配列。p・br・strong・em・del・ul・ol・li・blockquote・code・pre・a の12個だけ
+//   ALLOWED_ELEMENTS：描画してよい要素の名前（小文字）の読み取り専用の配列。従来の12要素と指名強調用spanの13個だけ
 //   isAllowedUrl(url: string): boolean：new URL() で絶対 URL として解釈でき、スキームが http:・https:・mailto: のものだけ true。
 //     相対 URL・// で始まるもの・javascript:・data:・vbscript: などは false。大文字・空白・制御文字を混ぜた形も、解釈した後のスキームで判定する
 // 期待値は本番の定義から作らず、ADR-0026 の一覧をここに独立に書く。データは架空（example.com）。
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { ALLOWED_ELEMENTS, isAllowedUrl } from "./markdown-rules";
 
 describe("#134 AC-2（1-5 AC-3・AC-8）描画してよい要素", () => {
-  it("#134 AC-2（1-5 AC-3）: 許す要素は p・br・strong・em・del・ul・ol・li・blockquote・code・pre・a の12個だけ（ADR-0026）", () => {
+  it("#134 AC-2（1-5 AC-3）: 許す要素は従来の12個と指名強調用 span の13個だけ（ADR-0026・#139 1-5 AC-7）", () => {
     expect([...ALLOWED_ELEMENTS].sort()).toEqual(
       [
         "a",
@@ -23,6 +23,7 @@ describe("#134 AC-2（1-5 AC-3・AC-8）描画してよい要素", () => {
         "p",
         "pre",
         "strong",
+        "span",
         "ul",
       ].sort(),
     );
@@ -42,7 +43,6 @@ describe("#134 AC-2（1-5 AC-3・AC-8）描画してよい要素", () => {
     "h6",
     "hr",
     "div",
-    "span",
   ])("#134 AC-2（1-5 AC-3・AC-5・AC-6）: %s は許す要素に含まない", (name) => {
     expect(ALLOWED_ELEMENTS).not.toContain(name);
   });

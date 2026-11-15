@@ -211,6 +211,7 @@ describe("#137 AC-1（1-4 AC-1）返信の投稿", () => {
         "deleted",
         "editedAt",
         "id",
+        "mentions",
         "parentMessageId",
         "replyCount",
         "roomId",

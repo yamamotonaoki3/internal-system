@@ -7,6 +7,7 @@ import { unreadLowerBound } from "../lib/unread-bound";
 import { withDatabase, type Database } from "./database";
 import { toItem, type MessageItem } from "./message.repository";
 import { listThreadRows } from "./thread-list.sql";
+import { loadMessageMentions } from "./message-mentions.sql";
 import { listThreadUnreadCounts } from "./thread-unread-counts.sql";
 
 export type ThreadRoom =
@@ -83,24 +84,31 @@ export function createThreadRepository(db: Database) {
           }),
         })),
       );
+      const mentions = await loadMessageMentions(
+        db,
+        page.items.map((row) => row.id),
+      );
       const items = page.items.map((row): ThreadItem => {
         const unreadCount = counts.get(row.id);
         if (unreadCount === undefined)
           throw new Error("スレッドの未読数を取得できませんでした");
         return {
-          parent: toItem({
-            id: row.id,
-            roomId: row.room_id,
-            senderId: row.sender_id,
-            senderDisplayName: row.sender_display_name,
-            body: row.body,
-            createdAt: row.created_at,
-            editedAt: row.edited_at,
-            deletedAt: row.deleted_at,
-            parentMessageId: null,
-            replyCount: row.reply_count,
-            authorIsActive: row.author_is_active === 1,
-          }),
+          parent: toItem(
+            {
+              id: row.id,
+              roomId: row.room_id,
+              senderId: row.sender_id,
+              senderDisplayName: row.sender_display_name,
+              body: row.body,
+              createdAt: row.created_at,
+              editedAt: row.edited_at,
+              deletedAt: row.deleted_at,
+              parentMessageId: null,
+              replyCount: row.reply_count,
+              authorIsActive: row.author_is_active === 1,
+            },
+            mentions.get(row.id) ?? [],
+          ),
           room: toRoom(row),
           lastReplyAt: row.last_reply_at,
           unreadCount,

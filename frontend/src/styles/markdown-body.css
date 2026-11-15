@@ -57,6 +57,13 @@
     padding: 0;
   }
 
+  .markdown-body .mention {
+    background-color: var(--color-info-bg);
+    color: var(--color-info-text);
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+  }
+
   .markdown-body a {
     color: var(--color-primary);
     text-decoration: underline;

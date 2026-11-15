@@ -41,6 +41,7 @@ export function useDeleteMessage(
           editedAt: null,
           deleted: true,
           body: null,
+          mentions: [],
         }),
       ),
   });

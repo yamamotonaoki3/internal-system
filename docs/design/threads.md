@@ -13,7 +13,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-07（返信の取得）・EP-1-08（返信の投稿）・EP-3-08（スレッド一覧）・EP-3-09（スレッドの既読）／EP-1-01への`parentMessageId`・`replyCount`の追加と、返信を一覧に含めない変更／`messages.parent_message_id`と表`thread_read_positions`（migration 0020）／S-07（スレッドの領域）・S-35（`/threads`）・サイドバーの「スレッド」・各投稿の「返信 n 件」／返信の入力欄の下書き（scope `thread:<部屋ID>:<親ID>`） |
-| 作らないもの | 添付（#140）、リアクション（#138）、メンション（#139。1-4 AC-4の「自分がメンションされたスレッド」の条件は#139で足す）、返信の通知、古い返信へのスクロール、他の人の編集・削除の即時反映（#117）、S-07を閉じる・S-35で別のスレッドへ切り替えるときの離脱の確認（#245。U-8）、サイドバーのスレッドの未読の合計（#240で検討） |
+| 作らないもの | 添付（#140）、リアクション（#138）、メンション（#139で別途追加。現在の仕様は[mentions.md](mentions.md)を参照）、返信の通知、古い返信へのスクロール、他の人の編集・削除の即時反映（#117）、S-07を閉じる・S-35で別のスレッドへ切り替えるときの離脱の確認（#245。U-8）、サイドバーのスレッドの未読の合計（#240で検討） |
 
 ## データ
 
@@ -38,7 +38,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | `backend/src/db/reply-insert.sql.ts` | DAO。返信の条件付き`INSERT … SELECT`1文（`insertReplyIfOrdered`）。条件は下の「書き込みの条件」 |
 | `backend/src/db/message.repository.ts` | `listLatest`・`listAfter`に`parent_message_id IS NULL`と`replyCount`を追加。返信の関数：`findThreadParent`（親の確認用）・`findItem`（親の1件の表示用）・`listRepliesLatest`・`listRepliesAfter`・`insertReplyIfOrdered`。`maxId`は返信も含めた部屋全体のまま変えない。`toItem`はスレッド一覧の親の項目にも使う |
 | `backend/src/services/message.service.ts` | `listReplies`（EP-1-07）・`postReply`（EP-1-08）・内部の`requireReplyable`・`requireReadableThread`・`roomReplyState`（`joined`・`roomWritable`・部屋が原因の理由を1か所で求める） |
-| `backend/src/db/thread-list.sql.ts` | DAO。スレッド一覧の1本目のSQL（`listThreadRows`）。見える範囲の絞り込み・並び・LIMITを内側で済ませ、件数・部屋・既読位置は件数が決まった後の行にだけ付ける |
+| `backend/src/db/thread-list.sql.ts` | DAO。スレッド一覧の1本目のSQL（`listThreadRows`）。自分が投稿・返信・メンションしたスレッドの抽出、見える範囲の絞り込み・並び・LIMITを内側で済ませ、件数・部屋・既読位置は件数が決まった後の行にだけ付ける |
 | `backend/src/db/thread-unread-counts.sql.ts` | DAO。スレッドごとの未読数の2本目のSQL（`listThreadUnreadCounts`）。スレッドと下限の組を`json_each`1つのパラメータで渡し、スレッドの数でクエリもパラメータも増えない |
 | `backend/src/db/thread.repository.ts` | `createThreadRepository`の`listThreads`。2本のSQLをつなぎ、`unreadLowerBound`（スレッドの既読位置・チャンネルの`joined_at`）で下限を決める。`toPage`で`nextCursor`を作る |
 | `backend/src/services/thread.service.ts` | `createThreadService`の`list`。`perm.notification.own`を`authorize`し、`perm.dm.message.view`を`can`で調べて、持たなければDMのスレッドを条件で除く |

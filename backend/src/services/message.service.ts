@@ -18,7 +18,11 @@ import { AppError } from "../lib/app-error";
 import { canViewChannel } from "../lib/channel-rules";
 import { createLogger } from "../lib/logger/logger";
 import { newUlid, ulidAfter } from "../lib/ulid";
-import { REPLY_BLOCKED_REASONS } from "../../../shared/message-rules";
+import {
+  messageContentSchema,
+  REPLY_BLOCKED_REASONS,
+  type Mention,
+} from "../../../shared/message-rules";
 import { createAppAuthorizer } from "./authorizer";
 import { assertRecentReauth } from "./credentials.service";
 import type { CursorPayload } from "../lib/cursor";
@@ -47,7 +51,12 @@ type Dependencies = {
   now?: () => Date;
 };
 
-export type MessageEdited = { id: string; body: string; editedAt: string };
+export type MessageEdited = {
+  id: string;
+  body: string;
+  editedAt: string;
+  mentions: Mention[];
+};
 
 type ModifyOperation = "edit" | "delete";
 
@@ -77,10 +86,62 @@ export function withMessageService<T>(
   );
 }
 
+/** Markdownのコード範囲内の@を指名にしない。バッククォートの同じ長さで開閉する。 */
+function insideCode(body: string, position: number): boolean {
+  let open = 0;
+  for (let index = 0; index <= position && index < body.length;) {
+    if (body[index] === "\\") {
+      index += 2;
+      continue;
+    }
+    if (body[index] !== "`") {
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (body[end] === "`") end += 1;
+    const length = end - index;
+    if (open === 0) open = length;
+    else if (open === length) open = 0;
+    index = end;
+  }
+  return open !== 0;
+}
+
 export function createMessageService(
   repository: MessageRepository,
   { authorizer, now = () => new Date() }: Dependencies,
 ) {
+  /** 本文に選ばれた表示名が存在し、現在有効な社員IDを指すことを確かめる。 */
+  async function validateMentions(
+    body: string,
+    mentions: readonly Mention[],
+  ): Promise<void> {
+    const parsed = messageContentSchema.safeParse({ body, mentions });
+    if (!parsed.success)
+      throw new AppError("VALIDATION_ERROR", "指名の範囲を確かめてください", {
+        fields: ["mentions"],
+      });
+    if (mentions.length === 0) return;
+    const names = await repository.activeMentionNames(
+      mentions.map((mention) => mention.userId),
+    );
+    for (const mention of mentions) {
+      const name = names.get(mention.userId);
+      if (
+        name === undefined ||
+        body.slice(mention.start, mention.end) !== `@${name}` ||
+        insideCode(body, mention.start)
+      ) {
+        throw new AppError(
+          "VALIDATION_ERROR",
+          "指名先と表示を確かめてください",
+          { fields: ["mentions"] },
+        );
+      }
+    }
+  }
+
   // チャンネルでなければ DM として探す（チャンネルの経路の問い合わせは増やさない）
   async function findRoom(roomId: string, actor: MessageActor) {
     const channel = await repository.findRoomForViewer(roomId, actor.userId);
@@ -115,8 +176,8 @@ export function createMessageService(
       throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
   }
 
-  // ①②③の順（DM は当事者か → 権限 → 相手が有効か）で、投稿してよいかを確かめる
-  async function requirePostable(roomId: string, actor: MessageActor) {
+  // 指名候補と新規投稿で共通の、閲覧・参加の資格（DM は送信権限・相手の有効状態も）を確かめる
+  async function requireParticipatingRoom(roomId: string, actor: MessageActor) {
     const room = await findRoom(roomId, actor);
     if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     if (room.kind === "direct") {
@@ -126,13 +187,21 @@ export function createMessageService(
           "CONFLICT",
           "相手のアカウントが無効になっているため、送信できません",
         );
-      return;
+      return room;
     }
     const { channel } = room;
     if (!canViewChannel(channel, channel.joinedAt !== null))
       throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     if (channel.joinedAt === null)
       throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+    return room;
+  }
+
+  // 新規投稿だけが、お知らせ専用の投稿権限を追加で要求する。
+  async function requirePostable(roomId: string, actor: MessageActor) {
+    const room = await requireParticipatingRoom(roomId, actor);
+    if (room.kind === "direct") return;
+    const { channel } = room;
     // 全社連絡（部署なし）は、参加者なら誰でも投稿できる。権限で制限するのはお知らせ専用だけ（canPostToChannel と同じ規則）
     if (channel.purpose === "announcement" && channel.departmentId !== null)
       await authorizer.authorize(
@@ -300,17 +369,22 @@ export function createMessageService(
       actor: MessageActor,
       messageId: string,
       body: string,
+      mentions: readonly Mention[] = [],
     ): Promise<MessageEdited> {
-      await requireModifiable(actor, messageId, "edit");
+      const message = await requireModifiable(actor, messageId, "edit");
+      await validateMentions(body, mentions);
       const editedAt = now().toISOString();
       const updated = await repository.updateBodyIfModifiable({
         messageId,
         userId: actor.userId,
         body,
         editedAt,
+        roomId: message.roomId,
+        parentMessageId: message.parentMessageId ?? messageId,
+        mentions,
       });
       if (updated === 0) return failWrite(actor, messageId, "edit");
-      return { id: messageId, body, editedAt };
+      return { id: messageId, body, editedAt, mentions: [...mentions] };
     },
     async remove(actor: MessageActor, messageId: string): Promise<void> {
       const message = await requireModifiable(actor, messageId, "delete");
@@ -323,6 +397,14 @@ export function createMessageService(
         traceId: actor.traceId,
       });
       if (deleted === 0) return failWrite(actor, messageId, "delete");
+    },
+    async mentionCandidates(
+      actor: MessageActor,
+      roomId: string,
+      query: { keyword?: string; limit: number; cursor?: CursorPayload },
+    ) {
+      await requireParticipatingRoom(roomId, actor);
+      return repository.listMentionCandidates(query);
     },
     async list(actor: MessageActor, roomId: string, query: MessageListQuery) {
       await requireVisible(roomId, actor);
@@ -369,8 +451,10 @@ export function createMessageService(
       actor: MessageActor,
       parentId: string,
       body: string,
+      mentions: readonly Mention[] = [],
     ): Promise<ReplyCreated> {
       const parent = await requireReplyable(actor, parentId);
+      await validateMentions(body, mentions);
       const displayName = await repository.findDisplayName(actor.userId);
       if (displayName === null)
         throw new AppError("UNAUTHENTICATED", "ログインしてください");
@@ -387,6 +471,7 @@ export function createMessageService(
           senderDisplayName: displayName,
           body,
           createdAt,
+          mentions,
         });
         if (inserted > 0)
           return { id, roomId, parentMessageId: parentId, createdAt };
@@ -409,8 +494,10 @@ export function createMessageService(
       actor: MessageActor,
       roomId: string,
       body: string,
+      mentions: readonly Mention[] = [],
     ): Promise<MessageCreated> {
       await requirePostable(roomId, actor);
+      await validateMentions(body, mentions);
       const displayName = await repository.findDisplayName(actor.userId);
       if (displayName === null)
         throw new AppError("UNAUTHENTICATED", "ログインしてください");
@@ -425,6 +512,7 @@ export function createMessageService(
           senderDisplayName: displayName,
           body,
           createdAt,
+          mentions,
         });
         if (inserted > 0) return { id, roomId, createdAt };
         // 状態が崩れていれば 404／403 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった

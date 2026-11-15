@@ -4,11 +4,11 @@
 // 復元した値（なければ空）から変わっているあいだは、画面を離れる前に確認を出す（features/leave-guard）。
 // parentMessageId を渡すと、そのスレッドへの返信の入力欄になる（名前は「返信」、下書きはスレッドごと）。部屋が替わっても、同じ部屋の別のスレッドへ替わっても、使う側が key で作り直す。
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ChangeEvent, KeyboardEvent } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useState, type KeyboardEvent } from "react";
+import type { Mention } from "../../../../../shared/message-rules";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
-import { TextAreaField } from "../../../components/TextAreaField";
 import {
   isBlankDraft,
   roomDraftScope,
@@ -17,6 +17,7 @@ import {
 } from "../../drafts";
 import { useLeaveGuard } from "../../leave-guard";
 import { describeError, isApiError } from "../describe-error";
+import { MentionTextArea } from "./MentionTextArea";
 import { usePostMessage } from "../hooks/usePostMessage";
 import {
   messageFormSchema,
@@ -47,8 +48,8 @@ export function MessageComposer({
       ? roomDraftScope(roomId)
       : threadDraftScope(roomId, parentMessageId),
   );
+  const [mentions, setMentions] = useState<Mention[]>(draft.initialMentions);
   const {
-    register,
     handleSubmit,
     reset,
     setError,
@@ -68,7 +69,7 @@ export function MessageComposer({
 
   const onSubmit = async (values: MessageFormValues) => {
     try {
-      await post.mutateAsync(values.body);
+      await post.mutateAsync({ body: values.body, mentions });
     } catch (e) {
       onPostError?.(e);
       if (!isApiError(e)) throw e;
@@ -80,13 +81,18 @@ export function MessageComposer({
     }
     // 復元した値に戻さず、空にする
     reset({ body: "" });
+    setMentions([]);
     draft.discard();
     // 呼び出し側の後始末（一覧の取り直しなど）の失敗は、送信の失敗として表示しない。その場では受け止めず、外へ伝える（利用者の決定）
     onPosted?.();
   };
 
   const submitByShortcut = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    if (
+      !event.nativeEvent.isComposing &&
+      event.key === "Enter" &&
+      (event.ctrlKey || event.metaKey)
+    ) {
       event.preventDefault();
       if (!isSubmitting) void handleSubmit(onSubmit)();
     }
@@ -99,15 +105,26 @@ export function MessageComposer({
           {errors.root.server.message}
         </Alert>
       )}
-      <TextAreaField
-        label={parentMessageId === undefined ? "メッセージ" : "返信"}
-        hint="Enter で改行、Ctrl+Enter（Mac は Cmd+Enter）で送信します"
-        error={errors.body?.message}
-        {...register("body", {
-          onChange: (event: ChangeEvent<HTMLTextAreaElement>) =>
-            draft.save(event.target.value),
-        })}
-        onKeyDown={submitByShortcut}
+      <Controller
+        name="body"
+        control={control}
+        render={({ field }) => (
+          <MentionTextArea
+            roomId={roomId}
+            label={parentMessageId === undefined ? "メッセージ" : "返信"}
+            hint="Enter で改行、Ctrl+Enter（Mac は Cmd+Enter）で送信します"
+            error={errors.body?.message}
+            body={field.value}
+            mentions={mentions}
+            onChange={(nextBody, nextMentions) => {
+              field.onChange(nextBody);
+              setMentions(nextMentions);
+              draft.save(nextBody, nextMentions);
+            }}
+            inputRef={field.ref}
+            onKeyDown={submitByShortcut}
+          />
+        )}
       />
       {draft.unavailable && (
         <Alert tone="info" role="status">

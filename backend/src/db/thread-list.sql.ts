@@ -53,7 +53,13 @@ export async function listThreadRows(
     WITH mine(parent_id) AS (
       SELECT id FROM messages WHERE sender_id = ${userId} AND parent_message_id IS NULL
       UNION
-      SELECT parent_message_id FROM messages WHERE sender_id = ${userId} AND parent_message_id IS NOT NULL)
+      SELECT parent_message_id FROM messages WHERE sender_id = ${userId} AND parent_message_id IS NOT NULL
+      UNION
+      SELECT m.id FROM message_mentions mm JOIN messages m ON m.id = mm.message_id
+        WHERE mm.user_id = ${userId} AND m.parent_message_id IS NULL
+      UNION
+      SELECT m.parent_message_id FROM message_mentions mm JOIN messages m ON m.id = mm.message_id
+        WHERE mm.user_id = ${userId} AND m.parent_message_id IS NOT NULL)
     SELECT p.id AS id, p.room_id AS room_id, p.sender_id AS sender_id, p.sender_display_name AS sender_display_name,
       p.body AS body, p.created_at AS created_at, p.edited_at AS edited_at, p.deleted_at AS deleted_at,
       au.is_active AS author_is_active,

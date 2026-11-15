@@ -16,11 +16,17 @@ import {
   type MessageActor,
   type MessageListQuery,
 } from "../services/message.service";
-import { messageBodySchema } from "../../../shared/message-rules";
+import { messageContentSchema } from "../../../shared/message-rules";
+import { searchKeywordSchema } from "../../../shared/search-rules";
 
 const roomParamSchema = z.object({ roomId: z.string().min(1).max(64) });
 
-const postSchema = z.object({ body: messageBodySchema }).strict();
+const postSchema = messageContentSchema;
+const candidateQuerySchema = cursorQuerySchema({
+  defaultLimit: PAGE_LIMIT.default,
+})
+  .extend({ q: searchKeywordSchema.optional() })
+  .strict();
 
 const latestQuerySchema = cursorQuerySchema({
   defaultLimit: PAGE_LIMIT.message,
@@ -59,7 +65,7 @@ const listQuerySchema = z
 const messageParamSchema = z.object({ messageId: z.string().min(1).max(64) });
 
 // 編集は本文だけ。削除の理由（reason）は他人の投稿の削除（#142）で扱うため、ここでは受け付けない
-const editSchema = z.object({ body: messageBodySchema }).strict();
+const editSchema = messageContentSchema;
 
 function actorOf(c: Context<{ Bindings: Env }>): MessageActor {
   const principal = c.get("principal");
@@ -87,6 +93,7 @@ export function messageItemRoutes() {
             actor,
             c.req.valid("param").messageId,
             c.req.valid("json").body,
+            c.req.valid("json").mentions ?? [],
           ),
         );
         return c.json(edited, 200);
@@ -126,6 +133,7 @@ export function messageItemRoutes() {
             actor,
             c.req.valid("param").messageId,
             c.req.valid("json").body,
+            c.req.valid("json").mentions ?? [],
           ),
         );
         return c.json(created, 201);
@@ -135,6 +143,23 @@ export function messageItemRoutes() {
 
 export function messageRoutes() {
   return new Hono<{ Bindings: Env }>()
+    .get(
+      "/:roomId/mention-candidates",
+      validate("param", roomParamSchema),
+      validate("query", candidateQuerySchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const { q, ...query } = c.req.valid("query");
+        const page = await withMessageService(c.env, actor, (service) =>
+          service.mentionCandidates(
+            actor,
+            c.req.valid("param").roomId,
+            q === undefined ? query : { ...query, keyword: q },
+          ),
+        );
+        return c.json(page);
+      },
+    )
     .get(
       "/:roomId/messages",
       validate("param", roomParamSchema),
@@ -162,6 +187,7 @@ export function messageRoutes() {
             actor,
             c.req.valid("param").roomId,
             c.req.valid("json").body,
+            c.req.valid("json").mentions ?? [],
           ),
         );
         return c.json(created, 201);

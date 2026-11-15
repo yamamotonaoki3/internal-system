@@ -128,6 +128,7 @@ describe("#134 AC-1（1-3 AC-1・AC-4）本人の削除", () => {
         roomId: deptA.dedicatedChannelId,
         author: before?.author,
         body: null,
+        mentions: [],
         createdAt: before?.createdAt,
         editedAt: null,
         deleted: true,

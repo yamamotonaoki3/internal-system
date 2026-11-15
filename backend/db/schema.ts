@@ -414,6 +414,29 @@ export const messages = sqliteTable(
   ],
 );
 
+// メッセージの指名。1人を本文の複数位置で指名でき、一覧は位置順に返す。
+export const messageMentions = sqliteTable(
+  "message_mentions",
+  {
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    start: integer("start").notNull(),
+    end: integer("end").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.start] }),
+    index("message_mentions_user_id_message_id_idx").on(t.userId, t.messageId),
+    check(
+      "message_mentions_range_check",
+      sql`${t.start} >= 0 and ${t.end} > ${t.start}`,
+    ),
+  ],
+);
+
 // 通知（#124）。文言は持たず、種類と対象の ID だけを保存する（文言・移動先は画面で組み立てる。本名・本文を行に入れない）。
 // kind に CHECK は付けない（種類を足すたびに表の作り直しが要るため。値は shared/notification-kinds.ts で守る）。
 // room_id・message_id・target_id は外部キーにしない（直接削除・物理削除の通知が、消えた対象を指しうるため）。

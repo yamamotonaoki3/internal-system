@@ -33,6 +33,8 @@ export type TestMessage = {
   parentMessageId: string | null;
   /** #137：この投稿への返信の件数（削除済みの返信も数える）。返信自身は 0 */
   replyCount: number;
+  /** #139：指名先と本文内の UTF-16 半開区間。既存の投稿は空配列 */
+  mentions: { userId: string; start: number; end: number }[];
 };
 
 /** message() の上書き。author の isActive は省略でき、省略したときは true（有効）で補う */
@@ -73,6 +75,7 @@ export function message(
     deleted: false,
     parentMessageId: null,
     replyCount: 0,
+    mentions: [],
     ...overrides,
     author: { ...author, isActive: author.isActive ?? true },
   };
@@ -151,7 +154,13 @@ export function respondMessages(
         );
       target.body = body;
       target.editedAt = EDITED_AT;
-      return HttpResponse.json({ id: messageId, body, editedAt: EDITED_AT });
+      target.mentions = [];
+      return HttpResponse.json({
+        id: messageId,
+        body,
+        editedAt: EDITED_AT,
+        mentions: [],
+      });
     }),
     // #134：削除。本文は返さず、削除済みにする
     http.delete("/api/messages/:messageId", ({ params }) => {
@@ -319,7 +328,13 @@ export function respondReplies(
       state.edits.push({ messageId: target.id, body });
       target.body = body;
       target.editedAt = EDITED_AT;
-      return HttpResponse.json({ id: target.id, body, editedAt: EDITED_AT });
+      target.mentions = [];
+      return HttpResponse.json({
+        id: target.id,
+        body,
+        editedAt: EDITED_AT,
+        mentions: [],
+      });
     }),
     http.delete("/api/messages/:messageId", ({ params }) => {
       const target = state.replies.find((m) => m.id === params.messageId);

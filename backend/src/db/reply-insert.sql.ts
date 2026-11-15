@@ -7,7 +7,16 @@
 // お知らせ専用でも、参加者なら返信できる（U-6）ので、投稿権限（perm.announcement.post）は条件に入れない。
 // 0 行の理由（状態が崩れた・親が削除された・ID が最大以下）は、呼び出し側（Service）が読み分ける。
 import { sql } from "drizzle-orm";
+import { messages } from "../../db/schema";
 import type { Database } from "./database";
+import type { Mention } from "../../../shared/message-rules";
+import {
+  guardInsertedMessage,
+  insertMentionNotifications,
+  insertMessageMentions,
+  translateMessageInsertError,
+  MessageInsertGuardError,
+} from "./message-mentions.sql";
 
 export type ReplyInsert = {
   id: string;
@@ -17,6 +26,7 @@ export type ReplyInsert = {
   senderDisplayName: string;
   body: string;
   createdAt: string;
+  mentions?: readonly Mention[];
 };
 
 /** 挿入した行数（1 か 0） */
@@ -24,9 +34,11 @@ export async function insertReplyIfOrdered(
   db: Database,
   input: ReplyInsert,
 ): Promise<number> {
-  const result = await db.run(sql`
-    INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at, parent_message_id)
-    SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body}, ${input.createdAt}, ${input.parentMessageId}
+  try {
+    const [result] = await db.batch([
+      db.insert(messages).select(sql`
+    SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body}, ${input.createdAt},
+      NULL, NULL, NULL, ${input.parentMessageId}
     WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
       AND EXISTS (
         SELECT 1 FROM messages p
@@ -41,6 +53,25 @@ export async function insertReplyIfOrdered(
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
-          AND NOT EXISTS (SELECT 1 FROM conversation_members cv JOIN users u ON u.id = cv.user_id WHERE cv.conversation_id = ${input.roomId} AND u.is_active = 0)))`);
-  return result.meta.changes;
+          AND NOT EXISTS (SELECT 1 FROM conversation_members cv JOIN users u ON u.id = cv.user_id WHERE cv.conversation_id = ${input.roomId} AND u.is_active = 0)))`),
+      guardInsertedMessage(db, input.roomId),
+      insertMessageMentions(db, {
+        messageId: input.id,
+        roomId: input.roomId,
+        mentions: input.mentions ?? [],
+      }),
+      insertMentionNotifications(db, {
+        messageId: input.id,
+        roomId: input.roomId,
+        senderId: input.senderId,
+        parentMessageId: input.parentMessageId,
+        mentions: input.mentions ?? [],
+      }),
+    ]);
+    return result.meta.changes;
+  } catch (error) {
+    const translated = translateMessageInsertError(error);
+    if (translated instanceof MessageInsertGuardError) return 0;
+    throw translated;
+  }
 }

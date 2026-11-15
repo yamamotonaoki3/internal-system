@@ -117,10 +117,11 @@ export function MessageItem({
           parentMessageId={message.parentMessageId}
           messageId={message.id}
           originalBody={message.body}
+          originalMentions={message.mentions}
           onClose={close}
         />
       ) : (
-        <MessageBody body={message.body} />
+        <MessageBody body={message.body} mentions={message.mentions} />
       )}
       <MessageActions
         message={message}

@@ -6,7 +6,7 @@
 //     { parent, items, replyBlockedReason } を返す。items の parentMessageId は文字列（親のID）。parent は親の1件（一覧の項目と同じ形）。
 //   fetchRepliesAfter(parentMessageId, after) → ?after=。{ parent, items（昇順）, hasMore, replyBlockedReason } を返す。
 //   replyBlockedReason は null か "deleted_parent"・"not_joined"・"read_only"・"partner_inactive" のどれか。それ以外の値は契約違反として失敗にする。
-//   postReply(parentMessageId, body) → POST /api/messages/:id/replies に { body } だけを送り、201 の { id, parentMessageId, createdAt } を返す。
+//   postReply(parentMessageId, body) → POST /api/messages/:id/replies に { body, mentions: [] } を送り、201 の { id, parentMessageId, createdAt } を返す。
 //   失敗は ApiError（status・code・message）のまま返す（もみ消さない）。
 // API は MSW。データは架空。
 import { HttpResponse, http } from "msw";
@@ -265,7 +265,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
 });
 
 describe("#137 AC-1（1-4 AC-1・AC-2）返信の投稿", () => {
-  it("#137 AC-1: body だけを送り、201 の id・parentMessageId・createdAt を返す", async () => {
+  it("#137 AC-1・#139 3-2 AC-1: body と空の指名を送り、201 の id・parentMessageId・createdAt を返す", async () => {
     const state = respondReplies({ parent: PARENT });
     let sent: unknown;
     const listener = async ({ request }: { request: Request }) => {
@@ -278,7 +278,7 @@ describe("#137 AC-1（1-4 AC-1・AC-2）返信の投稿", () => {
     expect(created.createdAt).toBeTruthy();
     expect(state.posts).toEqual(["[E2E_TEST]返信の本文"]);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(sent).toEqual({ body: "[E2E_TEST]返信の本文" });
+    expect(sent).toEqual({ body: "[E2E_TEST]返信の本文", mentions: [] });
     server.events.removeListener("request:start", listener);
   });
 

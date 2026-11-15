@@ -210,13 +210,14 @@ afterEach(() => {
 const OPERATIONS = ["edit", "remove"] as const;
 
 describe("#134 AC-1 成功（⑦の書き込みまで進む）", () => {
-  it("#134 AC-1（1-3 AC-1）: 本人の編集は perm.message.edit.own を判定し、{ messageId, userId, body, editedAt } で書き込み、{ id, body, editedAt } を返す", async () => {
+  it("#134 AC-1（1-3 AC-1）: 本人の編集は perm.message.edit.own を判定し、{ messageId, userId, body, editedAt } で書き込み、{ id, body, editedAt, mentions } を返す", async () => {
     const outcome = await run("edit", baseState());
     expect(outcome.error).toBeNull();
     expect(outcome.value).toEqual({
       id: MESSAGE,
       body: BODY,
       editedAt: NOW.toISOString(),
+      mentions: [],
     });
     expect(outcome.permissions).toContain("perm.message.edit.own");
     expect(outcome.writes).toEqual([

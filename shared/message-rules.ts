@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ULID_PATTERN } from "./ulid-rules";
 
 /** 本文の最大文字数（1-1 AC-5）。UTF-16 の単位で数える（他の入力と同じ） */
 export const MESSAGE_BODY_MAX_LENGTH = 4000;
@@ -11,6 +12,59 @@ export const messageBodySchema = z
     (value) => value.length <= MESSAGE_BODY_MAX_LENGTH,
     `メッセージは${MESSAGE_BODY_MAX_LENGTH}文字以内で入力してください`,
   );
+
+/** 指名範囲は本文のUTF-16半開区間。通常の@文字列は指名にしない。 */
+export const mentionSchema = z
+  .object({
+    userId: z.string().regex(ULID_PATTERN),
+    start: z.number().int().min(0),
+    end: z.number().int().min(1),
+  })
+  .strict();
+
+export type Mention = z.infer<typeof mentionSchema>;
+
+export const messageContentSchema = z
+  .object({
+    body: messageBodySchema,
+    mentions: z.array(mentionSchema).optional(),
+  })
+  .strict()
+  .superRefine(({ body, mentions = [] }, ctx) => {
+    let previousEnd = 0;
+    for (const [index, mention] of mentions.entries()) {
+      const { start, end } = mention;
+      const left = body.charCodeAt(start - 1);
+      const first = body.charCodeAt(start);
+      const last = body.charCodeAt(end - 1);
+      const right = body.charCodeAt(end);
+      const cutsSurrogate =
+        (left >= 0xd800 &&
+          left <= 0xdbff &&
+          first >= 0xdc00 &&
+          first <= 0xdfff) ||
+        (last >= 0xd800 &&
+          last <= 0xdbff &&
+          right >= 0xdc00 &&
+          right <= 0xdfff);
+      if (
+        start < previousEnd ||
+        end <= start ||
+        end > body.length ||
+        body[start] !== "@" ||
+        cutsSurrogate
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["mentions", index],
+          message: "指名の範囲が不正です",
+        });
+      }
+      previousEnd = end;
+    }
+  });
+
+export type MessageContent = z.infer<typeof messageContentSchema>;
 
 export type ChannelPurpose =
   "normal" | "department" | "announcement" | "company_general" | "case";
