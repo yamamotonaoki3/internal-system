@@ -2,6 +2,22 @@
 
 テストが、業務ロジックの誤りを見つけられるかを確かめる（対象：`stryker.config.json` の `mutate` に挙げた重要処理。`backend/src/services/**/*.ts` に加え、認証・認可・個人情報・重要な業務ルールに関わる `backend/src/lib/`・`backend/src/db/`・`backend/src/routes/`・`shared/`・`frontend/src/features/` の一部のファイル）。
 
+## Issue #258で承認された変更（実装済み、実測・受け入れ確認中）
+
+変更した重要処理とその直接・間接の影響先を選び、対象と除外の理由をIssueに記録する。変更範囲を確実に絞れない場合は全体を実行する。`stryker.config.json` の `mutate` への対象追加だけでは全体実行を必須にせず、追加対象と影響先を含める。対象削除や基準の変更は「対象追加だけ」と扱わない。
+
+合格基準はファイル別80%で、同値変異体の既承認例外は[ADR-0023](../adr/0023-mutation-equivalent-mutants-exception.md)に従う。現行の `thresholds.break: 80` は実行範囲全体の集計値なので、ファイル別の判定を代替しない。runnerはファイル別スコアを算出し、80%未満を`review_required`として扱う。同値変異体の例外を自動適用・合格扱いにはしない。
+
+2026-11-16時点で、`scripts/mutation-scope.mjs`・`scripts/mutation-run.mjs`と対象Node単体テストは実装済み。対象テストの成功結果は実行時にIssueへ記録する。件数はテスト追加で変わるため、文書には固定値を記載しない。`mutation-scope.mjs --base <revision> --head WORKTREE`は差分と依存解析から対象・理由をJSON出力する。runnerは既定でdry-runし、実際にStrykerを起動するには`--execute`が必要。`--diagnostic-target`は診断専用で、合格判定には使えない。
+
+`--base`には作業ブランチを作った時点の分岐点コミットを指定する。最新の`main`をそのまま渡すと、分岐後に`main`へ入った無関係な差分まで選定に混ざり、対象が過大になる場合がある。これは安全側の選定だが、変更との影響関係を正しく示さない。実Issueでの具体的な実行手順は初回測定で確認する。
+
+長時間の比較実測はIssue #258中には行わず、初めてこの手順を使う実Issueで測定する方針である。実際のStryker実行による対象範囲・対象追加の確認と所要時間の測定はまだない。元#258のこの実測条件は後続#259のAC-1へ移管済みである。現行#258 AC-2は対象追加だけと他の変更を区別する小さな事例・既存手順の確認であり、実Strykerの実行を確認済みとは扱わない。
+
+`--mode incremental-reuse`は現状、cache識別・採用条件が未完成のため、incrementalを実行せず全体のclean実行へ戻る。`--compare-clean`と`--compare-incremental`は既存レポートの変異体単位比較を行うが、cacheを採用しない。初回incremental・再利用・cache無効化の実測比較は未実施であり、後続#259のAC-2・3で検証する。現行#258 AC-4は再利用条件・無効化条件・通常実行への復帰の文書化で、実比較の達成を意味しない。incrementalは通常運用で未採用のままとし、未実施を成功扱いしない（[Issue #258](https://github.com/yamamotonaoki3/internal-system/issues/258)、[Issue #259](https://github.com/yamamotonaoki3/internal-system/issues/259)）。
+
+PR時の通常テスト・型・Lint・セキュリティ検査等の全体確認と、リリース前（#160）および#189最終確認前の重要処理全体のミューテーション・E2E全件を維持する。週次実行の追加と `.tsx` の除外は今回保留。初回実Issueでの測定結果が出るまでは、補助ツールの実運用や効率改善を確認済みと扱わない（[ADR0020](../adr/0020-test-scope-mutation-e2e.md)）。
+
 ## 1. 必要なもの
 
 | もの | 版 | 入れ方 |
