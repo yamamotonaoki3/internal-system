@@ -891,3 +891,11 @@ describe("#131 AC-15（取り下げ・利用者決定 2・A）POST /api/channel-
     expect((await requestRow(id))?.status).toBe("pending");
   });
 });
+
+describe("#233 AC-2（S-11）審査一覧だけに部署名を追加", () => {
+  it("#233 AC-2: 申請作成の応答には部署名を追加しない", async () => {
+    const response = await create(w.memberS1.token);
+    expect(response.status).toBe(201);
+    expect(await response.json()).not.toHaveProperty("departmentName");
+  });
+});

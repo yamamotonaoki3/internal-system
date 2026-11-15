@@ -3937,6 +3937,7 @@
         "channelId",
         "requesterId",
         "requesterDisplayName",
+        "departmentName",
         "canApprove"
       ],
       "additionalProperties": false,
@@ -3951,6 +3952,13 @@
             "null"
           ],
           "description": "null は会社直属"
+        },
+        "departmentName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "審査一覧専用。部署チャンネルでは現在の部署名。会社直属では departmentId とともに null"
         },
         "name": {
           "type": "string"
