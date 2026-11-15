@@ -2,6 +2,7 @@
 // 部屋への投稿は、成功したら、その部屋の一覧を取り直す（再読込なしで自分の投稿が出る）。
 // 返信は、スレッドを取り直し、部屋の一覧の親の replyCount を1増やす（返信は部屋の一覧に出ず、取り直しでは件数が変わらないため）。
 // 取り直しが終わるまで送信中のままにして、二重に送らせない。
+import type { Mention } from "../../../../../shared/message-rules";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { postMessage, postReply, type RoomMessage } from "../api/message-api";
 import { messageKeys } from "../api/query-keys";
@@ -9,9 +10,14 @@ import { messageKeys } from "../api/query-keys";
 export function usePostMessage(roomId: string, parentMessageId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (body: string): Promise<void> => {
-      if (parentMessageId === undefined) await postMessage(roomId, body);
-      else await postReply(parentMessageId, body);
+    mutationFn: async (
+      input: string | { body: string; mentions: readonly Mention[] },
+    ): Promise<void> => {
+      const content =
+        typeof input === "string" ? { body: input, mentions: [] } : input;
+      if (parentMessageId === undefined)
+        await postMessage(roomId, content.body, content.mentions);
+      else await postReply(parentMessageId, content.body, content.mentions);
     },
     onSuccess: async () => {
       if (parentMessageId === undefined) {

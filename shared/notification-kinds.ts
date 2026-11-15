@@ -20,6 +20,7 @@ const KINDS = {
   "channel_request.submitted": { containsRoomContent: false },
   "channel_request.approved": { containsRoomContent: false },
   "channel_request.rejected": { containsRoomContent: false },
+  "message.mentioned": { containsRoomContent: true },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;

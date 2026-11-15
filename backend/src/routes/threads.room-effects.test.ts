@@ -150,6 +150,7 @@ describe("#137 AC-1（1-4 AC-1）部屋の一覧（EP-1-01）に返信は出な�
         "deleted",
         "editedAt",
         "id",
+        "mentions",
         "parentMessageId",
         "replyCount",
         "roomId",

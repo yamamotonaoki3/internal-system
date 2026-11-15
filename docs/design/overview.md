@@ -172,6 +172,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | チャンネル・DMの未読の件数と既読（サイドバーとDM一覧の件数。表`read_positions`（migration 0018）、未読の対象と下限（参加の時刻・既読位置）、自分の投稿を数えない、2本のSQLで部屋の数に比例しない取得、`items`が少なくても`nextCursor`がありうるページ送り、権限を失った部屋の扱い、既読の送信の時機（部屋ごとの状態）、既存データの初期合わせのSQLと本番の手順、EXPLAINの結果、未実施の記録） | [unread.md](unread.md) | #237（親 #133）、ADR-0004・0006・0012・0020、C-169 |
 | メッセージ入力欄の下書きの端末への一時保存と離脱の確認（Issue #239。`features/drafts/`・`features/leave-guard/`。キーと値・期限・消す時点、保存の失敗の扱い、確認の待ちを1つにする`LeaveGuardProvider`、手動ログアウトの前の確認と消去、ログアウトの失敗の案内、既知の限界）【C-170】 | [drafts.md](drafts.md) |
 | 投稿の編集・削除とマークダウンの表示（Issue #134。EP-1-03・EP-1-04、migration 0019、判定の順①〜⑦と条件付きのUPDATE、削除の監査、`readOnly`、未読で削除済みを数えない、`react-markdown`の許可リストと自前のremarkプラグイン、動的な読み込みとエラー境界、開き直しで取り直す、既知の限界）【C-171、ADR-0026】 | [message-edit-markdown.md](message-edit-markdown.md) |
+| メッセージのメンション（Issue #139。候補検索、指名の保存と通知、表示の強調、スレッド一覧への反映。実装と全体確認中） | [mentions.md](mentions.md) | #139（親 #133）、C-173 |
 | スレッドの返信とスレッド一覧（Issue #137。S-07・S-35。EP-1-07・EP-1-08・EP-3-08・EP-3-09、migration 0020、返信の判定の順と書き込みの条件、返信も部屋のIDの並びに入る不変条件、`replyBlockedReason`と`joined`・`roomWritable`、一覧の含める条件と100件の上限、`ThreadLayout`が同じ構造を返す理由、既知の限界）【C-172】 | [threads.md](threads.md) | #137（親 #133）、ADR-0006 |
 
 ## 関係する文書

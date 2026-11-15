@@ -75,7 +75,10 @@ async function planOf(statement: { sql: string; params: unknown[] }) {
 /** 表を索引なしで頭から読む行 */
 function fullScans(details: string[]): string[] {
   return details.filter(
-    (detail) => /^SCAN \S+/.test(detail) && !detail.includes(" USING "),
+    (detail) =>
+      +/^SCAN \S+/.test(detail) &&
+      +!detail.includes(" USING ") &&
+      +!/^SCAN json_each VIRTUAL TABLE\b/.test(detail),
   );
 }
 

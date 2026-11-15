@@ -1554,6 +1554,103 @@
         }
       }
     },
+    "/api/rooms/{roomId}/mention-candidates": {
+      "get": {
+        "operationId": "listMentionCandidates",
+        "summary": "メンション候補を取得する",
+        "description": "閲覧できる参加中のチャンネル、または送信権限があり相手が有効なDMの当事者が、指名候補を取得する。チャンネルのお知らせ専用の投稿権限は候補取得では問わない。候補は有効な社員のうち部署に所属する社員。qは表示名の部分一致検索。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "前後の空白を除いた検索語（表示名の部分一致）"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次ページのカーソル"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "候補のページ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MentionCandidatesPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "チャンネルに未参加、投稿権限がない、またはDMの送信権限がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "閲覧できない部屋、存在しない部屋、または当事者でないDM",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DMの相手が無効",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/rooms/{roomId}/messages": {
       "get": {
         "operationId": "listMessages",
@@ -3677,7 +3774,8 @@
         "editedAt",
         "deleted",
         "parentMessageId",
-        "replyCount"
+        "replyCount",
+        "mentions"
       ],
       "additionalProperties": false,
       "properties": {
@@ -3713,7 +3811,10 @@
           }
         },
         "body": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "maxLength": 4000,
           "description": "本文。削除済み（deleted が真）なら null"
@@ -3723,7 +3824,10 @@
           "format": "date-time"
         },
         "editedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "最後に編集した日時。編集していない・削除済みなら null"
         },
@@ -3743,6 +3847,13 @@
           "type": "integer",
           "minimum": 0,
           "description": "通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0"
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageMention"
+          },
+          "description": "本文内の指名範囲。削除済みは空配列"
         }
       }
     },
@@ -3764,7 +3875,7 @@
         },
         "kind": {
           "type": "string",
-          "description": "通知の種類（shared/notification-kinds.ts の定義元）"
+          "description": "通知の種類（shared/notification-kinds.tsの定義元。message.mentionedはメッセージ本文を含む）"
         },
         "roomId": {
           "type": [
@@ -3776,14 +3887,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "指名通知では指名を含む実メッセージID"
         },
         "targetId": {
           "type": [
             "string",
             "null"
           ],
-          "description": "種類で参照先が決まる ID（申請・依頼・案件など）"
+          "description": "種類で参照先が決まるID。指名通知ではスレッドの親メッセージID（通常投稿ならmessageIdと同じ）"
         },
         "createdAt": {
           "type": "string"
@@ -4509,6 +4621,75 @@
         }
       }
     },
+    "MessageMention": {
+      "type": "object",
+      "required": [
+        "userId",
+        "start",
+        "end"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "userId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "指名先の社員ID"
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "本文中の開始位置。UTF-16単位の半開区間"
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "本文中の終了位置。UTF-16単位の半開区間"
+        }
+      }
+    },
+    "MentionCandidateItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "departmentName"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "departmentName": {
+          "type": "string"
+        }
+      }
+    },
+    "MentionCandidatesPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MentionCandidateItem"
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "MessageCreate": {
       "type": "object",
       "required": [
@@ -4520,12 +4701,24 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4000
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageMention"
+          },
+          "description": "任意。本文中の指名範囲"
         }
       }
     },
     "MessageEdited": {
       "type": "object",
-      "required": ["id", "body", "editedAt"],
+      "required": [
+        "id",
+        "body",
+        "editedAt",
+        "mentions"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -4540,6 +4733,13 @@
         "editedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/MessageMention"
+          },
+          "description": "編集後の本文内の指名範囲"
         }
       }
     },

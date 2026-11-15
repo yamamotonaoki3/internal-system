@@ -114,7 +114,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）一覧の応答の editedAt・deleted", 
 });
 
 describe("#134 AC-1（1-3 AC-1）editMessage", () => {
-  it("#134 AC-1（1-3 AC-1）: PATCH /api/messages/:messageId に本文だけを送り、id・body・editedAt を返す", async () => {
+  it("#134 AC-1（1-3 AC-1）: PATCH /api/messages/:messageId に本文と空の指名を送り、id・body・editedAt・mentions を返す", async () => {
     let sent: unknown;
     let method = "";
     let path = "";
@@ -127,6 +127,7 @@ describe("#134 AC-1（1-3 AC-1）editMessage", () => {
           id: MESSAGE_ID,
           body: "[E2E_TEST]新しい本文",
           editedAt: EDITED_AT,
+          mentions: [],
         });
       }),
     );
@@ -136,10 +137,11 @@ describe("#134 AC-1（1-3 AC-1）editMessage", () => {
       id: MESSAGE_ID,
       body: "[E2E_TEST]新しい本文",
       editedAt: EDITED_AT,
+      mentions: [],
     });
     expect(method).toBe("PATCH");
     expect(path).toBe(`/api/messages/${MESSAGE_ID}`);
-    expect(sent).toEqual({ body: "[E2E_TEST]新しい本文" });
+    expect(sent).toEqual({ body: "[E2E_TEST]新しい本文", mentions: [] });
   });
 
   it("#134 AC-1（1-3 AC-1）: メッセージID はパスに入れるときに符号化する", async () => {
@@ -151,6 +153,7 @@ describe("#134 AC-1（1-3 AC-1）editMessage", () => {
           id: "a/b",
           body: "[E2E_TEST]本文",
           editedAt: EDITED_AT,
+          mentions: [],
         });
       }),
     );
@@ -159,13 +162,19 @@ describe("#134 AC-1（1-3 AC-1）editMessage", () => {
   });
 
   it.each([
-    ["editedAt がない", { id: MESSAGE_ID, body: "[E2E_TEST]本文" }],
+    [
+      "editedAt がない",
+      { id: MESSAGE_ID, body: "[E2E_TEST]本文", mentions: [] },
+    ],
     [
       "editedAt が null",
-      { id: MESSAGE_ID, body: "[E2E_TEST]本文", editedAt: null },
+      { id: MESSAGE_ID, body: "[E2E_TEST]本文", editedAt: null, mentions: [] },
     ],
-    ["body がない", { id: MESSAGE_ID, editedAt: EDITED_AT }],
-    ["id がない", { body: "[E2E_TEST]本文", editedAt: EDITED_AT }],
+    ["body がない", { id: MESSAGE_ID, editedAt: EDITED_AT, mentions: [] }],
+    [
+      "id がない",
+      { body: "[E2E_TEST]本文", editedAt: EDITED_AT, mentions: [] },
+    ],
   ])(
     "#134 AC-1（1-3 AC-1）: 応答の形が違う（%s）なら成功として扱わない",
     async (_label, body) => {

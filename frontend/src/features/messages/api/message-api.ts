@@ -1,6 +1,10 @@
 // API 層：メッセージの一覧・投稿・編集・削除と、スレッドの返信の通信はここに書く。共通の apiClient（services/）を使う。
 import { z } from "zod";
-import { REPLY_BLOCKED_REASONS } from "../../../../../shared/message-rules";
+import {
+  REPLY_BLOCKED_REASONS,
+  mentionSchema,
+  type Mention,
+} from "../../../../../shared/message-rules";
 import { apiClient } from "../../../services/api-client";
 
 const messageShape = {
@@ -14,6 +18,7 @@ const messageShape = {
   /** 削除済みは null */
   body: z.string().nullable(),
   createdAt: z.string(),
+  mentions: z.array(mentionSchema),
   /** 編集した日時。編集していなければ null */
   editedAt: z.string().nullable(),
   deleted: z.boolean(),
@@ -84,6 +89,7 @@ const editedSchema = z.object({
   id: z.string().min(1),
   body: z.string(),
   editedAt: z.string(),
+  mentions: z.array(mentionSchema),
 });
 
 /** 部屋の一覧・スレッドの1件。返信ならスレッドの親の ID（parentMessageId）を持つ */
@@ -124,16 +130,30 @@ export async function fetchMessagesAfter(
   return afterPageSchema.parse(response.data);
 }
 
-export async function postMessage(roomId: string, body: string) {
-  const response = await apiClient.post(messagesPath(roomId), { body });
+export async function postMessage(
+  roomId: string,
+  body: string,
+  mentions: readonly Mention[] = [],
+) {
+  const response = await apiClient.post(messagesPath(roomId), {
+    body,
+    mentions,
+  });
   return createdSchema.parse(response.data);
 }
 
 const messagePath = (messageId: string) =>
   `/messages/${encodeURIComponent(messageId)}`;
 
-export async function editMessage(messageId: string, body: string) {
-  const response = await apiClient.patch(messagePath(messageId), { body });
+export async function editMessage(
+  messageId: string,
+  body: string,
+  mentions: readonly Mention[] = [],
+) {
+  const response = await apiClient.patch(messagePath(messageId), {
+    body,
+    mentions,
+  });
   return editedSchema.parse(response.data);
 }
 
@@ -170,9 +190,36 @@ export async function fetchRepliesAfter(
   return repliesAfterSchema.parse(response.data);
 }
 
-export async function postReply(parentMessageId: string, body: string) {
+export async function postReply(
+  parentMessageId: string,
+  body: string,
+  mentions: readonly Mention[] = [],
+) {
   const response = await apiClient.post(repliesPath(parentMessageId), {
     body,
+    mentions,
   });
   return replyCreatedSchema.parse(response.data);
+}
+
+const mentionCandidatesSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().min(1),
+      displayName: z.string(),
+      departmentName: z.string(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+
+export async function fetchMentionCandidates(
+  roomId: string,
+  q: string,
+): Promise<z.infer<typeof mentionCandidatesSchema>> {
+  const response = await apiClient.get(
+    `/rooms/${encodeURIComponent(roomId)}/mention-candidates`,
+    { params: { q } },
+  );
+  return mentionCandidatesSchema.parse(response.data);
 }

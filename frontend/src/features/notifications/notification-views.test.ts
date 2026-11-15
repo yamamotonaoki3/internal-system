@@ -92,3 +92,22 @@ describe("#124 AC-2 NOTIFICATION_VIEWS（定義元との対応）", () => {
     }
   });
 });
+
+describe("#139 3-2 AC-1 指名通知の導線", () => {
+  it("#139 3-2 AC-1: 指名通知から対象スレッドへ移り、対象が無ければ移動先を作らない", () => {
+    const parentId = "01JTESTMSG0000000000000001";
+    expect(
+      describeNotification({
+        ...item("message.mentioned", parentId),
+        messageId: parentId,
+      }),
+    ).toEqual({
+      label: "メッセージで指名されました",
+      to: `/threads?thread=${parentId}`,
+    });
+    expect(describeNotification(item("message.mentioned", null))).toEqual({
+      label: "メッセージで指名されました",
+      to: null,
+    });
+  });
+});

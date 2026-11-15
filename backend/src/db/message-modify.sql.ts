@@ -5,11 +5,16 @@
 //   DM：本人が当事者で、当事者に無効な社員がいない
 // お知らせ専用の投稿権限は条件に入れない（利用者の決定 U-3：今その部屋に参加している本人なら編集・削除できる）。
 import { sql, type SQL } from "drizzle-orm";
-import { messages } from "../../db/schema";
+import { messageMentions, messages } from "../../db/schema";
+import type { Mention } from "../../../shared/message-rules";
+import {
+  insertMentionNotifications,
+  insertMessageMentions,
+} from "./message-mentions.sql";
 import { auditLogInsert } from "./audit-log.repository";
 import type { Database } from "./database";
 
-function modifiable(messageId: string, userId: string): SQL {
+export function modifiable(messageId: string, userId: string): SQL {
   return sql`EXISTS (
     SELECT 1 FROM messages m
     WHERE m.id = ${messageId} AND m.sender_id = ${userId} AND m.deleted_at IS NULL
@@ -28,15 +33,68 @@ function modifiable(messageId: string, userId: string): SQL {
 /** 本文と編集日時を更新し、更新した行数（1 か 0）を返す */
 export async function updateBodyIfModifiable(
   db: Database,
-  input: { messageId: string; userId: string; body: string; editedAt: string },
+  input: {
+    messageId: string;
+    userId: string;
+    body: string;
+    editedAt: string;
+    roomId?: string;
+    parentMessageId?: string;
+    mentions?: readonly Mention[];
+  },
 ): Promise<number> {
-  const result = await db
-    .update(messages)
-    .set({ body: input.body, editedAt: input.editedAt })
-    .where(
-      sql`${messages.id} = ${input.messageId} AND ${modifiable(input.messageId, input.userId)}`,
-    );
-  return result.meta.changes;
+  const allowed = modifiable(input.messageId, input.userId);
+  // 既存のRepository呼出しの互換経路。新しいAPIはroomIdを渡し、指名も同一batchで確定する。
+  if (input.roomId === undefined) {
+    const result = await db
+      .update(messages)
+      .set({ body: input.body, editedAt: input.editedAt })
+      .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`);
+    return result.meta.changes;
+  }
+  try {
+    const [, , , , updated] = await db.batch([
+      db
+        .update(messages)
+        .set({
+          body: sql`CASE WHEN ${allowed} THEN ${messages.body} ELSE NULL END`,
+        })
+        .where(sql`${messages.id} = ${input.messageId}`),
+      insertMentionNotifications(db, {
+        messageId: input.messageId,
+        roomId: input.roomId,
+        senderId: input.userId,
+        parentMessageId: input.parentMessageId,
+        mentions: input.mentions ?? [],
+        onlyNew: true,
+        allowed,
+      }),
+      db
+        .delete(messageMentions)
+        .where(
+          sql`${messageMentions.messageId} = ${input.messageId} AND ${allowed}`,
+        ),
+      insertMessageMentions(db, {
+        messageId: input.messageId,
+        roomId: input.roomId,
+        mentions: input.mentions ?? [],
+        allowed,
+      }),
+      db
+        .update(messages)
+        .set({ body: input.body, editedAt: input.editedAt })
+        .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`),
+    ]);
+    return updated.meta.changes;
+  } catch (error) {
+    let current: unknown = error;
+    for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+      if (/NOT NULL constraint failed: messages\.body/i.test(current.message))
+        return 0;
+      current = current.cause;
+    }
+    throw error;
+  }
 }
 
 /**

@@ -12,6 +12,17 @@ import {
 import { afterCursor, afterId, toAfterIdPage, toPage } from "../lib/cursor";
 import type { CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
+import type { Mention } from "../../../shared/message-rules";
+import { createProfileRepository } from "./profile.repository";
+import {
+  activeMentionNames,
+  guardInsertedMessage,
+  insertMentionNotifications,
+  insertMessageMentions,
+  loadMessageMentions,
+  translateMessageInsertError,
+  MessageInsertGuardError,
+} from "./message-mentions.sql";
 import { isUlid } from "../lib/ulid";
 import { createChannelRepository } from "./channel.repository";
 import { withDatabase, type Database } from "./database";
@@ -36,6 +47,7 @@ export type MessageItem = {
   parentMessageId: string | null;
   /** 通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0 */
   replyCount: number;
+  mentions: Mention[];
 };
 
 export type MessageInsert = {
@@ -46,6 +58,7 @@ export type MessageInsert = {
   body: string;
   /** 省略すると DB の現在時刻 */
   createdAt?: string;
+  mentions?: readonly Mention[];
 };
 
 /** 通常の投稿への返信の件数（削除済みも数える）。messages_parent_message_id_id_idx で数える。1つの SELECT に入れるので、項目の数でクエリは増えない */
@@ -69,19 +82,22 @@ const messageColumns = {
 const replyColumns = { ...messageColumns, replyCount: sql<number>`0` };
 
 /** DB の行から API の項目を作る（スレッド一覧の親の項目も同じ形） */
-export function toItem(row: {
-  id: string;
-  roomId: string;
-  senderId: string;
-  senderDisplayName: string;
-  body: string;
-  createdAt: string;
-  editedAt: string | null;
-  deletedAt: string | null;
-  parentMessageId: string | null;
-  replyCount: number;
-  authorIsActive: boolean;
-}): MessageItem {
+export function toItem(
+  row: {
+    id: string;
+    roomId: string;
+    senderId: string;
+    senderDisplayName: string;
+    body: string;
+    createdAt: string;
+    editedAt: string | null;
+    deletedAt: string | null;
+    parentMessageId: string | null;
+    replyCount: number;
+    authorIsActive: boolean;
+  },
+  mentions: Mention[] = [],
+): MessageItem {
   const deleted = row.deletedAt !== null;
   return {
     id: row.id,
@@ -97,6 +113,7 @@ export function toItem(row: {
     deleted,
     parentMessageId: row.parentMessageId,
     replyCount: row.replyCount,
+    mentions: deleted ? [] : mentions,
   };
 }
 
@@ -107,6 +124,7 @@ function cursorFor(row: { id: string }): CursorPayload {
 
 export function createMessageRepository(db: Database) {
   const channels = createChannelRepository(db);
+  const profiles = createProfileRepository(db);
   const partnerMember = alias(conversationMembers, "partner_member");
   // messages.sender_id は NOT NULL の外部キーなので、INNER JOIN で行は減らない（users は主キーで引く）
   const selectWithAuthor = () =>
@@ -122,6 +140,21 @@ export function createMessageRepository(db: Database) {
   return {
     // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）
     findRoomForViewer: channels.findForViewer,
+    async listMentionCandidates(
+      options: Parameters<typeof profiles.listDirectory>[0],
+    ) {
+      const page = await profiles.listDirectory(options);
+      return {
+        items: page.items.map((item) => ({
+          id: item.id,
+          displayName: item.displayName,
+          departmentName: item.department.name,
+        })),
+        nextCursor: page.nextCursor,
+      };
+    },
+    activeMentionNames: (userIds: readonly string[]) =>
+      activeMentionNames(db, userIds),
     /** 自分が当事者の DM なら、相手が有効かを返す（当事者でない・DM でない部屋は null） */
     async findDirectForParticipant(
       roomId: string,
@@ -155,6 +188,7 @@ export function createMessageRepository(db: Database) {
       roomId: string;
       senderId: string;
       deletedAt: string | null;
+      parentMessageId: string | null;
     } | null> {
       const rows = await db
         .select({
@@ -162,6 +196,7 @@ export function createMessageRepository(db: Database) {
           roomId: messages.roomId,
           senderId: messages.senderId,
           deletedAt: messages.deletedAt,
+          parentMessageId: messages.parentMessageId,
         })
         .from(messages)
         .where(eq(messages.id, messageId))
@@ -198,7 +233,9 @@ export function createMessageRepository(db: Database) {
         .where(eq(messages.id, messageId))
         .limit(1);
       const row = rows[0];
-      return row === undefined ? null : toItem(row);
+      if (row === undefined) return null;
+      const mentions = await loadMessageMentions(db, [row.id]);
+      return toItem(row, mentions.get(row.id) ?? []);
     },
     async isDepartmentActive(departmentId: string): Promise<boolean> {
       const rows = await db
@@ -249,7 +286,14 @@ export function createMessageRepository(db: Database) {
         .orderBy(desc(messages.id))
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
-      return { items: page.items.map(toItem), nextCursor: page.nextCursor };
+      const mentions = await loadMessageMentions(
+        db,
+        page.items.map((row) => row.id),
+      );
+      return {
+        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        nextCursor: page.nextCursor,
+      };
     },
     /** ID昇順で after より後（after は含まない） */
     async listAfter(roomId: string, after: string, limit: number) {
@@ -264,7 +308,14 @@ export function createMessageRepository(db: Database) {
         .orderBy(asc(messages.id))
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
-      return { items: page.items.map(toItem), hasMore: page.hasMore };
+      const mentions = await loadMessageMentions(
+        db,
+        page.items.map((row) => row.id),
+      );
+      return {
+        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        hasMore: page.hasMore,
+      };
     },
     /** スレッドの返信を新しい順に（#137）。nextCursor は古い側の続き */
     async listRepliesLatest(
@@ -288,7 +339,14 @@ export function createMessageRepository(db: Database) {
         .orderBy(desc(messages.id))
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
-      return { items: page.items.map(toItem), nextCursor: page.nextCursor };
+      const mentions = await loadMessageMentions(
+        db,
+        page.items.map((row) => row.id),
+      );
+      return {
+        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        nextCursor: page.nextCursor,
+      };
     },
     /** スレッドの返信を ID 昇順で after より後（after は含まない。#137） */
     async listRepliesAfter(
@@ -306,7 +364,14 @@ export function createMessageRepository(db: Database) {
         .orderBy(asc(messages.id))
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
-      return { items: page.items.map(toItem), hasMore: page.hasMore };
+      const mentions = await loadMessageMentions(
+        db,
+        page.items.map((row) => row.id),
+      );
+      return {
+        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        hasMore: page.hasMore,
+      };
     },
     /**
      * 次のすべてを満たすときだけ1行を挿入し、挿入した行数（1 か 0）を返す。確認から書き込みまでに状態が変わっても条件を破る行を残さない。
@@ -327,13 +392,33 @@ export function createMessageRepository(db: Database) {
         EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
         AND NOT EXISTS (SELECT 1 FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ${input.roomId} AND u.is_active = 0))`;
       // 末尾の NULL は edited_at・deleted_at・deleted_by・parent_message_id（Drizzle は挿入先に全列を並べるため、列数と順を合わせる）
-      const result = await db.insert(messages).select(sql`
-        SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body},
-          ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`},
-          NULL, NULL, NULL, NULL
-        WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
-          AND (${postable} OR ${directPostable})`);
-      return result.meta.changes;
+      try {
+        const [insert] = await db.batch([
+          db.insert(messages).select(sql`
+            SELECT ${input.id}, ${input.roomId}, ${input.senderId}, ${input.senderDisplayName}, ${input.body},
+              ${input.createdAt ?? sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`},
+              NULL, NULL, NULL, NULL
+            WHERE NOT EXISTS (SELECT 1 FROM messages WHERE room_id = ${input.roomId} AND id >= ${input.id})
+              AND (${postable} OR ${directPostable})`),
+          guardInsertedMessage(db, input.roomId),
+          insertMessageMentions(db, {
+            messageId: input.id,
+            roomId: input.roomId,
+            mentions: input.mentions ?? [],
+          }),
+          insertMentionNotifications(db, {
+            messageId: input.id,
+            roomId: input.roomId,
+            senderId: input.senderId,
+            mentions: input.mentions ?? [],
+          }),
+        ]);
+        return insert.meta.changes;
+      } catch (error) {
+        const translated = translateMessageInsertError(error);
+        if (translated instanceof MessageInsertGuardError) return 0;
+        throw translated;
+      }
     },
     /** 返信の条件付きの INSERT（条件は reply-insert.sql.ts）。挿入した行数（1 か 0）を返す */
     insertReplyIfOrdered: (input: Parameters<typeof insertReplyIfOrdered>[1]) =>

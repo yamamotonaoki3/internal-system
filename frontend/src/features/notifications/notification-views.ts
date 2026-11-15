@@ -12,6 +12,13 @@ export type NotificationView = {
 export const NOTIFICATION_VIEWS: Readonly<
   Record<NotificationKind, NotificationView>
 > = {
+  "message.mentioned": {
+    label: "メッセージで指名されました",
+    to: (item) =>
+      item.targetId === null
+        ? null
+        : `/threads?thread=${encodeURIComponent(item.targetId)}`,
+  },
   "channel_request.submitted": {
     label: "チャンネルの作成の申請が届きました",
     to: () => "/channel-approvals",

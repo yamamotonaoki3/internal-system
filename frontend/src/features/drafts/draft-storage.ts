@@ -1,6 +1,7 @@
 // 下書きの保存・読み込み・消去（端末の Web Storage）。保存先と現在時刻は引数で受ける。
 // 受け止める例外は「保存先が使えない」ことを表す SecurityError・QuotaExceededError だけ。画面側が案内を出せるよう DraftStorageUnavailableError に変えて投げる。それ以外は変えずに投げ直す。
 import { z } from "zod";
+import { mentionSchema, type Mention } from "../../../../shared/message-rules";
 import {
   DRAFT_KEY_PREFIX,
   draftKey,
@@ -39,6 +40,7 @@ function guard<T>(operation: () => T): T {
 // 読むときに検証する。小数・負・無限大の日時は壊れた値
 const storedDraftSchema = z.object({
   body: z.string(),
+  mentions: z.array(mentionSchema).optional(),
   updatedAt: z.number().int().nonnegative(),
 });
 
@@ -79,12 +81,12 @@ function collectKeys(storage: Storage, prefix: string): string[] {
   return keys;
 }
 
-export function readDraft(
+export function readDraftContent(
   storage: Storage,
   userId: string,
   scope: string,
   now: number,
-): string | null {
+): { body: string; mentions: Mention[] } | null {
   return guard(() => {
     const key = draftKey(userId, scope);
     const raw = storage.getItem(key);
@@ -94,8 +96,17 @@ export function readDraft(
       storage.removeItem(key);
       return null;
     }
-    return stored.body;
+    return { body: stored.body, mentions: stored.mentions ?? [] };
   });
+}
+
+export function readDraft(
+  storage: Storage,
+  userId: string,
+  scope: string,
+  now: number,
+): string | null {
+  return readDraftContent(storage, userId, scope, now)?.body ?? null;
 }
 
 export function writeDraft(
@@ -104,6 +115,7 @@ export function writeDraft(
   scope: string,
   body: string,
   now: number,
+  mentions: readonly Mention[] = [],
 ): void {
   guard(() => {
     const key = draftKey(userId, scope);
@@ -111,7 +123,11 @@ export function writeDraft(
       storage.removeItem(key);
       return;
     }
-    const stored: StoredDraft = { body, updatedAt: now };
+    const stored: StoredDraft = {
+      body,
+      updatedAt: now,
+      ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
+    };
     storage.setItem(key, JSON.stringify(stored));
   });
 }

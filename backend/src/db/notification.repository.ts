@@ -96,6 +96,22 @@ function viewableRoom(recipientId: string): SQL {
  * 部屋の内容を含まない種類（アーカイブ・復元など、権限を失っても残したい通知）は、部屋の閲覧権限に影響されない。
  * 見られる範囲が別の規則の部屋を足すときは、viewableRoom と未読の対象の部屋（unread-targets.sql.ts）の両方を広げる。
  */
+/** 指名通知を作る時点で、宛先本人が有効かつ部屋の実参加者で、本文を閲覧できるかを確かめる。 */
+export function eligibleMentionRecipient(
+  candidate: SQL,
+  roomId: SQL,
+  senderId: string,
+): SQL {
+  return sql`${candidate} <> ${senderId}
+    AND EXISTS (SELECT 1 FROM users u WHERE u.id = ${candidate} AND u.is_active = 1)
+    AND (EXISTS (
+      SELECT 1 FROM channels c JOIN channel_members cm ON cm.channel_id = c.room_id
+      WHERE c.room_id = ${roomId} AND cm.user_id = ${candidate} AND c.deleted_at IS NULL)
+      OR EXISTS (
+        SELECT 1 FROM conversation_members cv
+        WHERE cv.conversation_id = ${roomId} AND cv.user_id = ${candidate}))`;
+}
+
 export function visibleToRecipient(
   recipientId: string,
   definitions: NotificationKindDefinitions = NOTIFICATION_KIND_DEFINITIONS,

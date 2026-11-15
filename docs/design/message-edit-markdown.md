@@ -9,8 +9,9 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-03（編集）・EP-1-04（削除）／`messages`への列の追加（migration 0019：`edited_at`・`deleted_at`・`deleted_by`）／EP-1-01の応答の`editedAt`・`deleted`と`body`のnullable化／EP-2-06の`readOnly`／監査`message.delete`／未読で削除済みを数えない／マークダウンの描画／編集・削除の画面 |
-| 別のIssueに残すもの | メンションの強調（1-5 AC-7。#139。#134では`@名前`を文字のまま出す）、他人の投稿の削除・依頼・緊急削除（#142）、開いたままの画面への他の人の編集・削除の即時反映（#117）、無効な部署への投稿の側の読み取り専用（#154。下の「既知の限界」）、削除した親への返信を不可にすること（#137）、全文検索で削除済みを対象から外すこと（#139）、本文の編集でメンションが変わったときの通知（#139）、投稿のレート制限（X-8が未決定） |
+| 別のIssueに残すもの | 他人の投稿の削除・依頼・緊急削除（#142）、開いたままの画面への他の人の編集・削除の即時反映（#117）、無効な部署への投稿の側の読み取り専用（#154。下の「既知の限界」）、削除した親への返信を不可にすること（#137）、全文検索で削除済みを対象から外すこと（別Issue）、投稿のレート制限（X-8が未決定） |
 
+メンションの入力・保存・通知・強調表示は、Issue #139の[mentions.md](mentions.md)を参照する。
 ## ファイルと役割
 
 ### バックエンド
@@ -137,7 +138,7 @@
 
 ## 関係するIssue・ADR
 
-- Issue #134（親：#133）。申し送り：#139・#137・#142・#154・#117・#160・#234
+- Issue #134（親：#133）。申し送り：#137・#142・#154・#117・#160・#234
 - [ADR-0026](../adr/0026-markdown-rendering.md)、[ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)（列の追加）、[ADR-0015](../adr/0015-style-foundation.md)（`style`属性を使わない）、[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーション）
 - 決定：[C-171](../requirements/decision-register.md)
 - 関連する設計書：[messages.md](messages.md)・[dms.md](dms.md)・[unread.md](unread.md)・[channels.md](channels.md)・[drafts.md](drafts.md)

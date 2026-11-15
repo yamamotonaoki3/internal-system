@@ -28,6 +28,8 @@ const message = (n: number, body: string) => ({
   // #137：一覧の項目の必須の項目（返信ではない親の投稿）
   parentMessageId: null,
   replyCount: 0,
+  // #139：メンションの必須の項目（メンションなしの投稿）
+  mentions: [],
 });
 
 // 新しい順（一覧の API の並び）

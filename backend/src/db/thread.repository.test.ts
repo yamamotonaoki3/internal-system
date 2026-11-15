@@ -116,7 +116,7 @@ function threadRow(overrides: Record<string, unknown> = {}) {
 
 /**
  * 1回目の db.all はスレッドの一覧、2回目はスレッドごとの未読数（thread-unread-counts.sql.ts）の結果を返す偽の DB。
- * Repository は db.all だけを使う（SQL 2本）。
+ * 指名なしの既存スレッドとして、追加の指名照会は空の配列を返す。
  */
 function fakeDb(
   threadRows: readonly unknown[],
@@ -128,6 +128,17 @@ function fakeDb(
       const next = results.shift();
       if (next === undefined) throw new Error("想定より多くの SQL が呼ばれた");
       return next;
+    },
+    select() {
+      return {
+        from() {
+          return {
+            where() {
+              return { orderBy: async () => [] };
+            },
+          };
+        },
+      };
     },
   } as unknown as Database;
 }

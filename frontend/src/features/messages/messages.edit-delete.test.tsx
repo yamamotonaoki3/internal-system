@@ -6,7 +6,7 @@
 //   編集：「編集」を押すと、その行で本文の入った編集欄（名前「メッセージの編集」の textbox）と「保存」「キャンセル」に切り替える。
 //     本文の規則は shared/message-rules.ts（空白だけ・4,001文字以上は送らず、編集欄を aria-invalid にする）。
 //     元の本文から変わっていないときは「保存」を押せない（disabled）。Ctrl+Enter（Mac は Cmd+Enter）で保存、Esc でキャンセル。Enter だけは改行。
-//     保存は PATCH /api/messages/:messageId { body }。保存中は「保存」を押せない。成功したら編集欄を閉じ、再読み込みなしで新しい本文と「（編集済み）」を出す。
+//     保存は PATCH /api/messages/:messageId { body, mentions: [] }。保存中は「保存」を押せない。成功したら編集欄を閉じ、再読み込みなしで新しい本文と「（編集済み）」を出す。
 //     422 の fields に body があれば編集欄を aria-invalid にしてサーバーの文を出す。ほかの失敗は role=alert にサーバーの文（describeError）を出し、
 //     編集欄と入力は残し、一覧の表示（本文・編集済みの印）は変えない。実行中の2秒ごとの取得の結果で、編集の結果を上書きしない。
 //   削除：「削除」を押すと、確認のダイアログ（role=dialog・名前「メッセージの削除」。「削除する」「キャンセル」）を出す。
@@ -427,6 +427,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）編集", () => {
           id: String(params.messageId),
           body,
           editedAt: EDITED_AT,
+          mentions: [],
         });
       }),
     );

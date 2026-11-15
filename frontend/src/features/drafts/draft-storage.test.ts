@@ -21,6 +21,7 @@ import {
   purgeExpiredDrafts,
   purgeExpiredDraftsOnStartup,
   readDraft,
+  readDraftContent,
   removeDraft,
   removeUserDrafts,
   writeDraft,
@@ -500,5 +501,39 @@ describe("#239 保存先を開く（openDraftStorage）", () => {
       throw unexpected;
     });
     expect(() => openDraftStorage()).toThrow(unexpected);
+  });
+});
+
+describe("#139 1-8 AC-2 指名付き下書きの互換", () => {
+  it("#139 1-8 AC-2: 旧形式のbodyだけの下書きを本文と空の指名として読む", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      keyOf(USER_A, SCOPE_1),
+      JSON.stringify({ body: "[E2E_TEST]旧下書き", updatedAt: NOW }),
+    );
+    expect(readDraftContent(storage, USER_A, SCOPE_1, NOW)).toEqual({
+      body: "[E2E_TEST]旧下書き",
+      mentions: [],
+    });
+  });
+
+  it("#139 1-8 AC-2: 指名IDとUTF-16範囲を本文と一緒に保存・復元する", () => {
+    const storage = new MemoryStorage();
+    const body = "[E2E_TEST] @testuser_same";
+    const mentions = [
+      { userId: "01JTESTACCT000000000000002", start: 11, end: 25 },
+    ];
+    writeDraft(storage, USER_A, SCOPE_1, body, NOW, mentions);
+    expect(
+      JSON.parse(storage.getItem(keyOf(USER_A, SCOPE_1)) ?? "null"),
+    ).toEqual({
+      body,
+      updatedAt: NOW,
+      mentions,
+    });
+    expect(readDraftContent(storage, USER_A, SCOPE_1, NOW)).toEqual({
+      body,
+      mentions,
+    });
   });
 });

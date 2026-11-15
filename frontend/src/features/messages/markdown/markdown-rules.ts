@@ -14,6 +14,7 @@ export const ALLOWED_ELEMENTS: readonly string[] = [
   "code",
   "pre",
   "a",
+  "span",
 ];
 
 const ALLOWED_PROTOCOLS: readonly string[] = ["http:", "https:", "mailto:"];

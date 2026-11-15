@@ -2,8 +2,9 @@
 // 単調性の保証範囲：同じファクトリ（newUlid は共通の1つ）から生成した値の間だけ。
 // Workersでは要求の中で Date.now() が進まないことがあるため、同時刻・時計が戻った場合は、直前の乱数に1を足して昇順を保つ。
 // 別のWorkerのインスタンス間の順序は保証しない（時刻順になるだけ）。
+import { ULID_PATTERN } from "../../../shared/ulid-rules";
+
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const ULID_PATTERN = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const TIME_LENGTH = 10;
 const RANDOM_BYTES = 10;
 /** ULID の時刻部分の最大（48bit） */
