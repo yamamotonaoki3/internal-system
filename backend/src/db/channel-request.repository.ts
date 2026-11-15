@@ -63,6 +63,7 @@ export type ChannelRequestItem = {
 };
 
 export type ReviewableRow = ChannelRequestItem & {
+  departmentName: string | null;
   requesterId: string;
   requesterDisplayName: string;
   /** 申請者が、申請の部署のオーナーか（会社直属は false） */
@@ -364,12 +365,17 @@ export function createChannelRequestRepository(db: Database) {
       const rows = await db
         .select({
           ...itemColumns,
+          departmentName: departments.name,
           requesterId: channelCreationRequests.requestedBy,
           requesterDisplayName: users.displayName,
           requesterOwnsDepartment: requesterOwnsDepartmentSql,
         })
         .from(channelCreationRequests)
         .innerJoin(users, eq(users.id, channelCreationRequests.requestedBy))
+        .leftJoin(
+          departments,
+          eq(departments.id, channelCreationRequests.departmentId),
+        )
         .where(and(...conditions))
         .orderBy(desc(channelCreationRequests.id))
         .limit(options.limit + 1);

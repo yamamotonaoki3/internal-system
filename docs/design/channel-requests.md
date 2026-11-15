@@ -99,7 +99,8 @@
 2. 見える範囲を、`reviewScopeSql`として**SQLのWHERE**に入れる（取得後に取り除かない。ページ送りの件数が崩れず、範囲外の行が次のページに漏れないため）。範囲は`isReviewable`と同じ意味：会社直属は全体管理者／部署で申請者がそのオーナーなら全体管理者、または「そのオーナーが出した自分の申請」／それ以外はその部署のオーナー。`status`・`departmentId`・`cursor`は範囲の中で効く
 3. 申請者がその部署のオーナーか（`requesterOwnsDepartmentSql`）は、一覧・決裁とも同じSQL部品で行ごとに持つ（N+1にしない。有効な利用者のオーナーの割り当て）
 4. 各行の`canApprove`は`canDecideChannelRequest`で算出する。承認待ち以外の行は`false`
-5. 順は申請IDの降順。`cursor.ts`の`afterCursor`・`toPage`を使う（OFFSETなし）。既定20件
+5. 審査一覧の各行には現在の`departmentName`も返す。部署チャンネルでは`departmentId`と部署名を返し、会社直属では両方`null`。範囲・認可・ページング条件は変えない
+6. 順は申請IDの降順。`cursor.ts`の`afterCursor`・`toPage`を使う（OFFSETなし）。既定20件
 
 ### 自分の申請（GET /api/channel-requests/mine。EP-2-08）
 
@@ -184,7 +185,7 @@
 | 画面 | ファイル | 内容 |
 | --- | --- | --- |
 | S-10 チャンネル作成の申請（`/channel-requests`） | `pages/ChannelRequestPage.tsx`、`features/channel-requests/components/ChannelRequestForm.tsx`・`MyChannelRequestList.tsx` | 入口はS-09の「チャンネルを申請」。フォーム（作る場所：自部署／会社直属、公開範囲、名前、説明）と、AC-12の案内（案件に関する話題は非公開をおすすめする旨と、案件の専用チャンネルは案件の作成が承認されると自動でできる旨。公開も選べる）と、「自分の申請」の一覧。所属がない利用者は「自部署のチャンネル」を選べない（サーバーも422）。自部署名は出さず「自部署のチャンネル」と表記する。422の`fields`は該当の欄に、409は欄の外に出す。却下の理由は文字列として表示する（`dangerouslySetInnerHTML`を使わない）。承認待ちの行に「取り下げ」があり、確認のダイアログ（`WithdrawDialog`）→送信。送信中は押せない |
-| S-11 チャンネル作成の承認（`/channel-approvals`） | `pages/ChannelApprovalsPage.tsx`、`features/channel-requests/components/ChannelRequestReviewList.tsx`・`RejectReasonDialog.tsx` | 状態の絞り込み（初期は承認待ち）、一覧（名前・部署か会社直属・公開範囲・申請者の表示名・状態・却下の理由）、`canApprove`のときだけ「承認」「却下」。承認は再認証を経て送る。却下は再認証→理由のダイアログ（1〜200文字。空・201文字では確定できない）→送信。409はサーバーのメッセージ（決裁済み・名前の重複・部署が無効）を表示し、一覧を取り直す。読み込み中・エラー・0件・ありの4状態 |
+| S-11 チャンネル作成の承認（`/channel-approvals`） | `pages/ChannelApprovalsPage.tsx`、`features/channel-requests/components/ChannelRequestReviewList.tsx`・`RejectReasonDialog.tsx` | 状態の絞り込み（初期は承認待ち）、一覧（名前・部署チャンネルでは部署名、会社直属では「会社直属」・公開範囲・申請者の表示名・状態・却下の理由）、`canApprove`のときだけ「承認」「却下」。承認は再認証を経て送る。却下は再認証→理由のダイアログ（1〜200文字。空・201文字では確定できない）→送信。409はサーバーのメッセージ（決裁済み・名前の重複・部署が無効）を表示し、一覧を取り直す。読み込み中・エラー・0件・ありの4状態 |
 | 管理メニュー | `features/app-shell/navigation.ts` | 「承認＞チャンネル承認」。`perm.channel.request.approve.owner`を持つ人にだけ出す（[app-shell.md](app-shell.md)） |
 
 - 取り直し（invalidate）：申請・取り下げは`channelRequestKeys.all`。承認は`channelRequestKeys.all`と`channelKeys.all`（申請者が自分で承認したとき、参加中のチャンネルが変わるため。既定の方針6）
@@ -195,7 +196,7 @@
 | --- | --- |
 | 申請（EP-2-07） | `POST /api/channel-requests`。本文は`scope`・`name`・`description?`・`visibility`（`strict`）。201で申請の項目（`id`・`departmentId`・`name`・`visibility`・`status`・`rejectReason`・`createdAt`・`decidedAt`・`channelId`）。401／403（`FORBIDDEN_ORIGIN`）／409／422 |
 | 自分の申請（EP-2-08） | `GET /api/channel-requests/mine`。クエリは`limit`・`cursor`。200で`items`（上と同じ項目）と`nextCursor`。401／422 |
-| 審査一覧（EP-2-09） | `GET /api/channel-requests`。クエリは`status?`・`departmentId?`・`limit`・`cursor`。200で上の項目に`requesterId`・`requesterDisplayName`・`canApprove`を足した`items`と`nextCursor`。401／403（審査者でない）／422 |
+| 審査一覧（EP-2-09） | `GET /api/channel-requests`。クエリは`status?`・`departmentId?`・`limit`・`cursor`。200で審査一覧専用の項目として`requesterId`・`requesterDisplayName`・`departmentName`・`canApprove`を足した`items`と`nextCursor`。部署チャンネルでは`departmentId`と`departmentName`を返し、会社直属では両方`null`。自分の申請と作成の契約は変わらない。401／403（審査者でない）／422 |
 | 承認（EP-2-10） | `POST /api/channel-requests/{requestId}/approve`。200で`requestId`・`status`（approved）・`channelId`・`roomId`。401／403（審査者でない・オーナー自身の申請・`FORBIDDEN_ORIGIN`・`REAUTH_REQUIRED`）／404／409 |
 | 却下（EP-2-11） | `POST /api/channel-requests/{requestId}/reject`。本文は`reason`。200で`requestId`・`status`（rejected）・`reason`。401／403／404／409／422 |
 | 取り下げ（EP-2-41） | `POST /api/channel-requests/{requestId}/withdraw`。200で`requestId`・`status`（withdrawn）。401／403（`FORBIDDEN_ORIGIN`）／404／409 |

@@ -22,11 +22,20 @@ const requestItemSchema = z.object({
   decidedAt: z.string().nullable(),
   channelId: z.string().nullable(),
 });
-const reviewItemSchema = requestItemSchema.extend({
-  requesterId: z.string().min(1),
-  requesterDisplayName: z.string(),
-  canApprove: z.boolean(),
-});
+const reviewItemSchema = requestItemSchema
+  .extend({
+    departmentName: z.string().nullable(),
+    requesterId: z.string().min(1),
+    requesterDisplayName: z.string(),
+    canApprove: z.boolean(),
+  })
+  .refine(
+    (item) => (item.departmentId === null) === (item.departmentName === null),
+    {
+      message: "申請の部署情報が不整合です",
+      path: ["departmentName"],
+    },
+  );
 const pageOf = <T extends z.ZodType>(item: T) =>
   z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 

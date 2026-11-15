@@ -67,7 +67,7 @@ const ownRequest = reviewRequest("2", {
 });
 
 describe("#131 AC-7・AC-8（S-11）一覧", () => {
-  it("#131 AC-7: 既定は承認待ち（status=pending）で、カードに名前・会社直属か部署・公開範囲・申請者の表示名・状態を出す", async () => {
+  it("#131 AC-7・#233 AC-1: 既定は承認待ち（status=pending）で、カードに名前・会社直属か実部署名・公開範囲・申請者の表示名・状態を出す", async () => {
     const { queries } = respondReviewRequests([companyRequest, ownRequest]);
     renderPage();
     expect(
@@ -82,7 +82,7 @@ describe("#131 AC-7・AC-8（S-11）一覧", () => {
     expect(card.textContent).toContain("テスト申請者A");
     expect(card.textContent).toContain("承認待ち");
     const own = await findCard("UNIT_TEST_自分の申請");
-    expect(own.textContent).toContain("部署");
+    expect(own.textContent).toContain("[UNIT_TEST]営業");
     expect(own.textContent).toContain("公開");
     expect(queries[0]?.get("status")).toBe("pending");
   });
@@ -445,5 +445,54 @@ describe("#131 AC-3・AC-4（2-2 AC-3・AC-4、S-11 の却下の流れ）却下"
     await waitFor(() =>
       expect(handlers.queries.length).toBeGreaterThan(before),
     );
+  });
+});
+
+describe("#233 AC-1（S-11）部署名の表示", () => {
+  it("#233 AC-1: 部署の申請は実際の部署名を、会社直属は従来の名称を表示する", async () => {
+    respondReviewRequests([
+      reviewRequest("233D", {
+        name: "UNIT_TEST_開発の申請",
+        departmentName: "[UNIT_TEST]開発",
+      }),
+      reviewRequest("233C", {
+        name: "UNIT_TEST_直属の申請",
+        departmentId: null,
+        departmentName: null,
+      }),
+    ]);
+    renderPage();
+    const department = await findCard("UNIT_TEST_開発の申請");
+    expect(department.textContent).toContain("[UNIT_TEST]開発・公開");
+    expect(department.textContent).not.toContain("部署・公開");
+    const company = await findCard("UNIT_TEST_直属の申請");
+    expect(company.textContent).toContain("会社直属・公開");
+  });
+
+  it("#233 AC-1・AC-2: 部署IDがあるのに部署名がnullなら成功表示せず取得エラーを示す", async () => {
+    respondReviewRequests([
+      reviewRequest("233E", {
+        name: "UNIT_TEST_部署名欠損",
+        departmentName: null,
+      }),
+    ]);
+    renderPage();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("UNIT_TEST_部署名欠損")).toBeNull();
+  });
+});
+
+describe("#233 AC-1・AC-2（S-11）不整合な部署名", () => {
+  it("#233 AC-1・AC-2: 会社直属のIDに部署名がある応答は取得エラーにする", async () => {
+    respondReviewRequests([
+      reviewRequest("233F", {
+        name: "UNIT_TEST_直属名不整合",
+        departmentId: null,
+        departmentName: "[UNIT_TEST]営業",
+      }),
+    ]);
+    renderPage();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("UNIT_TEST_直属名不整合")).toBeNull();
   });
 });

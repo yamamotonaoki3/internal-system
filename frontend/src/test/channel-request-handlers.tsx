@@ -28,6 +28,7 @@ export type MyRequest = {
 };
 
 export type ReviewRequest = MyRequest & {
+  departmentName: string | null;
   requesterId: string;
   requesterDisplayName: string;
   canApprove: boolean;
@@ -73,6 +74,7 @@ export function reviewRequest(
 ): ReviewRequest {
   return {
     ...myRequest(suffix),
+    departmentName: overrides.departmentId === null ? null : DEPT_SALES.name,
     requesterId: "01JTESTCHREQREQUESTER0001",
     requesterDisplayName: "テスト申請者",
     canApprove: true,

@@ -8,6 +8,7 @@
 //      見える範囲：決裁できる申請（canApprove=true）＋「オーナーが自部署で出した自分の申請」（canApprove=false）。審査者でない人は 403 FORBIDDEN
 //      Cache-Control に no-store。申請者のメール・本名は含めない
 // データは架空（testuser_chreq_・@example.com・[UNIT_TEST] の部署・UNIT_TEST_ のチャンネル名）。
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest } from "../../test/api-request";
 import {
@@ -23,6 +24,7 @@ import {
 type ReviewItem = {
   id: string;
   departmentId: string | null;
+  departmentName: string | null;
   name: string;
   visibility: string;
   status: string;
@@ -129,7 +131,7 @@ describe("#131 AC-7・AC-8（EP-2-09）主体ごとの見える範囲と canAppr
     },
   );
 
-  it("#131 AC-7: 項目は決めた 12 項目で、申請者の表示名を含み、メール・本名を含めない。no-store", async () => {
+  it("#131 AC-7・#233 AC-2: 項目は部署名を含む13項目で、申請者の表示名を含み、メール・本名を含めない。no-store", async () => {
     const res = await get(`${BASE}?status=pending`, w.ownerS.token);
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toContain("no-store");
@@ -143,6 +145,7 @@ describe("#131 AC-7・AC-8（EP-2-09）主体ごとの見える範囲と canAppr
           "createdAt",
           "decidedAt",
           "departmentId",
+          "departmentName",
           "id",
           "name",
           "rejectReason",
@@ -289,7 +292,49 @@ describe("#131 AC-7（EP-2-09）ページ送りで範囲外の行が漏れない
     expect([...first.items, ...second.items].map((item) => item.id)).toEqual(
       expected,
     );
-    for (const item of [...first.items, ...second.items])
+    for (const item of [...first.items, ...second.items]) {
       expect(item.departmentId).toBe(w.deptH.id);
+      expect(item.departmentName).toBe(w.deptH.name);
+    }
+  });
+});
+
+describe("#233 AC-2（S-11）部署名と認可範囲", () => {
+  it("#233 AC-2: 審査可能な部署の実名と会社直属のnullだけを返し、範囲外部署名を漏らさない", async () => {
+    const owner = await listAll(w.ownerS.token, "status=pending");
+    expect(owner.find((item) => item.id === r.R1)?.departmentName).toBe(
+      w.deptS.name,
+    );
+    expect(owner.every((item) => item.departmentId === w.deptS.id)).toBe(true);
+    expect(JSON.stringify(owner)).not.toContain(w.deptD.name);
+
+    const admin = await listAll(w.admin.token, "status=pending");
+    expect(admin.find((item) => item.id === r.R3)?.departmentName).toBe(
+      w.deptD.name,
+    );
+    expect(admin.find((item) => item.id === r.R5)?.departmentName).toBeNull();
+    expect(admin.find((item) => item.id === r.R6)?.departmentName).toBeNull();
+    expect(admin.some((item) => item.id === r.R4)).toBe(false);
+    expect(JSON.stringify(admin)).not.toContain(w.deptH.name);
+  });
+});
+
+describe("#233 AC-2（S-11）部署名の最新値", () => {
+  it("#233 AC-2: 部署名変更後の審査一覧には現在の部署名を返し、旧名を残さない", async () => {
+    const before = await listAll(w.ownerS.token, "status=pending");
+    expect(before.find((item) => item.id === r.R1)?.departmentName).toBe(
+      w.deptS.name,
+    );
+    const currentName = "[UNIT_TEST]改名済み営業";
+    await env.DB.prepare(
+      "UPDATE departments SET name = ?, name_normalized = ? WHERE id = ?",
+    )
+      .bind(currentName, currentName.toLowerCase(), w.deptS.id)
+      .run();
+    const after = await listAll(w.ownerS.token, "status=pending");
+    expect(after.find((item) => item.id === r.R1)?.departmentName).toBe(
+      currentName,
+    );
+    expect(JSON.stringify(after)).not.toContain(w.deptS.name);
   });
 });
