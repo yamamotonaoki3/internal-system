@@ -1,6 +1,6 @@
 # 設計書：メッセージのメンション
 
-Issue #139（親：#133）。メッセージ入力で社員を指名し、指名範囲を保存して表示を強調する。投稿・返信・編集の指名を、参加者にアプリ内通知する。要件は[1-8](../requirements/01-messaging.md)、通知は[3-2](../requirements/03-notification.md)、決定は[decision-register.md](../requirements/decision-register.md)のC-173。
+Issue #139（親：#110）。メッセージ入力で社員を指名し、指名範囲を保存して表示を強調する。投稿・返信・編集の指名を、参加者にアプリ内通知する。要件は[1-8](../requirements/01-messaging.md)、通知は[3-2](../requirements/03-notification.md)、決定は[decision-register.md](../requirements/decision-register.md)のC-173。
 
 ## 目的と範囲
 
@@ -69,6 +69,6 @@ Issue #139（親：#133）。メッセージ入力で社員を指名し、指名
 
 ## 関係するIssue・ADR
 
-- Issue #139（親 #133）。スレッド一覧へのメンション条件（#137）と、投稿編集・Markdown表示（#134）に接続する。
+- Issue #139（親 #110）。スレッド一覧へのメンション条件（#137）と、投稿編集・Markdown表示（#134）に接続する。
 - C-173（編集時の通知差分・自己通知なし・過去通知保持）。C-171（Markdownでメンションを強調し、クリック動作は付けない）。
 - 関連する設計書：[threads.md](threads.md)、[message-edit-markdown.md](message-edit-markdown.md)、[notifications.md](notifications.md)。
