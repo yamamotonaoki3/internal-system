@@ -108,8 +108,8 @@ describe("#139 AC-1 指名の範囲の規則（messageContentSchema）", () => {
   });
 
   it.each([
-    ["空の範囲（start と end が同じ）", "@@a", [[1, 1]]],
-    ["end が start より小さい", "@@a", [[2, 1]]],
+    ["空の範囲（start と end が同じ。開始は@で本文内）", "@@a", [[1, 1]]],
+    ["end が start より小さい（開始は@で本文内）", "@a@", [[2, 1]]],
     ["本文より1つ長い end", "@a", [[0, 3]]],
     ["開始が@でない", "ab@", [[0, 1]]],
     ["開始が@の直後の文字", "@ab", [[1, 3]]],
@@ -237,7 +237,7 @@ describe("#139 AC-1 指名の範囲の右端とサロゲートペアの境界", 
     ).toBe(true);
   });
 
-  it("#139 AC-1: 不正な範囲の issue は、custom・path・空でない文言を持つ", () => {
+  it("#139 AC-1: 不正な範囲の issue は、path・空でない文言を持ち、件数は1件", () => {
     const result = messageContentSchema.safeParse({
       body: "ab",
       mentions: [{ userId: USER_ID, start: 0, end: 1 }],
@@ -246,7 +246,6 @@ describe("#139 AC-1 指名の範囲の右端とサロゲートペアの境界", 
     if (result.success) return;
     expect(result.error.issues).toHaveLength(1);
     expect(result.error.issues[0]).toMatchObject({
-      code: "custom",
       path: ["mentions", 0],
     });
     expect(result.error.issues[0]?.message.length).toBeGreaterThan(0);

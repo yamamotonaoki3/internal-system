@@ -195,7 +195,7 @@ describe("#139 AC-1 サーバーの指名の検査（拒否と副作用なし）
     it.each([
       ["インラインのコードの中", `\`@${TARGET_NAME}\` です`],
       ["フェンスのコードの中", `\`\`\`\n@${TARGET_NAME}\n\`\`\``],
-      ["開いたまま閉じていないバッククォートの後ろ", `\`@${TARGET_NAME}`],
+      // 閉じていない単一のバッククォートの後ろは仕様が未決定のため固定しない（Issue #264 AC-6 で決める）
       ["長さの違うバッククォートでは閉じない", `\`\`a\` @${TARGET_NAME}\`\``],
     ])(
       `#139 AC-1: コードの中の@（%s）は指名にできず422 [${operation}]`,
@@ -251,6 +251,48 @@ describe("#139 AC-1 サーバーの指名の検査（拒否と副作用なし）
       const response = await submit(operation, `\`@${TARGET_NAME}`, []);
       expect([200, 201]).toContain(response.status);
     });
+  });
+});
+
+describe("#139 AC-1 すでに指名と通知がある投稿への不正な編集", () => {
+  it("#139 AC-1: 検査に落ちた編集は、本文・編集日時・既存の指名・既存の通知の保存内容を変えない", async () => {
+    const body = `@${TARGET_NAME} 最初`;
+    const first = await submit("edit", body, [
+      mentionOf(body, `@${TARGET_NAME}`),
+    ]);
+    expect(first.status).toBe(200);
+    const read = async () => ({
+      message: await env.DB.prepare(
+        "SELECT body, edited_at FROM messages WHERE id = ?",
+      )
+        .bind(editableId)
+        .first(),
+      mentions: (
+        await env.DB.prepare(
+          "SELECT message_id, user_id, start, end FROM message_mentions WHERE message_id = ?",
+        )
+          .bind(editableId)
+          .all()
+      ).results,
+      notifications: (
+        await env.DB.prepare(
+          "SELECT id, user_id, kind, room_id, message_id, target_id, created_at, read_at FROM notifications WHERE user_id IN (?, ?, ?)",
+        )
+          .bind(target.userId, other.userId, sender.userId)
+          .all()
+      ).results,
+    });
+    const before = await read();
+    expect(before.mentions).toHaveLength(1);
+    expect(before.notifications).toHaveLength(1);
+    expect(before.message?.edited_at).not.toBeNull();
+
+    const badBody = `@${OTHER_NAME} 不正`;
+    const rejected = await submit("edit", badBody, [
+      mentionOf(badBody, `@${OTHER_NAME}`, target.userId),
+    ]);
+    expect(rejected.status).toBe(422);
+    expect(await read()).toEqual(before);
   });
 });
 
