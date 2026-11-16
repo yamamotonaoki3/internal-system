@@ -330,6 +330,33 @@ describe("#138 AC-1（1-7 AC-2）入力の検査（422）", () => {
     },
   );
 
+  it("#138 AC-1（1-7 AC-2）: 値が不正な POST の 422 は、fields が value だけ（項目名で返す）", async () => {
+    const response = await postReaction(
+      message,
+      { kind: "emoji", value: "🐱" },
+      world.bob.token,
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      code: "VALIDATION_ERROR",
+      fields: ["value"],
+    });
+  });
+
+  it("#138 AC-1（1-7 AC-2）: 値が不正な DELETE の 422 も、fields が value だけ", async () => {
+    const response = await deleteReaction(
+      message,
+      "emoji",
+      "🐱",
+      world.bob.token,
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      code: "VALIDATION_ERROR",
+      fields: ["value"],
+    });
+  });
+
   it("#138 AC-1: 422 の応答に、入力した値そのものを含めない（エラー応答の形）", async () => {
     const response = await postReaction(
       message,

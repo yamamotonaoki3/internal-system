@@ -63,6 +63,10 @@ type Outcome = {
   error?: { code?: string; status?: number; message?: string };
   writes: number;
   authorized: Permission[];
+  /** authorize の第3引数（範囲）。権限の確認ごとに1つ */
+  scopes: unknown[];
+  /** repository.isDepartmentActive が呼ばれた回数 */
+  departmentChecks: number;
 };
 
 async function perform(
@@ -76,10 +80,28 @@ async function perform(
     beforeWrite?: BeforeWrite;
     /** 0行の後の再判定の集計の読み取り（repository.loadReactions）の直前に呼ぶ（1回だけ）。replaceWith に null を返すと、読み取りが「条件が成り立っていない」を返したことにする */
     beforeLoad?: () => Promise<"real" | "unreactable" | undefined>;
+    /** repository.findRoomForViewer が返す行の一部を差し替える（実際の DB では作れない状態を作る） */
+    roomOverride?: Record<string, unknown>;
   } = {},
 ): Promise<Outcome> {
-  const authorizer = fakeAuthorizer(options.denied ?? []);
-  const outcome: Outcome = { writes: 0, authorized: [] };
+  const fake = fakeAuthorizer(options.denied ?? []);
+  const outcome: Outcome = {
+    writes: 0,
+    authorized: [],
+    scopes: [],
+    departmentChecks: 0,
+  };
+  const authorizer = {
+    ...fake,
+    authorize: async (
+      principal: Parameters<typeof fake.authorize>[0],
+      permission: Permission,
+      scope?: unknown,
+    ) => {
+      outcome.scopes.push(scope);
+      await fake.authorize(principal, permission);
+    },
+  };
   await withMessages(env, async (repository) => {
     const intercept =
       (real: (input: never) => Promise<WriteResult>) =>
@@ -95,6 +117,19 @@ async function perform(
       removeReactionIfReactable: intercept(
         repository.removeReactionIfReactable,
       ),
+      findRoomForViewer: async (
+        ...args: Parameters<typeof repository.findRoomForViewer>
+      ) => {
+        const real = await repository.findRoomForViewer(...args);
+        if (real === null || options.roomOverride === undefined) return real;
+        return { ...real, ...options.roomOverride };
+      },
+      isDepartmentActive: async (
+        ...args: Parameters<typeof repository.isDepartmentActive>
+      ) => {
+        outcome.departmentChecks += 1;
+        return repository.isDepartmentActive(...args);
+      },
       loadReactions: async (
         ...args: Parameters<typeof repository.loadReactions>
       ) => {
@@ -105,7 +140,9 @@ async function perform(
         return repository.loadReactions(...args);
       },
     } as unknown as typeof repository;
-    const service = createMessageService(wrapped, { authorizer });
+    const service = createMessageService(wrapped, {
+      authorizer: authorizer as unknown as typeof fake,
+    });
     const actor = { userId, traceId: modifyTraceId() };
     const messageId = options.messageId ?? message;
     const kind = options.kind ?? "emoji";
@@ -123,7 +160,7 @@ async function perform(
       outcome.error = error as Outcome["error"];
     }
   });
-  outcome.authorized = authorizer.calls.map((call) => call.permission);
+  outcome.authorized = fake.calls.map((call) => call.permission);
   return outcome;
 }
 
@@ -851,6 +888,201 @@ describe("#138 コードレビュー1回目 重大（情報漏えい）：0行�
         message: CONFLICT_MESSAGE,
       });
       expect(JSON.stringify(outcome)).not.toContain(SECRET);
+    },
+  );
+});
+
+describe("#138 AC-1 見えないチャンネル・部署なし・応答の文言・権限の範囲・0行の後の判定", () => {
+  const OPERATIONS: readonly Op[] = ["add", "remove"];
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（①）: %s：部屋の行が読めても、見てよくない状態（非公開で未参加）なら、403 ではなく 404 NOT_FOUND。権限の確認も書き込みもしない",
+    async (op) => {
+      const outcome = await perform(op, world.carol.userId, {
+        roomOverride: { visibility: "private", joinedAt: null },
+      });
+      expect(outcome.error).toMatchObject({
+        code: "NOT_FOUND",
+        status: 404,
+        message: "チャンネルが見つかりません",
+      });
+      expect(outcome.authorized).toEqual([]);
+      expect(outcome.writes).toBe(0);
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（①）: %s：部屋の行が読めても、アーカイブ済み（deletedAt あり）なら、参加者でも 404 NOT_FOUND",
+    async (op) => {
+      const outcome = await perform(op, world.bob.userId, {
+        roomOverride: { deletedAt: "2026-11-15T00:00:00.000Z" },
+      });
+      expect(outcome.error).toMatchObject({ code: "NOT_FOUND", status: 404 });
+      expect(outcome.authorized).toEqual([]);
+      expect(outcome.writes).toBe(0);
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（部署なし）: %s：部署のない会社直属のチャンネルでは、部署の有効確認をせず、付け外しできる",
+    async (op) => {
+      const room = await insertChannel({
+        name: `${TEST_TAG}部署なしrxsvc`,
+        purpose: "normal",
+        departmentId: null,
+      });
+      await insertMember(room, world.alice.userId);
+      await insertMember(room, world.bob.userId);
+      const target = await seedParent(room, world.alice.userId, 2);
+      if (op === "remove")
+        await insertReactionRow({
+          messageId: target,
+          userId: world.bob.userId,
+          kind: "emoji",
+          value: "👍",
+          createdAt: reactionIsoAt(1),
+        });
+      const outcome = await perform(op, world.bob.userId, {
+        messageId: target,
+      });
+      expect(outcome.error).toBeUndefined();
+      expect(outcome.departmentChecks).toBe(0);
+      expect(await rowsOf(target)).toEqual(
+        op === "add" ? [`${world.bob.userId}:emoji:👍`] : [],
+      );
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（⑤）: %s：部署があるチャンネルでは、部署の有効確認を行う",
+    async (op) => {
+      if (op === "remove") await seedRow(world.bob.userId);
+      const outcome = await perform(op, world.bob.userId);
+      expect(outcome.error).toBeUndefined();
+      expect(outcome.departmentChecks).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（②・U-8）: %s：参加していない公開チャンネルの 403 は「このチャンネルには参加していません」",
+    async (op) => {
+      const outcome = await perform(op, world.carol.userId);
+      expect(outcome.error).toMatchObject({
+        code: "FORBIDDEN",
+        status: 403,
+        message: "このチャンネルには参加していません",
+      });
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（④・U-7）: %s：削除済みの投稿の 409 は「削除された投稿にはリアクションを付け外しできません」",
+    async (op) => {
+      await markDeleted(message, world.alice.userId);
+      const outcome = await perform(op, world.bob.userId);
+      expect(outcome.error).toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        message: "削除された投稿にはリアクションを付け外しできません",
+      });
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（⑤・U-8）: %s：DM の相手が無効のときの 409 は「相手のアカウントが無効になっているため、操作できません」",
+    async (op) => {
+      const dm = await insertDm(world.alice.userId, world.bob.userId);
+      const target = await seedParent(dm, world.alice.userId, 2);
+      await deactivateUser(world.alice.userId);
+      const outcome = await perform(op, world.bob.userId, {
+        messageId: target,
+      });
+      expect(outcome.error).toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        message: "相手のアカウントが無効になっているため、操作できません",
+      });
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（⑤・U-8）: %s：部署が無効のときの 409 は「部署が無効になっているため、操作できません」",
+    async (op) => {
+      await deactivateDepartment(world.dept.id);
+      const outcome = await perform(op, world.bob.userId);
+      expect(outcome.error).toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        message: "部署が無効になっているため、操作できません",
+      });
+    },
+  );
+
+  it.each(OPERATIONS)(
+    "#138 AC-1（③）: %s：権限 perm.reaction.manage.own を、範囲 { type: company } で確かめる",
+    async (op) => {
+      if (op === "remove") await seedRow(world.bob.userId);
+      const outcome = await perform(op, world.bob.userId);
+      expect(outcome.authorized).toEqual([PERMISSION]);
+      expect(outcome.scopes).toEqual([{ type: "company" }]);
+    },
+  );
+
+  it("#138 AC-1（U-12）: 付ける：0行の後の再判定で、別の種類が先頭にあっても、対象の種類を見て『すでに付けている』なら成功する（要求は1回）", async () => {
+    await seedRow(world.dave.userId, "👏", "emoji", 1);
+    await seedRow(world.bob.userId, "👍", "emoji", 2);
+    const outcome = await perform("add", world.bob.userId, {
+      beforeWrite: async () => "zero",
+    });
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.writes).toBe(1);
+    expect(outcome.result?.reactions).toHaveLength(2);
+    expect(outcome.result?.reactions[1]).toMatchObject({
+      value: "👍",
+      reactedByMe: true,
+    });
+  });
+
+  it("#138 AC-1（U-12）: 取り消し：0行の後の再判定で、先頭の別の種類を本人が付けていても、対象の種類を見て『付けていない』なら成功する（要求は1回）", async () => {
+    await seedRow(world.dave.userId, "👏", "emoji", 1);
+    await seedRow(world.bob.userId, "👏", "emoji", 2);
+    const outcome = await perform("remove", world.bob.userId, {
+      beforeWrite: async () => "zero",
+    });
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.writes).toBe(1);
+    expect(await rowsOf()).toEqual([
+      `${world.bob.userId}:emoji:👏`,
+      `${world.dave.userId}:emoji:👏`,
+    ]);
+  });
+
+  it("#138 AC-1（1-7 AC-4）: 20種類に達していても、すでにある種類への追加が0行になったときは、上限の 409 にせず、1回だけやり直して成功する（要求は2回）", async () => {
+    await seedTwentyTypes(message, world.dave.userId);
+    const outcome = await perform("add", world.bob.userId, {
+      value: "👍",
+      beforeWrite: async (n) => (n === 1 ? "zero" : "real"),
+    });
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.writes).toBe(2);
+    expect(outcome.result?.reactions).toHaveLength(20);
+    expect(await rowsOf()).toContain(`${world.bob.userId}:emoji:👍`);
+  });
+});
+
+describe("#138 AC-1（①）非公開チャンネルの参加者", () => {
+  it.each(["add", "remove"] as const)(
+    "#138 AC-1（①）: %s：非公開（private）チャンネルの参加者（アーカイブなし）は、付け外しできる（参加していることで見てよいと判定される）",
+    async (op) => {
+      if (op === "remove") await seedRow(world.bob.userId);
+      const outcome = await perform(op, world.bob.userId, {
+        roomOverride: { visibility: "private" },
+      });
+      expect(outcome.error).toBeUndefined();
+      expect(outcome.authorized).toEqual([PERMISSION]);
+      expect(await rowsOf()).toEqual(
+        op === "add" ? [`${world.bob.userId}:emoji:👍`] : [],
+      );
     },
   );
 });
