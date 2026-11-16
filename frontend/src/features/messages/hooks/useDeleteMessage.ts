@@ -43,6 +43,7 @@ export function useDeleteMessage(
           body: null,
           mentions: [],
           reactions: [],
+          attachments: [],
         }),
       ),
   });

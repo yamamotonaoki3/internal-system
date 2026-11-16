@@ -10,6 +10,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { ATTACHMENT_KINDS } from "../../shared/attachment-rules";
 import { USER_STATUS_KINDS } from "../../shared/profile-rules";
 
 export const sampleUsers = sqliteTable("sample_users", {
@@ -461,6 +462,55 @@ export const messageReactions = sqliteTable(
       "message_reactions_value_check",
       sql`length(${t.value}) between 1 and 64`,
     ),
+  ],
+);
+
+// メッセージの添付（#140）。実体は R2（binding ATTACHMENTS）に乱数のキーで置き、行には元の名前と検査の結果を持つ。
+// message_id が NULL の行は未投稿（アップロード済みで、まだどの投稿にも結び付いていない）。24時間を過ぎたら Cron が消す。
+// thread_parent_id はアップロードの文脈（通常の投稿用は NULL、返信用は親の ID）。結び付けは同じ文脈の投稿・返信にだけ許す。
+// content_type はサーバーの検査の結果の固定の値だけ（定義元は shared/attachment-rules.ts の ATTACHMENT_CONTENT_TYPES）。
+// CHECK にしないのは、値の「;」（text/plain; charset=utf-8）を drizzle-kit の生成が文の区切りとして切ってしまうため。
+const ATTACHMENT_KIND_LIST = ATTACHMENT_KINDS.map((kind) => `'${kind}'`).join(
+  ", ",
+);
+
+export const messageAttachments = sqliteTable(
+  "message_attachments",
+  {
+    id: text("id").primaryKey(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id),
+    threadParentId: text("thread_parent_id").references(() => messages.id),
+    messageId: text("message_id").references(() => messages.id),
+    uploaderId: text("uploader_id")
+      .notNull()
+      .references(() => users.id),
+    storageKey: text("storage_key").notNull().unique(),
+    originalName: text("original_name").notNull(),
+    kind: text("kind").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    index("message_attachments_message_id_idx").on(t.messageId),
+    index("message_attachments_uploader_id_message_id_idx").on(
+      t.uploaderId,
+      t.messageId,
+    ),
+    index("message_attachments_pending_created_at_idx")
+      .on(t.createdAt)
+      .where(sql`${t.messageId} IS NULL`),
+    check(
+      "message_attachments_original_name_check",
+      sql`length(${t.originalName}) between 1 and 255`,
+    ),
+    check(
+      "message_attachments_kind_check",
+      sql`${t.kind} in (${sql.raw(ATTACHMENT_KIND_LIST)})`,
+    ),
+    check("message_attachments_size_bytes_check", sql`${t.sizeBytes} > 0`),
   ],
 );
 

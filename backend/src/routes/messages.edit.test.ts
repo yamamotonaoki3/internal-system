@@ -127,6 +127,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
     const item = await listedItem(deptA.dedicatedChannelId, id, other.token);
     expect(Object.keys(item ?? {}).sort()).toEqual(
       [
+        "attachments",
         "author",
         "body",
         "createdAt",

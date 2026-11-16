@@ -270,7 +270,7 @@ describe("#201 AC-2 本文の検証", () => {
   it.each([
     ["body がない", {}],
     ["body が文字列でない", { body: 123 }],
-    ["余分な項目（attachmentIds）", { body: "x", attachmentIds: [] }],
+    ["余分な項目（unknownField）", { body: "x", unknownField: [] }],
     ["投稿者を指定する項目（senderId）", { body: "x", senderId: "someone" }],
   ])("#201 AC-2: %s は422で、行は増えない", async (_label, payload) => {
     const response = await post(deptA.dedicatedChannelId, payload);

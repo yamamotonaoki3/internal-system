@@ -12,6 +12,359 @@
     }
   ],
   "paths": {
+    "/api/rooms/{roomId}/attachments": {
+      "post": {
+        "operationId": "uploadRoomAttachment",
+        "summary": "通常の投稿に付ける添付をアップロードする",
+        "description": "通常の投稿と同じ条件で投稿できる部屋だけ（お知らせ専用は投稿の権限が要る）。本文はファイルのバイト列そのまま。部屋と権限（perm.attachment.upload）の判定の後に、名前・大きさ・形式（中身で判定し、拡張子と一致するものだけ）を確かめる。受け付ける形式は JPEG・PNG・GIF・WebP・PDF・テキスト・CSV・docx・xlsx・pptx・MP4・WebM。画像は Exif を除いて保存する。受信したバイト数が Content-Length と違えば 422 で、何も残さない。",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "X-File-Name",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "元のファイル名（UTF-8 をパーセントエンコード）。1〜255文字で、改行・「\"」・制御文字を含まない"
+          },
+          {
+            "name": "Content-Length",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000000
+            },
+            "description": "本文のバイト数。種類ごとの上限（画像10,000,000・文書25,000,000・動画100,000,000）を超えれば、本文を読まずに 422"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "アップロードした（未投稿。24時間以内に投稿に付けなければ消える）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、初回パスワードのまま（PASSWORD_CHANGE_REQUIRED）、またはアップロードできない（FORBIDDEN。未参加の公開チャンネル・お知らせ専用で権限がない・DM の権限がない・perm.attachment.upload がない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/messages/{messageId}/replies/attachments": {
+      "post": {
+        "operationId": "uploadReplyAttachment",
+        "summary": "返信に付ける添付をアップロードする",
+        "description": "返信と同じ条件（お知らせ専用でも参加者なら可）。この入口の添付は、同じ親への返信にだけ付けられる。本文はファイルのバイト列そのまま。部屋と権限（perm.attachment.upload）の判定の後に、名前・大きさ・形式（中身で判定し、拡張子と一致するものだけ）を確かめる。受け付ける形式は JPEG・PNG・GIF・WebP・PDF・テキスト・CSV・docx・xlsx・pptx・MP4・WebM。画像は Exif を除いて保存する。受信したバイト数が Content-Length と違えば 422 で、何も残さない。",
+        "parameters": [
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "X-File-Name",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "元のファイル名（UTF-8 をパーセントエンコード）。1〜255文字で、改行・「\"」・制御文字を含まない"
+          },
+          {
+            "name": "Content-Length",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000000
+            },
+            "description": "本文のバイト数。種類ごとの上限（画像10,000,000・文書25,000,000・動画100,000,000）を超えれば、本文を読まずに 422"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "アップロードした（未投稿。24時間以内に投稿に付けなければ消える）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、初回パスワードのまま（PASSWORD_CHANGE_REQUIRED）、またはアップロードできない（FORBIDDEN。未参加の公開チャンネル・返信の権限がない・perm.attachment.upload がない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "親が見えない・存在しない・返信である",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "親が削除済み、部署が無効、または DM の相手のアカウントが無効（CONFLICT）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/attachments/{attachmentId}": {
+      "get": {
+        "operationId": "downloadAttachment",
+        "summary": "添付を取得する",
+        "description": "取得のたびに、メッセージ一覧と同じ規則で見えるかを確かめる（非公開チャンネルは参加者だけ、公開チャンネルは未参加でも可、DM は当事者だけ、削除されたメッセージの添付は不可、未投稿の添付はアップロードした本人だけ）。見えない添付は、存在しない添付と同じ 404。Content-Type は保存時の検査の結果。正しい単一の Range（bytes=a-b・a-・-n）だけ 206 で返し、それ以外の Range は無視して 200 で全体を返す（416 は返さない）。",
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "添付の全体",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "画像・動画は inline、それ以外は attachment。filename（ASCII）と filename*（UTF-8）"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Content-Security-Policy": {
+                "schema": {
+                  "type": "string",
+                  "const": "default-src 'none'; sandbox"
+                }
+              },
+              "Cross-Origin-Resource-Policy": {
+                "schema": {
+                  "type": "string",
+                  "const": "same-origin"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "private, no-store"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "const": "bytes"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Range で指定した範囲",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "画像・動画は inline、それ以外は attachment。filename（ASCII）と filename*（UTF-8）"
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Content-Security-Policy": {
+                "schema": {
+                  "type": "string",
+                  "const": "default-src 'none'; sandbox"
+                }
+              },
+              "Cross-Origin-Resource-Policy": {
+                "schema": {
+                  "type": "string",
+                  "const": "same-origin"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "private, no-store"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "const": "bytes"
+                }
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "初回パスワードのまま（PASSWORD_CHANGE_REQUIRED）、または取得の権限がない（FORBIDDEN。perm.attachment.download・DM の閲覧の権限）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "添付が存在しない・見えない（区別しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/admin/accounts": {
       "get": {
         "operationId": "listAdminAccounts",
@@ -1745,7 +2098,7 @@
       "post": {
         "operationId": "postMessage",
         "summary": "チャンネルまたは DM にメッセージを投稿する",
-        "description": "チャンネルの参加者だけが投稿できる。お知らせ専用は、参加者のうち、その部署のオーナーと全体管理者だけ。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。DM の部屋は、当事者だけが投稿できる（当事者でなければ 404、perm.dm.message.send がなければ 403）。相手のアカウントが無効なら 409（CONFLICT）で、行は増えない。",
+        "description": "チャンネルの参加者だけが投稿できる。お知らせ専用は、参加者のうち、その部署のオーナーと全体管理者だけ。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。DM の部屋は、当事者だけが投稿できる（当事者でなければ 404、perm.dm.message.send がなければ 403）。相手のアカウントが無効なら 409（CONFLICT）で、行は増えない。 attachmentIds の添付が他人の・別の部屋の・別の文脈の・存在しないものなら 404、使用済みなら 409、合計が200,000,000バイトを超えるなら 422。どれもメッセージは作られない。",
         "parameters": [
           {
             "name": "roomId",
@@ -1793,7 +2146,7 @@
             }
           },
           "404": {
-            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）",
+            "description": "見えない部屋（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）、または添付が見つからない",
             "content": {
               "application/json": {
                 "schema": {
@@ -1803,7 +2156,7 @@
             }
           },
           "409": {
-            "description": "DM の相手のアカウントが無効になっている（CONFLICT）",
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）、または添付がすでに使われている",
             "content": {
               "application/json": {
                 "schema": {
@@ -3107,7 +3460,7 @@
       "post": {
         "operationId": "postReply",
         "summary": "スレッドに返信する",
-        "description": "チャンネルの参加者、または DM の当事者が、親の投稿 {messageId} に返信する。返信は1段だけで、返信への返信は 404。お知らせ専用チャンネルでも、参加者なら返信できる。判定の順：親が存在して見えるか（404）→ 親が返信でないか（404）→ チャンネルに参加しているか（403）→ perm.message.reply（403。拒否は監査ログに残す）→ 親が削除済みか（409）→ 部署が無効・DM の相手が無効（409）→ 条件付きの書き込み（確認の後に状態が変わったときも、条件を破る行は残さず、404／403／409 に読み分ける）。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。",
+        "description": "チャンネルの参加者、または DM の当事者が、親の投稿 {messageId} に返信する。返信は1段だけで、返信への返信は 404。お知らせ専用チャンネルでも、参加者なら返信できる。判定の順：親が存在して見えるか（404）→ 親が返信でないか（404）→ チャンネルに参加しているか（403）→ perm.message.reply（403。拒否は監査ログに残す）→ 親が削除済みか（409）→ 部署が無効・DM の相手が無効（409）→ 条件付きの書き込み（確認の後に状態が変わったときも、条件を破る行は残さず、404／403／409 に読み分ける）。本文は1〜4,000文字（UTF-16 の単位。空白・改行だけは不可。前後の空白は削らず、送られたまま保存する）。投稿者はセッションの利用者で、投稿時点の表示名を保存する。IDの作り直しが上限を超えたときは 503。 attachmentIds の添付が他人の・別の部屋の・別の文脈の・存在しないものなら 404、使用済みなら 409、合計が200,000,000バイトを超えるなら 422。どれもメッセージは作られない。",
         "parameters": [
           {
             "name": "messageId",
@@ -3155,7 +3508,7 @@
             }
           },
           "404": {
-            "description": "見えない親（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）、または返信の ID",
+            "description": "見えない親（非公開で未参加・アーカイブ済み・存在しない・当事者でない DM）、または返信の ID、または添付が見つからない",
             "content": {
               "application/json": {
                 "schema": {
@@ -3165,7 +3518,7 @@
             }
           },
           "409": {
-            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する",
+            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する、または添付がすでに使われている",
             "content": {
               "application/json": {
                 "schema": {
@@ -3747,6 +4100,59 @@
   },
   "components": {
     "schemas": {
+      "AttachmentItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "contentType",
+          "size"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "元のファイル名"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "document",
+              "video"
+            ]
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain; charset=utf-8",
+              "video/mp4",
+              "video/webm",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ],
+            "description": "サーバーが中身を検査して決めた種類（申告・拡張子からは決めない）。テキストと CSV は text/plain"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "保存したバイト数（画像は Exif を除いた後）"
+          }
+        }
+      },
     "ChannelListItem": {
       "type": "object",
       "required": [
@@ -3943,7 +4349,8 @@
         "parentMessageId",
         "replyCount",
         "mentions",
-        "reactions"
+        "reactions",
+        "attachments"
       ],
       "additionalProperties": false,
       "properties": {
@@ -4029,6 +4436,13 @@
             "$ref": "#/components/schemas/Reaction"
           },
           "description": "リアクションの集計（種類は最初に付けられた時刻の順）。削除済みは空配列"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/AttachmentItem"
+          },
+          "description": "添付（ID の昇順）。削除済みは空配列"
         }
       }
     },
@@ -4989,6 +5403,16 @@
             "$ref": "#/components/schemas/MessageMention"
           },
           "description": "任意。本文中の指名範囲"
+        },
+        "attachmentIds": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "description": "任意。結び付ける未投稿の添付の ID（本人がアップロードし、同じ部屋・同じ文脈（通常の投稿用か、同じ親の返信用）のもの）。合計は200,000,000バイトまで"
         }
       }
     },
