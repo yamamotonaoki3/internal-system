@@ -2,7 +2,7 @@
 // 4つの状態：読み込み中・取得に失敗（404 は「スレッドが見つかりません」）・0件・あり。取得に失敗しても、取得済みの返信は残して上にエラーを出す。
 // 返信できない理由（replyBlockedReason）があるときは、入力欄の代わりに案内を出す。表示の制御だけで、認可は投稿のときにサーバーが行う。
 // 親は表示だけ（編集・削除は出さない）。自分の返信の編集・削除は、参加していて（joined）部屋に書き込めるとき（roomWritable）だけ出す。返信できない理由（replyBlockedReason）には頼らない（優先順で部屋の理由が隠れるため）。
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import {
   REPLY_BLOCKED_REASONS,
@@ -85,6 +85,8 @@ export function ThreadReplies({
   onReplied,
 }: ThreadRepliesProps) {
   const thread = useThreadReplies(parentMessageId);
+  // リアクションのピッカーは、親と返信を通して同時に1つだけ開く
+  const [pickerOpenId, setPickerOpenId] = useState<string | null>(null);
   const userId = useSignedInUserId();
   const data = thread.data;
   const notFound = isNotFound(thread.error, data, roomId);
@@ -108,6 +110,7 @@ export function ThreadReplies({
     );
   // 自分の返信の編集・削除は、参加していて、部屋に書き込めるときだけ。入力欄の可否（reason）とは別に決める
   const canModifyOwn = data.joined && data.roomWritable;
+  // リアクションの付け外しも同じ条件（親が削除済みでも、書き込める部屋なら未削除の返信には付けられる）
   return (
     <div>
       <ul className="mb-4">
@@ -115,6 +118,11 @@ export function ThreadReplies({
           message={data.parent}
           retired={isRetiredAuthor(data.parent.author, retiredAuthorIds)}
           canModify={false}
+          canReact={canModifyOwn}
+          pickerOpen={pickerOpenId === data.parent.id}
+          onPickerOpenChange={(open) =>
+            setPickerOpenId(open ? data.parent.id : null)
+          }
         />
       </ul>
       <MessageList
@@ -126,6 +134,9 @@ export function ThreadReplies({
         retiredAuthorIds={retiredAuthorIds}
         currentUserId={userId}
         canModifyOwn={canModifyOwn}
+        canReact={canModifyOwn}
+        pickerOpenId={pickerOpenId}
+        onPickerOpenIdChange={setPickerOpenId}
       />
       <ReplyArea
         parent={data.parent}

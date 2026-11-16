@@ -88,6 +88,15 @@ export function putThreadRead(
   });
 }
 
+/** #138：一覧の項目の reactions（種類ごとの集計。付けた人は最大50人） */
+export type ReactionShape = {
+  kind: string;
+  value: string;
+  count: number;
+  reactedByMe: boolean;
+  users: { id: string; displayName: string; isActive: boolean }[];
+};
+
 export type ReplyItem = {
   id: string;
   roomId: string;
@@ -98,6 +107,8 @@ export type ReplyItem = {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  /** #138：削除済みは [] */
+  reactions: ReactionShape[];
 };
 
 export type RepliesPage = {

@@ -6,6 +6,7 @@
 // ログインの試行制限に当たらないよう、ログインは 1 回だけにする。
 import { execFile } from "node:child_process";
 import { expect, test } from "./console-guard";
+import { notReactionButton } from "./reaction-button";
 import { allowSessionCheck401 } from "./session-console";
 
 const PASSWORD = "TestPass123!";
@@ -60,15 +61,20 @@ test("#238 AC-1・AC-2・AC-3: 無効な投稿者の投稿に投稿時点の名�
   await expect(retiredRow).toContainText("（退職者）");
   await expect(page.locator("body")).not.toContainText(CURRENT_RETIRED_NAME);
 
-  // AC-2：その行に、ボタン・リンク・「DMを送る」がない。#137：全投稿のスレッドの「返信」ボタン（名前に投稿者名を含む）は除く
+  // AC-2：その行に、ボタン・リンク・「DMを送る」がない。#137：全投稿のスレッドの「返信」ボタン（名前に投稿者名を含む）は除く。
+  // #138：「リアクションを付ける」「付けた人」ボタンとリアクションのチップ（aria-pressed を持つ）も除く（名前に投稿者名・付けた人の名前を含む。退職者の投稿にも付けられる）
   await expect(
-    retiredRow.getByRole("button").filter({ hasNotText: /返信/ }),
+    retiredRow
+      .getByRole("button")
+      .and(notReactionButton(page))
+      .filter({ hasNotText: /返信/ }),
   ).toHaveCount(0);
   await expect(retiredRow.getByRole("link")).toHaveCount(0);
   await expect(retiredRow).not.toContainText(/DM ?を送る/);
   await expect(
     page
       .getByRole("button", { name: POSTED_RETIRED_NAME })
+      .and(notReactionButton(page))
       .filter({ hasNotText: /返信/ }),
   ).toHaveCount(0);
 

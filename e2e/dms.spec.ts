@@ -9,6 +9,7 @@
 import { execFile } from "node:child_process";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { expect, test } from "./console-guard";
+import { notReactionButton } from "./reaction-button";
 import { roomLinkName } from "./room-link";
 
 const ORIGIN = "http://localhost:5173";
@@ -379,6 +380,8 @@ test("#136 AC-1（1-2 AC-6）・AC-3（C-168(2)(5)(6)）: 無効な相手との 
   await expect(
     main
       .getByRole("button", { name: new RegExp(NAME_RETIRED) })
+      // #138：リアクションの「付ける」「付けた人」ボタン・チップ（aria-pressed を持つ）は、名前に投稿者名・付けた人の名前を含むため除く
+      .and(notReactionButton(main.page()))
       .filter({ hasNotText: /返信/ }),
   ).toHaveCount(0);
   await expect(

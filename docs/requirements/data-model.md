@@ -527,6 +527,7 @@ erDiagram
         text value PK "絵文字または固定のスタンプの識別子"
         text created_at
     }
+    %% 実装（Issue #138。C-174）：表の名前は message_reactions。主キーは (message_id, kind, value, user_id)
     mentions {
         text message_id PK, FK
         text mentioned_user_id PK, FK
@@ -691,7 +692,7 @@ erDiagram
 | `personal_items` | 自分専用の整理スペースに登録したもの（チャンネル・ファイル・メッセージ・案件・DM。本人のみ。C-67） | ユーザー、対象の種類、対象のID、自分用フォルダ | 2-8 |
 | `messages` | メッセージ（返信を含む） | 部屋、親のメッセージ、送信者、本文、編集・削除の日時 | 1-1〜1-5、5-2 |
 | `attachments` | 添付ファイルの情報（実体はR2） | メッセージ、R2のキー、種類、形式、サイズ、アップロードした人 | 1-6、5-2 |
-| `reactions` | 絵文字・スタンプのリアクション | メッセージ、ユーザー、種類、値 | 1-7 |
+| `reactions` | 絵文字・スタンプのリアクション【Issue #138（C-174）で実装した：表の名前は`message_reactions`、主キーは（`message_id`, `kind`, `value`, `user_id`）。`kind`は`emoji`・`stamp`のCHECK、`value`は長さ1〜64のCHECK、`user_id`に索引。物理的に消さず、削除済みの投稿の行も残す。設計書 [reactions.md](../design/reactions.md)】 | メッセージ、ユーザー、種類、値 | 1-7 |
 | `mentions` | メッセージでの指名 | メッセージ、指名された人 | 1-8、3-2 |
 | `read_positions` | 部屋ごとの既読の位置 | ユーザー、部屋、最後に読んだメッセージ | 3-1 |
 | `thread_read_positions` | スレッドごとの既読の位置（Issue #137で確定。C-172） | ユーザー、親の投稿、最後に読んだ返信 | 1-4 AC-4 |

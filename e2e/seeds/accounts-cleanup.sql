@@ -11,5 +11,8 @@ WHERE actor_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_account!_%
 -- #200：発行した利用者は全社連絡と所属部署の専用チャンネルに参加するため、参加の行も先に消す
 DELETE FROM channel_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_account!_%' ESCAPE '!');
 DELETE FROM user_role_assignments WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_account!_%' ESCAPE '!');
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_account!_%' ESCAPE '!'));
 DELETE FROM users WHERE login_id LIKE 'e2euser!_account!_%' ESCAPE '!';
 DELETE FROM departments WHERE id = '01JTE2E1990000000000000D01' AND name = '[E2E_TEST]アカウント発行部';

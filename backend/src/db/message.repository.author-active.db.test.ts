@@ -116,11 +116,17 @@ describe("#238 AC-1 Repository が isActive を返す", () => {
     const roomId = await roomWith(users, 5, "isActive");
     await deactivate(users[1] ?? "");
     const { repository } = recordingRepository();
-    const latest = await repository.listLatest(roomId, 50);
+    const latest = await repository.listLatest(
+      roomId,
+      50,
+      undefined,
+      users[0] ?? "",
+    );
     const after = await repository.listAfter(
       roomId,
       "00000000000000000000000000",
       50,
+      users[0] ?? "",
     );
     for (const items of [latest.items, after.items]) {
       expect(items).toHaveLength(5);
@@ -144,10 +150,10 @@ describe("#238 AC-1（N+1）SQL の数が投稿者の人数に比例しない", 
     const counts: Record<string, number[]> = { latest: [], after: [] };
     for (const roomId of [single, many]) {
       const latest = recordingRepository();
-      await latest.repository.listLatest(roomId, 50);
+      await latest.repository.listLatest(roomId, 50, undefined, users[0] ?? "");
       counts.latest?.push(latest.statements.length);
       const after = recordingRepository();
-      await after.repository.listAfter(roomId, zero, 50);
+      await after.repository.listAfter(roomId, zero, 50, users[0] ?? "");
       counts.after?.push(after.statements.length);
     }
     expect(counts.latest?.[0]).toBeGreaterThan(0);
@@ -163,12 +169,19 @@ describe("#238 AC-1（索引）実行計画", () => {
     await deactivate(users[2] ?? "");
     for (const call of ["latest", "after"] as const) {
       const recording = recordingRepository();
-      if (call === "latest") await recording.repository.listLatest(roomId, 50);
+      if (call === "latest")
+        await recording.repository.listLatest(
+          roomId,
+          50,
+          undefined,
+          users[0] ?? "",
+        );
       else
         await recording.repository.listAfter(
           roomId,
           "00000000000000000000000000",
           50,
+          users[0] ?? "",
         );
       const plans: string[][] = [];
       for (const statement of recording.statements)

@@ -30,6 +30,13 @@ import {
   deleteIfModifiable,
   updateBodyIfModifiable,
 } from "./message-modify.sql";
+import {
+  addReactionIfReactable,
+  loadMessageReactions,
+  loadReactionsIfReactable,
+  removeReactionIfReactable,
+  type Reaction,
+} from "./message-reactions.sql";
 import { insertReplyIfOrdered } from "./reply-insert.sql";
 
 export type MessageItem = {
@@ -48,6 +55,8 @@ export type MessageItem = {
   /** 通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0 */
   replyCount: number;
   mentions: Mention[];
+  /** 種類ごとの集計（種類は最初に付けられた時刻の順）。削除済みは [] */
+  reactions: Reaction[];
 };
 
 export type MessageInsert = {
@@ -97,6 +106,7 @@ export function toItem(
     authorIsActive: boolean;
   },
   mentions: Mention[] = [],
+  reactions: Reaction[] = [],
 ): MessageItem {
   const deleted = row.deletedAt !== null;
   return {
@@ -114,6 +124,7 @@ export function toItem(
     parentMessageId: row.parentMessageId,
     replyCount: row.replyCount,
     mentions: deleted ? [] : mentions,
+    reactions: deleted ? [] : reactions,
   };
 }
 
@@ -227,15 +238,23 @@ export function createMessageRepository(db: Database) {
         .limit(1);
       return rows[0] ?? null;
     },
-    /** 1件の項目（スレッドの親の表示用。replyCount を含む） */
-    async findItem(messageId: string): Promise<MessageItem | null> {
+    /** 1件の項目（スレッドの親の表示用。replyCount を含む）。reactedByMe は viewerId から決まる */
+    async findItem(
+      messageId: string,
+      viewerId: string,
+    ): Promise<MessageItem | null> {
       const rows = await selectWithAuthor()
         .where(eq(messages.id, messageId))
         .limit(1);
       const row = rows[0];
       if (row === undefined) return null;
       const mentions = await loadMessageMentions(db, [row.id]);
-      return toItem(row, mentions.get(row.id) ?? []);
+      const reactions = await loadMessageReactions(db, [row.id], viewerId);
+      return toItem(
+        row,
+        mentions.get(row.id) ?? [],
+        reactions.get(row.id) ?? [],
+      );
     },
     async isDepartmentActive(departmentId: string): Promise<boolean> {
       const rows = await db
@@ -267,8 +286,13 @@ export function createMessageRepository(db: Database) {
         .limit(1);
       return rows[0]?.id ?? null;
     },
-    /** 新しい順。nextCursor は古い側の続き */
-    async listLatest(roomId: string, limit: number, cursor?: CursorPayload) {
+    /** 新しい順。nextCursor は古い側の続き。viewerId は reactedByMe を決める見ている人（必須） */
+    async listLatest(
+      roomId: string,
+      limit: number,
+      cursor: CursorPayload | undefined,
+      viewerId: string,
+    ) {
       const rows = await selectWithAuthor()
         .where(
           and(
@@ -286,17 +310,23 @@ export function createMessageRepository(db: Database) {
         .orderBy(desc(messages.id))
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
-      const mentions = await loadMessageMentions(
-        db,
-        page.items.map((row) => row.id),
-      );
+      const ids = page.items.map((row) => row.id);
+      const mentions = await loadMessageMentions(db, ids);
+      const reactions = await loadMessageReactions(db, ids, viewerId);
       return {
-        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        items: page.items.map((row) =>
+          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+        ),
         nextCursor: page.nextCursor,
       };
     },
-    /** ID昇順で after より後（after は含まない） */
-    async listAfter(roomId: string, after: string, limit: number) {
+    /** ID昇順で after より後（after は含まない）。viewerId は listLatest と同じ */
+    async listAfter(
+      roomId: string,
+      after: string,
+      limit: number,
+      viewerId: string,
+    ) {
       const rows = await selectWithAuthor()
         .where(
           and(
@@ -308,12 +338,13 @@ export function createMessageRepository(db: Database) {
         .orderBy(asc(messages.id))
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
-      const mentions = await loadMessageMentions(
-        db,
-        page.items.map((row) => row.id),
-      );
+      const ids = page.items.map((row) => row.id);
+      const mentions = await loadMessageMentions(db, ids);
+      const reactions = await loadMessageReactions(db, ids, viewerId);
       return {
-        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        items: page.items.map((row) =>
+          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+        ),
         hasMore: page.hasMore,
       };
     },
@@ -321,7 +352,8 @@ export function createMessageRepository(db: Database) {
     async listRepliesLatest(
       parentMessageId: string,
       limit: number,
-      cursor?: CursorPayload,
+      cursor: CursorPayload | undefined,
+      viewerId: string,
     ) {
       const rows = await selectReplyWithAuthor()
         .where(
@@ -339,12 +371,13 @@ export function createMessageRepository(db: Database) {
         .orderBy(desc(messages.id))
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
-      const mentions = await loadMessageMentions(
-        db,
-        page.items.map((row) => row.id),
-      );
+      const ids = page.items.map((row) => row.id);
+      const mentions = await loadMessageMentions(db, ids);
+      const reactions = await loadMessageReactions(db, ids, viewerId);
       return {
-        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        items: page.items.map((row) =>
+          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+        ),
         nextCursor: page.nextCursor,
       };
     },
@@ -353,6 +386,7 @@ export function createMessageRepository(db: Database) {
       parentMessageId: string,
       after: string,
       limit: number,
+      viewerId: string,
     ) {
       const rows = await selectReplyWithAuthor()
         .where(
@@ -364,12 +398,13 @@ export function createMessageRepository(db: Database) {
         .orderBy(asc(messages.id))
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
-      const mentions = await loadMessageMentions(
-        db,
-        page.items.map((row) => row.id),
-      );
+      const ids = page.items.map((row) => row.id);
+      const mentions = await loadMessageMentions(db, ids);
+      const reactions = await loadMessageReactions(db, ids, viewerId);
       return {
-        items: page.items.map((row) => toItem(row, mentions.get(row.id) ?? [])),
+        items: page.items.map((row) =>
+          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+        ),
         hasMore: page.hasMore,
       };
     },
@@ -420,6 +455,23 @@ export function createMessageRepository(db: Database) {
         throw translated;
       }
     },
+    /**
+     * リアクションを付ける（条件は message-reactions.sql.ts の reactable・上限20種類・重複）。追加した行数（1 か 0）と、同じ batch で読んだ最新の集計を返す。
+     * 条件が崩れていれば 0 と []。0行の原因は Service が読み直して分ける。
+     */
+    addReactionIfReactable: (
+      input: Parameters<typeof addReactionIfReactable>[1],
+    ) => addReactionIfReactable(db, input),
+    /** 本人のリアクションを取り消す。結果の形は addReactionIfReactable と同じ */
+    removeReactionIfReactable: (
+      input: Parameters<typeof removeReactionIfReactable>[1],
+    ) => removeReactionIfReactable(db, input),
+    /**
+     * 0行の原因を分けるための読み直し。reactable の条件を満たすときだけ集計（付いていなければ []）を返し、満たさなければ null
+     * （付けた人の名前を、条件の外へ返さない）。reactedByMe は userId から決まる。
+     */
+    loadReactions: (messageId: string, userId: string) =>
+      loadReactionsIfReactable(db, messageId, userId),
     /** 返信の条件付きの INSERT（条件は reply-insert.sql.ts）。挿入した行数（1 か 0）を返す */
     insertReplyIfOrdered: (input: Parameters<typeof insertReplyIfOrdered>[1]) =>
       insertReplyIfOrdered(db, input),

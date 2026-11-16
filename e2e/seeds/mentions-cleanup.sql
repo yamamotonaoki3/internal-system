@@ -10,6 +10,10 @@ WHERE message_id IN (SELECT id FROM messages WHERE room_id = '01JTE2E13900000000
 DELETE FROM notifications
 WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_mtn!_%' ESCAPE '!')
    OR room_id = '01JTE2E1390000000000000C01';
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_mtn!_%' ESCAPE '!'))
+   OR message_id IN (SELECT id FROM messages WHERE (room_id = '01JTE2E1390000000000000C01' AND parent_message_id IS NOT NULL) OR (room_id = '01JTE2E1390000000000000C01'));
 DELETE FROM messages
 WHERE room_id = '01JTE2E1390000000000000C01' AND parent_message_id IS NOT NULL;
 DELETE FROM messages

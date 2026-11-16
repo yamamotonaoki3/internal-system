@@ -30,6 +30,8 @@ const message = (n: number, body: string) => ({
   replyCount: 0,
   // #139：メンションの必須の項目（メンションなしの投稿）
   mentions: [],
+  // #138：リアクションの必須の項目（リアクションなしの投稿）
+  reactions: [],
 });
 
 // 新しい順（一覧の API の並び）

@@ -8,6 +8,7 @@ import { withDatabase, type Database } from "./database";
 import { toItem, type MessageItem } from "./message.repository";
 import { listThreadRows } from "./thread-list.sql";
 import { loadMessageMentions } from "./message-mentions.sql";
+import { loadMessageReactions } from "./message-reactions.sql";
 import { listThreadUnreadCounts } from "./thread-unread-counts.sql";
 
 export type ThreadRoom =
@@ -84,10 +85,9 @@ export function createThreadRepository(db: Database) {
           }),
         })),
       );
-      const mentions = await loadMessageMentions(
-        db,
-        page.items.map((row) => row.id),
-      );
+      const ids = page.items.map((row) => row.id);
+      const mentions = await loadMessageMentions(db, ids);
+      const reactions = await loadMessageReactions(db, ids, userId);
       const items = page.items.map((row): ThreadItem => {
         const unreadCount = counts.get(row.id);
         if (unreadCount === undefined)
@@ -108,6 +108,7 @@ export function createThreadRepository(db: Database) {
               authorIsActive: row.author_is_active === 1,
             },
             mentions.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
           ),
           room: toRoom(row),
           lastReplyAt: row.last_reply_at,

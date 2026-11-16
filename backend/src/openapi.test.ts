@@ -499,3 +499,128 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     expect(Object.keys(setup?.operation.responses ?? {})).toContain("429");
   });
 });
+
+type Schema = {
+  type?: string | string[];
+  required?: string[];
+  properties?: Record<string, Schema>;
+  items?: Schema & { $ref?: string };
+  $ref?: string;
+};
+type ReactionOperation = {
+  responses: Record<string, { description?: string }>;
+};
+
+describe("API の仕様書：リアクション（#138）", () => {
+  const POST_NAME = "POST /api/messages/{messageId}/reactions";
+  const DELETE_NAME =
+    "DELETE /api/messages/{messageId}/reactions/{kind}/{value}";
+
+  it.each([POST_NAME, DELETE_NAME])(
+    "#138 AC-1: %s が仕様書に書かれ、実際のルートと一致する",
+    (name) => {
+      expect(operations.map((o) => o.name)).toContain(name);
+      expect(actual).toContain(name);
+    },
+  );
+
+  it.each([POST_NAME, DELETE_NAME])(
+    "#138 AC-1（U-12）: %s の成功は 200 だけ（201・204 は書かない）。401・403・404・409・422 を書いている",
+    (name) => {
+      const operation = operations.find((o) => o.name === name);
+      const codes = Object.keys(operation?.operation.responses ?? {});
+      for (const code of ["200", "401", "403", "404", "409", "422"])
+        expect(codes, name).toContain(code);
+      for (const code of ["201", "204"])
+        expect(codes, name).not.toContain(code);
+    },
+  );
+
+  it.each([POST_NAME, DELETE_NAME])(
+    "#138 AC-1（4回目の指摘2）: %s の 409 の説明に、状態の変化（やり直しても決まらない競合）を含める",
+    (name) => {
+      const operation = operations.find((o) => o.name === name)
+        ?.operation as unknown as ReactionOperation | undefined;
+      expect(operation?.responses["409"]?.description, name).toContain(
+        "状態の変化",
+      );
+    },
+  );
+
+  it("#138 AC-1: 成功の応答（200）は { messageId, reactions } で、reactions は Reaction の配列", () => {
+    const schemas = spec.components.schemas as unknown as Record<
+      string,
+      Schema
+    >;
+    const operation = (
+      spec.paths as unknown as Record<
+        string,
+        Record<
+          string,
+          {
+            responses: Record<
+              string,
+              { content?: Record<string, { schema?: Schema }> }
+            >;
+          }
+        >
+      >
+    )["/api/messages/{messageId}/reactions"]?.post;
+    const schema =
+      operation?.responses["200"]?.content?.["application/json"]?.schema;
+    const resolved =
+      schema?.$ref === undefined
+        ? schema
+        : schemas[schema.$ref.replace("#/components/schemas/", "")];
+    expect(resolved?.required).toEqual(
+      expect.arrayContaining(["messageId", "reactions"]),
+    );
+    expect(resolved?.properties?.reactions?.type).toBe("array");
+  });
+
+  it("#138 AC-1: Reaction は kind・value・count・reactedByMe・users を必須で持ち、users は id・displayName・isActive を持つ", () => {
+    const schemas = spec.components.schemas as unknown as Record<
+      string,
+      Schema
+    >;
+    const reaction = schemas.Reaction;
+    expect(reaction?.required).toEqual(
+      expect.arrayContaining([
+        "kind",
+        "value",
+        "count",
+        "reactedByMe",
+        "users",
+      ]),
+    );
+    expect(reaction?.properties?.count?.type).toBe("integer");
+    expect(reaction?.properties?.reactedByMe?.type).toBe("boolean");
+    expect(reaction?.properties?.users?.type).toBe("array");
+    expect(reaction?.properties?.users?.items?.required).toEqual(
+      expect.arrayContaining(["id", "displayName", "isActive"]),
+    );
+  });
+
+  it("#138 AC-1: Reaction.kind は emoji か stamp の列挙", () => {
+    const schemas = spec.components.schemas as unknown as Record<
+      string,
+      { properties?: Record<string, { enum?: string[] }> }
+    >;
+    expect(
+      [...(schemas.Reaction?.properties?.kind?.enum ?? [])].sort(),
+    ).toEqual(["emoji", "stamp"]);
+  });
+
+  it("#138 AC-1: 一覧の項目（MessageItem）に reactions（Reaction の配列）が必須である", () => {
+    const schemas = spec.components.schemas as unknown as Record<
+      string,
+      Schema
+    >;
+    const item = schemas.MessageItem;
+    expect(item?.required).toContain("reactions");
+    expect(item?.properties?.reactions?.type).toBe("array");
+    expect(item?.properties?.reactions?.items?.$ref).toBe(
+      "#/components/schemas/Reaction",
+    );
+  });
+});

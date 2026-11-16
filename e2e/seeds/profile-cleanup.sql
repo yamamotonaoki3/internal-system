@@ -29,6 +29,9 @@ WHERE status_updated_by IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_p
 UPDATE users SET email_verified_by = NULL
 WHERE email_verified_by IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_profile!_%' ESCAPE '!')
   AND login_id NOT LIKE 'e2euser!_profile!_%' ESCAPE '!';
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_profile!_%' ESCAPE '!'));
 DELETE FROM users WHERE login_id LIKE 'e2euser!_profile!_%' ESCAPE '!';
 DELETE FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署130';
 

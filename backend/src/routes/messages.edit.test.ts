@@ -136,6 +136,7 @@ describe("#134 AC-1（1-3 AC-1・AC-3）本人の編集", () => {
         "mentions",
         // #137：一覧の項目に足した parentMessageId・replyCount
         "parentMessageId",
+        "reactions",
         "replyCount",
         "roomId",
       ].sort(),

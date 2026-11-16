@@ -236,7 +236,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 | `features/messages/describe-error.ts`と`features/channels/describe-error.ts`の重複 | 今回は共通化していない。別のIssueで共通化する |
 | 空の部屋での2秒ごとの最新取得 | 上記のとおり。#160で実測する |
 | `merge-messages.ts`のミューテーションのスコア | 他より低めである。理由：`mergeMessages`の比較関数は、IDが重複しない前提では`a.id < b.id`と`a.id <= b.id`などが同じ結果になる**同値変異**が生き残るため。振る舞い（重複の除去・昇順）は単体テストで確かめている。計測値はIssueとPRに記録する |
-| 過去へのスクロール、自動スクロール、Markdown、添付、メンション、リアクション、スレッド、編集・削除 | 未実装（親#133以降）【Issue #134で、Markdownと編集・削除を実装した（[message-edit-markdown.md](message-edit-markdown.md)）。**既知の制限**：ポーリングは`after`だけを取るため、開いたままの画面には他の人の編集・削除が届かない。部屋を開き直すと反映される。即時の反映は#117。元の記述は残す】 |
+| 過去へのスクロール、自動スクロール、Markdown、添付、メンション、リアクション、スレッド、編集・削除 | 未実装（親#133以降）【Issue #138で、リアクション・スタンプを実装した（[reactions.md](reactions.md)）。一覧の項目に`reactions`を足し、他の人のリアクションは開き直すと反映する（即時の反映は#117）。元の記述は残す】【Issue #134で、Markdownと編集・削除を実装した（[message-edit-markdown.md](message-edit-markdown.md)）。**既知の制限**：ポーリングは`after`だけを取るため、開いたままの画面には他の人の編集・削除が届かない。部屋を開き直すと反映される。即時の反映は#117。元の記述は残す】 |
 | D1の直列実行の公式文書の照合 | 確認済み（2026-11-10。上の「前提」）。ただし、Sessions API・読み取りレプリカを使わないことが前提 |
 | **本番のD1へのmigration 0012の適用** | **未実施**。利用者の承認が別途必要。ローカルの使い捨てD1でのリハーサルは実施済み：①0011まで適用済みでデータのあるDBに0012を適用、②新規のDBに全migrationを適用 |
 
@@ -257,3 +257,4 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0015：共通部品を使う／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：1-1 AC-1〜6、1-9 AC-1、2-3 AC-4、S-05。EP-1-01・EP-1-02・EP-2-06。【Issue #134：1-3・1-5。[message-edit-markdown.md](message-edit-markdown.md)、ADR-0026、C-171】
 - Issue #137：スレッドの返信を足した（`parent_message_id`、EP-1-01から返信を除く、`replyCount`）。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08
+- Issue #138：リアクション・スタンプを足した（表`message_reactions`、EP-1-12・EP-1-13、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`reactions`を追加。削除済みは`[]`）。`MessageRepository.listLatest`・`listAfter`の`viewerId`は必須。詳細は[reactions.md](reactions.md)。決定記録C-174。要件：1-7 AC-1〜AC-5、1-4 AC-6

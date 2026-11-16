@@ -2846,6 +2846,173 @@
         }
       }
     },
+    "/api/messages/{messageId}/reactions": {
+      "post": {
+        "operationId": "addReaction",
+        "summary": "投稿にリアクション（絵文字・スタンプ）を付ける",
+        "description": "その投稿（親・返信とも）に、自分のリアクションを付ける。kind は emoji（固定の一覧の絵文字）か stamp（固定のスタンプの id）で、value が一覧にない（肌の色の違い・空白つき・一覧にない文字を含む）と 422。すでに付けているものを付けても 200 で、最新の集計を返す（冪等。エラーにしない）。1つの投稿に付けられる種類は、絵文字とスタンプを合わせて20種類まで（すでにある種類には別の人が付けられる。21種類目は 409）。判定の順：見えるか（404）→ 参加しているか（公開チャンネルの未参加は 403）→ 権限（403）→ 削除済み（409）→ 部署が無効・DM の相手が無効（409）→ 書き込み。お知らせ専用の投稿権限は問わない。通知・未読・スレッド一覧の並びには影響しない。",
+        "parameters": [
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "付けた（すでに付けていた場合も同じ）。その投稿の最新の集計を返す",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageReactions"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "見えるが付け外しできない：参加していない公開チャンネル・権限がない（FORBIDDEN）、送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない投稿（存在しない・見えない部屋・アーカイブ済み・当事者でない DM）。区別せず 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除済み・部署が無効・DM の相手が無効・20種類の上限（リアクションは20種類までです）・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/messages/{messageId}/reactions/{kind}/{value}": {
+      "delete": {
+        "operationId": "removeReaction",
+        "summary": "投稿に付けた自分のリアクションを取り消す",
+        "description": "自分が付けたリアクションを取り消す。他人の行には触れない（他人が付けた種類を指定しても、自分の行がないだけで 200。他人の行は残る）。すでに外れているものを取り消しても 200 で、最新の集計を返す（冪等。エラーにしない）。value は URL エンコードする。kind・value が固定の一覧にないと 422。判定の順は付ける場合（EP-1-12）と同じ。削除済みの投稿・書き込めない部屋では取り消せない（409）。",
+        "parameters": [
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "emoji",
+                "stamp"
+              ]
+            }
+          },
+          {
+            "name": "value",
+            "in": "path",
+            "required": true,
+            "description": "URL エンコードした値（絵文字、またはスタンプの id）",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取り消した（すでに外れていた場合も同じ）。その投稿の最新の集計を返す",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageReactions"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "見えるが付け外しできない：参加していない公開チャンネル・権限がない（FORBIDDEN）、送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない投稿（存在しない・見えない部屋・アーカイブ済み・当事者でない DM）。区別せず 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除済み・部署が無効・DM の相手が無効・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/messages/{messageId}/replies": {
       "get": {
         "operationId": "listReplies",
@@ -3775,7 +3942,8 @@
         "deleted",
         "parentMessageId",
         "replyCount",
-        "mentions"
+        "mentions",
+        "reactions"
       ],
       "additionalProperties": false,
       "properties": {
@@ -3854,6 +4022,13 @@
             "$ref": "#/components/schemas/MessageMention"
           },
           "description": "本文内の指名範囲。削除済みは空配列"
+        },
+        "reactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Reaction"
+          },
+          "description": "リアクションの集計（種類は最初に付けられた時刻の順）。削除済みは空配列"
         }
       }
     },
@@ -4618,6 +4793,112 @@
         },
         "hasMore": {
           "type": "boolean"
+        }
+      }
+    },
+    "Reaction": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value",
+        "count",
+        "reactedByMe",
+        "users"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "emoji",
+            "stamp"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "絵文字（固定の一覧の文字）、またはスタンプの id"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "付けた人の全数（users を最大50人に打ち切っても、全数を返す）"
+        },
+        "reactedByMe": {
+          "type": "boolean",
+          "description": "見ている本人が付けているか"
+        },
+        "users": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName",
+              "isActive"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "displayName": {
+                "type": "string",
+                "description": "今の表示名"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "今の有効・無効（無効なら画面で「（退職者）」を併記する）"
+              }
+            }
+          },
+          "description": "付けた人。付けた時刻の順に最大50人"
+        }
+      }
+    },
+    "ReactionInput": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "emoji",
+            "stamp"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "固定の一覧にある絵文字、またはスタンプの id（完全一致。肌の色の違い・異体字セレクタの有無は正規化しない）"
+        }
+      }
+    },
+    "MessageReactions": {
+      "type": "object",
+      "required": [
+        "messageId",
+        "reactions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "reactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Reaction"
+          },
+          "description": "その投稿の最新の集計。種類は最初に付けられた時刻の順"
         }
       }
     },

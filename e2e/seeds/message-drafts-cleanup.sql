@@ -8,6 +8,10 @@ WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_draft!_%' E
      SELECT room_id FROM channels
      WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署239')
    );
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_draft!_%' ESCAPE '!'))
+   OR message_id IN (SELECT id FROM messages WHERE (sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_draft!_%' ESCAPE '!') OR room_id IN ( SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署239') )));
 DELETE FROM messages
 WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_draft!_%' ESCAPE '!')
    OR room_id IN (

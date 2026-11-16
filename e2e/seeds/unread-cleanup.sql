@@ -15,6 +15,10 @@ WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_unread!_%' 
      WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_unread!_%' ESCAPE '!')
    );
 -- 2. メッセージ（テストの利用者の投稿、部署237のチャンネル、テストの利用者が当事者の DM）
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_unread!_%' ESCAPE '!'))
+   OR message_id IN (SELECT id FROM messages WHERE (sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_unread!_%' ESCAPE '!') OR room_id IN ( SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE substr(name, 1, 15) = '[E2E_TEST]部署237') ) OR room_id IN ( SELECT conversation_id FROM conversation_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_unread!_%' ESCAPE '!') )));
 DELETE FROM messages
 WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_unread!_%' ESCAPE '!')
    OR room_id IN (

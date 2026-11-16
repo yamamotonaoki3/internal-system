@@ -67,6 +67,7 @@
 | スタイル | Tailwind CSS 4＋CSS変数のデザイントークン＋自前の共通部品。CSPは変えない（`style-src 'self'`）。UI部品のライブラリ・アイコン・Webフォントは入れない | `tailwindcss`・`@tailwindcss/vite`（2026-11-04、Issue #171で追加。下の「Tailwind CSS」） | [0015](adr/0015-style-foundation.md) |
 
 - 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）【Issue #134で、2つを`--save-exact`で固定して追加した（下の「マークダウンの描画（Issue #134、ADR-0026）」）。元の記述は残す】、emoji-picker-react 5.1.4（C-128。条件つき）
+- 入れないと決めたもの：emoji-picker-react（C-128で本採用の方針だったが、Issue #138で取りやめた。C-174・[ADR-0027](adr/0027-self-made-emoji-picker.md)）。理由：本番のCSP（`style-src 'self'`）では、ライブラリが実行時に足すスタイルがブロックされて使えず（[Q-24-emoji-verification](research/Q-24-emoji-verification.md)）、動かすにはCSPに nonce を足す必要があるが、ADR-0015でCSPを変えないと決めている。絵文字は`shared/reaction-rules.ts`の固定の一覧（80個）から選ぶ自前のピッカーにした。新しい依存は増やしていない（`package.json`は変更なし）
 - `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）
 
 ## Tailwind CSS（Issue #171、ADR-0015）
