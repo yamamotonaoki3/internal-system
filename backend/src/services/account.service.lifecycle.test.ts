@@ -317,9 +317,11 @@ describe("#128 AC-9 無効化の書き込みの前提が崩れた後の読み直
     await expect(service.deactivate(actor(), TARGET_ID)).rejects.toBeDefined();
   });
 
-  it("#128 AC-9: AccountStateChangedError 以外の Repository の失敗は、409 などに変えずにそのまま伝える", async () => {
+  // 読み直すと 409 になる事実を用意し、読み直しをしていない（同じエラーのまま）ことを検出できるようにする
+  it("#128 AC-9: AccountStateChangedError 以外の書き込みの失敗は、事実を読み直さず、同じエラーのオブジェクトをそのまま伝える", async () => {
     const failure = new Error("unit test failure");
     const repository = fakeRepository({
+      states: [activeMember, inactiveMember],
       deactivate: async () => {
         throw failure;
       },
@@ -329,6 +331,24 @@ describe("#128 AC-9 無効化の書き込みの前提が崩れた後の読み直
       .deactivate(actor(), TARGET_ID)
       .catch((e: unknown) => e);
     expect(error).toBe(failure);
+    expect(repository.findAccountState).toHaveBeenCalledTimes(1);
+  });
+
+  it("#128 AC-14: AccountStateChangedError 以外の再有効化の書き込みの失敗は、事実を読み直さず、同じエラーのオブジェクトをそのまま伝える", async () => {
+    const failure = new Error("unit test failure");
+    const repository = fakeRepository({
+      states: [inactiveMember, activeMember],
+      reactivate: async () => {
+        throw failure;
+      },
+    });
+    const service = createAccountService(repository, rolesOf([ADMIN]));
+    const error = await service
+      .reactivate(actor(), TARGET_ID, { departmentId: DEPT_ID })
+      .catch((e: unknown) => e);
+    expect(error).toBe(failure);
+    expect(repository.findAccountState).toHaveBeenCalledTimes(1);
+    expect(repository.findActiveDepartment).toHaveBeenCalledTimes(1);
   });
 });
 

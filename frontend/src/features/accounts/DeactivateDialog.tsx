@@ -9,9 +9,11 @@ import { useDeactivateAccount } from "./useAccountLifecycle";
 type Props = {
   account: AccountListItem;
   onClose: () => void;
+  /** 成功したとき（ダイアログを閉じ、一覧に完了のメッセージを出す） */
+  onDone: () => void;
 };
 
-export function DeactivateDialog({ account, onClose }: Props) {
+export function DeactivateDialog({ account, onClose, onDone }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const deactivate = useDeactivateAccount();
   const [serverError, setServerError] = useState<string>();
@@ -30,7 +32,7 @@ export function DeactivateDialog({ account, onClose }: Props) {
       setServerError(message);
       return;
     }
-    onClose();
+    onDone();
   }
 
   return (

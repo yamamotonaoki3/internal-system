@@ -77,6 +77,9 @@ test("#128 AC-9・AC-14: 管理者が無効化 → 対象はログインでき�
   );
   await reauth.getByRole("button", { name: "再認証", exact: true }).click();
   expect((await deactivated).status()).toBe(204);
+  await expect(
+    page.getByRole("status").filter({ hasText: "無効化しました" }),
+  ).toBeVisible();
   await expect(row()).toContainText("無効");
   await expect(row().getByRole("button", { name: /再有効化/ })).toBeVisible();
 
@@ -121,6 +124,9 @@ test("#128 AC-9・AC-14: 管理者が無効化 → 対象はログインでき�
   );
   expect(stored.includes(initialPassword)).toBe(false);
   await dialog.getByRole("button", { name: "閉じる" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "再有効化しました" }),
+  ).toBeVisible();
   await expect(page.getByText(initialPassword)).toHaveCount(0);
   await expect(row().getByRole("button", { name: /無効化/ })).toBeVisible();
 

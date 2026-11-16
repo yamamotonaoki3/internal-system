@@ -35,7 +35,17 @@ export function AccountsList() {
     retry: false,
   });
   const signedInUserId = useSignedInUserId();
-  const [operation, setOperation] = useState<Operation | null>(null);
+  const [operation, setOperationState] = useState<Operation | null>(null);
+  // 完了のメッセージ。次の操作を始めたら消す（時間では消さない）
+  const [done, setDone] = useState<string | null>(null);
+  const setOperation = (next: Operation) => {
+    setDone(null);
+    setOperationState(next);
+  };
+  const finish = (message: string) => {
+    setOperationState(null);
+    setDone(message);
+  };
 
   if (accounts.isPending) return <p role="status">読み込み中です</p>;
   if (accounts.isError)
@@ -50,6 +60,11 @@ export function AccountsList() {
 
   return (
     <>
+      {done !== null && (
+        <Alert tone="info" role="status">
+          {done}
+        </Alert>
+      )}
       <div className="mb-4 overflow-x-auto">
         <table className="w-full border-collapse text-left">
           <thead>
@@ -111,13 +126,15 @@ export function AccountsList() {
       {operation?.kind === "deactivate" && (
         <DeactivateDialog
           account={operation.account}
-          onClose={() => setOperation(null)}
+          onClose={() => setOperationState(null)}
+          onDone={() => finish("アカウントを無効化しました")}
         />
       )}
       {operation?.kind === "reactivate" && (
         <ReactivateDialog
           account={operation.account}
-          onClose={() => setOperation(null)}
+          onClose={() => setOperationState(null)}
+          onDone={() => finish("アカウントを再有効化しました")}
         />
       )}
     </>

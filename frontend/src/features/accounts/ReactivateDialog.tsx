@@ -18,9 +18,11 @@ import { invalidateAfterLifecycle } from "./useAccountLifecycle";
 type Props = {
   account: AccountListItem;
   onClose: () => void;
+  /** 一時パスワードの表示を閉じたとき（一覧に完了のメッセージを出す） */
+  onDone: () => void;
 };
 
-export function ReactivateDialog({ account, onClose }: Props) {
+export function ReactivateDialog({ account, onClose, onDone }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const queryClient = useQueryClient();
   const { withReauth } = useReauth();
@@ -41,8 +43,10 @@ export function ReactivateDialog({ account, onClose }: Props) {
   }, []);
 
   function close() {
+    const succeeded = initialPassword !== null;
     setInitialPassword(null);
-    onClose();
+    if (succeeded) onDone();
+    else onClose();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {

@@ -355,3 +355,114 @@ describe("#128 AC-14: 再有効化と一時パスワードの表示", () => {
     ).toBeNull();
   });
 });
+
+// 完了のメッセージ（screens.md 2.7c：成功で S-22 に戻り「無効化しました」「再有効化しました」を表示）。
+// 出し方はアカウントの発行（AccountsPage の「登録しました」）に合わせ、一覧の画面（ダイアログの外）の role=status に出す。
+const doneMessage = (text: string) =>
+  screen
+    .queryAllByRole("status")
+    .filter(
+      (el) =>
+        (el.textContent ?? "").includes(text) && el.closest("dialog") === null,
+    );
+
+async function deactivateActive(user: ReturnType<typeof userEvent.setup>) {
+  const row = await rowOf("testuser_128_active");
+  await user.click(within(row).getByRole("button", { name: /無効化/ }));
+  const dialog = await screen.findByRole("dialog", { name: /無効化/ });
+  await user.click(within(dialog).getByRole("button", { name: "無効化する" }));
+}
+
+async function reactivateGone(user: ReturnType<typeof userEvent.setup>) {
+  const row = await rowOf("testuser_128_gone");
+  await user.click(within(row).getByRole("button", { name: /再有効化/ }));
+  const dialog = await screen.findByRole("dialog", { name: /再有効化/ });
+  const select = await within(dialog).findByRole("combobox", {
+    name: /所属部署/,
+  });
+  await within(select).findByRole("option", { name: DEPT.name });
+  await user.selectOptions(select, DEPT.id);
+  await user.click(
+    within(dialog).getByRole("button", { name: "再有効化する" }),
+  );
+  return dialog;
+}
+
+describe("#128 AC-9・AC-14: 完了のメッセージ", () => {
+  it("#128 AC-9: 無効化が成功したら、ダイアログが閉じ、一覧の画面に role=status で「無効化しました」を出す", async () => {
+    respond();
+    const { user } = renderList();
+    await deactivateActive(user);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /無効化/ })).toBeNull(),
+    );
+    await waitFor(() => expect(doneMessage("無効化しました")).toHaveLength(1));
+  });
+
+  it("#128 AC-9: 無効化が失敗・キャンセルでは「無効化しました」を出さない", async () => {
+    respond({
+      deactivate: () =>
+        apiError(409, "CONFLICT", "このアカウントはすでに無効です", {
+          reason: "already_inactive",
+        }),
+    });
+    const { user } = renderList();
+    await deactivateActive(user);
+    await within(screen.getByRole("dialog", { name: /無効化/ })).findByRole(
+      "alert",
+    );
+    expect(doneMessage("無効化しました")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "キャンセル" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /無効化/ })).toBeNull(),
+    );
+    expect(doneMessage("無効化しました")).toHaveLength(0);
+  });
+
+  it("#128 AC-14: 再有効化は、一時パスワードの表示中は完了のメッセージを出さず、「閉じる」の後に「再有効化しました」を出す。メッセージに一時パスワードを含めない", async () => {
+    respond();
+    const { user } = renderList();
+    const dialog = await reactivateGone(user);
+    await within(dialog).findByText(TEST_INITIAL_PASSWORD, { exact: false });
+    expect(doneMessage("再有効化しました")).toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    await waitFor(() =>
+      expect(doneMessage("再有効化しました")).toHaveLength(1),
+    );
+    expect(
+      doneMessage("再有効化しました")[0]?.textContent?.includes(
+        TEST_INITIAL_PASSWORD,
+      ),
+    ).toBe(false);
+  });
+
+  it("#128 AC-14: 再有効化が失敗したら「再有効化しました」を出さない", async () => {
+    respond({
+      reactivate: () =>
+        apiError(409, "CONFLICT", "このアカウントはすでに有効です", {
+          reason: "already_active",
+        }),
+    });
+    const { user } = renderList();
+    const dialog = await reactivateGone(user);
+    await within(dialog).findByRole("alert");
+    await user.click(
+      within(dialog).getByRole("button", { name: "キャンセル" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /再有効化/ })).toBeNull(),
+    );
+    expect(doneMessage("再有効化しました")).toHaveLength(0);
+  });
+
+  it("#128 AC-9・AC-14: 次の操作を始めたら、前の完了のメッセージは消える", async () => {
+    respond();
+    const { user } = renderList();
+    await deactivateActive(user);
+    await waitFor(() => expect(doneMessage("無効化しました")).toHaveLength(1));
+    const gone = await rowOf("testuser_128_gone");
+    await user.click(within(gone).getByRole("button", { name: /再有効化/ }));
+    await screen.findByRole("dialog", { name: /再有効化/ });
+    expect(doneMessage("無効化しました")).toHaveLength(0);
+  });
+});
