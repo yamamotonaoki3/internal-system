@@ -1,4 +1,4 @@
-// 画像の Exif（位置情報を含みうる）を除く（#140、security「Exif を除く」）。画素は変えず、Exif を入れる区画だけを取り除く。
+// 画像の Exif などのメタデータ（位置情報を含みうる）を除く（#140、security「Exif を除く」）。画素は変えず、メタデータを入れる区画だけを取り除く。
 // 構造が壊れた画像は例外を投げる（握りつぶさない。呼び出し側が 422 にする）。
 
 export type ImageContentType =
@@ -11,7 +11,14 @@ class BrokenImageError extends Error {
   }
 }
 
-const EXIF_HEADER = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // "Exif\0\0"
+// 位置情報を含みうるメタデータは、中身によらず入れ物ごと除く（キーワード・識別子で選り分けない）
+/** JPEG：APP1（Exif・XMP）と APP13（Photoshop の IPTC） */
+const JPEG_METADATA_MARKERS = new Set([0xe1, 0xed]);
+/** PNG：eXIf と、テキストのチャンクすべて */
+const PNG_METADATA_CHUNKS = new Set(["eXIf", "tEXt", "zTXt", "iTXt"]);
+/** WebP：EXIF・XMP のチャンク。VP8X のフラグは bit3（EXIF）と bit2（XMP） */
+const WEBP_METADATA_CHUNKS = new Set(["EXIF", "XMP "]);
+const VP8X_METADATA_FLAGS = 0x08 | 0x04;
 
 function startsWith(bytes: Uint8Array, offset: number, prefix: number[]) {
   return prefix.every((value, i) => bytes[offset + i] === value);
@@ -27,7 +34,7 @@ function concatParts(parts: readonly Uint8Array[]): Uint8Array {
   return out;
 }
 
-// JPEG：SOS（画像の本体）までのセグメントを順に読み、Exif の APP1 だけを落とす
+// JPEG：SOS（画像の本体）までのセグメントを順に読み、メタデータのセグメント（APP1・APP13）を落とす
 function stripJpeg(bytes: Uint8Array): Uint8Array {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8)
     throw new BrokenImageError("JPEG");
@@ -45,16 +52,15 @@ function stripJpeg(bytes: Uint8Array): Uint8Array {
       parts.push(bytes.subarray(offset));
       return concatParts(parts);
     }
-    const isExif =
-      marker === 0xe1 && startsWith(bytes, offset + 4, EXIF_HEADER);
-    if (!isExif) parts.push(bytes.subarray(offset, end));
+    if (!JPEG_METADATA_MARKERS.has(marker))
+      parts.push(bytes.subarray(offset, end));
     offset = end;
   }
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-// PNG：チャンクを順に読み、eXIf を落とす（IEND まで）
+// PNG：チャンクを順に読み、メタデータのチャンクを落とす（IEND まで）
 function stripPng(bytes: Uint8Array): Uint8Array {
   if (!startsWith(bytes, 0, PNG_SIGNATURE)) throw new BrokenImageError("PNG");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -66,13 +72,13 @@ function stripPng(bytes: Uint8Array): Uint8Array {
     const end = offset + 12 + length;
     if (end > bytes.length) throw new BrokenImageError("PNG");
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
-    if (type !== "eXIf") parts.push(bytes.subarray(offset, end));
+    if (!PNG_METADATA_CHUNKS.has(type)) parts.push(bytes.subarray(offset, end));
     offset = end;
     if (type === "IEND") return concatParts(parts);
   }
 }
 
-// WebP：RIFF のチャンクを順に読み、EXIF を落とし、RIFF のサイズと VP8X の EXIF のフラグ（bit3）を直す
+// WebP：RIFF のチャンクを順に読み、EXIF・XMP を落とし、RIFF のサイズと VP8X のフラグ（bit3・bit2）を直す
 function stripWebp(bytes: Uint8Array): Uint8Array {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tag = (offset: number) =>
@@ -91,9 +97,9 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
     const type = tag(offset);
     if (type === "VP8X") {
       const chunk = bytes.slice(offset, end);
-      chunk[8] = (chunk[8] as number) & ~0x08;
+      chunk[8] = (chunk[8] as number) & ~VP8X_METADATA_FLAGS;
       parts.push(chunk);
-    } else if (type !== "EXIF") {
+    } else if (!WEBP_METADATA_CHUNKS.has(type)) {
       parts.push(bytes.subarray(offset, end));
     }
     offset = end;

@@ -198,30 +198,39 @@ export function createAttachmentService(
 
     const { readable, writable } = new FixedLengthStream(contentLength);
     const writer = writable.getWriter();
+    // 片方が失敗したら、もう片方を止めて待ち続けないようにする。止める操作自体の失敗は、元の失敗を優先して扱わない
+    const stopBoth = (reason: unknown) =>
+      Promise.allSettled([writer.abort(reason), reader.cancel(reason)]);
     const pump = async () => {
-      await writer.write(headBytes);
-      let received = total;
-      while (!finished) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        received += value.length;
-        if (received > contentLength) {
-          await reader.cancel();
-          break;
+      try {
+        await writer.write(headBytes);
+        let received = total;
+        while (!finished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          received += value.length;
+          if (received > contentLength) {
+            await reader.cancel();
+            break;
+          }
+          await writer.write(value);
         }
-        await writer.write(value);
+        if (received !== contentLength) {
+          await writer.abort(lengthMismatch());
+          return false;
+        }
+        await writer.close();
+        return true;
+      } catch (error) {
+        await stopBoth(error);
+        throw error;
       }
-      if (received !== contentLength) {
-        await writer.abort(lengthMismatch());
-        return false;
-      }
-      await writer.close();
-      return true;
     };
-    const [put, pumped] = await Promise.allSettled([
-      bucket.put(key, readable),
-      pump(),
-    ]);
+    const put = bucket.put(key, readable).catch(async (error: unknown) => {
+      await stopBoth(error);
+      throw error;
+    });
+    const [stored, pumped] = await Promise.allSettled([put, pump()]);
     if (pumped.status === "fulfilled" && !pumped.value) {
       await removeStored(key, logger);
       throw lengthMismatch();
@@ -230,9 +239,9 @@ export function createAttachmentService(
       await removeStored(key, logger);
       throw pumped.reason;
     }
-    if (put.status === "rejected") {
+    if (stored.status === "rejected") {
       await removeStored(key, logger);
-      throw put.reason;
+      throw stored.reason;
     }
     return { inspected, size: contentLength };
   }

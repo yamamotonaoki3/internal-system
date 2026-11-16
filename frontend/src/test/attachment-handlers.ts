@@ -27,6 +27,9 @@ export type AttachmentServer = {
   /** 名前を指定すると、そのファイルのアップロードは release() まで応答しない */
   holdNames: Set<string>;
   release: () => void;
+  /** true にすると、投稿（POST /api/rooms/:roomId/messages）は記録した後、releaseMessagePosts() まで応答しない */
+  holdMessagePosts: boolean;
+  releaseMessagePosts: () => void;
 };
 
 export const uploadedId = (n: number) =>
@@ -37,12 +40,18 @@ export function respondAttachments(): AttachmentServer {
   const held = new Promise<void>((resolve) => {
     releaseHeld = resolve;
   });
+  let releasePosts: () => void = () => {};
+  const heldPosts = new Promise<void>((resolve) => {
+    releasePosts = resolve;
+  });
   const state: AttachmentServer = {
     uploads: [],
     messagePosts: [],
     failNames: new Set(),
     holdNames: new Set(),
     release: () => releaseHeld(),
+    holdMessagePosts: false,
+    releaseMessagePosts: () => releasePosts(),
   };
   const upload =
     (
@@ -85,6 +94,7 @@ export function respondAttachments(): AttachmentServer {
     http.post("/api/rooms/:roomId/messages", async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       state.messagePosts.push({ entry: "room", body });
+      if (state.holdMessagePosts) await heldPosts;
       return HttpResponse.json(
         {
           id: "01JTESTMSG0000000000009999",

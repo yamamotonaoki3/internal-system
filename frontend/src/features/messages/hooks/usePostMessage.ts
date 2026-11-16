@@ -21,6 +21,8 @@ export type PostMessageInput = {
   files?: readonly File[];
   /** 添付のアップロードを取り消すための signal */
   signal?: AbortSignal;
+  /** アップロードが全部終わり、投稿の要求を送る直前に呼ぶ（ここから先は取り消せない） */
+  onUploaded?: () => void;
 };
 
 /** 添付のアップロードに失敗した（取り消しを含む）。投稿はしていない */
@@ -42,6 +44,8 @@ async function uploadAll(
   for (const file of files) {
     try {
       const uploaded = await uploadAttachment(target, file, { signal });
+      // 応答の後に取り消されていたら、投稿の要求を送らない
+      signal?.throwIfAborted();
       ids.push(uploaded.id);
     } catch (e) {
       throw new AttachmentUploadError(file.name, { cause: e });
@@ -65,6 +69,7 @@ export function usePostMessage(roomId: string, parentMessageId?: string) {
         content.files ?? [],
         content.signal,
       );
+      content.onUploaded?.();
       if (parentMessageId === undefined)
         await postMessage(
           roomId,

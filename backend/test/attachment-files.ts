@@ -76,7 +76,29 @@ export type ZipEntry = {
   flags?: number;
   /** ヘッダーに書く展開後のサイズを偽る（実際の展開後のサイズを信じない検査の確認用） */
   declaredSize?: number;
+  /** #140 レビュー：ローカルヘッダーだけを中央ディレクトリと食い違わせる（検査する側と Office が読む側で中身が変わる型の確認用） */
+  local?: {
+    name?: string;
+    method?: number;
+    compressedSize?: number;
+    uncompressedSize?: number;
+    extra?: Uint8Array;
+  };
+  /** #140 決定：データ記述子を使う（汎用フラグの bit3。ローカルの CRC・サイズは0にし、データの後ろに署名 0x08074b50 つきで置く） */
+  dataDescriptor?: boolean;
+  /** #140 レビュー：中央ディレクトリの拡張情報（ZIP64 の拡張情報など） */
+  centralExtra?: Uint8Array;
 };
+
+/** ZIP64 の拡張情報（ヘッダー ID 0x0001。展開後と圧縮後のサイズを 8 バイトずつ） */
+export function zip64Extra(uncompressed: number, compressed: number) {
+  return concat(
+    u16le(0x0001),
+    u16le(16),
+    u64le(uncompressed),
+    u64le(compressed),
+  );
+}
 
 export type ZipOptions = {
   /** EOCD のディスク番号（0 以外は複数ディスク） */
@@ -84,6 +106,85 @@ export type ZipOptions = {
   /** ZIP64 の EOCD とロケーターを付け、EOCD の値を 0xFFFF / 0xFFFFFFFF にする */
   zip64?: boolean;
 };
+
+/** ローカルヘッダーだけの上書き（指定がなければ中央ディレクトリと同じ値） */
+function localOverrides(
+  entry: ZipEntry,
+  method: number,
+  compressedSize: number,
+  uncompressedSize: number,
+) {
+  const local = entry.local ?? {};
+  return {
+    name: encoder.encode(local.name ?? entry.name),
+    extra: local.extra ?? new Uint8Array(),
+    method: local.method ?? method,
+    compressedSize: local.compressedSize ?? compressedSize,
+    uncompressedSize: local.uncompressedSize ?? uncompressedSize,
+  };
+}
+
+/** 1つのエントリのローカルヘッダー（本体つき）と中央ディレクトリの記録 */
+async function entryRecords(entry: ZipEntry, offset: number) {
+  const name = encoder.encode(entry.name);
+  const stored = entry.compress ? await deflateRaw(entry.data) : entry.data;
+  const method = entry.compress ? 8 : 0;
+  const descriptor = entry.dataDescriptor === true;
+  const flags = (entry.flags ?? 0) | (descriptor ? 0x0008 : 0);
+  const crc = crc32(entry.data);
+  const size = entry.declaredSize ?? entry.data.length;
+  const over = localOverrides(
+    entry,
+    method,
+    descriptor ? 0 : stored.length,
+    descriptor ? 0 : size,
+  );
+  const trailer = descriptor
+    ? concat(u32le(0x08074b50), u32le(crc), u32le(stored.length), u32le(size))
+    : new Uint8Array();
+  const localName = over.name;
+  const localExtra = over.extra;
+  const centralExtra = entry.centralExtra ?? new Uint8Array();
+  const local = concat(
+    u32le(0x04034b50),
+    u16le(20),
+    u16le(flags),
+    u16le(over.method),
+    u16le(0),
+    u16le(0),
+    u32le(descriptor ? 0 : crc),
+    u32le(over.compressedSize),
+    u32le(over.uncompressedSize),
+    u16le(localName.length),
+    u16le(localExtra.length),
+    localName,
+    localExtra,
+    stored,
+    trailer,
+  );
+  const central = concat(
+    u32le(0x02014b50),
+    u16le(20),
+    u16le(20),
+    u16le(flags),
+    u16le(method),
+    u16le(0),
+    u16le(0),
+    u32le(crc),
+    u32le(stored.length),
+    u32le(size),
+    u16le(name.length),
+    u16le(centralExtra.length),
+    u16le(0),
+    u16le(0),
+    u16le(0),
+    u32le(0),
+    u32le(offset),
+    name,
+    centralExtra,
+  );
+  return { local, central };
+}
 
 /** 中央ディレクトリと EOCD を持つ zip を組む */
 export async function buildZip(
@@ -94,49 +195,8 @@ export async function buildZip(
   const centrals: Uint8Array[] = [];
   let offset = 0;
   for (const entry of entries) {
-    const name = encoder.encode(entry.name);
-    const stored = entry.compress ? await deflateRaw(entry.data) : entry.data;
-    const method = entry.compress ? 8 : 0;
-    const flags = entry.flags ?? 0;
-    const crc = crc32(entry.data);
-    const size = entry.declaredSize ?? entry.data.length;
-    const local = concat(
-      u32le(0x04034b50),
-      u16le(20),
-      u16le(flags),
-      u16le(method),
-      u16le(0),
-      u16le(0),
-      u32le(crc),
-      u32le(stored.length),
-      u32le(size),
-      u16le(name.length),
-      u16le(0),
-      name,
-      stored,
-    );
-    centrals.push(
-      concat(
-        u32le(0x02014b50),
-        u16le(20),
-        u16le(20),
-        u16le(flags),
-        u16le(method),
-        u16le(0),
-        u16le(0),
-        u32le(crc),
-        u32le(stored.length),
-        u32le(size),
-        u16le(name.length),
-        u16le(0),
-        u16le(0),
-        u16le(0),
-        u16le(0),
-        u32le(0),
-        u32le(offset),
-        name,
-      ),
-    );
+    const { local, central } = await entryRecords(entry, offset);
+    centrals.push(central);
     locals.push(local);
     offset += local.length;
   }
@@ -238,6 +298,8 @@ export async function buildOoxml(
     contentTypes?: Uint8Array;
     omitContentTypes?: boolean;
     contentTypesEntry?: Partial<ZipEntry>;
+    /** 主の部品（word/document.xml 等）のエントリの上書き */
+    mainEntry?: Partial<ZipEntry>;
     zip?: ZipOptions;
   } = {},
 ): Promise<Uint8Array> {
@@ -264,6 +326,7 @@ export async function buildOoxml(
         `<?xml version="1.0" encoding="UTF-8"?><root>[UNIT_TEST]</root>`,
       ),
       compress: true,
+      ...options.mainEntry,
     },
     ...(options.extra ?? []),
   );
@@ -299,6 +362,42 @@ export async function buildPng(options: { exif?: Uint8Array } = {}) {
   );
 }
 
+/** PNG のテキストのチャンク（tEXt・zTXt・iTXt）。中身は架空 */
+export type PngText = {
+  type: "tEXt" | "zTXt" | "iTXt";
+  keyword: string;
+  text: string;
+};
+
+async function pngTextChunk(item: PngText): Promise<Uint8Array> {
+  const keyword = concat(ascii(item.keyword), new Uint8Array([0]));
+  const text = encoder.encode(item.text);
+  if (item.type === "tEXt") return pngChunk("tEXt", concat(keyword, text));
+  if (item.type === "zTXt")
+    return pngChunk(
+      "zTXt",
+      concat(keyword, new Uint8Array([0]), await compressWith("deflate", text)),
+    );
+  // iTXt：圧縮なし・言語タグと翻訳したキーワードは空
+  return pngChunk("iTXt", concat(keyword, new Uint8Array([0, 0, 0, 0]), text));
+}
+
+/** テキストのチャンクを IHDR の後に入れた PNG（そのほかは buildPng() と同じバイト列） */
+export async function buildPngWithText(texts: readonly PngText[]) {
+  const plain = await buildPng();
+  // 署名8バイト＋IHDR（長さ4・種類4・中身13・CRC4）＝33バイトの後に入れる
+  const chunks = await Promise.all(texts.map(pngTextChunk));
+  return concat(plain.slice(0, 33), ...chunks, plain.slice(33));
+}
+
+/** ImageMagick・ExifTool の形の「Raw profile」（16進で Exif を入れる）。目印の文字列は16進の外にも書く */
+export const RAW_PROFILE_EXIF_TEXT =
+  "\nexif\n      40\n[UNIT_TEST]GPS-35.0000N-139.0000E\n4578696600004d4d002a00000008\n";
+
+/** 架空の XMP（GPS の位置を持つ） */
+export const FAKE_XMP =
+  '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="[UNIT_TEST]GPS-35.0000N"/></rdf:RDF></x:xmpmeta>';
+
 /** 位置情報を含むことを示す、架空の Exif の中身（TIFF ヘッダーと目印の文字列だけ） */
 export const FAKE_EXIF_TIFF = concat(
   ascii("MM"),
@@ -332,15 +431,35 @@ export const JPEG_APP1_EXIF = jpegSegment(
 );
 
 /** JPEG。exif が true なら APP1（Exif）を APP0 の後に入れる */
-export function buildJpeg(options: { exif?: boolean } = {}) {
+export function buildJpeg(
+  options: { exif?: boolean; segments?: readonly Uint8Array[] } = {},
+) {
   return concat(
     new Uint8Array([0xff, 0xd8]),
     JPEG_APP0,
     ...(options.exif ? [JPEG_APP1_EXIF] : []),
+    ...(options.segments ?? []),
     JPEG_DQT,
     JPEG_SCAN,
   );
 }
+
+/** APP1 の XMP（http://ns.adobe.com/xap/1.0/ の識別子つき。架空の GPS を持つ） */
+export const JPEG_APP1_XMP = jpegSegment(
+  0xe1,
+  concat(ascii("http://ns.adobe.com/xap/1.0/\0"), ascii(FAKE_XMP)),
+);
+
+/** APP13（Photoshop 3.0 の IPTC。架空の位置の文字列を持つ） */
+export const JPEG_APP13 = jpegSegment(
+  0xed,
+  concat(
+    ascii("Photoshop 3.0\0"),
+    ascii("8BIM"),
+    new Uint8Array([0x04, 0x04, 0, 0, 0, 0, 0, 0x20]),
+    ascii("[UNIT_TEST]GPS-35.0000N-139.0000E"),
+  ),
+);
 
 export const GIF_BYTES = concat(
   ascii("GIF89a"),
@@ -356,7 +475,19 @@ function riffChunk(type: string, data: Uint8Array) {
 }
 
 /** WebP。exif が true なら VP8X（EXIF のフラグあり）と EXIF チャンクを付ける */
-export function buildWebp(options: { exif?: boolean } = {}) {
+export function buildWebp(options: { exif?: boolean; xmp?: boolean } = {}) {
+  if (options.xmp) {
+    // VP8X のフラグ：bit2＝XMP、bit3＝EXIF
+    const flags = 0x04 | (options.exif ? 0x08 : 0);
+    const body = concat(
+      ascii("WEBP"),
+      riffChunk("VP8X", new Uint8Array([flags, 0, 0, 0, 0, 0, 0, 0, 0, 0])),
+      buildWebp().slice(12),
+      ...(options.exif ? [riffChunk("EXIF", FAKE_EXIF_TIFF)] : []),
+      riffChunk("XMP ", ascii(FAKE_XMP)),
+    );
+    return concat(ascii("RIFF"), u32le(body.length), body);
+  }
   const vp8 = riffChunk(
     "VP8 ",
     new Uint8Array([

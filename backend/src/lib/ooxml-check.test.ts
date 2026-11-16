@@ -12,7 +12,9 @@ import {
   ascii,
   buildOoxml,
   buildZip,
+  OOXML_MAIN,
   contentTypesXml,
+  zip64Extra,
   type ZipEntry,
 } from "../../test/attachment-files";
 import { checkOoxml } from "./ooxml-check";
@@ -145,6 +147,165 @@ describe("#140 AC-1（C-153・Q3）拒否", () => {
     const bytes = await buildOoxml("docx", {
       contentTypes: ascii(padded),
       contentTypesEntry: { declaredSize: 500 },
+    });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+});
+
+// #140 コードレビュー1回目（重大2）：[Content_Types].xml の主の部品の型は、実際の Override 要素だけから判定する。
+// 決めた期待（XML 1.0 と OPC の規則。正当な Office のファイルが出力しうる形は許可する）：
+//   コメント・CDATA・処理命令の中だけにある Override は数えない（false）。正しい定義にコメントが混ざるだけなら true。
+//   属性の値の単一引用符・属性の順の違い・要素名の名前空間の接頭辞（同じ名前空間 URI）は、XML として同じ意味なので true。
+describe("#140 AC-1（C-137(1)）[Content_Types].xml の読み方", () => {
+  const MAIN = OOXML_MAIN.docx;
+  const NS = "http://schemas.openxmlformats.org/package/2006/content-types";
+  const DEFAULTS =
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>';
+  const OVERRIDE = `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}"/>`;
+  const types = (inner: string) =>
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${NS}">${DEFAULTS}${inner}</Types>`;
+  const docxWith = (xml: string) =>
+    buildOoxml("docx", { contentTypes: ascii(xml) });
+
+  it.each([
+    ["コメントの中", `<!-- ${OVERRIDE} -->`],
+    ["CDATA の中", `<![CDATA[${OVERRIDE}]]>`],
+    ["処理命令の中", `<?note ${OVERRIDE} ?>`],
+  ])(
+    "#140 AC-1（C-137(1)）: 主の部品の Override が%sだけにあると false",
+    async (_label, inner) => {
+      expect(await checkOoxml(await docxWith(types(inner)), "docx")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("#140 AC-1（C-137(1)）: 正しい Override にコメントが混ざっているだけなら true", async () => {
+    const xml = types(`<!-- [UNIT_TEST] 注記 -->${OVERRIDE}<!-- 終わり -->`);
+    expect(await checkOoxml(await docxWith(xml), "docx")).toBe(true);
+  });
+
+  it.each([
+    [
+      "属性の値が単一引用符",
+      `<Override PartName='${MAIN.part}' ContentType='${MAIN.type}'/>`,
+    ],
+    [
+      "属性の順が逆",
+      `<Override ContentType="${MAIN.type}" PartName="${MAIN.part}"/>`,
+    ],
+  ])("#140 AC-1（決めた期待）: %sの Override は true", async (_label, el) => {
+    expect(await checkOoxml(await docxWith(types(el)), "docx")).toBe(true);
+  });
+
+  it("#140 AC-1（決めた期待）: 要素名に名前空間の接頭辞が付く（同じ名前空間）なら true", async () => {
+    const xml =
+      `<?xml version="1.0" encoding="UTF-8"?><ct:Types xmlns:ct="${NS}">` +
+      `<ct:Default Extension="xml" ContentType="application/xml"/>` +
+      `<ct:Override PartName="${MAIN.part}" ContentType="${MAIN.type}"/></ct:Types>`;
+    expect(await checkOoxml(await docxWith(xml), "docx")).toBe(true);
+  });
+
+  it("#140 AC-1（C-137(1)）: 別の名前空間の Override（接頭辞が別の URI）は数えず false", async () => {
+    const xml =
+      `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="${NS}" xmlns:x="urn:example:unit-test">` +
+      `${DEFAULTS}<x:Override PartName="${MAIN.part}" ContentType="${MAIN.type}"/></Types>`;
+    expect(await checkOoxml(await docxWith(xml), "docx")).toBe(false);
+  });
+});
+
+// #140 コードレビュー1回目（重大3）：ZIP64 は、EOCD だけでなく、ローカルヘッダー・中央ディレクトリのサイズ欄と拡張情報（ID 0x0001）でも拒否する。
+// あわせて、ローカルヘッダーと中央ディレクトリで名前・サイズ・圧縮方式が食い違う zip を拒否する（APPNOTE 4.3.7・4.4。データ記述子は使わない形）。
+describe("#140 AC-1（Q3）ローカルヘッダーと中央ディレクトリ", () => {
+  it.each([
+    [
+      "主の部品のローカルヘッダーのサイズ欄が 0xffffffff で、ZIP64 の拡張情報を持つ",
+      {
+        local: {
+          compressedSize: 0xffffffff,
+          uncompressedSize: 0xffffffff,
+          extra: zip64Extra(60, 60),
+        },
+      },
+    ],
+    [
+      "主の部品のローカルヘッダーだけに ZIP64 の拡張情報がある（サイズ欄は通常）",
+      { local: { extra: zip64Extra(60, 60) } },
+    ],
+    [
+      "主の部品の中央ディレクトリに ZIP64 の拡張情報がある",
+      { centralExtra: zip64Extra(60, 60) },
+    ],
+  ] as const)("#140 AC-1（Q3）: %s zip は false", async (_label, mainEntry) => {
+    const bytes = await buildOoxml("docx", {
+      mainEntry: mainEntry as Partial<ZipEntry>,
+    });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+
+  it("#140 AC-1（Q3）: [Content_Types].xml のローカルヘッダーのサイズ欄が 0xffffffff なら false", async () => {
+    const bytes = await buildOoxml("docx", {
+      contentTypesEntry: {
+        local: { compressedSize: 0xffffffff, uncompressedSize: 0xffffffff },
+      },
+    });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+
+  it.each([
+    ["名前", { local: { name: "[Content_Types].xmL" } }],
+    ["圧縮後のサイズ", { local: { compressedSize: 7 } }],
+    ["展開後のサイズ", { local: { uncompressedSize: 7 } }],
+    ["圧縮方式", { local: { method: 0 } }],
+  ] as const)(
+    "#140 AC-1（C-153）: [Content_Types].xml のローカルヘッダーと中央ディレクトリで%sが食い違うと false",
+    async (_label, entry) => {
+      const bytes = await buildOoxml("docx", {
+        contentTypesEntry: entry as Partial<ZipEntry>,
+      });
+      expect(await checkOoxml(bytes, "docx")).toBe(false);
+    },
+  );
+
+  it("#140 AC-1（C-153）: 主の部品のローカルヘッダーの名前が中央ディレクトリと違うと false", async () => {
+    const bytes = await buildOoxml("docx", {
+      mainEntry: { local: { name: "word/other.xml" } },
+    });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+});
+
+// #140 統括の決定：データ記述子（汎用フラグの bit3）を使うエントリは許可する（Java 製のツール等が出力する正当な Office ファイル）。
+// その場合はサイズの突き合わせを省き、名前と圧縮方式はローカルと中央で突き合わせる。bit3 がないのにローカルのサイズが0で食い違うものは拒否する。
+describe("#140 AC-1（C-137(1)・C-153）データ記述子", () => {
+  const withDescriptor = (extra: Partial<ZipEntry> = {}) =>
+    buildOoxml("docx", {
+      contentTypesEntry: { dataDescriptor: true, ...extra },
+      mainEntry: { dataDescriptor: true },
+    });
+
+  it("#140 AC-1（決定）: データ記述子つきの正当な docx は true", async () => {
+    expect(await checkOoxml(await withDescriptor(), "docx")).toBe(true);
+  });
+
+  it("#140 AC-1（決定）: データ記述子つきで、ローカルと中央の名前が食い違うと false", async () => {
+    const bytes = await withDescriptor({
+      local: { name: "[Content_Types].xmL" },
+    });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+
+  it("#140 AC-1（決定）: データ記述子つきで、ローカルと中央の圧縮方式が食い違うと false", async () => {
+    const bytes = await withDescriptor({ local: { method: 0 } });
+    expect(await checkOoxml(bytes, "docx")).toBe(false);
+  });
+
+  it("#140 AC-1（決定）: bit3 が立っていないのに、ローカルのサイズ欄が0で中央と食い違うと false", async () => {
+    const bytes = await buildOoxml("docx", {
+      contentTypesEntry: {
+        local: { compressedSize: 0, uncompressedSize: 0 },
+      },
     });
     expect(await checkOoxml(bytes, "docx")).toBe(false);
   });

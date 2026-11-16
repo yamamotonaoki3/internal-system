@@ -205,6 +205,23 @@ describe("#140 AC-1（1-6 AC-1・AC-6）送信", () => {
   });
 });
 
+describe("#140 AC-1 取り消せる期間（コードレビュー1回目 軽微5）", () => {
+  it("#140 AC-1: アップロードが全部終わり、投稿の応答を待っている間は「送信を取り消す」を出さない（押せない）", async () => {
+    const { user, api } = renderRoom();
+    api.holdMessagePosts = true;
+    await user.upload(picker(), sizedFile("a.pdf", 10));
+    await user.type(box(), "[[E2E_TEST]投稿待ち");
+    await user.click(screen.getByRole("button", { name: "送信" }));
+    await waitFor(() => expect(api.messagePosts).toHaveLength(1));
+    const cancel = screen.queryByRole<HTMLButtonElement>("button", {
+      name: "送信を取り消す",
+    });
+    expect(cancel === null || cancel.disabled).toBe(true);
+    api.releaseMessagePosts();
+    await waitFor(() => expect(pendingNames()).toEqual([]));
+  });
+});
+
 describe("#140 AC-1（1-6 AC-2・AC-7）メッセージの添付の表示", () => {
   const attachment = (
     n: number,

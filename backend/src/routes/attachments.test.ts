@@ -534,6 +534,37 @@ describe("#140 AC-1（1-6 AC-9）・AC-2（1-4 AC-5）返信用のアップロ�
   );
 });
 
+describe("#140 AC-1（1-6 AC-6）受信の途中の例外（コードレビュー1回目 軽微4）", () => {
+  it("#140 AC-1（1-6 AC-6）: 動画の受信の途中で本文のストリームが例外になると、要求は待ち続けずに失敗の応答で終わり、行も R2 の実体も残らない", async () => {
+    // 先頭（4,096 バイト以上）は正しい MP4 として渡し、2回目の読み取りで例外にする
+    const head = new Uint8Array(8_192);
+    head.set(MP4_BYTES);
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) controller.enqueue(head);
+          else controller.error(new Error("[UNIT_TEST] 受信の途中の切断"));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await rawRequest("POST", uploadPathOf(room), {
+      token: world.alice.token,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": "20000",
+        "X-File-Name": encodeURIComponent("movie.mp4"),
+      },
+      body,
+    });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(pulls).toBeGreaterThanOrEqual(2);
+    await nothingStored();
+  });
+});
+
 describe("#140 AC-1（1-6 AC-6）D1 の登録の失敗の補償", () => {
   it("#140 AC-1（1-6 AC-6）: R2 に保存した後に D1 の登録が失敗すると、保存した実体を消してから元のエラー（500）を返す。行も実体も残らない", async () => {
     const response = await uploadFile(

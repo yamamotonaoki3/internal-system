@@ -85,6 +85,8 @@ export function MessageComposer({
         mentions,
         files,
         signal: controller.signal,
+        // 投稿の要求を始めたら取り消せないため、ボタンを消す
+        onUploaded: () => setUploadController(null),
       });
     } catch (e) {
       // 利用者が取り消したときは失敗として扱わず、取り消したことだけを伝える（投稿はしていない）
@@ -181,7 +183,7 @@ export function MessageComposer({
       <Button type="submit" disabled={isSubmitting}>
         送信
       </Button>
-      {isSubmitting && files.length > 0 && (
+      {uploadController !== null && files.length > 0 && (
         <Button variant="secondary" onClick={() => uploadController?.abort()}>
           送信を取り消す
         </Button>

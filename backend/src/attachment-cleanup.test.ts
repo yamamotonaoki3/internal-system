@@ -93,13 +93,13 @@ describe("#140 AC-1 未投稿の添付の掃除（Cron）", () => {
     expect(await storedKeys()).toEqual([freshKey, boundKey].sort());
   });
 
-  it("#140 AC-1: R2 の削除が失敗しても行は消え、error ログに残す。ログにファイル名・キーを出さない", async () => {
+  it("#140 AC-1: R2 の削除が失敗しても定期実行は成功し（例外を投げない）、行は消え、error ログに残す。ログにファイル名・キーを出さない", async () => {
     const name = "秘密の下書き.txt";
     const old = await seed(25 * HOUR, null, name);
     const key = await keyOf(old);
-    // 後始末の失敗を Cron の失敗として扱うかは計画で決めていないため、成否はここでは問わない（報告の「確認が必要な点」）
-    await Promise.resolve()
-      .then(() =>
+    // 決定（Issue #140 の実装中の決定）：R2 の削除の失敗は error ログに残し、定期実行の全体は成功させる（例外を投げない）
+    await expect(
+      Promise.resolve().then(() =>
         worker.scheduled(
           controller(),
           {
@@ -108,8 +108,8 @@ describe("#140 AC-1 未投稿の添付の掃除（Cron）", () => {
           } as unknown as Env,
           ctx,
         ),
-      )
-      .catch(() => undefined);
+      ),
+    ).resolves.toBeUndefined();
     expect(await attachmentRow(old)).toBeNull();
     expect(errorLines.length).toBeGreaterThanOrEqual(1);
     const allLogs = [...logLines, ...errorLines].join("\n");
