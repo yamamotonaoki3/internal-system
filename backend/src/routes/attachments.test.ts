@@ -336,6 +336,112 @@ describe("#140 AC-1（1-6 AC-1・AC-5・AC-6）アップロードの入力の誤
   );
 });
 
+// #140 ミューテーション（絞った診断）への対応：受信量・Content-Length の境界（1バイト差）と、保存の後の補償。
+// 期待（計画「方式」2・3、設計書）：Content-Length は10進の整数だけ。0以下・100,000,000超・種類の上限超は本文を読まずに 422。
+//   上限ちょうどは本文を読む。受信したバイト数が Content-Length と1バイトでも違えば 422 で、行も R2 の実体も残らない（画像・文書と動画の両方の経路）。
+describe("#140 AC-1（1-6 AC-1・AC-6）受信量と Content-Length の境界", () => {
+  /** 先頭が MP4 の、動画の先頭の検査（4,096 バイト）より長い本文 */
+  const longVideo = () => {
+    const bytes = new Uint8Array(10_000);
+    bytes.set(MP4_BYTES);
+    return bytes;
+  };
+
+  it.each([
+    ["数字でない", "abc"],
+    ["小数", "1.5"],
+    ["負の数", "-1"],
+    ["0", "0"],
+    ["先頭に数字でない文字", "x10"],
+    ["末尾に数字でない文字", "10x"],
+  ])(
+    "#140 AC-1（1-6 AC-6）: Content-Length が%s（%s）だと、本文を読まずに 422",
+    async (_label, value) => {
+      const { response, pulled } = await uploadTracked(
+        room,
+        world.alice.token,
+        { "Content-Length": value },
+      );
+      expect(response.status).toBe(422);
+      expect(await codeOf(response)).toBe("VALIDATION_ERROR");
+      expect(pulled).toBe(false);
+      await nothingStored();
+    },
+  );
+
+  it("#140 AC-1（1-6 AC-5）: 許可しない拡張子の名前は、本文を読まずに 422", async () => {
+    const { response, pulled } = await uploadTracked(room, world.alice.token, {
+      "Content-Length": "100",
+      "X-File-Name": encodeURIComponent("noextension"),
+    });
+    expect(response.status).toBe(422);
+    expect(pulled).toBe(false);
+  });
+
+  it.each([
+    ["画像の上限ちょうど（10,000,000）", "image.png", 10_000_000],
+    ["動画の上限ちょうど（100,000,000）", "movie.mp4", 100_000_000],
+  ])(
+    "#140 AC-1（1-6 AC-1）: Content-Length が%sなら、上限では拒否せず本文を読む（本文が短いので結果は 422）",
+    async (_label, name, length) => {
+      const { response, pulled } = await uploadTracked(
+        room,
+        world.alice.token,
+        {
+          "Content-Length": String(length),
+          "X-File-Name": encodeURIComponent(name),
+        },
+        Promise.resolve(name.endsWith(".mp4") ? MP4_BYTES : await buildPng()),
+      );
+      expect(pulled).toBe(true);
+      expect(response.status).toBe(422);
+      await nothingStored();
+    },
+  );
+
+  it.each([
+    ["文書", "report.pdf", () => PDF_BYTES],
+    ["動画（先頭の検査より長い）", "movie.mp4", longVideo],
+  ])(
+    "#140 AC-1（1-6 AC-6）: %sは Content-Length ちょうどなら 201、1バイト少ない申告（受信が多い）・1バイト多い申告（受信が少ない）は 422 で保存しない",
+    async (_label, name, make) => {
+      const bytes = make();
+      for (const delta of [-1, 1]) {
+        const response = await uploadFile(
+          room,
+          name,
+          bytes,
+          world.alice.token,
+          {
+            headers: { "Content-Length": String(bytes.length + delta) },
+          },
+        );
+        expect(response.status, `差 ${delta}`).toBe(422);
+        expect(await codeOf(response)).toBe("VALIDATION_ERROR");
+        await nothingStored();
+      }
+      const ok = await uploadFile(room, name, bytes, world.alice.token);
+      expect(ok.status).toBe(201);
+      expect((await uploadedOk(ok)).size).toBe(bytes.length);
+    },
+  );
+
+  it("#140 AC-1（1-6 AC-6）: 動画の受信が足りず、保存物の削除も失敗したら、422 のまま error ログに残す（ファイル名・キーを出さない）", async () => {
+    const name = "秘密の動画.mp4";
+    const bytes = longVideo();
+    const response = await uploadFile(room, name, bytes, world.alice.token, {
+      headers: { "Content-Length": String(bytes.length + 1) },
+      envOverrides: { ATTACHMENTS: failingDeleteBucket(bucket()) },
+    });
+    expect(response.status).toBe(422);
+    expect(await attachmentTotal()).toBe(0);
+    expect(errorLines.length).toBeGreaterThanOrEqual(1);
+    const allLogs = [...logLines, ...errorLines].join("\n");
+    expect(allLogs).not.toContain(name);
+    expect(allLogs).not.toMatch(/attachments\/[0-9A-HJKMNP-TV-Z]{26}/);
+  });
+});
+
 describe("#140 AC-1 通常の投稿用のアップロードの判定の順（本文を読む前に拒否）", () => {
   it("#140 AC-1: 未認証は 401 で、本文を読まない", async () => {
     const { response, pulled } = await uploadTracked(room, null, {

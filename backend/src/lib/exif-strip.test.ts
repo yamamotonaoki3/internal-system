@@ -178,3 +178,173 @@ describe("#140 AC-1 Exif の除去（ほかの入れ物）", () => {
     expect((result[vp8x + 8] as number) & 0x0c).toBe(0);
   });
 });
+
+// #140 ミューテーション（絞った診断）への対応：画像のチャンク・セグメントが順番どおり・内容どおりに残ること、壊れた入力の境界（1バイト前後）。
+// 期待は各形式の仕様（JPEG のセグメントの長さは長さ欄自身の2バイトを含む／PNG のチャンクは長さ4・種類4・中身・CRC4／
+//   WebP は RIFF のサイズ＝全体−8、チャンクは種類4・長さ4・中身・奇数なら1バイトの詰め物）から決める。
+const u32 = (n: number) =>
+  new Uint8Array([
+    n & 0xff,
+    (n >>> 8) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 24) & 0xff,
+  ]);
+const riff = (...chunks: Uint8Array[]) => {
+  const body = concat(ascii("WEBP"), ...chunks);
+  return concat(ascii("RIFF"), u32(body.length), body);
+};
+const chunk = (type: string, data: Uint8Array) =>
+  concat(
+    ascii(type),
+    u32(data.length),
+    data,
+    data.length % 2 === 1 ? new Uint8Array([0]) : new Uint8Array(),
+  );
+const vp8x = (flags: number) =>
+  chunk("VP8X", new Uint8Array([flags, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+
+const brokenName = async (run: () => unknown) => {
+  try {
+    await run();
+  } catch (error) {
+    return (error as Error).name;
+  }
+  return "成功した";
+};
+
+describe("#140 AC-1 WebP の画像のチャンクを残す", () => {
+  it("#140 AC-1: EXIF・XMP だけを除き、VP8X（ほかのフラグは保つ）・ANIM・ALPH・VP8L・未知のチャンクは順番どおり・内容どおりに残る", async () => {
+    const anim = chunk("ANIM", ascii("[UNIT_TEST]anim"));
+    const alph = chunk("ALPH", ascii("[UNIT_TEST]alph."));
+    const vp8l = chunk("VP8L", ascii("[UNIT_TEST]vp8l"));
+    const unknown = chunk("UNKN", ascii("[UNIT_TEST]x"));
+    const input = riff(
+      vp8x(0x10 | 0x08 | 0x04 | 0x02),
+      anim,
+      chunk("EXIF", FAKE_EXIF_TIFF),
+      alph,
+      vp8l,
+      chunk("XMP ", ascii(FAKE_XMP)),
+      unknown,
+    );
+    const expected = riff(vp8x(0x10 | 0x02), anim, alph, vp8l, unknown);
+    expect(Array.from(await stripExif(input, "image/webp"))).toEqual(
+      Array.from(expected),
+    );
+  });
+
+  it("#140 AC-1: 中身が空のチャンクで RIFF がちょうど終わる WebP はそのまま返す", async () => {
+    const input = riff(chunk("VP8 ", new Uint8Array()));
+    expect(Array.from(await stripExif(input, "image/webp"))).toEqual(
+      Array.from(input),
+    );
+  });
+
+  it("#140 AC-1: 先頭の12バイト（RIFF・サイズ・WEBP）だけの WebP はそのまま返す", async () => {
+    const input = riff();
+    expect(Array.from(await stripExif(input, "image/webp"))).toEqual(
+      Array.from(input),
+    );
+  });
+});
+
+describe("#140 AC-1 壊れた画像の境界（BrokenImageError）", () => {
+  it("#140 AC-1: SOI と長さ2の SOS だけの JPEG（長さがちょうど終わる）はそのまま返す", async () => {
+    const input = new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x02]);
+    expect(Array.from(await stripExif(input, "image/jpeg"))).toEqual(
+      Array.from(input),
+    );
+  });
+
+  it.each([
+    ["1バイト目が 0xff でない", [0x00, 0xd8, 0xff, 0xda, 0x00, 0x02]],
+    ["2バイト目が 0xd8 でない", [0xff, 0x00, 0xff, 0xda, 0x00, 0x02]],
+    ["セグメントの先頭が 0xff でない", [0xff, 0xd8, 0x00, 0xda, 0x00, 0x02]],
+    [
+      "セグメントの見出しが4バイトに1バイト足りない",
+      [0xff, 0xd8, 0xff, 0xda, 0x00],
+    ],
+    ["セグメントの長さが1（2未満）", [0xff, 0xd8, 0xff, 0xda, 0x00, 0x01]],
+    [
+      "セグメントの長さが残りを1バイト超える",
+      [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x03, 0x00],
+    ],
+  ])("#140 AC-1: JPEG の%sと BrokenImageError", async (_label, bytes) => {
+    expect(
+      await brokenName(() => stripExif(new Uint8Array(bytes), "image/jpeg")),
+    ).toBe("BrokenImageError");
+  });
+
+  it("#140 AC-1: PNG の署名の最後の1バイトが違うと BrokenImageError", async () => {
+    const png = await buildPng();
+    const broken = png.slice();
+    broken[7] = 0x0b;
+    expect(await brokenName(() => stripExif(broken, "image/png"))).toBe(
+      "BrokenImageError",
+    );
+  });
+
+  it("#140 AC-1: PNG の署名の最初の1バイトが違うと BrokenImageError", async () => {
+    const png = await buildPng();
+    const broken = png.slice();
+    broken[0] = 0x88;
+    expect(await brokenName(() => stripExif(broken, "image/png"))).toBe(
+      "BrokenImageError",
+    );
+  });
+
+  it("#140 AC-1: PNG のチャンクの見出し（12バイト）が1バイト足りないと BrokenImageError", async () => {
+    const png = await buildPng();
+    expect(
+      await brokenName(() => stripExif(png.slice(0, 8 + 11), "image/png")),
+    ).toBe("BrokenImageError");
+  });
+
+  it("#140 AC-1: PNG の IEND の長さが残りを1バイト超えると BrokenImageError", async () => {
+    const png = await buildPng();
+    const broken = png.slice();
+    // IEND は最後の12バイト。長さ欄（先頭4バイト）を1にする
+    broken.set([0, 0, 0, 1], broken.length - 12);
+    expect(await brokenName(() => stripExif(broken, "image/png"))).toBe(
+      "BrokenImageError",
+    );
+  });
+
+  it.each([
+    ["11バイトしかない", () => riff().slice(0, 11)],
+    ["RIFF でない", () => concat(ascii("RIFX"), riff().slice(4))],
+    ["WEBP でない", () => concat(riff().slice(0, 8), ascii("WEBQ"))],
+    [
+      "RIFF のサイズが実際より1バイト大きい",
+      () => {
+        const input = riff(chunk("VP8 ", new Uint8Array(2)));
+        const out = input.slice();
+        new DataView(out.buffer).setUint32(4, input.length - 8 + 1, true);
+        return out;
+      },
+    ],
+    [
+      "チャンクの見出しが8バイトに足りない",
+      () => {
+        const body = concat(ascii("WEBP"), ascii("VP8 "));
+        return concat(ascii("RIFF"), u32(body.length), body);
+      },
+    ],
+    [
+      "チャンクの長さが RIFF の終わりを1バイト超える",
+      () => {
+        const body = concat(
+          ascii("WEBP"),
+          ascii("VP8 "),
+          u32(4),
+          new Uint8Array(3),
+        );
+        return concat(ascii("RIFF"), u32(body.length), body);
+      },
+    ],
+  ])("#140 AC-1: WebP が%sと BrokenImageError", async (_label, make) => {
+    expect(await brokenName(() => stripExif(make(), "image/webp"))).toBe(
+      "BrokenImageError",
+    );
+  });
+});

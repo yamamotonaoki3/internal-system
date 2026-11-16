@@ -32,6 +32,7 @@ import {
   roomItems,
   roomRowCount,
   seedParent,
+  seedReply,
 } from "../../test/thread-fixtures";
 
 type AttachmentView = {
@@ -287,6 +288,161 @@ describe("#140 AC-1（1-6 AC-1・AC-3）通常の投稿への添付", () => {
       world.alice.token,
     );
     expect(response.status).toBe(201);
+  });
+});
+
+// #140 ミューテーション（絞った診断）への対応：結び付けの失敗の分け方（使用済みの判定は「1件でも使われていれば」）、合計の境界、応答の形。
+// 期待（計画「方式」4・「判定の順」）：使用済みが1件でも含まれれば 409「添付はすでに使われています」（利用者に見える文）、メッセージは作られない。
+//   合計がちょうど200,000,000バイトは成功、1バイト多いと 422 VALIDATION_ERROR・fields ["attachmentIds"]。
+describe("#140 AC-1 結び付けの失敗の分け方", () => {
+  const bodyOf = async (response: Response) =>
+    (await response.json()) as {
+      code?: string;
+      message?: string;
+      fields?: unknown;
+    };
+
+  const usedOne = async () => {
+    const id = await pending();
+    const first = await post(
+      world.channel,
+      { body: `${TEST_TAG}先`, attachmentIds: [id] },
+      world.alice.token,
+    );
+    expect(first.status).toBe(201);
+    return id;
+  };
+
+  it.each([
+    ["複数のうち1件だけが使用済み", "mixed"],
+    ["全部が使用済み", "all"],
+  ] as const)(
+    "#140 AC-1: %sだと 409 CONFLICT・「添付はすでに使われています」で、メッセージは作られない",
+    async (_label, kind) => {
+      const used = await usedOne();
+      const other = kind === "mixed" ? await pending() : await usedOne();
+      const before = await roomRowCount(world.channel);
+      const response = await post(
+        world.channel,
+        { body: `${TEST_TAG}使用済み`, attachmentIds: [other, used] },
+        world.alice.token,
+      );
+      expect(response.status).toBe(409);
+      expect(await bodyOf(response)).toMatchObject({
+        code: "CONFLICT",
+        message: "添付はすでに使われています",
+      });
+      expect(await roomRowCount(world.channel)).toBe(before);
+      if (kind === "mixed")
+        expect((await attachmentRow(other))?.message_id).toBeNull();
+    },
+  );
+
+  it("#140 AC-1: 全部が未使用なら 201 で、全部が結び付く", async () => {
+    const ids = [await pending(), await pending()];
+    const response = await post(
+      world.channel,
+      { body: `${TEST_TAG}未使用`, attachmentIds: ids },
+      world.alice.token,
+    );
+    expect(response.status).toBe(201);
+    const { id } = (await response.json()) as { id: string };
+    expect(await attachmentIdsOf(id)).toEqual([...ids].sort());
+  });
+
+  it("#140 AC-1（1-6 AC-3）: 合計がちょうど200,000,000バイトは 201", async () => {
+    const ids = [
+      await pending({
+        kind: "video",
+        contentType: "video/mp4",
+        sizeBytes: 100_000_000,
+      }),
+      await pending({
+        kind: "video",
+        contentType: "video/mp4",
+        sizeBytes: 100_000_000,
+      }),
+    ];
+    const response = await post(
+      world.channel,
+      { body: `${TEST_TAG}合計ちょうど`, attachmentIds: ids },
+      world.alice.token,
+    );
+    expect(response.status).toBe(201);
+  });
+
+  it('#140 AC-1（1-6 AC-3）: 合計が1バイト多いと 422・fields ["attachmentIds"]', async () => {
+    const ids = [
+      await pending({
+        kind: "video",
+        contentType: "video/mp4",
+        sizeBytes: 100_000_000,
+      }),
+      await pending({
+        kind: "video",
+        contentType: "video/mp4",
+        sizeBytes: 100_000_001,
+      }),
+    ];
+    const response = await post(
+      world.channel,
+      { body: `${TEST_TAG}合計超過`, attachmentIds: ids },
+      world.alice.token,
+    );
+    expect(response.status).toBe(422);
+    expect(await bodyOf(response)).toMatchObject({
+      code: "VALIDATION_ERROR",
+      fields: ["attachmentIds"],
+    });
+  });
+});
+
+// #140 ミューテーション（絞った診断）への対応：一覧の attachments は、その投稿の添付だけ。添付のない投稿は厳密に []。
+describe("#140 AC-1 一覧の attachments（添付のある投稿とない投稿の混在）", () => {
+  const view = (id: string, name: string) => ({
+    id,
+    name,
+    kind: "document",
+    contentType: "text/plain; charset=utf-8",
+    size: 10,
+  });
+
+  it("#140 AC-1: 部屋の一覧で、添付のない投稿は []、ある投稿には自分の添付だけが入る", async () => {
+    const withA = await seedParent(world.channel, world.alice.userId, 1);
+    const plain = await seedParent(world.channel, world.alice.userId, 2);
+    const withB = await seedParent(world.channel, world.alice.userId, 3);
+    const a = await pending({ messageId: withA, originalName: "a.txt" });
+    const b = await pending({ messageId: withB, originalName: "b.txt" });
+    const items = await itemsOf(world.channel, world.bob.token);
+    const byId = new Map(items.map((item) => [item.id, item.attachments]));
+    expect(byId.get(withA)).toEqual([view(a, "a.txt")]);
+    expect(byId.get(plain)).toEqual([]);
+    expect(byId.get(withB)).toEqual([view(b, "b.txt")]);
+  });
+
+  it("#140 AC-2（1-4 AC-5）: 返信の一覧とスレッドの親で、添付のない投稿は []、ある投稿には自分の添付だけが入る", async () => {
+    const parent = await seedParent(world.channel, world.alice.userId, 1);
+    const p = await pending({ messageId: parent, originalName: "親.txt" });
+    const withR = await seedReply(world.channel, parent, world.bob.userId, 2);
+    const plainR = await seedReply(world.channel, parent, world.bob.userId, 3);
+    const r = await pending({
+      messageId: withR,
+      uploaderId: world.bob.userId,
+      threadParentId: parent,
+      originalName: "返信.txt",
+    });
+    const page = await repliesOk(parent, "", world.alice.token);
+    expect((page.parent as unknown as WithAttachments).attachments).toEqual([
+      view(p, "親.txt"),
+    ]);
+    const byId = new Map(
+      (page.items as unknown as WithAttachments[]).map((item) => [
+        item.id,
+        item.attachments,
+      ]),
+    );
+    expect(byId.get(withR)).toEqual([view(r, "返信.txt")]);
+    expect(byId.get(plainR)).toEqual([]);
   });
 });
 

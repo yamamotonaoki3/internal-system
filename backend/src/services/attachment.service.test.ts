@@ -24,7 +24,7 @@ import {
   trackedBody,
   type ThreadWorld,
 } from "../../test/attachment-fixtures";
-import { fakeAuthorizer } from "../../test/dm-fixtures";
+import { fakeAuthorizer, insertDm } from "../../test/dm-fixtures";
 import { modifyTraceId } from "../../test/message-modify-fixtures";
 import { seedParent } from "../../test/thread-fixtures";
 import type { Permission } from "../lib/permissions";
@@ -148,5 +148,165 @@ describe("#140 AC-1（1-6 AC-2・AC-7）perm.attachment.download", () => {
     );
     expect(error?.code).toBe("NOT_FOUND");
     expect(fake.calls).toEqual([]);
+  });
+});
+
+// #140 ミューテーション（絞った診断）への対応：認可の引数（利用者・権限・範囲）と順を、呼び出しの記録で確かめる。
+// 期待（計画「権限」・設計書）：添付の権限は会社全体の範囲（{ type: "company" }）で、本人の userId で確かめる。
+//   DM の添付の配信は、perm.dm.message.view（会社全体）→ perm.attachment.download の順。チャンネルの添付では DM の権限を確かめない。
+//   DM の権限の拒否は FORBIDDEN で、R2 を読まない。
+describe("#140 AC-1 認可の引数と順", () => {
+  type Call = { userId: string | null; permission: string; scope: unknown };
+
+  const recording = (denied: Permission[] = []) => {
+    const fake = fakeAuthorizer(denied);
+    const calls: Call[] = [];
+    const authorizer = {
+      ...fake,
+      authorize: async (
+        principal: { userId: string } | null,
+        permission: Permission,
+        scope?: unknown,
+      ) => {
+        calls.push({ userId: principal?.userId ?? null, permission, scope });
+        await fake.authorize(principal, permission);
+      },
+    };
+    return { calls, authorizer };
+  };
+
+  /** R2 を読んだ回数を数える（get だけを包む） */
+  const countingEnv = () => {
+    const counter = { gets: 0 };
+    const real = (env as unknown as { ATTACHMENTS: R2Bucket }).ATTACHMENTS;
+    const wrapped = new Proxy(real, {
+      get(target, property, receiver) {
+        if (property === "get")
+          return (...args: Parameters<R2Bucket["get"]>) => {
+            counter.gets += 1;
+            return target.get(...args);
+          };
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    return {
+      counter,
+      env: { ...env, ATTACHMENTS: wrapped } as unknown as Env,
+    };
+  };
+
+  const seedDmAttachment = async () => {
+    const dm = await insertDm(world.alice.userId, world.bob.userId);
+    const message = await seedParent(dm, world.alice.userId, 1);
+    return seedStoredAttachment(
+      { roomId: dm, uploaderId: world.alice.userId, messageId: message },
+      TEXT_BYTES,
+    );
+  };
+
+  it('#140 AC-1: アップロードは perm.attachment.upload を、本人の userId・範囲 { type: "company" } で確かめる', async () => {
+    const { calls, authorizer } = recording();
+    const service = createAttachmentService(env, {
+      authorizer: authorizer as never,
+    });
+    await service.uploadToRoom(actorOf(world.alice.userId), world.channel, {
+      name: "memo.txt",
+      contentLength: TEXT_BYTES.length,
+      body: trackedBody(TEXT_BYTES).stream,
+    });
+    expect(
+      calls.filter((call) => call.permission === "perm.attachment.upload"),
+    ).toEqual([
+      {
+        userId: world.alice.userId,
+        permission: "perm.attachment.upload",
+        scope: { type: "company" },
+      },
+    ]);
+  });
+
+  it('#140 AC-1（1-6 AC-2）: DM の添付の配信は、perm.dm.message.view → perm.attachment.download の順に、本人の userId・範囲 { type: "company" } で確かめる', async () => {
+    const id = await seedDmAttachment();
+    const { calls, authorizer } = recording();
+    const service = createAttachmentService(env, {
+      authorizer: authorizer as never,
+    });
+    await service.download(actorOf(world.bob.userId), id, null);
+    expect(calls).toEqual([
+      {
+        userId: world.bob.userId,
+        permission: "perm.dm.message.view",
+        scope: { type: "company" },
+      },
+      {
+        userId: world.bob.userId,
+        permission: "perm.attachment.download",
+        scope: { type: "company" },
+      },
+    ]);
+  });
+
+  it("#140 AC-1（1-6 AC-2）: DM の権限（perm.dm.message.view）の拒否は FORBIDDEN で、perm.attachment.download を確かめず、R2 を読まない", async () => {
+    const id = await seedDmAttachment();
+    const { calls, authorizer } = recording(["perm.dm.message.view"]);
+    const counted = countingEnv();
+    const service = createAttachmentService(counted.env, {
+      authorizer: authorizer as never,
+    });
+    const error = await errorOf(
+      service.download(actorOf(world.bob.userId), id, null),
+    );
+    expect(error?.code).toBe("FORBIDDEN");
+    expect(calls.map((call) => call.permission)).toEqual([
+      "perm.dm.message.view",
+    ]);
+    expect(counted.counter.gets).toBe(0);
+  });
+
+  it("#140 AC-1: perm.attachment.download の拒否でも R2 を読まない", async () => {
+    const message = await seedParent(world.channel, world.alice.userId, 2);
+    const id = await seedStoredAttachment(
+      {
+        roomId: world.channel,
+        uploaderId: world.alice.userId,
+        messageId: message,
+      },
+      TEXT_BYTES,
+    );
+    const { authorizer } = recording(["perm.attachment.download"]);
+    const counted = countingEnv();
+    const service = createAttachmentService(counted.env, {
+      authorizer: authorizer as never,
+    });
+    const error = await errorOf(
+      service.download(actorOf(world.bob.userId), id, null),
+    );
+    expect(error?.code).toBe("FORBIDDEN");
+    expect(counted.counter.gets).toBe(0);
+  });
+
+  it("#140 AC-1: チャンネルの添付の配信では DM の権限を確かめない（perm.attachment.download だけ。本人・会社全体）", async () => {
+    const message = await seedParent(world.channel, world.alice.userId, 3);
+    const id = await seedStoredAttachment(
+      {
+        roomId: world.channel,
+        uploaderId: world.alice.userId,
+        messageId: message,
+      },
+      TEXT_BYTES,
+    );
+    const { calls, authorizer } = recording();
+    const service = createAttachmentService(env, {
+      authorizer: authorizer as never,
+    });
+    await service.download(actorOf(world.bob.userId), id, null);
+    expect(calls).toEqual([
+      {
+        userId: world.bob.userId,
+        permission: "perm.attachment.download",
+        scope: { type: "company" },
+      },
+    ]);
   });
 });
