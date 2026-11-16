@@ -1,4 +1,5 @@
-// チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。
+// チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。参加中で読み取り専用でなければ、招待（S-12）を開ける。
+import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { useSession } from "../../auth";
@@ -6,9 +7,11 @@ import { StartDmButton } from "../../dms";
 import { RoomMessages } from "../../messages";
 import { ThreadLayout, useThreadParam } from "../../threads";
 import { useMarkRoomRead } from "../../unread";
+import type { ChannelDetail } from "../api/channel-api";
 import { describeError, isApiError } from "../describe-error";
 import { useChannelDetail } from "../hooks/useChannelDetail";
 import { useJoinChannel } from "../hooks/useJoinChannel";
+import { ChannelInviteDialog } from "./ChannelInviteDialog";
 
 export function ChannelDetailView({ channelId }: { channelId: string }) {
   const channel = useChannelDetail(channelId);
@@ -73,25 +76,50 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
             既読の状態を更新できませんでした。{describeError(read.error)}
           </Alert>
         )}
-        {data.joined && (
-          <div>
-            <h2 className="mb-2 font-bold">参加者（{data.memberCount}人）</h2>
-            <ul>
-              {data.members?.map((member) => (
-                <li key={member.id}>
-                  {member.displayName}
-                  {selfId !== undefined && member.id !== selfId && (
-                    <StartDmButton
-                      partnerUserId={member.id}
-                      partnerDisplayName={member.displayName}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {data.joined && <ChannelMembers channel={data} selfId={selfId} />}
       </section>
     </ThreadLayout>
+  );
+}
+
+/** 参加者の一覧と、招待（S-12）の入口。参加中のときだけ出す */
+function ChannelMembers({
+  channel,
+  selfId,
+}: {
+  channel: ChannelDetail;
+  selfId: string | undefined;
+}) {
+  const [inviting, setInviting] = useState(false);
+  return (
+    <div>
+      <h2 className="mb-2 font-bold">参加者（{channel.memberCount}人）</h2>
+      <ul>
+        {channel.members?.map((member) => (
+          <li key={member.id}>
+            {member.displayName}
+            {selfId !== undefined && member.id !== selfId && (
+              <StartDmButton
+                partnerUserId={member.id}
+                partnerDisplayName={member.displayName}
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+      {/* 表示の制御だけ。招待してよいかはサーバーが判定する */}
+      {!channel.readOnly && (
+        <Button variant="secondary" onClick={() => setInviting(true)}>
+          招待
+        </Button>
+      )}
+      {inviting && (
+        <ChannelInviteDialog
+          channelId={channel.id}
+          channelName={channel.name}
+          onClose={() => setInviting(false)}
+        />
+      )}
+    </div>
   );
 }

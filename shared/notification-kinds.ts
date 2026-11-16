@@ -21,6 +21,8 @@ const KINDS = {
   "channel_request.approved": { containsRoomContent: false },
   "channel_request.rejected": { containsRoomContent: false },
   "message.mentioned": { containsRoomContent: true },
+  // チャンネルへの招待（#135）：招待された人がのちにチャンネルを見られなくなれば、一覧・未読数から除く
+  "channel.invited": { containsRoomContent: true },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;

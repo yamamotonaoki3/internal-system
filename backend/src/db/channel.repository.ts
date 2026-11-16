@@ -7,6 +7,10 @@ import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import type { ChannelPurpose } from "../../../shared/message-rules";
 import { auditLogInsert } from "./audit-log.repository";
+import {
+  channelInviteStatements,
+  type ChannelInviteInput,
+} from "./channel-invite.sql";
 import { withDatabase, type Database } from "./database";
 
 export type ChannelListOptions = {
@@ -46,6 +50,9 @@ export type ChannelViewRow = ChannelDetailRow & {
 };
 
 export type ChannelMember = { id: string; displayName: string };
+
+/** 招待の相手の状態（#135） */
+export type ChannelInvitee = { isActive: boolean; joined: boolean };
 
 export type ChannelJoinInput = {
   roomId: string;
@@ -186,6 +193,43 @@ export function createChannelRepository(db: Database) {
         )
         .orderBy(asc(users.id))
         .limit(limit);
+    },
+    // 招待の相手（#135）。社員が存在しなければ null。無効な社員の参加の行が残っている場合も joined を返す
+    async findInvitee(
+      roomId: string,
+      userId: string,
+    ): Promise<ChannelInvitee | null> {
+      const rows = await db
+        .select({
+          isActive: users.isActive,
+          joined: sql<boolean>`${channelMembers.userId} IS NOT NULL`.mapWith(
+            Boolean,
+          ),
+        })
+        .from(users)
+        .leftJoin(
+          channelMembers,
+          and(
+            eq(channelMembers.channelId, roomId),
+            eq(channelMembers.userId, users.id),
+          ),
+        )
+        .where(eq(users.id, userId))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    async isUserActive(userId: string): Promise<boolean> {
+      const rows = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.isActive, true)))
+        .limit(1);
+      return rows.length > 0;
+    },
+    // 監査・通知・参加を同じ batch で確定する。条件が成り立たず参加の行を作らなかったときは null（既存の参加の行があっても null）
+    async invite(input: ChannelInviteInput): Promise<string | null> {
+      const [, , inserted] = await db.batch(channelInviteStatements(db, input));
+      return inserted[0]?.joinedAt ?? null;
     },
     // 監査ログは参加の行がまだないときだけ書く。参加の挿入より前に置く（後ろだと、挿入済みで常に条件が偽になる）
     // 確認から書き込みまでの間にアーカイブ・非公開化された場合に備え、どちらも「今も公開で未アーカイブ」を条件にする。

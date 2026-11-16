@@ -9,7 +9,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-2-04（一覧）・EP-2-05（参加）・EP-2-06（詳細）／全社連絡の用意（部分一意インデックスのmigration 0010と、初期データのmigration 0011）／アカウント発行・初回セットアップでの全社連絡と部署の専用チャンネルへの参加／S-09（チャンネルを探す）・詳細画面の入口・サイドバーの「参加中のチャンネル」／監査操作`channel.join`・`channel.company_general_backfill` |
-| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（**#131で実装した**。[channel-requests.md](channel-requests.md)）、非公開チャンネルの招待（2-4 AC-1〜4。#135）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出。なお、お知らせ専用チャンネルの投稿制限（2-3 AC-4）とメッセージは**#201で実装した**（[messages.md](messages.md)） |
+| 親#132に残すもの（未実施） | 検索（2-3 AC-3）、申請で作るチャンネル（**#131で実装した**。[channel-requests.md](channel-requests.md)）、非公開チャンネルの招待（2-4 AC-1〜4。**#135で実装した**。下の「チャンネルへの招待」）、拠点ラベル（C-119）、未読（#124）、チャンネルのアーカイブ、退出。なお、お知らせ専用チャンネルの投稿制限（2-3 AC-4）とメッセージは**#201で実装した**（[messages.md](messages.md)） |
 | 作らないもの | 退出のAPI（全社連絡にも作らない。Q-2）、新しい権限ID（認証済みの有効な社員であれば足りる。Q-7）、レート制限（上限がX-8で未決定のため入れない。別Issueで扱う。Q-8） |
 
 ## ファイルと役割
@@ -114,6 +114,61 @@
 - 詳細画面（`ChannelDetailView`）は、404を「チャンネルが見つかりません」と表示する。参加ボタンの成功後は、一覧とサイドバーを取り直す
 - テストでは、サイドバーが一覧を取るため、MSWの既定の応答（`frontend/src/test/server.ts`）に`GET /api/channels`の空の一覧を足した
 
+## チャンネルへの招待（Issue #135・#132の残り。EP-2-12・S-12）
+
+参加者が有効な社員をチャンネルに追加する。招待の表は作らず、`channel_members`の行と監査ログ`channel.invite`で記録する（C-175）。確定と同時に参加者になり、`201`で`channelId`・`userId`・`joinedAt`を返す。migrationはない。
+
+### ファイルと役割
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/lib/channel-rules.ts` | `canInviteToChannel`：閲覧可否（`not_found`）→ 招待者の参加（`not_member`）→ チャンネルの状態（`case_channel`・`department_inactive`）の順に、先に当たった理由を返す純粋関数。権限と再認証はこの関数に含めず、Serviceが`not_member`と`case_channel`の間で確かめる（権限、再認証の順） |
+| `backend/src/db/channel-invite.sql.ts` | 書き込みの3文（監査・通知・参加）と、3文に共通の条件`invitable`。`channelInviteStatements`が返す |
+| `backend/src/db/channel.repository.ts` | `findInvitee`（相手の有効性と参加済みを1回で読む。存在しなければ`null`）・`isUserActive`（招待者が有効か）・`invite`（3文を1つの`db.batch`で確定し、参加日時か`null`を返す） |
+| `backend/src/services/channel.service.ts` | `createChannelService`の`invite`。判定の順と、0行の後の読み直しを持つ。判定の共通部分は内部の`assertCanInvite`・`assertInvitee` |
+| `backend/src/routes/channels.ts` | `POST /:channelId/invitations`。パス・本文（`userId`のみ。`strict`・ULID）を`validate`で確かめ、再認証の時刻を`actorOf`で渡す |
+| `backend/src/lib/audit-actions.ts`、`shared/notification-kinds.ts` | `channel.invite`、通知の種類`channel.invited`（`containsRoomContent: true`）を足した |
+| `frontend/src/features/channels/api/channel-api.ts`、`hooks/useInviteToChannel.ts` | `inviteToChannel`（応答はzodで検証）。フックは、再認証だけを済ませる`confirmReauth`と、招待を送る`invite`に分ける。成功したら`channelKeys.all`を無効にする |
+| `frontend/src/features/channels/components/ChannelInviteDialog.tsx`、`ChannelDetailView.tsx` | S-12。`ChannelDetailView`は、参加中で`readOnly`が偽のときだけ「招待」を出す（表示の制御。認可はサーバー）。社員の検索は`features/members`の部品を使う |
+| `frontend/src/features/notifications/notification-views.ts` | `channel.invited`の固定の文言「チャンネルに追加されました」と移動先（チャンネルの詳細） |
+
+### 判定の順（Service。この順を変えない）
+
+`createChannelService`の`invite`は、次の順で判定する。入力の確認（422）は、これより前に`validate`で済んでいる。
+
+1. **閲覧可否**：参加していない非公開・アーカイブ済み・存在しないチャンネルは、区別せず同じ404
+2. **招待者の参加**：公開チャンネルで招待者が参加していなければ403 FORBIDDEN。拒否は`audit`に記録する
+3. **権限**：`perm.channel.invite`を、参加の確認の後に`authorize`（対象は`{ type: "company" }`）で確かめる。拒否は403で、`authorize`が監査に残す。見えないチャンネル・未参加では確かめない。権限はSQLの条件には入れない。`createChannelService`の`deps.authorizer`で差し替えられる（省略時は`roles`から組む）
+4. **再認証**：`assertRecentReauth`。なければ403 REAUTH_REQUIRED（参加していない非公開では、再認証の前に404になる）
+5. **チャンネルの状態**：案件専用は409。チャンネルの部署が無効（読み取り専用）も409「部署が無効になっているため、招待できません」。会社直属は招待できる
+6. **相手の有効性**：相手が存在しない・無効は、区別せず同じ404
+7. **参加済み**：相手が参加済み（自分自身を含む）は409
+8. 書き込み（Repositoryの`invite`）
+
+### 書き込み（`db.batch`）
+
+- 監査（`channel.invite`。`detail`は`invitedUserId`だけ）→ 通知（`channel.invited`）→ 参加の挿入の順の3文を、同じ`db.batch`で確定する。監査と通知を挿入より前に置くのは、挿入の後だと「相手が未参加」の条件が偽になるため（`join`と同じ）
+- 3文とも同じ条件（`invitable`）を付ける。条件は、(a) 未アーカイブ (b) 案件でない (c) 部署がない、または部署が有効 (d) **招待者の参加の行がある（公開・非公開とも）** (e) 招待者が有効 (f) 相手が有効 (g) 相手が未参加。最初の判定で確かめることは、すべてこの条件にも入っている（再認証は、時刻がセッションの値でDBの行の状態ではないため入れない）
+- 通知の行にはチャンネル名・氏名を保存しない。受け取った人がのちにチャンネルを見られなくなれば、既存の仕組み（`containsRoomContent`）で通知一覧・未読数から除かれる
+- 条件が成り立たなければ3文とも0行になり、成功の監査・通知・参加のどれも残らない
+
+### 0行の後の読み直し
+
+確認から書き込みまでの間に状態が変わると、`invite`は`null`を返す。Serviceは次の順で読み直し、最初に当たった理由を返す（再認証はやり直さない）。どれにも当たらなければ、成功にせず例外を再送出する（500）。
+
+1. **招待者が有効か**：無効なら401 UNAUTHENTICATED（「ログインしてください」。セッションの層と同じ`AppError`。チャンネルの状態は何も伝えない）
+2. 閲覧可否（404）→ 招待者の参加（403）→ 権限`perm.channel.invite`（403。確かめ直す）→ チャンネルの状態（409）→ 相手の有効性（404）→ 参加済み（409）
+
+参加済みの判定を最後にするのは、招待者が見えなくなった場合に、相手の参加状態を漏らさないため。
+
+### 画面の流れ（S-12）
+
+社員を検索して選ぶ → **再認証**（`confirmReauth`。成功しても招待のAPIは呼ばず、確定画面を開くだけ）→ **確定画面**（相手の表示名・チャンネル名）→ 利用者が「確定」を押したときだけ`invite`を呼ぶ。確定前に閉じればAPIを呼ばない。失敗は`ApiError`の`code`で分け、404は「見つかりません」、409はサーバーの文言（「参加済み」・部署が無効）をそのまま出し、`REAUTH_REQUIRED`は再認証のやり直しを案内する。
+
+### 作らないもの
+
+メッセージ検索（#155）、案件専用チャンネルの招待（参加者の追加で入る）、CSV一括登録・再有効化での全社連絡への参加、リンク・コードでの招待、招待の表、レート制限（X-8が未決定）。
+
 ## API契約
 
 詳細な形はOpenAPI（`docs/api/openapi.json`）と[api-draft.md](../requirements/api-draft.md)のEP-2-04〜06に従う。
@@ -123,6 +178,7 @@
 | 一覧（EP-2-04） | `GET /api/channels`。`departmentId?`・`joined?`・`limit`・`cursor`。200で`items`（`id`・`roomId`・`name`・`visibility`・`departmentId`・`departmentName`・`joined`）と`nextCursor`。401／404（存在しない部署）／422 |
 | 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`canPost`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。**#201で`canPost`を足した**（既存の項目は変えていない）。401／404【Issue #134で、`readOnly`（チャンネルの部署が無効で読み取り専用。部署のない会社直属は偽）を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別。元の記述は残す】 |
 | 参加（EP-2-05） | `POST /api/channels/{channelId}/join`。200で`channelId`・`roomId`・`joinedAt`。参加済みでも200（べき等）。401／403（Origin）／404 |
+| 招待（EP-2-12。#135） | `POST /api/channels/{channelId}/invitations`。本文は`userId`だけ。201で`channelId`・`userId`・`joinedAt`（要件の案の`invitationId`・`status`は返さない。C-175）。401／403（FORBIDDEN・REAUTH_REQUIRED・Origin）／404／409／422。判定の順は上の「チャンネルへの招待」 |
 
 ## 権限
 
@@ -136,6 +192,9 @@
 | `createChannelService().get` | 操作者、ルームID | `ChannelDetail`。見えなければ404 |
 | `createChannelService().join` | 操作者、ルームID | `ChannelJoined`（`channelId`・`roomId`・`joinedAt`）。見えない・参加できない・確認後に変わったときは404 |
 | `createChannelRepository().join` | ルームID、利用者ID、trace ID | 参加日時。参加の行が作られず既存の行もなければ`null` |
+| `createChannelService(repository, roles?, deps)().invite`（#135） | 操作者（再認証の時刻を含む）、ルームID、相手の利用者ID。権限の判定は`deps.authorizer`（省略時は`roles`） | `ChannelInvited`（`channelId`・`userId`・`joinedAt`）。404・403・409・401は上の判定の順と0行の後の読み直しのとおり |
+| `createChannelRepository().invite`・`findInvitee`・`isUserActive`（#135） | ルームID、招待者・相手の利用者ID、trace ID | 参加日時か`null`／相手の`isActive`・`joined`か`null`／招待者が有効か |
+| `canInviteToChannel(channel, inviterIsMember)`（#135） | チャンネルの状態（`purpose`・部署が有効か）、招待者が参加中か | `allowed`・`not_found`・`not_member`・`case_channel`・`department_inactive` |
 | `canViewChannel(channel, isMember)` / `canJoinChannel(channel)` | `visibility`・`deletedAt`（と参加中か） | 真偽 |
 
 ## テストの場所
@@ -147,12 +206,13 @@
 - フロントエンド：`frontend/src/features/channels/channels.components.test.tsx`、`frontend/src/pages/ChannelsPage.test.tsx`、`frontend/src/channels-route.test.tsx`、`frontend/src/features/app-shell/navigation.channels.test.ts`
 - #201で足したテスト：`backend/src/routes/channels.can-post.test.ts`（`canPost`）、`frontend/src/features/channels/channel-detail.messages.test.tsx`（S-05の統合）
 - E2E：`e2e/channels.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/channels.sql`・`channels-cleanup.sql`
+- #135で足したテスト：`backend/src/lib/channel-rules.test.ts`（`canInviteToChannel`）、`backend/src/services/channel.service.invite.test.ts`（判定の順と0行の後の読み直し）、`backend/src/routes/channels.invite.test.ts`（HTTPの形・同じ404・再認証・監査）、`backend/src/db/channel.repository.invite.db.test.ts`（書き込みの条件・原子性・0行）、`backend/src/lib/notification-kinds.channel-invite.test.ts`、`frontend/src/features/channels/channel-invite.test.tsx`・`frontend/src/features/notifications/notification-views.channel-invite.test.ts`、`e2e/channel-invite.spec.ts`（シードは`e2e/seeds/channel-invite.sql`・`channel-invite-cleanup.sql`）
 
 ## 未実施・未決定として記録するもの
 
 | 項目 | 状態 |
 | --- | --- |
-| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（**未読は後から#237で実装した**。[unread.md](unread.md)。お知らせ専用の投稿制限とメッセージは#201で実装。申請で作るチャンネルは#131で実装） |
+| 親#132の未実施の受け入れ条件（検索、申請で作るチャンネル、非公開の招待、未読など） | 親に残す。このIssueでは作っていない（**招待は後から#135で実装した**。**未読は後から#237で実装した**。[unread.md](unread.md)。お知らせ専用の投稿制限とメッセージは#201で実装。申請で作るチャンネルは#131で実装） |
 | Q-9：0009で名前が衝突して専用チャンネルが作られなかった部署の扱い | 未決。このIssueでは何も作らない。デモの前に、`audit_logs`の`department.channel_backfill`と`channel.company_general_backfill`の`failure`の有無を確かめる |
 | 全社連絡の退出 | APIを作っていない。全社連絡から外れる経路はない |
 | レート制限（EP-2-04〜06） | 入れていない。上限がX-8で決まっていないため、別Issueで扱う（[project-rules.md](../project-rules.md)） |
@@ -166,4 +226,5 @@
 - [channel-requests.md](channel-requests.md)（#131）：通常のチャンネルは、申請の承認の時に初めて作られる（`rooms`→`channels`→`channel_members`を承認の`db.batch`で作る。承認待ちの間は`channels`に行がないため、このIssueの一覧・詳細・参加には出ない）。申請の名前の重複は、`channels.name_normalized`（アーカイブ済みを含む）と、承認待ちの申請が対象
 - ADR-0006：ID・カーソル／ADR-0012：サーバー側で毎回認可する／ADR-0020：ミューテーション・E2Eの実行範囲
 - [ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)：全社連絡を補う手作成migrationの例外
+- Issue #135（親 #132 の残りを含む。2-4 AC-2・AC-3、2-5 AC-1〜7。招待）：決定記録C-175
 - 要件：2-1 AC-16・17、0-1 AC-15、2-3 AC-1・2、S-09。決定記録C-94・C-95・C-163
