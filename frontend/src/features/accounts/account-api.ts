@@ -1,4 +1,4 @@
-// API 層：アカウントの発行・一覧・部署の候補の通信はここに書く。共通の apiClient（services/）を使う（C-46）。
+// API 層：アカウントの発行・一覧・部署の候補・無効化・再有効化の通信はここに書く。共通の apiClient（services/）を使う（C-46）。
 import { z } from "zod";
 import { apiClient } from "../../services/api-client";
 
@@ -72,4 +72,27 @@ export async function submitAccount(
 ): Promise<AccountCreated> {
   const response = await apiClient.post("/admin/accounts", input);
   return createdSchema.parse(response.data);
+}
+
+const reactivatedSchema = z.object({
+  id: z.string().min(1),
+  initialPassword: z.string().min(1),
+});
+
+export type AccountReactivated = z.infer<typeof reactivatedSchema>;
+
+export async function deactivateAccount(id: string): Promise<void> {
+  await apiClient.post(`/admin/accounts/${encodeURIComponent(id)}/deactivate`);
+}
+
+// 一時パスワードを含む応答を返す。submitAccount と同じく useMutation には載せない（MutationCache に残るため）
+export async function reactivateAccount(
+  id: string,
+  input: { departmentId: string },
+): Promise<AccountReactivated> {
+  const response = await apiClient.post(
+    `/admin/accounts/${encodeURIComponent(id)}/reactivate`,
+    input,
+  );
+  return reactivatedSchema.parse(response.data);
 }

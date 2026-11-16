@@ -164,6 +164,149 @@
         }
       }
     },
+    "/api/admin/accounts/{id}/deactivate": {
+      "post": {
+        "operationId": "deactivateAccount",
+        "summary": "アカウントを無効化する",
+        "description": "全体管理者（perm.account.deactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（自分自身）→ 再認証 → 409。所属・全チャンネルの参加・追加ロールを外し、有効なセッションを失効させる。DM の参加は残す。本文はない。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "無効化した（本文なし）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "アカウントがない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "対象が既に無効・全体管理者・部署のオーナー（reason: already_inactive・global_admin・department_owner）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}/reactivate": {
+      "post": {
+        "operationId": "reactivateAccount",
+        "summary": "無効なアカウントを再有効化する",
+        "description": "全体管理者（perm.account.reactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（部署がない・無効）→ 再認証 → 409。同じ ID で有効に戻し、指定の部署と全社連絡・部署の専用チャンネルに参加させる。ロール・個別のチャンネルは戻さない。一時パスワードは応答に一度だけ含め、Cache-Control: no-store を付ける。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountReactivate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "再有効化したアカウントの ID と、一度だけ返す一時パスワード",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountReactivated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "アカウントがない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "対象が既に有効（reason: already_active）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/admin/clients": {
       "get": {
         "operationId": "listAdminClients",
@@ -5409,6 +5552,38 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 30
+        }
+      }
+    },
+    "AccountReactivate": {
+      "type": "object",
+      "required": [
+        "departmentId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "再有効化の後の所属部署（有効な部署）"
+        }
+      }
+    },
+    "AccountReactivated": {
+      "type": "object",
+      "required": [
+        "id",
+        "initialPassword"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "initialPassword": {
+          "type": "string",
+          "description": "一時パスワード。この応答でだけ返す。保存・ログ出力をしない"
         }
       }
     },

@@ -1,8 +1,10 @@
 // Service：アカウントの個別発行と管理者用の一覧。HTTP（Hono）も DB のライブラリも知らない。
 // 処理の順序：認可（全体管理者だけ）→ 部署の確認（422）→ 初期パスワードと本名の保護 → 保存 → 重複は 409。
 // 初期パスワードは、ハッシュにしたものだけを保存する。平文は呼び出し元への戻り値にだけ入れ、ログ・監査・エラーには入れない。
+// 無効化・再有効化（#128）の判定の順：404 → 403 → 422 → 再認証 → 409。書き込みの前提が崩れたら、同じ判定を読み直して理由を決める。
 import {
   AccountConflictError,
+  AccountStateChangedError,
   CompanyGeneralChannelMissingError,
   withAccounts,
   type AccountConflictReason,
@@ -13,11 +15,58 @@ import type { RoleAssignmentRepository } from "../db/role-assignment.repository"
 import { AppError } from "../lib/app-error";
 import { createLogger } from "../lib/logger/logger";
 import { generateInitialPassword, hashPassword } from "../lib/password";
+import type { Permission } from "../lib/permissions";
 import { encryptLegalName } from "../lib/pii-crypto";
 import { newUlid } from "../lib/ulid";
 import { createAppAuthorizer } from "./authorizer";
+import { assertRecentReauth } from "./credentials.service";
 
 export type AccountActor = { userId: string; traceId: string };
+
+/** 無効化・再有効化の操作者。再認証の時刻をセッションから受け取る */
+export type AccountLifecycleActor = AccountActor & {
+  reauthenticatedAt: string | null;
+};
+
+export type AccountReactivated = {
+  id: string;
+  /** 一度だけ画面に表示する。保存しない */
+  initialPassword: string;
+};
+
+type LifecycleConflictReason =
+  "already_inactive" | "global_admin" | "department_owner" | "already_active";
+
+const LIFECYCLE_CONFLICT_MESSAGES: Record<LifecycleConflictReason, string> = {
+  already_inactive: "このアカウントはすでに無効です",
+  global_admin: "全体管理者は、後任へ引き継ぐまで無効化できません",
+  department_owner:
+    "部署のオーナーは、先にオーナーを交代してから無効化してください",
+  already_active: "このアカウントはすでに有効です",
+};
+
+function lifecycleConflict(reason: LifecycleConflictReason): AppError {
+  return new AppError("CONFLICT", LIFECYCLE_CONFLICT_MESSAGES[reason], {
+    reason,
+  });
+}
+
+/**
+ * 書き込む。前提が崩れていたら（AccountStateChangedError）、最初と同じ判定で事実を読み直して理由を返す。
+ * どの理由にも当たらなければ、成功にせず元のエラーを投げる。それ以外のエラーは、そのまま伝える。
+ */
+async function writeWithRecheck(
+  decide: () => Promise<unknown>,
+  write: () => Promise<void>,
+): Promise<void> {
+  try {
+    await write();
+  } catch (error) {
+    if (!(error instanceof AccountStateChangedError)) throw error;
+    await decide();
+    throw error;
+  }
+}
 
 export type AccountCreateRequest = {
   loginId: string;
@@ -62,16 +111,67 @@ export function createAccountService(
   repository: AccountRepository,
   roles: RoleAssignmentRepository,
 ) {
-  async function authorize(actor: AccountActor): Promise<void> {
+  async function authorizeFor(
+    actor: AccountActor,
+    permission: Permission,
+  ): Promise<void> {
     const logger = createLogger({
       traceId: actor.traceId,
       userId: actor.userId,
     });
     await createAppAuthorizer(roles, { logger }).authorize(
       { userId: actor.userId },
-      "perm.account.create",
+      permission,
       { type: "company" },
     );
+  }
+
+  const authorize = (actor: AccountActor) =>
+    authorizeFor(actor, "perm.account.create");
+
+  async function findTarget(targetId: string) {
+    const target = await repository.findAccountState(targetId);
+    if (target === null) {
+      throw new AppError("NOT_FOUND", "アカウントが見つかりません");
+    }
+    return target;
+  }
+
+  /** 無効化の判定（最初と、前提が崩れた後の読み直しで同じものを使う） */
+  async function decideDeactivation(
+    actor: AccountLifecycleActor,
+    targetId: string,
+  ): Promise<void> {
+    const target = await findTarget(targetId);
+    await authorizeFor(actor, "perm.account.deactivate");
+    if (target.id === actor.userId) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "自分のアカウントは無効化できません",
+      );
+    }
+    assertRecentReauth(actor.reauthenticatedAt);
+    if (!target.isActive) throw lifecycleConflict("already_inactive");
+    if (target.isGlobalAdmin) throw lifecycleConflict("global_admin");
+    if (target.isDepartmentOwner) throw lifecycleConflict("department_owner");
+  }
+
+  /** 再有効化の判定（最初と、前提が崩れた後の読み直しで同じものを使う） */
+  async function decideReactivation(
+    actor: AccountLifecycleActor,
+    targetId: string,
+    departmentId: string,
+  ): Promise<void> {
+    const target = await findTarget(targetId);
+    await authorizeFor(actor, "perm.account.reactivate");
+    const department = await repository.findActiveDepartment(departmentId);
+    if (department === null) {
+      throw new AppError("VALIDATION_ERROR", "入力内容を確かめてください", {
+        fields: ["departmentId"],
+      });
+    }
+    assertRecentReauth(actor.reauthenticatedAt);
+    if (target.isActive) throw lifecycleConflict("already_active");
   }
 
   return {
@@ -158,6 +258,43 @@ export function createAccountService(
     async departmentOptions(actor: AccountActor) {
       await authorize(actor);
       return { items: await repository.listActiveDepartments() };
+    },
+    async deactivate(
+      actor: AccountLifecycleActor,
+      targetId: string,
+    ): Promise<void> {
+      const decide = () => decideDeactivation(actor, targetId);
+      await decide();
+      await writeWithRecheck(decide, () =>
+        repository.deactivate({
+          targetId,
+          actorId: actor.userId,
+          now: new Date().toISOString(),
+          traceId: actor.traceId,
+        }),
+      );
+    },
+    async reactivate(
+      actor: AccountLifecycleActor,
+      targetId: string,
+      input: { departmentId: string },
+    ): Promise<AccountReactivated> {
+      const decide = () =>
+        decideReactivation(actor, targetId, input.departmentId);
+      await decide();
+      const initialPassword = generateInitialPassword();
+      const passwordHash = await hashPassword(initialPassword);
+      await writeWithRecheck(decide, () =>
+        repository.reactivate({
+          targetId,
+          departmentId: input.departmentId,
+          passwordHash,
+          actorId: actor.userId,
+          now: new Date().toISOString(),
+          traceId: actor.traceId,
+        }),
+      );
+      return { id: targetId, initialPassword };
     },
   };
 }

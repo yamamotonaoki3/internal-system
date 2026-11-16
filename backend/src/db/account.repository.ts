@@ -1,8 +1,16 @@
 // Repository：アカウントの個別発行と管理者用の一覧（DB へのアクセスはこの層に閉じ込める）。
 // 利用者の追加と監査ログは、同じ db.batch で確定する（片方が失敗したら、どちらも残さない）。
-import { and, asc, eq, sql } from "drizzle-orm";
-import { channelMembers, departments, users } from "../../db/schema";
+// 無効化・再有効化（#128）は、batch の先頭の assertStatement で前提を確かめ、崩れていれば NOT NULL 違反で batch 全体を取り消す（#196 の方式）。
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import {
+  channelMembers,
+  departments,
+  sessions,
+  userRoleAssignments,
+  users,
+} from "../../db/schema";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
+import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
 import { withDatabase, type Database } from "./database";
@@ -77,6 +85,44 @@ export class CompanyGeneralChannelMissingError extends Error {
 // 全社連絡の確認の文（users の挿入の直後）が崩れたときに NOT NULL 違反になる列
 const COMPANY_GENERAL_ASSERT_COLUMN = "users.display_name";
 
+/** 無効化・再有効化の前提（対象・操作者・部署の状態）が、判定の後に崩れていたときに投げる。何も残らない */
+export class AccountStateChangedError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(
+      "アカウントの状態が変わったため、操作を実行できませんでした",
+      options,
+    );
+    this.name = "AccountStateChangedError";
+  }
+}
+
+// 無効化・再有効化の前提の確認の文（assertStatement）が崩れたときに NOT NULL 違反になる列
+const ACCOUNT_STATE_ASSERT_COLUMN = "users.login_id";
+
+export type AccountState = {
+  id: string;
+  isActive: boolean;
+  isGlobalAdmin: boolean;
+  isDepartmentOwner: boolean;
+};
+
+export type AccountDeactivateInput = {
+  targetId: string;
+  actorId: string;
+  now: string;
+  traceId: string;
+};
+
+export type AccountReactivateInput = {
+  targetId: string;
+  departmentId: string;
+  /** ハッシュにした一時パスワード */
+  passwordHash: string;
+  actorId: string;
+  now: string;
+  traceId: string;
+};
+
 type Constraint = { kind: "unique" | "not_null"; target: string };
 
 function constraintOf(error: unknown): Constraint | null {
@@ -105,9 +151,48 @@ function translateError(error: unknown): unknown {
       ? error
       : new AccountConflictError(reason, { cause: error });
   }
-  return constraint.target === COMPANY_GENERAL_ASSERT_COLUMN
-    ? new CompanyGeneralChannelMissingError({ cause: error })
+  if (constraint.target === COMPANY_GENERAL_ASSERT_COLUMN)
+    return new CompanyGeneralChannelMissingError({ cause: error });
+  return constraint.target === ACCOUNT_STATE_ASSERT_COLUMN
+    ? new AccountStateChangedError({ cause: error })
     : error;
+}
+
+/** 操作者が有効で、会社範囲の全体管理者であること（引き継ぎの後の前任者・無効になった操作者を拒否する） */
+function actorIsGlobalAdmin(actorId: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM users a WHERE a.id = ${actorId} AND a.is_active = 1)
+    AND EXISTS (SELECT 1 FROM user_role_assignments r
+      WHERE r.user_id = ${actorId} AND r.role_id = ${ROLE_IDS.globalAdmin} AND r.scope_type = 'company')`;
+}
+
+/**
+ * 条件が崩れていたら NOT NULL 違反で batch 全体を失敗させる文（login_id を、そのままか NULL にする）。
+ * 対象と操作者の両方の行に当てる：どちらかの行がなくても、残った行で条件の崩れを検出する。
+ * 部署の版を使う department.repository.ts の関数とは対象の表が違うため、共通化しない。
+ */
+function assertStatement(
+  db: Database,
+  input: { targetId: string; actorId: string },
+  condition: SQL,
+) {
+  return db
+    .update(users)
+    .set({
+      loginId: sql`CASE WHEN ${condition} THEN ${users.loginId} ELSE NULL END`,
+    })
+    .where(inArray(users.id, [input.targetId, input.actorId]));
+}
+
+/** 全社連絡と、所属部署の専用チャンネル2つ（department・announcement）に参加させる文。専用チャンネルがない部署でも成功する */
+function joinInitialChannels(
+  db: Database,
+  input: { userId: string; departmentId: string; now: string },
+) {
+  return db.insert(channelMembers).select(sql`
+    SELECT c.room_id, ${input.userId}, ${input.now} FROM channels c
+    WHERE c.deleted_at IS NULL
+      AND (c.purpose = 'company_general'
+        OR (c.department_id = ${input.departmentId} AND c.purpose IN ('department', 'announcement')))`);
 }
 
 function cursorFor(row: { id: string; loginIdNormalized: string }) {
@@ -160,12 +245,11 @@ export function createAccountRepository(db: Database) {
               displayName: sql`CASE WHEN EXISTS (SELECT 1 FROM channels WHERE purpose = 'company_general' AND deleted_at IS NULL) THEN ${users.displayName} ELSE NULL END`,
             })
             .where(eq(users.id, input.id)),
-          // 全社連絡と、所属部署の専用チャンネル2つ（department・announcement）に参加させる。専用チャンネルがない部署でも成功する
-          db.insert(channelMembers).select(sql`
-            SELECT c.room_id, ${input.id}, ${input.now} FROM channels c
-            WHERE c.deleted_at IS NULL
-              AND (c.purpose = 'company_general'
-                OR (c.department_id = ${input.departmentId} AND c.purpose IN ('department', 'announcement')))`),
+          joinInitialChannels(db, {
+            userId: input.id,
+            departmentId: input.departmentId,
+            now: input.now,
+          }),
           auditLogInsert(db, {
             actorId: input.actorId,
             action: "account.create",
@@ -177,6 +261,127 @@ export function createAccountRepository(db: Database) {
               departmentId: input.departmentId,
               emailVerification: "admin",
             },
+          }),
+        ]);
+      } catch (error) {
+        throw translateError(error);
+      }
+    },
+    /** 無効化・再有効化の判定に使う、対象の事実。ない社員は null */
+    async findAccountState(id: string): Promise<AccountState | null> {
+      const rows = await db
+        .select({
+          id: users.id,
+          isActive: users.isActive,
+          isGlobalAdmin: sql<number>`EXISTS (SELECT 1 FROM user_role_assignments r WHERE r.user_id = ${id} AND r.role_id = ${ROLE_IDS.globalAdmin})`,
+          isDepartmentOwner: sql<number>`EXISTS (SELECT 1 FROM user_role_assignments r WHERE r.user_id = ${id} AND r.role_id = ${ROLE_IDS.owner})`,
+        })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      const row = rows[0];
+      if (row === undefined) return null;
+      return {
+        id: row.id,
+        isActive: row.isActive,
+        isGlobalAdmin: row.isGlobalAdmin === 1,
+        isDepartmentOwner: row.isDepartmentOwner === 1,
+      };
+    },
+    /**
+     * 無効化：状態・所属・全チャンネルの参加・追加ロール・セッションの失効・監査1件を1つの batch で確定する。
+     * DM の参加・既読・投稿には触れない。前提が崩れていたら AccountStateChangedError で、何も残さない。
+     */
+    async deactivate(input: AccountDeactivateInput): Promise<void> {
+      // 監査の detail（元の部署）を読む。読んだ値が batch の時点でも同じことを、前提の条件に含める
+      const rows = await db
+        .select({ departmentId: users.departmentId })
+        .from(users)
+        .where(eq(users.id, input.targetId))
+        .limit(1);
+      const target = rows[0];
+      if (target === undefined) throw new AccountStateChangedError();
+      const fromDepartmentId = target.departmentId;
+      const condition = sql`${input.actorId} <> ${input.targetId}
+        AND EXISTS (SELECT 1 FROM users t
+          WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id IS ${fromDepartmentId})
+        AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
+          WHERE r.user_id = ${input.targetId} AND r.role_id IN (${ROLE_IDS.globalAdmin}, ${ROLE_IDS.owner}))
+        AND ${actorIsGlobalAdmin(input.actorId)}`;
+      try {
+        await db.batch([
+          assertStatement(db, input, condition),
+          db
+            .update(users)
+            .set({
+              isActive: false,
+              deactivatedAt: input.now,
+              departmentId: null,
+            })
+            .where(eq(users.id, input.targetId)),
+          db
+            .delete(channelMembers)
+            .where(eq(channelMembers.userId, input.targetId)),
+          db
+            .delete(userRoleAssignments)
+            .where(eq(userRoleAssignments.userId, input.targetId)),
+          db
+            .update(sessions)
+            .set({ revokedAt: input.now })
+            .where(
+              and(
+                eq(sessions.userId, input.targetId),
+                isNull(sessions.revokedAt),
+              ),
+            ),
+          auditLogInsert(db, {
+            actorId: input.actorId,
+            action: "account.deactivate",
+            targetType: "user",
+            targetId: input.targetId,
+            result: "success",
+            traceId: input.traceId,
+            detail: { fromDepartmentId },
+          }),
+        ]);
+      } catch (error) {
+        throw translateError(error);
+      }
+    },
+    /**
+     * 再有効化：同じ ID で有効に戻し、指定の部署に所属させ、全社連絡と部署の専用チャンネルに参加させる。
+     * ロール・個別のチャンネルは戻さない。パスワードを置き換え、変更を求める。前提が崩れていたら AccountStateChangedError。
+     */
+    async reactivate(input: AccountReactivateInput): Promise<void> {
+      const condition = sql`EXISTS (SELECT 1 FROM users t WHERE t.id = ${input.targetId} AND t.is_active = 0)
+        AND EXISTS (SELECT 1 FROM departments d WHERE d.id = ${input.departmentId} AND d.is_active = 1)
+        AND ${actorIsGlobalAdmin(input.actorId)}`;
+      try {
+        await db.batch([
+          assertStatement(db, input, condition),
+          db
+            .update(users)
+            .set({
+              isActive: true,
+              deactivatedAt: null,
+              departmentId: input.departmentId,
+              passwordHash: input.passwordHash,
+              mustChangePassword: true,
+            })
+            .where(eq(users.id, input.targetId)),
+          joinInitialChannels(db, {
+            userId: input.targetId,
+            departmentId: input.departmentId,
+            now: input.now,
+          }),
+          auditLogInsert(db, {
+            actorId: input.actorId,
+            action: "account.reactivate",
+            targetType: "user",
+            targetId: input.targetId,
+            result: "success",
+            traceId: input.traceId,
+            detail: { departmentId: input.departmentId },
           }),
         ]);
       } catch (error) {
