@@ -16,6 +16,7 @@ export const AUDIT_ACTIONS = [
   "department.channel_backfill",
   "account.create",
   "channel.join",
+  "channel.invite",
   "channel.company_general_backfill",
   "status.proxy_set",
   "profile.display_name_change",
