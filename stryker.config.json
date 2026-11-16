@@ -55,6 +55,7 @@
     "backend/src/routes/attachments.ts",
     "backend/src/lib/attachment-inspection.ts",
     "backend/src/lib/ooxml-check.ts",
+    "backend/src/lib/content-types-xml.ts",
     "backend/src/lib/content-disposition.ts",
     "backend/src/lib/exif-strip.ts",
     "backend/src/services/message.service.ts",

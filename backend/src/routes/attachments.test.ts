@@ -43,6 +43,7 @@ import {
   downloadAttachment,
   failingAttachmentInsertDb,
   failingDeleteBucket,
+  failingPutBucket,
   insertAttachmentRow,
   seedStoredAttachment,
   storedKeys,
@@ -562,6 +563,52 @@ describe("#140 AC-1（1-6 AC-6）受信の途中の例外（コードレビュ�
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(pulls).toBeGreaterThanOrEqual(2);
     await nothingStored();
+  });
+});
+
+describe("#140 AC-1（1-6 AC-6）止める操作の失敗（コードレビュー2回目 軽微）", () => {
+  it("#140 AC-1（1-6 AC-6）: 保存が失敗し、受信を止める操作（cancel）も別の理由で失敗したら、失敗の応答を返し、止める操作の失敗を error ログに残す。ログにファイル名・キーを出さない", async () => {
+    const name = "秘密の動画.mp4";
+    const head = new Uint8Array(8_192);
+    head.set(MP4_BYTES);
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) {
+            controller.enqueue(head);
+            return undefined;
+          }
+          // 2回目以降は届かない（止める操作でだけ終わる）
+          return new Promise<void>(() => {});
+        },
+        cancel() {
+          throw new Error("[UNIT_TEST] 止める操作の失敗");
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await rawRequest("POST", uploadPathOf(room), {
+      token: world.alice.token,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": "20000",
+        "X-File-Name": encodeURIComponent(name),
+      },
+      body,
+      envOverrides: { ATTACHMENTS: failingPutBucket(bucket()) },
+    });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    await nothingStored();
+    // 止める操作の失敗そのもの（注入した理由）が error ログに残る
+    expect(
+      errorLines.some((line) => line.includes("[UNIT_TEST] 止める操作の失敗")),
+    ).toBe(true);
+    const allLogs = [...logLines, ...errorLines].join("\n");
+    expect(allLogs).not.toContain(name);
+    expect(allLogs).not.toContain(encodeURIComponent(name));
+    expect(allLogs).not.toMatch(/attachments\/[0-9A-HJKMNP-TV-Z]{26}/);
   });
 });
 

@@ -310,3 +310,144 @@ describe("#140 AC-1（C-137(1)・C-153）データ記述子", () => {
     expect(await checkOoxml(bytes, "docx")).toBe(false);
   });
 });
+
+// #140 コードレビュー2回目（重大）と統括の決定：[Content_Types].xml は、決まった形だけを受け付ける厳しい読み取りにする。
+// 受け付ける形：XML 宣言（任意）→ 根の要素 Types（content-types の名前空間。接頭辞つきでもよい）→ 直下に Default・Override だけ
+//   （空要素か、中身のない開始・終了の組）。コメントと空白は読み飛ばす。属性の値は二重・単一引用符、順は問わない。根の要素の名前空間の宣言は16個まで。
+// それ以外は拒否する（正しい定義を含んでいても false）。処理量の軽微2件は、時間を測らず「早く止まる入力が拒否される」ことで確かめる。
+describe("#140 AC-1（C-137(1)・C-176）[Content_Types].xml の厳しい読み取り", () => {
+  const MAIN = OOXML_MAIN.docx;
+  const NS = "http://schemas.openxmlformats.org/package/2006/content-types";
+  const DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const DEF = '<Default Extension="xml" ContentType="application/xml"/>';
+  const OVR = `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}"/>`;
+  const doc = (inner: string, rootAttrs = "") =>
+    `${DECL}<Types xmlns="${NS}"${rootAttrs}>${DEF}${inner}</Types>`;
+  const nsDecls = (n: number) =>
+    Array.from(
+      { length: n },
+      (_, i) => ` xmlns:n${i}="urn:example:unit-test:${i}"`,
+    ).join("");
+  const check = async (xml: string) =>
+    checkOoxml(await buildOoxml("docx", { contentTypes: ascii(xml) }), "docx");
+
+  it.each([
+    ["XML 宣言あり", doc(OVR)],
+    ["XML 宣言なし", `<Types xmlns="${NS}">${DEF}${OVR}</Types>`],
+    [
+      "接頭辞つき",
+      `${DECL}<ct:Types xmlns:ct="${NS}"><ct:Default Extension="xml" ContentType="application/xml"/><ct:Override PartName="${MAIN.part}" ContentType="${MAIN.type}"/></ct:Types>`,
+    ],
+    [
+      "単一引用符",
+      doc(`<Override PartName='${MAIN.part}' ContentType='${MAIN.type}'/>`),
+    ],
+    [
+      "属性の順が逆",
+      doc(`<Override ContentType="${MAIN.type}" PartName="${MAIN.part}"/>`),
+    ],
+    [
+      "中身のない開始・終了の組",
+      doc(
+        `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}"></Override>`,
+      ),
+    ],
+    [
+      "コメント・空白まじり",
+      `${DECL}
+<!-- 先頭 -->
+<Types xmlns="${NS}">
+  <!-- 中 -->
+  ${DEF}
+  ${OVR}
+</Types>
+<!-- 後ろ -->
+`,
+    ],
+    ["名前空間の宣言が16個ちょうど", doc(OVR, nsDecls(15))],
+  ])("#140 AC-1（決定）: %s は true", async (_label, xml) => {
+    expect(await check(xml)).toBe(true);
+  });
+
+  it.each([
+    ["content-types の名前空間のほかの要素", doc(`${OVR}<Extra/>`)],
+    [
+      "別の名前空間の要素",
+      doc(`${OVR}<x:Note xmlns:x="urn:example:unit-test"/>`),
+    ],
+    [
+      "3段の入れ子（Override の中に要素）",
+      doc(
+        `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}"><Default Extension="a" ContentType="b"/></Override>`,
+      ),
+    ],
+    [
+      "根の要素以外での名前空間の宣言",
+      doc(
+        `<Override xmlns:x="urn:example:unit-test" PartName="${MAIN.part}" ContentType="${MAIN.type}"/>`,
+      ),
+    ],
+    [
+      "根の終了タグの名前の不一致",
+      `${DECL}<Types xmlns="${NS}">${DEF}${OVR}</Wrong>`,
+    ],
+    [
+      "子の終了タグの名前の不一致",
+      doc(
+        `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}"></Default>`,
+      ),
+    ],
+    [
+      "DOCTYPE",
+      `${DECL}<!DOCTYPE Types []><Types xmlns="${NS}">${DEF}${OVR}</Types>`,
+    ],
+    ["CDATA", doc(`${OVR}<![CDATA[x]]>`)],
+    ["処理命令（先頭の XML 宣言以外）", doc(`${OVR}<?note x?>`)],
+    [
+      "同じ要素の中の属性の重複",
+      doc(
+        `<Override PartName="${MAIN.part}" PartName="${MAIN.part}" ContentType="${MAIN.type}"/>`,
+      ),
+    ],
+    ["根の要素の後ろの余分な要素", `${doc(OVR)}<Types xmlns="${NS}"/>`],
+    ["根の要素の後ろの余分な文字", `${doc(OVR)}x`],
+    ["根の要素の前の文字", `x${doc(OVR)}`],
+    ["閉じていない構造", `${DECL}<Types xmlns="${NS}">${DEF}${OVR}`],
+    [
+      "属性の = がない",
+      doc(`<Override PartName "${MAIN.part}" ContentType="${MAIN.type}"/>`),
+    ],
+    [
+      "属性の引用符が閉じていない",
+      doc(`<Override PartName="${MAIN.part} ContentType="${MAIN.type}"/>`),
+    ],
+    ["根の要素の名前空間の宣言が17個", doc(OVR, nsDecls(16))],
+    [
+      "子の要素の中の文字",
+      doc(
+        `<Override PartName="${MAIN.part}" ContentType="${MAIN.type}">x</Override>`,
+      ),
+    ],
+  ])(
+    "#140 AC-1（決定）: 正しい定義を含んでいても、%s は false",
+    async (_label, xml) => {
+      expect(await check(xml)).toBe(false);
+    },
+  );
+
+  it.each([
+    [
+      "属性の部分に = のない長い文字列（30万文字）がある開始タグ",
+      doc(
+        `<Override ${"a".repeat(300_000)} PartName="${MAIN.part}" ContentType="${MAIN.type}"/>`,
+      ),
+    ],
+    [
+      "1000段の入れ子",
+      doc(`${OVR}${"<Default>".repeat(1000)}${"</Default>".repeat(1000)}`),
+    ],
+    ["根の要素の名前空間の宣言が1000個", doc(OVR, nsDecls(999))],
+  ])("#140 AC-1（処理量）: %s は false", async (_label, xml) => {
+    expect(await check(xml)).toBe(false);
+  });
+});

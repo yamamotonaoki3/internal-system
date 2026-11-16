@@ -315,6 +315,20 @@ export function failingDeleteBucket(real: R2Bucket): R2Bucket {
   });
 }
 
+/** R2 を包み、put だけを失敗させる（受け取ったストリームは読まない）。ほかは本物に流す */
+export function failingPutBucket(real: R2Bucket): R2Bucket {
+  return new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "put")
+        return async () => {
+          throw new Error("[UNIT_TEST] 注入した R2 の保存の失敗");
+        };
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 // ---- 後始末 ----
 
 const TEST_USERS =

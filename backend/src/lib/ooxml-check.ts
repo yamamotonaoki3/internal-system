@@ -3,8 +3,9 @@
 //   vbaProject.bin を含むものは拒否、embeddings/ は許可／暗号化・ZIP64・複数ディスクは拒否。
 // 各エントリのローカルヘッダーを中央ディレクトリと突き合わせる（名前・圧縮方式・サイズ。ZIP64 の欄・拡張情報は拒否）。
 //   データ記述子（汎用フラグの bit3）を使うエントリは、ローカルのサイズ欄が 0 になるので、サイズの突き合わせだけを省く（統括の決定）。
-// [Content_Types].xml は、コメント・CDATA・処理命令を除き、名前空間を解決した実際の要素の属性だけを読む（この用途の最小の読み取り）。
+// [Content_Types].xml は、決まった形だけを受け付ける読み取り（content-types-xml.ts）で読む。
 // 壊れた zip は「形式が正しくない」という判定であり、例外にせず false を返す。
+import { readContentTypes } from "./content-types-xml";
 
 export type OoxmlExtension = "docx" | "xlsx" | "pptx";
 
@@ -240,7 +241,7 @@ async function inflateWithLimit(
   return out;
 }
 
-async function readContentTypes(bytes: Uint8Array, entry: CentralEntry) {
+async function readContentTypesEntry(bytes: Uint8Array, entry: CentralEntry) {
   const data = entryData(bytes, entry);
   if (entry.method === 0)
     return data.length > MAX_CONTENT_TYPES_BYTES ? null : data;
@@ -258,111 +259,6 @@ function decodeUtf8(bytes: Uint8Array): string | null {
   }
 }
 
-const CONTENT_TYPES_NS =
-  "http://schemas.openxmlformats.org/package/2006/content-types";
-
-type TypeElement = {
-  localName: string;
-  attributes: Map<string, string>;
-};
-
-// 1つの開始タグの中の属性（値は二重引用符か単一引用符）。タグの長さに比例する
-const ATTRIBUTE = /([^\s=/]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-
-function parseAttributes(body: string): Map<string, string> {
-  const attributes = new Map<string, string>();
-  for (const match of body.matchAll(ATTRIBUTE))
-    attributes.set(match[1] as string, match[2] ?? match[3] ?? "");
-  return attributes;
-}
-
-/** 開始タグの終わり（引用符の中の「>」は数えない）。閉じていなければ -1 */
-function tagEnd(xml: string, from: number): number {
-  let quote: string | null = null;
-  for (let i = from; i < xml.length; i += 1) {
-    const char = xml[i];
-    if (quote !== null) {
-      if (char === quote) quote = null;
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === ">") return i;
-  }
-  return -1;
-}
-
-// コメント・CDATA・処理命令は読み飛ばす（中の要素は数えない）。閉じていなければ壊れた XML
-const SKIPPED = [
-  ["<!--", "-->"],
-  ["<![CDATA[", "]]>"],
-  ["<?", "?>"],
-] as const;
-
-/** 開始タグの中身から、要素の名前・属性と、この要素の中で有効な名前空間の対応を作る。名前がなければ null */
-function openElement(body: string, parent: Map<string, string>) {
-  const qualified = /^[^\s/>]+/.exec(body)?.[0];
-  if (qualified === undefined) return null;
-  const attributes = parseAttributes(body.slice(qualified.length));
-  // 名前空間を宣言した要素だけ、親の対応を写して足す（宣言のない要素は親の対応をそのまま使う）
-  const declared = [...attributes].filter(
-    ([name]) => name === "xmlns" || name.startsWith("xmlns:"),
-  );
-  const scope = declared.length === 0 ? parent : new Map(parent);
-  for (const [name, value] of declared)
-    scope.set(name === "xmlns" ? "" : name.slice(6), value);
-  const colon = qualified.indexOf(":");
-  return {
-    scope,
-    element: {
-      prefix: colon < 0 ? "" : qualified.slice(0, colon),
-      localName: qualified.slice(colon + 1),
-      attributes,
-    },
-  };
-}
-
-/**
- * [Content_Types].xml の、content-types の名前空間の要素（Default・Override など）を出てくる順に返す。
- * 名前空間は要素の入れ子ごとに解決する。壊れた XML・DOCTYPE（実体の宣言を読まない）は null。
- * 各位置は一度だけ前へ進むので、手間は入力の長さに比例する。
- */
-function contentTypeElements(xml: string): TypeElement[] | null {
-  const elements: TypeElement[] = [];
-  const scopes: Map<string, string>[] = [new Map()];
-  let i = 0;
-  for (;;) {
-    const open = xml.indexOf("<", i);
-    if (open < 0) return scopes.length === 1 ? elements : null;
-    const skipped = SKIPPED.find(([start]) => xml.startsWith(start, open));
-    if (skipped !== undefined) {
-      const close = xml.indexOf(skipped[1], open + skipped[0].length);
-      if (close < 0) return null;
-      i = close + skipped[1].length;
-      continue;
-    }
-    if (xml.startsWith("<!", open)) return null;
-    const end = tagEnd(xml, open + 1);
-    if (end < 0) return null;
-    i = end + 1;
-    if (xml[open + 1] === "/") {
-      if (scopes.length === 1) return null;
-      scopes.pop();
-      continue;
-    }
-    const selfClosing = xml[end - 1] === "/";
-    const opened = openElement(
-      xml.slice(open + 1, selfClosing ? end - 1 : end),
-      scopes.at(-1) as Map<string, string>,
-    );
-    if (opened === null) return null;
-    const { scope, element } = opened;
-    if (scope.get(element.prefix) === CONTENT_TYPES_NS)
-      elements.push({
-        localName: element.localName,
-        attributes: element.attributes,
-      });
-    if (!selfClosing) scopes.push(scope);
-  }
-}
-
 export async function checkOoxml(
   bytes: Uint8Array,
   extension: OoxmlExtension,
@@ -375,10 +271,10 @@ export async function checkOoxml(
     (entry) => entry.name === "[Content_Types].xml",
   );
   if (contentTypesEntry === undefined) return false;
-  const raw = await readContentTypes(bytes, contentTypesEntry);
+  const raw = await readContentTypesEntry(bytes, contentTypesEntry);
   if (raw === null) return false;
   const xml = decodeUtf8(raw);
-  const elements = xml === null ? null : contentTypeElements(xml);
+  const elements = xml === null ? null : readContentTypes(xml);
   if (elements === null) return false;
   if (
     elements.some((element) =>

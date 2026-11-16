@@ -198,9 +198,18 @@ export function createAttachmentService(
 
     const { readable, writable } = new FixedLengthStream(contentLength);
     const writer = writable.getWriter();
-    // 片方が失敗したら、もう片方を止めて待ち続けないようにする。止める操作自体の失敗は、元の失敗を優先して扱わない
-    const stopBoth = (reason: unknown) =>
-      Promise.allSettled([writer.abort(reason), reader.cancel(reason)]);
+    // 片方が失敗したら、もう片方を止めて待ち続けないようにする。止める操作自体の失敗は、元の失敗の応答を変えずに error ログに残す
+    const stopBoth = async (reason: unknown) => {
+      const results = await Promise.allSettled([
+        writer.abort(reason),
+        reader.cancel(reason),
+      ]);
+      for (const result of results)
+        if (result.status === "rejected")
+          logger.error("添付の受信・保存を止める操作に失敗した", {
+            error: result.reason,
+          });
+    };
     const pump = async () => {
       try {
         await writer.write(headBytes);
