@@ -11,11 +11,15 @@
 //   repository.findForViewer(roomId, inviterId)（既存。ChannelViewRow | null）
 //   repository.findInvitee(roomId, inviteeId): Promise<{ isActive: boolean; joined: boolean } | null>（null は社員が存在しない）
 //   repository.invite({ roomId, inviterId, inviteeId, traceId }): Promise<string | null>（挿入した参加の joined_at。0行なら null）
+//   createChannelService(repository, roles?, { authorizer })：第3引数で authorizer（authorize(principal, permission, scope)）を受け取る（#135 追加の依頼）。
+//     招待の権限 perm.channel.invite（R-49）を、範囲 { type: "company" } で確かめる（返信・リアクションと同じ。参加の条件は Service が先に確かめる）。
+//     拒否は authorize が投げる FORBIDDEN のまま。閲覧可否（404）・招待者の参加（403）の後、再認証の前。0行の後の読み直しでも確かめ直す。
 //   repository.isUserActive(userId): Promise<boolean>（0行の後の読み直しで、招待者が今も有効かを読む。名前は仮置き）
 // データは架空（testuser_、[UNIT_TEST]）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelRepository } from "../db/channel.repository";
 import { AppError } from "../lib/app-error";
+import type { Permission } from "../lib/permissions";
 import { createChannelService } from "./channel.service";
 
 const ROOM = "01JTESTINVROOM000000000001";
@@ -93,12 +97,47 @@ function fakeRepository(options: {
   };
 }
 
+type AuthorizeRecord = {
+  userId: string;
+  permission: Permission;
+  scope: unknown;
+};
+
+/**
+ * 偽の authorizer。deniedFromCall 回目以降の perm.channel.invite を FORBIDDEN（本物と同じ 403）で拒否する。
+ * 既定は拒否しない。呼ばれた順に calls に記録する。
+ */
+function fakeAuthorizer(deniedFromCall = Number.POSITIVE_INFINITY) {
+  const calls: AuthorizeRecord[] = [];
+  return {
+    calls,
+    async can() {
+      return true;
+    },
+    async authorize(
+      principal: { userId: string },
+      permission: Permission,
+      scope?: unknown,
+    ) {
+      calls.push({ userId: principal.userId, permission, scope });
+      const n = calls.filter((c) => c.permission === permission).length;
+      if (permission === "perm.channel.invite" && n >= deniedFromCall)
+        throw new AppError("FORBIDDEN", "この操作を行う権限がありません");
+    },
+  };
+}
+
 async function run(
   fake: Fake,
   reauthenticatedAt: string | null = recent(),
   inviteeId = INVITEE,
+  authorizer: ReturnType<typeof fakeAuthorizer> = fakeAuthorizer(),
 ) {
-  const service = createChannelService(fake as unknown as ChannelRepository);
+  const service = createChannelService(
+    fake as unknown as ChannelRepository,
+    undefined,
+    { authorizer } as never,
+  );
   try {
     const result = await service.invite(
       { userId: INVITER, traceId: "unit-auth-invite", reauthenticatedAt },
@@ -448,5 +487,106 @@ describe("#135 AC-1 書き込みが0行の後の再判定（重大1）", () => {
     expect(error).toBeInstanceOf(Error);
     if (error instanceof AppError)
       expect(error.status).toBeGreaterThanOrEqual(500);
+  });
+});
+
+describe("#135 AC-1（R-49）招待の権限 perm.channel.invite", () => {
+  const inviteCalls = (a: ReturnType<typeof fakeAuthorizer>) =>
+    a.calls.filter((c) => c.permission === "perm.channel.invite");
+
+  it('#135 AC-1（R-49）: 成功の経路で、招待者について perm.channel.invite を範囲 { type: "company" } で1回確かめる', async () => {
+    const authorizer = fakeAuthorizer();
+    const fake = fakeRepository({ views: [view()] });
+    const { error } = await run(fake, recent(), INVITEE, authorizer);
+    expect(error).toBeUndefined();
+    expect(inviteCalls(authorizer)).toEqual([
+      {
+        userId: INVITER,
+        permission: "perm.channel.invite",
+        scope: { type: "company" },
+      },
+    ]);
+  });
+
+  it("#135 AC-1（R-49）: 権限が拒否されたら authorize のエラーのまま 403 FORBIDDEN。相手を読まず、書き込まない", async () => {
+    const authorizer = fakeAuthorizer(1);
+    const fake = fakeRepository({ views: [view()] });
+    const error = expectAppError(
+      (await run(fake, recent(), INVITEE, authorizer)).error,
+      "FORBIDDEN",
+    );
+    expect(error.userMessage).toBe("この操作を行う権限がありません");
+    expect(fake.findInvitee).not.toHaveBeenCalled();
+    expect(fake.invite).not.toHaveBeenCalled();
+  });
+
+  it("#135 AC-1（判定の順）: 権限の拒否は再認証より先（再認証がなくても 403 FORBIDDEN）", async () => {
+    const authorizer = fakeAuthorizer(1);
+    const fake = fakeRepository({
+      views: [view({ purpose: "case", departmentIsActive: false })],
+    });
+    expectAppError(
+      (await run(fake, null, INVITEE, authorizer)).error,
+      "FORBIDDEN",
+    );
+    expect(fake.findInvitee).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["存在しない", null],
+    ["参加していない非公開", view({ joinedAt: null })],
+    ["アーカイブ済み", view({ deletedAt: ARCHIVED_AT })],
+  ])(
+    "#135 AC-1（判定の順）: %sチャンネルでは権限を確かめない（404 が先。拒否の監査に見えないチャンネルを残さない）",
+    async (_label, row) => {
+      const authorizer = fakeAuthorizer(1);
+      const fake = fakeRepository({ views: [row] });
+      expectAppError(
+        (await run(fake, recent(), INVITEE, authorizer)).error,
+        "NOT_FOUND",
+      );
+      expect(inviteCalls(authorizer)).toEqual([]);
+    },
+  );
+
+  it("#135 AC-1（判定の順）: 公開チャンネルで招待者が参加していなければ、権限を確かめずに 403（参加の確認が先）", async () => {
+    const authorizer = fakeAuthorizer();
+    const fake = fakeRepository({
+      views: [view({ visibility: "public", joinedAt: null })],
+    });
+    expectAppError(
+      (await run(fake, recent(), INVITEE, authorizer)).error,
+      "FORBIDDEN",
+    );
+    expect(inviteCalls(authorizer)).toEqual([]);
+  });
+
+  it("#135 AC-1（0行の後）: 読み直しでも権限を確かめ直し、拒否なら 403 FORBIDDEN（チャンネルの状態・相手の状態より先）", async () => {
+    const authorizer = fakeAuthorizer(2);
+    const fake = fakeRepository({
+      views: [view(), view({ departmentIsActive: false })],
+      invitees: [ACTIVE_NOT_JOINED, { isActive: true, joined: true }],
+      inviteResult: null,
+    });
+    const error = expectAppError(
+      (await run(fake, recent(), INVITEE, authorizer)).error,
+      "FORBIDDEN",
+    );
+    expect(error.userMessage).toBe("この操作を行う権限がありません");
+    expect(inviteCalls(authorizer)).toHaveLength(2);
+    expect(fake.findInvitee).toHaveBeenCalledTimes(1);
+  });
+
+  it("#135 AC-1（0行の後）: 非公開で招待者が外れた場合は、権限を確かめ直さずに 404", async () => {
+    const authorizer = fakeAuthorizer(2);
+    const fake = fakeRepository({
+      views: [view(), view({ joinedAt: null })],
+      inviteResult: null,
+    });
+    expectAppError(
+      (await run(fake, recent(), INVITEE, authorizer)).error,
+      "NOT_FOUND",
+    );
+    expect(inviteCalls(authorizer)).toHaveLength(1);
   });
 });

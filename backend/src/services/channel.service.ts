@@ -5,7 +5,7 @@
 //   → ② 参加済みならそのまま 200（べき等。監査ログは書かない）
 //   → ③ 参加できるか（できなければ 404）→ 参加する。
 // 招待（#135）の判定の順（この順を変えない）：
-//   閲覧可否（404）→ 招待の権限（公開で未参加は 403。audit に記録）→ 再認証（403 REAUTH_REQUIRED）
+//   閲覧可否（404）→ 招待者の参加（公開で未参加は 403。audit に記録）→ 権限 perm.channel.invite（403）→ 再認証（403 REAUTH_REQUIRED）
 //   → チャンネルの状態（案件・部署が無効は 409）→ 相手の有効性（存在しない・無効は同じ 404）→ 参加済み（409）→ 書き込み。
 //   書き込みが0行なら、招待者が有効か（401）→ 同じ順で読み直す（再認証はやり直さない）。どれにも当たらなければ例外（成功にしない）。
 //   参加済みの判定を最後にするので、招待者が見えなくなった場合に相手の参加状態は漏れない。
@@ -93,10 +93,33 @@ export function withChannelService<T>(
 }
 
 // roles は詳細の canPost（お知らせ専用の権限）の判定に使う。canPost の判定は `can` で行い、拒否を監査に記録しない（記録するのは投稿APIだけ）
+type ChannelServiceDependencies = {
+  /** 招待の権限（perm.channel.invite）の判定。省略時は roles から操作者ごとに組む */
+  authorizer?: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
+};
+
 export function createChannelService(
   repository: ChannelRepository,
   roles?: RoleAssignmentRepository,
+  deps: ChannelServiceDependencies = {},
 ) {
+  // 拒否は authorize が logger.audit に記録し、FORBIDDEN を投げる
+  async function authorizeInvite(actor: ChannelActor): Promise<void> {
+    if (deps.authorizer !== undefined)
+      return deps.authorizer.authorize(
+        { userId: actor.userId },
+        "perm.channel.invite",
+        { type: "company" },
+      );
+    if (roles === undefined)
+      throw new Error("権限の判定に必要な Repository が渡されていません");
+    return createAppAuthorizer(roles, {
+      logger: createLogger({ traceId: actor.traceId, userId: actor.userId }),
+    }).authorize({ userId: actor.userId }, "perm.channel.invite", {
+      type: "company",
+    });
+  }
+
   async function canPostAnnouncement(
     actor: ChannelActor,
     departmentId: string | null,
@@ -146,6 +169,8 @@ export function createChannelService(
       );
       throw new AppError("FORBIDDEN", INVITE_FORBIDDEN_MESSAGE);
     }
+    // 権限は見えるチャンネルの参加者についてだけ確かめる（見えないチャンネルを拒否の監査に残さない）
+    await authorizeInvite(actor);
     beforeState?.();
     if (decision === "case_channel")
       throw new AppError("CONFLICT", CASE_CHANNEL_MESSAGE);
