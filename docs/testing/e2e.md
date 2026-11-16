@@ -54,6 +54,7 @@
 | スレッドの返信とスレッド一覧（S-07・S-35。Issue #137） | `e2e/threads.spec.ts` | 下の「スレッドの返信とスレッド一覧のシナリオ」を参照 |
 | リアクション・スタンプ（S-05・S-07。Issue #138） | `e2e/reactions.spec.ts` | 下の「リアクション・スタンプのシナリオ」を参照 |
 | チャンネルへの招待（S-12・S-05・サイドバー・通知。Issue #135） | `e2e/channel-invite.spec.ts` | 1件（`serial`）。参加者A・招待される社員B・部署のオーナーの3つのブラウザ（ログインは3人で1回ずつ）。招待の前はBの一覧に出ず、URLを開いても「チャンネルが見つかりません」→ Aが選択・再認証・確定画面・確定で招待 → Aの参加者が再読み込みなしで増え、Bのサイドバーに出て通知が届き、通知からチャンネルを開ける。判定の順・存在の非開示の細部はバックエンドのテストで確かめる。シード：`e2e/seeds/channel-invite.sql`（部署「[E2E_TEST]部署135招待」、社員`e2euser_chinv_`。非公開チャンネルは申請→承認のAPIで作り、名前は`E2E_TEST_invite_`で始める）。後始末：`e2e/seeds/channel-invite-cleanup.sql`（識別子だけを消し、残数0を確かめる）。設計は [channels.md](../design/channels.md) |
+| メッセージの添付（S-05・S-07。Issue #140） | `e2e/attachments.spec.ts` | 下の「メッセージの添付のシナリオ」を参照 |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
 - 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）
@@ -219,11 +220,25 @@
 - **開発サーバー用の `npm run test:e2e` と同時に実行しない**。配信のポートは、許可するオリジン（`.env.test` の `ALLOWED_ORIGINS`）に合わせて 5173 で、開発サーバー用と同じため、順に実行する
 - `npm run check` には入れない（ブラウザとビルドが要り、時間がかかるため）。マージの前などに、別に実行する
 
+### メッセージの添付のシナリオ（開発サーバー。Issue #140）
+
+`e2e/attachments.spec.ts`。設計は [attachments.md](../design/attachments.md)。3件を直列（`serial`）で実行する。
+
+- 利用者A（参加者）・B（非参加者）の2つのブラウザ（ログインは1人1回。ログインの試行制限（#225）に当たらないよう、ブラウザはテストの間で使い回す）。
+- 確かめること：①S-05で画像とPDFを添付して投稿すると、画像が表示され（実際に読み込まれて幅が0でない。URLは`/api/attachments/<ID>`の形でキーを含まない）、PDFをダウンロードできる（元の名前で、中身は送ったバイト列と同じ）②S-07のスレッドの返信に、テキストを添付でき、返信に添付のリンクが出る③非公開チャンネルに参加していない社員Bが、①の画像のURLを開くと404（`Content-Disposition`も付かない）。
+- ファイルはテストの中でバイト列から作る（架空・無害。実在の画像・文書は使わない）。
+- シード：`e2e/seeds/attachments.sql`（部署「[E2E_TEST] 添付」、社員`e2euser_att_a`・`_b`〔`@example.com`。パスワードのハッシュは既存の行から参照し、値を書かない〕、非公開チャンネル1つ、親の投稿1件。本文は`[E2E_TEST]`で始める）。後始末：`e2e/seeds/attachments-cleanup.sql`（社員ID`e2euser_att_`と部署名`[E2E_TEST] 添付`の識別子だけ。`message_attachments`を先に消し、残数を確かめる）。`beforeAll`・`afterAll`で流す。
+- **R2の手元の実体の後始末**：DBの行を消す**前に**、テストの部屋・利用者の添付の`storage_key`をDBから読み、`wrangler r2 object delete --local`で、手元の保存先（`.wrangler/state/test`のバケット`internal-system-attachments`）から1件ずつ消す。行を先に消すとキーが分からなくなり、実体が残る。本物のバケットには接続しない（`--local`と`--persist-to`を付ける）。`cleanup.sql`（`npm run db:cleanup:test`）は行だけを消し、R2の実体は消さない。
+- 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。
+- `shared/`の追加に当たるため、ADR-0020に従い、開発用の全件（`npm run test:e2e`）と本番形の全件（`npm run test:e2e:prod`）を、1つずつ順に実行する。
+- 全件を1回で流さず、spec ごとに実行する：`npm run test:e2e -- e2e/attachments.spec.ts`
+
 ## 5. 後始末
 
 - テストが終わったら、Playwright が起動した開発サーバーとブラウザが止まり、ポート 5173 が解放されたことを確かめる（`npm run test:e2e:prod` の場合は、起動した `vite preview` のサーバー）
 - 動作確認などで手動で `npm run dev`・`npm run dev:test` を起動した場合は、`npm run dev:stop` で止める。この作業ツリーの開発サーバー（`.dev-server.pid` に記録した PID のプロセスツリー）だけを止め、5173・8787 に待ち受けがないことを表示する（ほかの作業ツリー・プロジェクトのプロセスは止めない）
 - テストが作ったデータ（`e2euser_` で始まるもの。単体のテストの `testuser_` も）を消す。DB があるプロジェクトでは、`npm run db:cleanup:test` で、識別子のデータだけを消し、残りが 0 件になったことを確かめる
+- 添付のテストが作ったR2の実体（手元の保存先`.wrangler/state/test`）は、`e2e/attachments.spec.ts`が行を消す前に消す。手動で動作確認をして添付を上げた場合は、手元の保存先（`.wrangler/state/`の下の、使った環境のもの）にファイルが残る。消すときは、`message_attachments`の`storage_key`を読んでから、`wrangler r2 object delete --local --persist-to <保存先>`を使う。本物のバケットは触らない
 
 ## 6. よくある失敗と対処
 

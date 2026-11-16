@@ -528,6 +528,7 @@ erDiagram
         text created_at
     }
     %% 実装（Issue #138。C-174）：表の名前は message_reactions。主キーは (message_id, kind, value, user_id)
+    %% 実装（Issue #140。C-176）：表の名前は message_attachments。上の列は案で、実装は次のとおり（room_id・thread_parent_id（アップロードの文脈。NULL可）・message_id（NULL可。結び付く前は未投稿）・uploader_id・storage_key（一意）・original_name・kind（image・document・video）・content_type・size_bytes・created_at）。削除の列は #270
     mentions {
         text message_id PK, FK
         text mentioned_user_id PK, FK
@@ -691,7 +692,7 @@ erDiagram
 | `personal_folders` | 自分専用の整理スペースの、自分用フォルダ（本人のみ） | ユーザー、名前 | 2-8 |
 | `personal_items` | 自分専用の整理スペースに登録したもの（チャンネル・ファイル・メッセージ・案件・DM。本人のみ。C-67） | ユーザー、対象の種類、対象のID、自分用フォルダ | 2-8 |
 | `messages` | メッセージ（返信を含む） | 部屋、親のメッセージ、送信者、本文、編集・削除の日時 | 1-1〜1-5、5-2 |
-| `attachments` | 添付ファイルの情報（実体はR2） | メッセージ、R2のキー、種類、形式、サイズ、アップロードした人 | 1-6、5-2 |
+| `attachments` | 添付ファイルの情報（実体はR2）【Issue #140（C-176）で実装した：表の名前は`message_attachments`。列は`id`・`room_id`・`thread_parent_id`（アップロードの文脈。通常の投稿用はNULL、返信用は親のID）・`message_id`（NULL可。NULLの間は未投稿で、アップロードした本人だけが取得でき、24時間で消える）・`uploader_id`・`storage_key`（一意。`attachments/<ULID>`）・`original_name`（1〜255文字のCHECK）・`kind`（`image`・`document`・`video`のCHECK）・`content_type`（検査の結果。CHECKは付けない。ADR-0029）・`size_bytes`（0より大きいCHECK）・`created_at`。索引は`message_id`、（`uploader_id`, `message_id`）、未投稿の`created_at`（部分索引）。`messages`は変えない。削除の列（`deleted_at`・`deleted_by`）は後の子 #270 で足す。案件の添付の公開可否の列は案件の機能で足す。設計書 [attachments.md](../design/attachments.md)。元の記述は残す】 | メッセージ、R2のキー、種類、形式、サイズ、アップロードした人 | 1-6、5-2 |
 | `reactions` | 絵文字・スタンプのリアクション【Issue #138（C-174）で実装した：表の名前は`message_reactions`、主キーは（`message_id`, `kind`, `value`, `user_id`）。`kind`は`emoji`・`stamp`のCHECK、`value`は長さ1〜64のCHECK、`user_id`に索引。物理的に消さず、削除済みの投稿の行も残す。設計書 [reactions.md](../design/reactions.md)】 | メッセージ、ユーザー、種類、値 | 1-7 |
 | `mentions` | メッセージでの指名 | メッセージ、指名された人 | 1-8、3-2 |
 | `read_positions` | 部屋ごとの既読の位置 | ユーザー、部屋、最後に読んだメッセージ | 3-1 |
@@ -740,7 +741,7 @@ erDiagram
 | #6 | 友人の招待の対象・招待できる人・方法・許可する人（一部は決定済み） | `invitations`と`channel_members.state`の重なりを整理する。招待のコード・リンクは作らない（決定）。部署への招待・参加申込・許可はC-37で設けない |
 | #7 | リアルタイム更新の方式 | 方式によっては、接続の管理に別のストレージ（Durable Objectsなど）が必要になる。DBのテーブルへの影響は、決まってから確かめる |
 | #9（C-74で決定） | 保存期間と、社員を無効化したときの扱い | メッセージ・添付・TODOと履歴は自動期限削除しない。監査ログは1年間保持し経過後に削除する。無効化社員は一般社員一覧から除外し、過去の投稿・担当者名は記録時点の表示名と「退職者」を表示する。データ構造は設計-5/10・I-06、バックアップ保持期間はT-05で確認 |
-| #10（C-126で決定） | 添付ファイルの上限サイズと許可する形式 | `attachments.kind`・`content_type`・`size_bytes`の検査の値。上限は画像10MB・文書25MB・動画100MB・アバター2MB（MB＝10の6乗バイト）、形式は1-6 AC-5、アップロードはすべてWorkers経由（C-126）。分割（multipart）方式にするか、アップロード中の状態を持つ列が要るかは、設計の段階で決める（未決定。送る形式の詳細はapi-draft.md 3.2も未決定）。1メッセージの合計容量200MB【案】は、メッセージに紐づく添付の`size_bytes`の合計で検査する。利用者ごとの容量・回数の制限は未決定 |
+| #10（C-126で決定） | 添付ファイルの上限サイズと許可する形式 | `attachments.kind`・`content_type`・`size_bytes`の検査の値。上限は画像10MB・文書25MB・動画100MB・アバター2MB（MB＝10の6乗バイト）、形式は1-6 AC-5、アップロードはすべてWorkers経由（C-126）。分割（multipart）方式にするか、アップロード中の状態を持つ列が要るかは、設計の段階で決める（未決定。送る形式の詳細はapi-draft.md 3.2も未決定）。1メッセージの合計容量200MB【案】は、メッセージに紐づく添付の`size_bytes`の合計で検査する。利用者ごとの容量・回数の制限は未決定【Issue #140（C-176）で実装した：検査は投稿・返信と同じ`db.batch`の中の件数・合計の確認。アップロード中の状態を持つ列は作らず、本文はWorkersで受けてからR2へ保存し、登録は保存の後に行う（未決定の「分割方式・アップロード中の状態の列」は不要になった）。元の記述は残す】 |
 | #11 | （決定済み）メッセージ・添付ファイルを削除できる人と、削除の方式 | 方式は非表示（`messages.deleted_at`・`deleted_by`）。削除できる人は初期値では本人のみで、他のロールへの許可は、ロールの編集で行う。添付を削除した場合は、画面上で隠してR2実体の削除を開始する（C-61・C-74）。削除したら戻せない（R2の仕様どおり）。バックアップ（Time Travel）の履歴の扱いは、旧い内容が残りうることを許容し、最大の期間を運用の説明に明記する（C-127） |
 | #12 | （C-55・C-56で決定済み）DMは1対1のみ。グループDM・自分宛てDM・全員宛て指名は設けない。表示名は重複可で、メンション候補は社員アカウントを選び部署名を表示する | `direct_key`は1対1の一意性に使う。個人メンションの対象はユーザーIDで保持する |
 | #13 | （一部決定C-58）対応書式は太字・斜体・取り消し線・箇条書き・引用・コード・リンク。`messages.body`は原文のまま保存し、表示時に整形する。入力中プレビューなし（C-60）。ライブラリは実装前に選定し利用者承認を得る。【C-128で決定：react-markdown＋remark-gfm を採用する方針。`messages.body`は原文のまま保存し、描画のルールは1-5 AC-4〜AC-8。元の記述は残す】 |
