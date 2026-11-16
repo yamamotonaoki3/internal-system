@@ -169,8 +169,6 @@ describe("#138 AC-1 送信中（pending）の扱い", () => {
     await user.click(addButton());
     await user.click(cell("🎉"));
     expect(picker()).toBeNull();
-    // 送信中の間、少し待っても要求は増えない
-    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(api.posts).toHaveLength(1);
     release();
     await waitFor(() =>

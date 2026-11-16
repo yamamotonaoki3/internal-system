@@ -37,9 +37,9 @@ const SESSION = {
 const THUMBS = reaction("emoji", "👍", { others: [reactor(1)] });
 const TARGET = message(1, { reactions: [THUMBS] });
 
-afterEach(async () => {
+// 失敗してもほかのテストへオンライン状態を持ち越さない（要求の完了待ちは、テストの中の finally で条件を待って行う）
+afterEach(() => {
   onlineManager.setOnline(true);
-  await new Promise((resolve) => setTimeout(resolve, 150));
 });
 
 function setup() {
@@ -63,32 +63,40 @@ describe("#138 AC-1 外側の mutation の networkMode", () => {
     respondReactions({ [TARGET.id]: [THUMBS] });
     const { client, result } = setup();
     onlineManager.setOnline(false);
+    let operation: Promise<unknown> = Promise.resolve();
     act(() => {
-      result.current.mutate({
+      operation = result.current.mutateAsync({
         messageId: TARGET.id,
         kind: "emoji",
         value: "👍",
         reactedByMe: false,
       });
     });
-    await waitFor(() => {
-      const inner = client
-        .getMutationCache()
-        .getAll()
-        .find((mutation) => mutation.options.mutationKey !== undefined);
-      expect(inner).toBeDefined();
-    });
-    const all = client.getMutationCache().getAll();
-    const outer = all.find(
-      (mutation) => mutation.options.mutationKey === undefined,
-    );
-    const inner = all.find(
-      (mutation) => mutation.options.mutationKey !== undefined,
-    );
-    expect(outer?.options.networkMode).toBe("always");
-    expect(outer?.state.isPaused).toBe(false);
-    // 内側は既定の（online の）設定で、オフラインの間は待機する
-    expect(inner?.options.networkMode).not.toBe("always");
-    expect(inner?.state.isPaused).toBe(true);
+    try {
+      await waitFor(() => {
+        const inner = client
+          .getMutationCache()
+          .getAll()
+          .find((mutation) => mutation.options.mutationKey !== undefined);
+        expect(inner).toBeDefined();
+      });
+      const all = client.getMutationCache().getAll();
+      const outer = all.find(
+        (mutation) => mutation.options.mutationKey === undefined,
+      );
+      const inner = all.find(
+        (mutation) => mutation.options.mutationKey !== undefined,
+      );
+      expect(outer?.options.networkMode).toBe("always");
+      expect(outer?.state.isPaused).toBe(false);
+      // 内側は既定の（online の）設定で、オフラインの間は待機する
+      expect(inner?.options.networkMode).not.toBe("always");
+      expect(inner?.state.isPaused).toBe(true);
+    } finally {
+      // 復帰した要求を、条件で待って完了させてから終える（固定の待ちにしない）
+      act(() => onlineManager.setOnline(true));
+      await operation;
+      await waitFor(() => expect(client.isMutating()).toBe(0));
+    }
   });
 });
