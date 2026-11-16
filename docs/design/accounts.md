@@ -127,12 +127,13 @@ DM（`conversation_members`）・既読位置・投稿には触れない。相�
 ### 再有効化で戻すもの・戻さないもの
 
 - 戻すもの：同じ`users.id`・`login_id`で`is_active`を戻し、`deactivated_at`を消し、指定の部署に所属させる。全社連絡と、その部署の専用チャンネル2つ（`department`・`announcement`）へ参加させる（`joinInitialChannels`。発行と同じ文）。パスワードを新しい一時パスワードのハッシュに置き換え、`must_change_password`を立てる。監査`account.reactivate`（`detail`は部署IDだけ）
+- 参加の行を作る前に、その社員の`channel_members`をすべて削除する（無効な間に紛れ込んだ行を残さないため。ダイレクトメッセージの参加は別の表のため触れない）
 - 戻さないもの：ロールの割り当て、個別チャンネルへの参加（0-1 AC-14）。案件の参加は、案件の機能（#146以降）で扱う（案件の表がまだない）
 
 ### 一時パスワードの扱い
 
 - 再有効化の中で、発行と同じ`generateInitialPassword`・`hashPassword`で作る。保存するのはハッシュだけ。値は応答に一度だけ入れ、`Cache-Control: no-store`を付ける。ログ・監査・エラーの詳細・例外のメッセージには出さない。Serviceの戻り値の型（`AccountReactivated`）を分け、routeは`id`と`initialPassword`だけを返す
-- 画面では、`reactivateAccount`を`useMutation`に載せず、`ReactivateDialog`の`onSubmit`で直接awaitする。値はダイアログの`useState`だけに置き、「閉じる」で破棄する。storage・URL・遷移のstateには入れない（project-rules #199）。成功後は`invalidateAfterLifecycle`で一覧・チャンネル・社員一覧を取り直す
+- 画面では、`reactivateAccount`を`useMutation`に載せず、`ReactivateDialog`の`onSubmit`で直接awaitする。値はダイアログの`useState`だけに置き、「閉じる」で破棄する。storage・URL・遷移のstateには入れない（project-rules #199）。成功後は`invalidateAfterLifecycle`で一覧・チャンネル・社員一覧を取り直す。一時パスワードの表示は、一覧の取得の状態に左右されない
 - 本人への伝達は、別の連絡手段で全体管理者が行う（0-3 AC-7）
 
 ### 前提が崩れた後の読み直し
@@ -143,12 +144,16 @@ Serviceの`writeWithRecheck`は、書き込みが`AccountStateChangedError`で�
 
 無効化と再有効化が同時に来たときは、片方が先に確定し、もう片方は確定した後の状態に対して前提を確かめる。前提を満たせば、両方成功してよい（例：無効化の後の再有効化）。満たさなければ、前提が崩れてbatch全体が取り消され、読み直しで409になる。同じ操作が2つ同時に来たときは、一方だけが成功し、監査・失効・削除・参加は1回分だけになる（DBテストで確かめる）。
 
+無効化と公開チャンネルへの自分での参加が同時に来たときは、参加の書き込みの条件に「本人が有効」を入れてあるため、無効化の後の参加は行が作られない。書き込みが0行で本人が無効なら、Serviceは401にする（[channels.md](channels.md)）。
+
 ### 画面の流れ（S-22）
 
 - 行の操作列：有効な行に「無効化」（自分の行には出さない。表示の制御で、認可はサーバー）、無効な行に「再有効化」
 - 無効化：`DeactivateDialog`で対象の表示名を示して確認 → `useDeactivateAccount`が`sendWithReauth`で再認証（期限内なら省く）を挟んで送る → 成功でダイアログが閉じ、一覧を取り直し、`onDone`で一覧の上に「アカウントを無効化しました」を出す。失敗はダイアログの中に出す（409は理由ごとの文、422は本人）
 - 再有効化：`ReactivateDialog`で所属部署（`fetchDepartmentOptions`の候補）を選ぶ → 再認証を挟んで送る → 成功すると、同じダイアログに社員IDと一時パスワードを一度だけ表示する → 「閉じる」で一時パスワードを破棄してダイアログを閉じ、その時に`onDone`で一覧の上に「アカウントを再有効化しました」を出す（キャンセルや一時パスワード表示前の閉じ方では出さない）。メッセージに一時パスワードの値は含めない
 - 完了のメッセージ：`AccountsList`の`useState`（`done`）に置き、`role="status"`の`Alert`で一覧の上に出す。時間では消さず、次の操作（無効化・再有効化のボタン）を始めたときに消す
+- 一覧の取得がエラー・読み込み中になっても、開いているダイアログ（一時パスワードの表示中を含む）を破棄しない。ダイアログは一覧の状態の分岐の外に置く
+- 再有効化が422で、`fields`に`departmentId`があるときは、所属部署の入力欄のエラーとして出す（`isDepartmentFieldError`）
 - 再認証が完了しなかったときは、要求を送らず、その旨をダイアログに出す
 
 ### 要件・画面案との差
