@@ -309,7 +309,11 @@ describe("#135 決定 Q3 公開チャンネルの招待の権限", () => {
       log_type: "audit",
       result: "failure",
       target: room,
+      reason: "not_member",
     });
+    const line = lines[0] as Record<string, unknown> | undefined;
+    expect(line?.user_id).toBe(inviter);
+    expect(String(line?.trace_id)).toMatch(new RegExp(`^${AUTH_TRACE_PREFIX}`));
   });
 
   it("#135 AC-1（2-5 AC-1）: 公開チャンネルの参加者は招待できる（201）", async () => {

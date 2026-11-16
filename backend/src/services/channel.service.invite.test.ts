@@ -590,3 +590,62 @@ describe("#135 AC-1（R-49）招待の権限 perm.channel.invite", () => {
     expect(inviteCalls(authorizer)).toHaveLength(1);
   });
 });
+
+describe("#135 AC-1 エラーの文言（設計書に全文の定めがないものは、空でないことと区別の有無だけ）", () => {
+  const message = async (fake: Fake) =>
+    expectAppError((await run(fake)).error, "CONFLICT").userMessage;
+
+  it("#135 AC-1（2-5 AC-3）: 相手が存在しない・無効の 404 の文言は同じで、空でない", async () => {
+    const missing = expectAppError(
+      (await run(fakeRepository({ views: [view()], invitees: [null] }))).error,
+      "NOT_FOUND",
+    ).userMessage;
+    const inactive = expectAppError(
+      (
+        await run(
+          fakeRepository({
+            views: [view()],
+            invitees: [{ isActive: false, joined: false }],
+          }),
+        )
+      ).error,
+      "NOT_FOUND",
+    ).userMessage;
+    expect(missing).toBe(inactive);
+    expect(missing.trim()).not.toBe("");
+  });
+
+  it("#135 AC-1（2-5 AC-2）: 参加済みの 409 の文言は「参加済み」を含む（画面がそのまま出す。設計書 S-12）", async () => {
+    const text = await message(
+      fakeRepository({
+        views: [view()],
+        invitees: [{ isActive: true, joined: true }],
+      }),
+    );
+    expect(text).toContain("参加済み");
+  });
+
+  it("#135 AC-1（2-5 AC-7）: 案件専用の 409 の文言は空でなく、参加済み・部署が無効の文言と別", async () => {
+    const text = await message(
+      fakeRepository({ views: [view({ purpose: "case" })] }),
+    );
+    expect(text.trim()).not.toBe("");
+    expect(text).not.toContain("参加済み");
+    expect(text).not.toBe(DEPARTMENT_INACTIVE_MESSAGE);
+  });
+
+  it("#135 決定 Q3: 公開チャンネルに未参加の招待者の 403 の文言は空でなく、権限の拒否の文言と別", async () => {
+    const error = expectAppError(
+      (
+        await run(
+          fakeRepository({
+            views: [view({ visibility: "public", joinedAt: null })],
+          }),
+        )
+      ).error,
+      "FORBIDDEN",
+    );
+    expect(error.userMessage.trim()).not.toBe("");
+    expect(error.userMessage).not.toBe("この操作を行う権限がありません");
+  });
+});

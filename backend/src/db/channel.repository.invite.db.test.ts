@@ -315,3 +315,20 @@ describe("#135 決定 Q4 通知の見える範囲（既存の除外の仕組み�
     expect(JSON.stringify(row)).not.toContain("招待DB");
   });
 });
+
+describe("#135 AC-1（0行の後の招待者の有効性）isUserActive", () => {
+  it("#135 AC-1: 有効な社員は true", async () => {
+    expect(await withChannels(env, (r) => r.isUserActive(inviter))).toBe(true);
+  });
+
+  it("#135 AC-1: 無効な社員は false", async () => {
+    await deactivateUser(inviter);
+    expect(await withChannels(env, (r) => r.isUserActive(inviter))).toBe(false);
+  });
+
+  it("#135 AC-1: 存在しない ID は false", async () => {
+    expect(
+      await withChannels(env, (r) => r.isUserActive(testId("NOUSER"))),
+    ).toBe(false);
+  });
+});
