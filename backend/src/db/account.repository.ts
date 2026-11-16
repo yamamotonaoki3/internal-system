@@ -369,6 +369,10 @@ export function createAccountRepository(db: Database) {
               mustChangePassword: true,
             })
             .where(eq(users.id, input.targetId)),
+          // 無効な間に紛れ込んだ参加の行を残さない（DM の参加は別の表のため触れない）
+          db
+            .delete(channelMembers)
+            .where(eq(channelMembers.userId, input.targetId)),
           joinInitialChannels(db, {
             userId: input.targetId,
             departmentId: input.departmentId,

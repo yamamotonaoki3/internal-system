@@ -50,3 +50,12 @@ export function describeLifecycleError(error: unknown): string | null {
     return error.message || "入力内容を確かめてください。";
   return "操作できませんでした。時間をおいて、もう一度お試しください。";
 }
+
+/** 422 で、サーバーが所属部署の欄（departmentId）を指したか */
+export function isDepartmentFieldError(error: unknown): boolean {
+  return (
+    isApiError(error) &&
+    error.status === 422 &&
+    (error.fields ?? []).includes("departmentId")
+  );
+}

@@ -393,6 +393,20 @@ describe("#128 無効化（Repository・D1）", () => {
 });
 
 describe("#128 再有効化（Repository・D1）", () => {
+  it("#128 AC-14（コードレビュー1回目の重大1）: 無効な間に紛れ込んだ参加の行（個別・以前の部署の専用）があっても、再有効化の後の参加は全社連絡と指定部署の専用2つだけ", async () => {
+    await insertMember(normalRoomId, inactiveTarget);
+    await insertMember(deptA.dedicatedChannelId, inactiveTarget);
+    await reactivate();
+    expect(await channelsOf(inactiveTarget)).toEqual(
+      [
+        generalRoomId,
+        deptB.dedicatedChannelId,
+        deptB.announcementChannelId,
+      ].sort(),
+    );
+    expect(await membersOf(normalRoomId)).toEqual([target]);
+  });
+
   it("#128 AC-14・AC-15: 同じ ID・ユーザーIDで戻り、指定部署に所属し、全社連絡と部署の専用2つだけに参加し、パスワードの変更を求める", async () => {
     const before = await userRow(inactiveTarget);
     await reactivate({ now: NOW_2 });

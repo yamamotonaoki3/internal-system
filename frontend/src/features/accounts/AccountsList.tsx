@@ -47,16 +47,80 @@ export function AccountsList() {
     setDone(message);
   };
 
-  if (accounts.isPending) return <p role="status">読み込み中です</p>;
-  if (accounts.isError)
+  // ダイアログは一覧の状態の分岐の外に置く（再取得の失敗・読み込み中でも、一時パスワードの表示や入力を失わない）
+  function listContent() {
+    if (accounts.isPending) return <p role="status">読み込み中です</p>;
+    if (accounts.isError)
+      return (
+        <Alert tone="error" role="alert">
+          アカウントを取得できませんでした。時間をおいて、もう一度お試しください。
+        </Alert>
+      );
+    const items = accounts.data.pages.flatMap((page) => page.items);
+    if (items.length === 0) return <p>アカウントがありません</p>;
     return (
-      <Alert tone="error" role="alert">
-        アカウントを取得できませんでした。時間をおいて、もう一度お試しください。
-      </Alert>
+      <>
+        <div className="mb-4 overflow-x-auto">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr>
+                {COLUMNS.map((column) => (
+                  <th key={column} scope="col" className="p-2">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((account) => (
+                <tr key={account.id} className="border-t border-border-strong">
+                  <td className="p-2">{account.loginId}</td>
+                  <td className="p-2">{account.displayName}</td>
+                  <td className="p-2">{account.department?.name ?? ""}</td>
+                  <td className="p-2">{account.email}</td>
+                  <td className="p-2">{account.extension ?? ""}</td>
+                  <td className="p-2">{account.jobTitle ?? ""}</td>
+                  <td className="p-2">{account.active ? "有効" : "無効"}</td>
+                  <td className="p-2">
+                    {account.active ? (
+                      account.id !== signedInUserId && (
+                        <Button
+                          variant="danger"
+                          onClick={() =>
+                            setOperation({ kind: "deactivate", account })
+                          }
+                        >
+                          無効化
+                        </Button>
+                      )
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          setOperation({ kind: "reactivate", account })
+                        }
+                      >
+                        再有効化
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {accounts.hasNextPage && (
+          <Button
+            variant="secondary"
+            disabled={accounts.isFetchingNextPage}
+            onClick={() => void accounts.fetchNextPage()}
+          >
+            次のページ
+          </Button>
+        )}
+      </>
     );
-
-  const items = accounts.data.pages.flatMap((page) => page.items);
-  if (items.length === 0) return <p>アカウントがありません</p>;
+  }
 
   return (
     <>
@@ -65,64 +129,7 @@ export function AccountsList() {
           {done}
         </Alert>
       )}
-      <div className="mb-4 overflow-x-auto">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr>
-              {COLUMNS.map((column) => (
-                <th key={column} scope="col" className="p-2">
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((account) => (
-              <tr key={account.id} className="border-t border-border-strong">
-                <td className="p-2">{account.loginId}</td>
-                <td className="p-2">{account.displayName}</td>
-                <td className="p-2">{account.department?.name ?? ""}</td>
-                <td className="p-2">{account.email}</td>
-                <td className="p-2">{account.extension ?? ""}</td>
-                <td className="p-2">{account.jobTitle ?? ""}</td>
-                <td className="p-2">{account.active ? "有効" : "無効"}</td>
-                <td className="p-2">
-                  {account.active ? (
-                    account.id !== signedInUserId && (
-                      <Button
-                        variant="danger"
-                        onClick={() =>
-                          setOperation({ kind: "deactivate", account })
-                        }
-                      >
-                        無効化
-                      </Button>
-                    )
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      onClick={() =>
-                        setOperation({ kind: "reactivate", account })
-                      }
-                    >
-                      再有効化
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {accounts.hasNextPage && (
-        <Button
-          variant="secondary"
-          disabled={accounts.isFetchingNextPage}
-          onClick={() => void accounts.fetchNextPage()}
-        >
-          次のページ
-        </Button>
-      )}
+      {listContent()}
       {operation?.kind === "deactivate" && (
         <DeactivateDialog
           account={operation.account}

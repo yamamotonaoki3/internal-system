@@ -31,11 +31,19 @@ async function login(page: Page, loginId: string, password: string) {
   await page.getByRole("button", { name: "ログイン", exact: true }).click();
 }
 
+// 別のコンテキストのページは console-guard の fixture の外のため、同じ監視をここで付ける（channel-invite.spec.ts と同じ書き方）。
+// 許可するのは、未ログインのセッションの確認と、無効な社員のログインの拒否の 401 だけ。終了時に errors が空であることを確かめる
 async function newPage(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ baseURL });
   const page = await context.newPage();
-  allowSessionCheck401(page);
-  return { context, page };
+  const errors: string[] = [];
+  const allowed =
+    /Failed to load resource: the server responded with a status of 401/;
+  page.on("console", (m) => {
+    if (m.type() === "error" && !allowed.test(m.text())) errors.push(m.text());
+  });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  return { context, page, errors };
 }
 
 test.beforeAll(async () => {
@@ -92,6 +100,9 @@ test("#128 AC-9・AC-14: 管理者が無効化 → 対象はログインでき�
     await expect(
       refused.page.getByText("ユーザーIDまたはパスワードが違います"),
     ).toBeVisible();
+    expect(refused.errors, "コンソールのエラー・処理されなかった例外").toEqual(
+      [],
+    );
   } finally {
     await refused.context.close();
   }
@@ -140,6 +151,9 @@ test("#128 AC-9・AC-14: 管理者が無効化 → 対象はログインでき�
     expect(
       await (await returned.page.request.get("/api/auth/session")).json(),
     ).toMatchObject({ mustChangePassword: true });
+    expect(returned.errors, "コンソールのエラー・処理されなかった例外").toEqual(
+      [],
+    );
   } finally {
     await returned.context.close();
   }

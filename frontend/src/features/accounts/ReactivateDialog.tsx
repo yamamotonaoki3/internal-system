@@ -11,7 +11,11 @@ import {
   reactivateAccount,
   type AccountListItem,
 } from "./account-api";
-import { describeLifecycleError, sendWithReauth } from "./lifecycle-errors";
+import {
+  describeLifecycleError,
+  isDepartmentFieldError,
+  sendWithReauth,
+} from "./lifecycle-errors";
 import { accountKeys } from "./query-keys";
 import { invalidateAfterLifecycle } from "./useAccountLifecycle";
 
@@ -68,7 +72,9 @@ export function ReactivateDialog({ account, onClose, onDone }: Props) {
     } catch (error) {
       const message = describeLifecycleError(error);
       if (message === null) throw error;
-      setServerError(message);
+      // サーバーが部署の欄を指したときは、入力欄のエラーとして出す
+      if (isDepartmentFieldError(error)) setDepartmentError(message);
+      else setServerError(message);
       return;
     } finally {
       setSubmitting(false);

@@ -466,3 +466,72 @@ describe("#128 AC-9・AC-14: 完了のメッセージ", () => {
     expect(doneMessage("無効化しました")).toHaveLength(0);
   });
 });
+
+describe("#128 AC-14: コードレビュー1回目（再有効化のダイアログ）", () => {
+  it("#128 AC-14（重大2）: 再有効化の後の一覧の取り直しが 500 でも、同じダイアログに一時パスワードを出し続け、「閉じる」の後は一覧のエラーを出す", async () => {
+    const calls = respond();
+    let listRequests = 0;
+    server.use(
+      http.get(BASE, () => {
+        listRequests += 1;
+        return listRequests === 1
+          ? HttpResponse.json({ items: ITEMS, nextCursor: null })
+          : apiError(500, "INTERNAL_ERROR", "サーバーでエラーが発生しました");
+      }),
+    );
+    const { user } = renderList();
+    const dialog = await reactivateGone(user);
+    await waitFor(() => expect(calls.reactivate).toHaveLength(1));
+    await waitFor(() => expect(listRequests).toBeGreaterThanOrEqual(2));
+    // 取り直しの失敗が画面に反映された後も、一時パスワードは同じダイアログで確認できる
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", { name: /再有効化/ }).textContent,
+      ).toContain(TEST_INITIAL_PASSWORD),
+    );
+    expect(dialog.isConnected).toBe(true);
+    await user.click(
+      within(screen.getByRole("dialog", { name: /再有効化/ })).getByRole(
+        "button",
+        { name: "閉じる" },
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /再有効化/ })).toBeNull(),
+    );
+    expect(
+      screen.queryByText(TEST_INITIAL_PASSWORD, { exact: false }),
+    ).toBeNull();
+    expect(
+      await screen.findByText(/アカウントを取得できませんでした/),
+    ).toBeTruthy();
+  });
+
+  it("#128 AC-14（軽微）: サーバーが 422 fields: [departmentId] を返したら、所属部署の欄に結び付いたエラー（aria-invalid・aria-describedby）として出す", async () => {
+    const message = "所属部署を選び直してください";
+    respond({
+      // アプリのエラー応答は details を最上位に展開する（error-handler.ts）
+      reactivate: () =>
+        HttpResponse.json(
+          { code: "VALIDATION_ERROR", message, fields: ["departmentId"] },
+          { status: 422 },
+        ),
+    });
+    const { user } = renderList();
+    const dialog = await reactivateGone(user);
+    const select = within(dialog).getByRole("combobox", { name: /所属部署/ });
+    await waitFor(() =>
+      expect(select.getAttribute("aria-invalid")).toBe("true"),
+    );
+    const describedBy = select.getAttribute("aria-describedby") ?? "";
+    const described = describedBy
+      .split(/\s+/)
+      .filter((id) => id !== "")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain(message);
+    expect(
+      screen.queryByText(TEST_INITIAL_PASSWORD, { exact: false }),
+    ).toBeNull();
+  });
+});
