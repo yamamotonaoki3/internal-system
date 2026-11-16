@@ -38,3 +38,4 @@
 | [0025](0025-rebuild-referenced-table-defer-foreign-keys.md) | 他の表から参照されるroomsのCHECKを変えるための作り直し（D1ではPRAGMA foreign_keys=OFFが効かないためdefer_foreign_keysに置き換える。0016の1本だけ） | 採用 |
 | [0026](0026-markdown-rendering.md) | マークダウンの描画にreact-markdownとremark-gfmを使い、生のHTMLを通さず、描画する要素とリンクを許可リストで限る | 採用 |
 | [0027](0027-self-made-emoji-picker.md) | 絵文字のピッカーを自前の小さな部品にし、emoji-picker-react を入れない（本番のCSP `style-src 'self'` で動かないため。スタンプは文字6つ） | 採用 |
+| [0028](0028-lighter-process-and-narrowed-scope.md) | 進め方を軽くし、範囲を絞る（文書・テストだけの差分のレビュー省略、ミューテーションの後回し、計画レビューの回数、並列の進め方） | 採用 |
