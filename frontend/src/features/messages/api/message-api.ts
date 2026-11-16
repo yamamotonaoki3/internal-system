@@ -5,7 +5,29 @@ import {
   mentionSchema,
   type Mention,
 } from "../../../../../shared/message-rules";
+import { REACTION_KINDS } from "../../../../../shared/reaction-rules";
 import { apiClient } from "../../../services/api-client";
+
+/** リアクション1種類の集計。users は付けた時刻の順で最大50人、count は全数 */
+export const reactionSchema = z.object({
+  kind: z.enum(REACTION_KINDS),
+  value: z.string().min(1),
+  count: z.number().int().min(0),
+  reactedByMe: z.boolean(),
+  users: z.array(
+    z.object({
+      id: z.string().min(1),
+      displayName: z.string(),
+      isActive: z.boolean(),
+    }),
+  ),
+});
+export type Reaction = z.infer<typeof reactionSchema>;
+
+const reactionsResultSchema = z.object({
+  messageId: z.string().min(1),
+  reactions: z.array(reactionSchema),
+});
 
 const messageShape = {
   id: z.string().min(1),
@@ -24,6 +46,8 @@ const messageShape = {
   deleted: z.boolean(),
   /** この投稿への返信の件数（削除済みの返信も数える）。返信自身は 0 */
   replyCount: z.number().int().min(0),
+  /** リアクションの集計。削除済みは空配列 */
+  reactions: z.array(reactionSchema),
 };
 
 // 削除済みと本文がないことの食い違いは、サーバーの不具合として失敗にする
@@ -159,6 +183,33 @@ export async function editMessage(
 
 export async function deleteMessage(messageId: string): Promise<void> {
   await apiClient.delete(messagePath(messageId));
+}
+
+const reactionsPath = (messageId: string) =>
+  `${messagePath(messageId)}/reactions`;
+
+/** リアクションを付ける。すでに付いていても成功（冪等）で、その投稿の最新の集計を返す */
+export async function addReaction(
+  messageId: string,
+  reaction: { kind: Reaction["kind"]; value: string },
+) {
+  const response = await apiClient.post(reactionsPath(messageId), {
+    kind: reaction.kind,
+    value: reaction.value,
+  });
+  return reactionsResultSchema.parse(response.data);
+}
+
+/** 自分のリアクションを取り消す。すでに外れていても成功（冪等） */
+export async function removeReaction(
+  messageId: string,
+  kind: Reaction["kind"],
+  value: string,
+) {
+  const response = await apiClient.delete(
+    `${reactionsPath(messageId)}/${encodeURIComponent(kind)}/${encodeURIComponent(value)}`,
+  );
+  return reactionsResultSchema.parse(response.data);
 }
 
 const repliesPath = (parentMessageId: string) =>

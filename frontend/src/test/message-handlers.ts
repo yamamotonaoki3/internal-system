@@ -18,6 +18,15 @@
 import { http, HttpResponse } from "msw";
 import { server } from "./server";
 
+/** #138：リアクション1種類の集計（サーバーの Reaction と同じ形。付けた人は最大50人） */
+export type TestReaction = {
+  kind: "emoji" | "stamp";
+  value: string;
+  count: number;
+  reactedByMe: boolean;
+  users: { id: string; displayName: string; isActive: boolean }[];
+};
+
 export type TestMessage = {
   id: string;
   roomId: string;
@@ -35,6 +44,8 @@ export type TestMessage = {
   replyCount: number;
   /** #139：指名先と本文内の UTF-16 半開区間。既存の投稿は空配列 */
   mentions: { userId: string; start: number; end: number }[];
+  /** #138：種類ごとの集計。付いていない・削除済みは空配列 */
+  reactions: TestReaction[];
 };
 
 /** message() の上書き。author の isActive は省略でき、省略したときは true（有効）で補う */
@@ -76,6 +87,7 @@ export function message(
     parentMessageId: null,
     replyCount: 0,
     mentions: [],
+    reactions: [],
     ...overrides,
     author: { ...author, isActive: author.isActive ?? true },
   };
@@ -178,6 +190,7 @@ export function respondMessages(
       target.deleted = true;
       target.body = null;
       target.editedAt = null;
+      target.reactions = [];
       return new HttpResponse(null, { status: 204 });
     }),
   );
@@ -343,6 +356,7 @@ export function respondReplies(
       target.deleted = true;
       target.body = null;
       target.editedAt = null;
+      target.reactions = [];
       return new HttpResponse(null, { status: 204 });
     }),
   );

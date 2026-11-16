@@ -9,6 +9,7 @@ import { formatMessageTime } from "../format-time";
 import { DeleteMessageDialog } from "./DeleteMessageDialog";
 import { MessageBody } from "./MessageBody";
 import { MessageEditForm } from "./MessageEditForm";
+import { ReactionBar } from "./ReactionBar";
 
 type MessageItemProps = {
   message: RoomMessage;
@@ -18,6 +19,11 @@ type MessageItemProps = {
   canModify: boolean;
   /** スレッドを開く（親のメッセージの ID を渡す）。なければスレッドのボタンを出さない */
   onOpenThread?: (parentMessageId: string) => void;
+  /** リアクションを付け外しできる状態か（部屋が許すとき。投稿者は問わない）。偽なら、付いているチップは読み取り専用で出す */
+  canReact?: boolean;
+  /** リアクションのピッカーが開いているか。開くのは同時に1つだけにするため、呼び出し側が持つ。なければこの行だけで持つ */
+  pickerOpen?: boolean;
+  onPickerOpenChange?: (open: boolean) => void;
 };
 
 function ThreadButton({
@@ -94,8 +100,12 @@ export function MessageItem({
   retired,
   canModify,
   onOpenThread,
+  canReact = false,
+  pickerOpen,
+  onPickerOpenChange,
 }: MessageItemProps) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
+  const [localPickerOpen, setLocalPickerOpen] = useState(false);
   const close = () => setMode("view");
   return (
     <li className="mb-3">
@@ -122,6 +132,14 @@ export function MessageItem({
         />
       ) : (
         <MessageBody body={message.body} mentions={message.mentions} />
+      )}
+      {!message.deleted && (
+        <ReactionBar
+          message={message}
+          canReact={canReact}
+          pickerOpen={pickerOpen ?? localPickerOpen}
+          onPickerOpenChange={onPickerOpenChange ?? setLocalPickerOpen}
+        />
       )}
       <MessageActions
         message={message}

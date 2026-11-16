@@ -10,6 +10,11 @@
 //   postReply の判定の順（この順を変えない）：① 親が存在して見えるか（404）→ ② 親が返信でないか（404）→ ③ チャンネルで参加しているか（403）
 //   → ④ perm.message.reply（R-30。拒否は authorize が監査に記録する）→ ⑤ 親が削除済みか（409。C-59）→ ⑥ 部屋の状態（部署が無効・DM の相手が無効は 409）→ ⑦ 条件付きの INSERT。
 //   お知らせ専用の投稿権限は問わない（U-6）。listReplies は ①② まで（未参加の公開チャンネルも読める）で、返信できない理由 replyBlockedReason を添える。
+// リアクション（#138。EP-1-12・EP-1-13）：requireReactable の判定の順（この順を変えない）
+//   ① メッセージがあり部屋が見えるか（DM は perm.dm.message.view、チャンネルは canViewChannel。見えなければ 404）→ ② 参加していない公開チャンネルは 403
+//   → ③ perm.reaction.manage.own（拒否は authorize が監査に記録する）→ ④ 削除済みは 409 → ⑤ 部署が無効・DM の相手が無効は 409 → ⑥ 条件付きの書き込み。
+//   親の投稿にも返信にも同じ判定を使う（返信は、親が削除済みでも付けられる）。お知らせ専用の投稿権限は問わない。
+//   ⑥が 0 行のときは、①〜⑤をやり直して拒否の理由があればその応答にする。理由がなければ、今の状態で分ける（writeReaction）。
 // 書き込みは条件付きの INSERT 1文。挿入できなかった（0 行）ときは、原因を読み直して分ける：
 //   状態が崩れた → 404／403、IDが部屋の最大以下 → 最大より大きいIDで作り直して再試行（上限あり。超えたら 503）。
 import { withMessages, type MessageRepository } from "../db/message.repository";
@@ -23,6 +28,11 @@ import {
   REPLY_BLOCKED_REASONS,
   type Mention,
 } from "../../../shared/message-rules";
+import {
+  MAX_REACTION_TYPES,
+  type ReactionKind,
+} from "../../../shared/reaction-rules";
+import type { Reaction } from "../db/message-reactions.sql";
 import { createAppAuthorizer } from "./authorizer";
 import { assertRecentReauth } from "./credentials.service";
 import type { CursorPayload } from "../lib/cursor";
@@ -45,6 +55,11 @@ export type ReplyCreated = MessageCreated & { parentMessageId: string };
 const MAX_ID_RETRIES = 3;
 
 const NOT_FOUND_MESSAGE = "チャンネルが見つかりません";
+
+const REACTION_LIMIT_MESSAGE = `リアクションは${MAX_REACTION_TYPES}種類までです`;
+const REACTION_CONFLICT_MESSAGE = "状態が変わりました。もう一度お試しください";
+
+export type ReactionsResult = { messageId: string; reactions: Reaction[] };
 
 type Dependencies = {
   authorizer: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
@@ -351,6 +366,84 @@ export function createMessageService(
     return message;
   }
 
+  // リアクションを付け外ししてよいかを、①〜⑤の順に確かめる（⑥書き込みは呼び出し側）。
+  async function requireReactable(actor: MessageActor, messageId: string) {
+    const message = await repository.findForModification(messageId);
+    if (message === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    const room = await findRoom(message.roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct")
+      await authorizeDm(actor, "perm.dm.message.view");
+    else if (!canViewChannel(room.channel, room.channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "channel" && room.channel.joinedAt === null)
+      throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+    await authorizer.authorize(
+      { userId: actor.userId },
+      "perm.reaction.manage.own",
+      { type: "company" },
+    );
+    if (message.deletedAt !== null)
+      throw new AppError(
+        "CONFLICT",
+        "削除された投稿にはリアクションを付け外しできません",
+      );
+    if (room.kind === "direct") {
+      if (!room.partnerIsActive)
+        throw new AppError(
+          "CONFLICT",
+          "相手のアカウントが無効になっているため、操作できません",
+        );
+    } else if (
+      room.channel.departmentId !== null &&
+      !(await repository.isDepartmentActive(room.channel.departmentId))
+    )
+      throw new AppError(
+        "CONFLICT",
+        "部署が無効になっているため、操作できません",
+      );
+  }
+
+  // 付ける・取り消すの共通の流れ。書き込みが 0 行のときは、判定をやり直し、今の状態で次のどれかにする。
+  //   拒否の理由がある → その応答／すでに要求された状態（付けている・外れている）→ 成功（冪等）／20種類に達していて新しい種類 → 409
+  //   どれでもない（別の操作で状態が変わった）→ 書き込みを1回だけやり直す。それでも決まらなければ 409（繰り返さない）
+  async function writeReaction(
+    operation: "add" | "remove",
+    actor: MessageActor,
+    messageId: string,
+    kind: ReactionKind,
+    value: string,
+  ): Promise<ReactionsResult> {
+    await requireReactable(actor, messageId);
+    const input = { messageId, userId: actor.userId, kind, value };
+    const write = () =>
+      operation === "add"
+        ? repository.addReactionIfReactable(input)
+        : repository.removeReactionIfReactable(input);
+    for (let attempt = 1; ; attempt += 1) {
+      const result = await write();
+      if (result.changes > 0) return { messageId, reactions: result.reactions };
+      await requireReactable(actor, messageId);
+      const reactions = await repository.loadReactions(messageId, actor.userId);
+      if (reactions === null) {
+        // 再判定の直後に条件が崩れた。集計は返さず、判定をやり直して拒否の理由があればその応答にする
+        await requireReactable(actor, messageId);
+        throw new AppError("CONFLICT", REACTION_CONFLICT_MESSAGE);
+      }
+      const current = reactions.find(
+        (reaction) => reaction.kind === kind && reaction.value === value,
+      );
+      const mine = current?.reactedByMe ?? false;
+      if (operation === "add") {
+        if (mine) return { messageId, reactions };
+        if (current === undefined && reactions.length >= MAX_REACTION_TYPES)
+          throw new AppError("CONFLICT", REACTION_LIMIT_MESSAGE);
+      } else if (!mine) return { messageId, reactions };
+      if (attempt >= 2)
+        throw new AppError("CONFLICT", REACTION_CONFLICT_MESSAGE);
+    }
+  }
+
   // 書き込みが 0 行のとき、状態を読み直して原因に合う応答にする。原因が分からなくても成功にしない（書き込みはやり直さない）
   async function failWrite(
     actor: MessageActor,
@@ -398,6 +491,18 @@ export function createMessageService(
       });
       if (deleted === 0) return failWrite(actor, messageId, "delete");
     },
+    addReaction: (
+      actor: MessageActor,
+      messageId: string,
+      kind: ReactionKind,
+      value: string,
+    ) => writeReaction("add", actor, messageId, kind, value),
+    removeReaction: (
+      actor: MessageActor,
+      messageId: string,
+      kind: ReactionKind,
+      value: string,
+    ) => writeReaction("remove", actor, messageId, kind, value),
     async mentionCandidates(
       actor: MessageActor,
       roomId: string,
@@ -409,8 +514,18 @@ export function createMessageService(
     async list(actor: MessageActor, roomId: string, query: MessageListQuery) {
       await requireVisible(roomId, actor);
       if ("after" in query)
-        return repository.listAfter(roomId, query.after, query.limit);
-      return repository.listLatest(roomId, query.limit, query.cursor);
+        return repository.listAfter(
+          roomId,
+          query.after,
+          query.limit,
+          actor.userId,
+        );
+      return repository.listLatest(
+        roomId,
+        query.limit,
+        query.cursor,
+        actor.userId,
+      );
     },
     async listReplies(
       actor: MessageActor,
@@ -418,7 +533,7 @@ export function createMessageService(
       query: MessageListQuery,
     ) {
       const { parent, room } = await requireReadableThread(actor, parentId);
-      const parentItem = await repository.findItem(parentId);
+      const parentItem = await repository.findItem(parentId, actor.userId);
       if (parentItem === null)
         throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
       const state = await roomReplyState(room);
@@ -432,11 +547,13 @@ export function createMessageService(
               parentId,
               query.after,
               query.limit,
+              actor.userId,
             )
           : await repository.listRepliesLatest(
               parentId,
               query.limit,
               query.cursor,
+              actor.userId,
             );
       // joined・roomWritable は表示の制御用（認可は postReply が改めて行う）
       return {

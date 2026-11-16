@@ -6,6 +6,9 @@ DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE login_id LI
 DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_%' ESCAPE '!');
 DELETE FROM channel_members WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_%' ESCAPE '!');
 DELETE FROM user_role_assignments WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_%' ESCAPE '!');
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id LIKE 'e2euser!_%' ESCAPE '!'));
 DELETE FROM users WHERE login_id LIKE 'e2euser!_%' ESCAPE '!';
 
 -- 残りの件数（すべて 0 になることを確かめる）

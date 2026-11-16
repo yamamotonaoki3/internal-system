@@ -1,5 +1,6 @@
 // メッセージの一覧（4つの状態：読み込み中・エラー・0件・あり）。1件ごとの表示は MessageItem、本文は MessageBody が出す。
 // 一覧は role="log"・aria-live="polite"（新着を読み上げる。名前は label で替えられる）。取得に失敗しても、取得済みの一覧は残して上にエラーを出す。
+import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import type { RoomMessage } from "../api/message-api";
 import { describeError } from "../describe-error";
@@ -21,6 +22,11 @@ type MessageListProps = {
   canModifyOwn?: boolean;
   /** スレッドを開く。あれば、各メッセージにスレッドのボタンを出す */
   onOpenThread?: (parentMessageId: string) => void;
+  /** リアクションを付け外しできるか（部屋が許すとき。投稿者は問わない。既定は出さない） */
+  canReact?: boolean;
+  /** リアクションのピッカーを開いている投稿の ID。別の一覧（スレッドの親など）と合わせて同時に1つにするとき、呼び出し側が持つ */
+  pickerOpenId?: string | null;
+  onPickerOpenIdChange?: (messageId: string | null) => void;
 };
 
 export function MessageList({
@@ -33,7 +39,14 @@ export function MessageList({
   currentUserId,
   canModifyOwn = false,
   onOpenThread,
+  canReact = false,
+  pickerOpenId: controlledOpenId,
+  onPickerOpenIdChange,
 }: MessageListProps) {
+  const [localOpenId, setLocalOpenId] = useState<string | null>(null);
+  const pickerOpenId =
+    controlledOpenId === undefined ? localOpenId : controlledOpenId;
+  const setPickerOpenId = onPickerOpenIdChange ?? setLocalOpenId;
   const failure =
     error === null ? null : (
       <Alert tone="error" role="alert">
@@ -67,6 +80,11 @@ export function MessageList({
                   message.author.id === currentUserId
                 }
                 onOpenThread={onOpenThread}
+                canReact={canReact}
+                pickerOpen={pickerOpenId === message.id}
+                onPickerOpenChange={(open) =>
+                  setPickerOpenId(open ? message.id : null)
+                }
               />
             ))}
           </ul>

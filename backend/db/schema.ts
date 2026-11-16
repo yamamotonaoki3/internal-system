@@ -437,6 +437,33 @@ export const messageMentions = sqliteTable(
   ],
 );
 
+// メッセージのリアクション（#138）。1人が1つの投稿に付けられる種類ごとに1行（重複は主キーで防ぐ）。
+// kind は emoji（固定の一覧の絵文字）か stamp（固定のスタンプの id）。値の検査は shared/reaction-rules.ts（サーバー・画面とも）。
+// value の長さの上限は安全のための余裕（実際の値は16以下）。
+export const messageReactions = sqliteTable(
+  "message_reactions",
+  {
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    kind: text("kind").notNull(),
+    value: text("value").notNull(),
+    createdAt: text("created_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.kind, t.value, t.userId] }),
+    index("message_reactions_user_id_idx").on(t.userId),
+    check("message_reactions_kind_check", sql`${t.kind} in ('emoji', 'stamp')`),
+    check(
+      "message_reactions_value_check",
+      sql`length(${t.value}) between 1 and 64`,
+    ),
+  ],
+);
+
 // 通知（#124）。文言は持たず、種類と対象の ID だけを保存する（文言・移動先は画面で組み立てる。本名・本文を行に入れない）。
 // kind に CHECK は付けない（種類を足すたびに表の作り直しが要るため。値は shared/notification-kinds.ts で守る）。
 // room_id・message_id・target_id は外部キーにしない（直接削除・物理削除の通知が、消えた対象を指しうるため）。

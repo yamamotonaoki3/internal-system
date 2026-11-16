@@ -135,6 +135,8 @@ describe("#134 AC-1（1-3 AC-1・AC-4）本人の削除", () => {
         // #137：一覧の項目に足した、通常の投稿の parentMessageId（常に null）と replyCount
         parentMessageId: null,
         replyCount: 0,
+        // #138：削除済みの投稿の reactions は []（項目の追加。期待の意味は変えない）
+        reactions: [],
       });
     }
   });

@@ -213,6 +213,7 @@ describe("#137 AC-1（1-4 AC-1）返信の投稿", () => {
         "id",
         "mentions",
         "parentMessageId",
+        "reactions",
         "replyCount",
         "roomId",
       ].sort(),

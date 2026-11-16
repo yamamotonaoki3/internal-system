@@ -17,6 +17,10 @@ import {
   type MessageListQuery,
 } from "../services/message.service";
 import { messageContentSchema } from "../../../shared/message-rules";
+import {
+  isValidReaction,
+  REACTION_KINDS,
+} from "../../../shared/reaction-rules";
 import { searchKeywordSchema } from "../../../shared/search-rules";
 
 const roomParamSchema = z.object({ roomId: z.string().min(1).max(64) });
@@ -67,6 +71,25 @@ const messageParamSchema = z.object({ messageId: z.string().min(1).max(64) });
 // 編集は本文だけ。削除の理由（reason）は他人の投稿の削除（#142）で扱うため、ここでは受け付けない
 const editSchema = messageContentSchema;
 
+// リアクションの値は、固定の一覧（shared/reaction-rules.ts）にあるものだけ。422 の応答に入力値を含めない（validate は項目名だけを返す）
+const reactionValueSchema = z.object({
+  kind: z.enum(REACTION_KINDS),
+  value: z.string().max(64),
+});
+const reactionRefinement = (
+  reaction: z.infer<typeof reactionValueSchema>,
+  ctx: z.RefinementCtx,
+) => {
+  if (!isValidReaction(reaction.kind, reaction.value))
+    ctx.addIssue({ code: "custom", message: "invalid", path: ["value"] });
+};
+const reactionBodySchema = reactionValueSchema
+  .strict()
+  .superRefine(reactionRefinement);
+const reactionParamSchema = reactionValueSchema
+  .extend({ messageId: z.string().min(1).max(64) })
+  .superRefine(reactionRefinement);
+
 function actorOf(c: Context<{ Bindings: Env }>): MessageActor {
   const principal = c.get("principal");
   if (principal === null) {
@@ -106,6 +129,36 @@ export function messageItemRoutes() {
       );
       return c.body(null, 204);
     })
+    .post(
+      "/:messageId/reactions",
+      validate("param", messageParamSchema),
+      validate("json", reactionBodySchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const { kind, value } = c.req.valid("json");
+        const reactions = await withMessageService(c.env, actor, (service) =>
+          service.addReaction(
+            actor,
+            c.req.valid("param").messageId,
+            kind,
+            value,
+          ),
+        );
+        return c.json(reactions, 200);
+      },
+    )
+    .delete(
+      "/:messageId/reactions/:kind/:value",
+      validate("param", reactionParamSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const { messageId, kind, value } = c.req.valid("param");
+        const reactions = await withMessageService(c.env, actor, (service) =>
+          service.removeReaction(actor, messageId, kind, value),
+        );
+        return c.json(reactions, 200);
+      },
+    )
     .get(
       "/:messageId/replies",
       validate("param", messageParamSchema),

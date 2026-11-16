@@ -3,4 +3,7 @@
 DELETE FROM read_positions WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('e2euser_password_001', 'e2euser_password_002'));
 DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE login_id IN ('e2euser_password_001', 'e2euser_password_002'));
 DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE login_id IN ('e2euser_password_001', 'e2euser_password_002'));
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (login_id IN ('e2euser_password_001', 'e2euser_password_002')));
 DELETE FROM users WHERE login_id IN ('e2euser_password_001', 'e2euser_password_002');

@@ -106,6 +106,14 @@ export type ListedItem = {
   parentMessageId: string | null;
   /** #137：その投稿への返信の件数（削除済みの返信も数える） */
   replyCount: number;
+  /** #138：種類ごとの集計。削除済みは [] */
+  reactions: {
+    kind: string;
+    value: string;
+    count: number;
+    reactedByMe: boolean;
+    users: { id: string; displayName: string; isActive: boolean }[];
+  }[];
 };
 
 /** 一覧（EP-1-01）から1件を取る。after を渡すと「最後のID以降」の一覧から取る */

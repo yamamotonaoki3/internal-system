@@ -9,4 +9,7 @@ WHERE actor_id = '01JTE2E0000000000000000192'
 DELETE FROM sessions WHERE user_id = '01JTE2E0000000000000000192';
 DELETE FROM user_role_assignments WHERE user_id = '01JTE2E0000000000000000192';
 DELETE FROM clients WHERE substr(name, 1, 16) = '[E2E_CLIENT_192]';
+-- #138：リアクション（message_reactions）は利用者・メッセージを外部キーで指すため、メッセージ・利用者より先に消す。付けた人がテストの利用者のものと、消すメッセージに付いたもの。
+DELETE FROM message_reactions
+WHERE user_id IN (SELECT id FROM users WHERE (id = '01JTE2E0000000000000000192'));
 DELETE FROM users WHERE id = '01JTE2E0000000000000000192';

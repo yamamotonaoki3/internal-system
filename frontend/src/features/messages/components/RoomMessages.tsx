@@ -67,6 +67,7 @@ export function RoomMessages({
         retiredAuthorIds={retiredAuthorIds}
         currentUserId={userId}
         canModifyOwn={canModifyOwn}
+        canReact={canModifyOwn}
         onOpenThread={onOpenThread}
       />
       {joined &&
