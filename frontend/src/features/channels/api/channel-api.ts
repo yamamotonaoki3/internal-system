@@ -1,4 +1,4 @@
-// API 層：チャンネルの一覧・詳細・参加の通信はここに書く。共通の apiClient（services/）を使う（C-46）。
+// API 層：チャンネルの一覧・詳細・参加・招待の通信はここに書く。共通の apiClient（services/）を使う（C-46）。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
 
@@ -48,6 +48,12 @@ const joinedSchema = z.object({
   joinedAt: z.string(),
 });
 
+const invitedSchema = z.object({
+  channelId: z.string().min(1),
+  userId: z.string().min(1),
+  joinedAt: z.string(),
+});
+
 export type ChannelItem = z.infer<typeof channelItemSchema>;
 export type ChannelPage = z.infer<typeof channelPageSchema>;
 export type ChannelDetail = z.infer<typeof channelDetailSchema>;
@@ -85,4 +91,12 @@ export async function joinChannel(channelId: string) {
     `/channels/${encodeURIComponent(channelId)}/join`,
   );
   return joinedSchema.parse(response.data);
+}
+
+export async function inviteToChannel(channelId: string, userId: string) {
+  const response = await apiClient.post(
+    `/channels/${encodeURIComponent(channelId)}/invitations`,
+    { userId },
+  );
+  return invitedSchema.parse(response.data);
 }

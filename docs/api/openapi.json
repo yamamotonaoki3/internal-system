@@ -1118,6 +1118,92 @@
         }
       }
     },
+    "/api/channels/{channelId}/invitations": {
+      "post": {
+        "operationId": "inviteToChannel",
+        "summary": "チャンネルに社員を招待する（EP-2-12）",
+        "description": "参加者が、有効な社員をチャンネルに追加する。再認証が必要。判定の順：閲覧可否（404）→ 招待者の参加・招待の権限 perm.channel.invite（403 FORBIDDEN）→ 再認証（403 REAUTH_REQUIRED）→ チャンネルの状態（案件専用・部署が無効は 409）→ 相手の有効性（404）→ 参加済み（409）。参加していない非公開・アーカイブ済み・存在しないチャンネルは区別せず同じ 404。相手が存在しない・無効も同じ 404。招待の表は作らず、確定と同時に参加者になる（監査ログ channel.invite、通知 channel.invited）。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "招待した（相手が参加者になった）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelInvited"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "公開チャンネルに参加していない、または招待の権限（perm.channel.invite）がない（FORBIDDEN）、再認証が必要（REAUTH_REQUIRED）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えないチャンネル（非公開で未参加・アーカイブ済み・存在しない）、または相手の社員が存在しない・無効",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "案件専用のチャンネル、部署が無効（読み取り専用）、または相手が参加済み（自分自身を含む）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/channel-requests": {
       "post": {
         "operationId": "createChannelRequest",
@@ -3922,6 +4008,28 @@
           "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
         },
         "roomId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "joinedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "ChannelInvited": {
+      "type": "object",
+      "required": [
+        "channelId",
+        "userId",
+        "joinedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "userId": {
           "type": "string",
           "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
         },

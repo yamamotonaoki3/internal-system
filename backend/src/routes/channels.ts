@@ -1,4 +1,4 @@
-// Controller（ルート）：チャンネルの一覧・詳細・参加（/api/channels）。
+// Controller（ルート）：チャンネルの一覧・詳細・参加・招待（/api/channels）。
 // 入力の形の確認（422）と応答だけを行い、見てよいか・参加してよいかの判定は Service が行う。
 // 認証と送信元の確認（originCheck）は app.ts が /api/* に一括で適用する（参加は POST のため、許可されていない Origin は 403）。
 import { Hono, type Context } from "hono";
@@ -10,12 +10,18 @@ import { isUlid } from "../lib/ulid";
 import { validate } from "../lib/validation";
 import {
   withChannelService,
-  type ChannelActor,
+  type ChannelInviteActor,
 } from "../services/channel.service";
 
 const idParamSchema = z.object({
   channelId: z.string().refine(isUlid),
 });
+
+const inviteBodySchema = z
+  .object({
+    userId: z.string().refine(isUlid),
+  })
+  .strict();
 
 const listSchema = cursorQuerySchema({ defaultLimit: PAGE_LIMIT.default })
   .extend({
@@ -27,12 +33,17 @@ const listSchema = cursorQuerySchema({ defaultLimit: PAGE_LIMIT.default })
   })
   .strict();
 
-function actorOf(c: Context<{ Bindings: Env }>): ChannelActor {
+// 再認証の時刻は招待（#135）だけが使う
+function actorOf(c: Context<{ Bindings: Env }>): ChannelInviteActor {
   const principal = c.get("principal");
   if (principal === null) {
     throw new AppError("UNAUTHENTICATED", "ログインしてください");
   }
-  return { userId: principal.userId, traceId: traceIdOf(c) };
+  return {
+    userId: principal.userId,
+    traceId: traceIdOf(c),
+    reauthenticatedAt: principal.reauthenticatedAt,
+  };
 }
 
 export function channelRoutes() {
@@ -65,5 +76,21 @@ export function channelRoutes() {
         service.join(actor, c.req.valid("param").channelId),
       );
       return c.json(joined);
-    });
+    })
+    .post(
+      "/:channelId/invitations",
+      validate("param", idParamSchema),
+      validate("json", inviteBodySchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const invited = await withChannelService(c.env, (service) =>
+          service.invite(
+            actor,
+            c.req.valid("param").channelId,
+            c.req.valid("json").userId,
+          ),
+        );
+        return c.json(invited, 201);
+      },
+    );
 }

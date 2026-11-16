@@ -53,6 +53,7 @@
 | チャンネル・DMの未読の件数と既読（サイドバー・DM一覧。Issue #237） | `e2e/unread.spec.ts` | 下の「未読の件数と既読のシナリオ」を参照 |
 | スレッドの返信とスレッド一覧（S-07・S-35。Issue #137） | `e2e/threads.spec.ts` | 下の「スレッドの返信とスレッド一覧のシナリオ」を参照 |
 | リアクション・スタンプ（S-05・S-07。Issue #138） | `e2e/reactions.spec.ts` | 下の「リアクション・スタンプのシナリオ」を参照 |
+| チャンネルへの招待（S-12・S-05・サイドバー・通知。Issue #135） | `e2e/channel-invite.spec.ts` | 1件（`serial`）。参加者A・招待される社員B・部署のオーナーの3つのブラウザ（ログインは3人で1回ずつ）。招待の前はBの一覧に出ず、URLを開いても「チャンネルが見つかりません」→ Aが選択・再認証・確定画面・確定で招待 → Aの参加者が再読み込みなしで増え、Bのサイドバーに出て通知が届き、通知からチャンネルを開ける。判定の順・存在の非開示の細部はバックエンドのテストで確かめる。シード：`e2e/seeds/channel-invite.sql`（部署「[E2E_TEST]部署135招待」、社員`e2euser_chinv_`。非公開チャンネルは申請→承認のAPIで作り、名前は`E2E_TEST_invite_`で始める）。後始末：`e2e/seeds/channel-invite-cleanup.sql`（識別子だけを消し、残数0を確かめる）。設計は [channels.md](../design/channels.md) |
 
 - `/api/sample-users` はログインが必要になったため、`e2e/sample-users.spec.ts` はログインしてから読む（未ログインは 401）
 - 未ログインのときのセッションの確認（`GET /api/auth/session`）は、仕様どおり 401 を返し、ブラウザがコンソールのエラーとして出す。`e2e/session-console.ts` の `allowSessionCheck401` で、この 401 だけを許す（許可は1か所にまとめる）

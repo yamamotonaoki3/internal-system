@@ -27,6 +27,11 @@ export const NOTIFICATION_VIEWS: Readonly<
     label: "チャンネルの作成の申請が承認されました",
     to: (item) => (item.roomId === null ? null : `/channels/${item.roomId}`),
   },
+  // 通知の行に招待者・チャンネルの名前を保存しないため、固定の文にする（#135）
+  "channel.invited": {
+    label: "チャンネルに追加されました",
+    to: (item) => (item.roomId === null ? null : `/channels/${item.roomId}`),
+  },
   "channel_request.rejected": {
     label: "チャンネルの作成の申請が却下されました",
     to: () => "/channel-requests",
