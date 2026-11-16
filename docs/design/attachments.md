@@ -46,7 +46,8 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 | `backend/src/db/message.repository.ts`・`reply-insert.sql.ts` | 投稿・返信の`db.batch`の末尾に`bindAttachments`の文を足す。一覧・`findItem`が`attachments`を付ける。`thread.repository.ts`もスレッドの親の項目に付ける |
 | `backend/src/services/message.service.ts` | `requirePostable`・`requireReplyable`を、アップロードの入口でも使えるよう公開した。投稿・返信が`attachmentIds`を受け取る。`failAttachmentBinding`が、結び付けが取り消された原因を404・409・422に分ける |
 | `backend/src/lib/attachment-inspection.ts` | `inspectAttachment`。中身で形式を判定し、拡張子と一致するものだけを許可する。Content-Typeは固定の一覧から付ける |
-| `backend/src/lib/ooxml-check.ts` | `checkOoxml`。docx・xlsx・pptxのzip構造を自前で確かめる（中央ディレクトリとローカルヘッダーの突き合わせ、`[Content_Types].xml`の読み取りを含む） |
+| `backend/src/lib/ooxml-check.ts` | `checkOoxml`。docx・xlsx・pptxのzip構造を自前で確かめる（中央ディレクトリとローカルヘッダーの突き合わせ。`[Content_Types].xml`は下の`readContentTypes`で読む） |
+| `backend/src/lib/content-types-xml.ts` | `readContentTypes`。`[Content_Types].xml`を、汎用のXMLの読み取りではなく、決まった形だけを受け付ける厳しい読み取りで読む。形が違えば`null` |
 | `backend/src/lib/exif-strip.ts` | `stripExif`。位置情報を含みうるメタデータの入れ物を、画素を変えずに取り除く（JPEGはAPP1〔Exif・XMP〕とAPP13、PNGは`eXIf`・`tEXt`・`zTXt`・`iTXt`のすべて、WebPは`EXIF`・`XMP `とVP8Xのフラグ）。GIFは何もしない。壊れた構造は例外 |
 | `backend/src/lib/content-disposition.ts` | `contentDisposition`。ASCIIに置き換えた`filename`と`filename*=UTF-8''…`を組み立てる |
 | `backend/src/lib/byte-range.ts` | `parseByteRange`。正しい単一の範囲だけを返し、それ以外は`null` |
@@ -98,7 +99,12 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 - 形式は拡張子ではなく中身で判定し、**拡張子の種類と中身が一致するものだけ**を許可する。JPEG・PNG・GIF・WebP・PDF・MP4・WebM（Matroskaは拒否）・テキスト/CSV（UTF-8で正しく、NULを含まない）・docx/xlsx/pptx。SVG・HTMLは拡張子の段階で拒否する。
 - Office新形式の検査（`ooxml-check.ts`、C-153と決定記録C-176）：
   - zipの末尾の構造から中央ディレクトリを読み、各エントリの**ローカルヘッダーと突き合わせる**。名前・圧縮方式・サイズの食い違い、どちらかのサイズ欄が`0xffffffff`、どちらかのZIP64の拡張情報、範囲外は拒否。**データ記述子（汎用フラグのbit3）を使うエントリは許可し、その場合はサイズの突き合わせだけを省く**（Java製のツールなどが出す正当なOfficeファイルで使われるため。統括の決定）。
-  - `[Content_Types].xml`は、コメント・CDATA・処理命令を読み飛ばし、名前空間を解決して、実際の要素の属性だけから判定する（単一引用符・属性の順・同じ名前空間URIの別の接頭辞は許可。DOCTYPE・壊れたXMLは拒否）。
+  - `[Content_Types].xml`は、`content-types-xml.ts`の`readContentTypes`で読む。**決まった形だけを受け付ける**（統括の決定。C-176）。
+    - 受け付ける形：XML宣言（任意）→根の要素`Types`（content-typesの名前空間。接頭辞つきでもよい）→直下に`Default`・`Override`だけ（空要素、または中身のない開始・終了の組）。コメントと空白は読み飛ばす。属性の値は二重引用符・単一引用符、順は問わない。
+    - 拒否するもの：ほかの要素、3段以上の入れ子、子の中の文字、根の要素以外での名前空間の宣言（子の接頭辞つき属性・解決できない接頭辞を含む）、終了タグの名前の不一致、DOCTYPE・CDATA・処理命令（XML宣言を除く）、属性の重複、値に`<`・`&`を含む属性、根の要素の後ろの余分な内容、閉じていない構造、名前空間の宣言が17個以上（根の要素だけで、既定の`xmlns`を含めて16個まで）。
+    - 作り方：先頭から1回だけ進み、位置を戻さない（正規表現で探し直さない）。保持するのは根の名前空間の対応と子の要素の一覧だけで、入れ子のスタックは持たず、処理量は入力の長さに比例する。
+    - BOMは、呼び出し側の`TextDecoder`（UTF-8）が取り除く。XML宣言の前の空白は拒否する（宣言のない文書の、根の要素の前の空白は許す）。
+    - XML 1.0との小さな違い：コメントの中の`--`を拒否していない。名前に使える文字を、英数字と`_`・`.`・`-`（接頭辞の区切りの`:`）に絞っている。
   - エントリ数は10,000まで。展開後は1MBまで（ヘッダーの申告を信じず、展開しながら数える）。`vbaProject.bin`を含むものは拒否、`embeddings/`は許可。暗号化・ZIP64・複数ディスクのzipは拒否。壊れたzipは「形式が正しくない」という判定で、例外にしない。
 - Content-Typeは、この検査の結果（固定の一覧）からだけ付ける。テキストとCSVは、どちらも`text/plain; charset=utf-8`。
 - 画像のメタデータは「位置情報を含みうるものは残さない」を原則に、入れ物ごと除く（上の`exif-strip.ts`の表のとおり）。
@@ -109,7 +115,7 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 R2への`put`はD1の`batch`の外で行う。そのため、保存と登録がずれうる。
 
 - 行の`INSERT`が失敗したら、今回保存した実体の`delete`を試み、**そのあと元のエラーを再送出する**（成功として扱わない）。`delete`が失敗したらerrorログに残し（キー・名前は出さない）、元のエラーを優先する。
-- 動画のストリームの失敗（バイト数の不一致・受信側の失敗・`put`の失敗）も、受信側・保存側のもう片方を止め、保存物を消してから投げ直す。
+- 動画のストリームの失敗（バイト数の不一致・受信側の失敗・`put`の失敗）も、受信側・保存側のもう片方を止め（`stopBoth`）、保存物を消してから投げ直す。**止める操作そのものが失敗しても、元のエラーの応答は変えず、errorログに残す**（キー・名前は出さない）。
 - どの行にも結び付かない実体が残りうるのは、補償の`delete`も失敗した場合だけ。ログで分かるようにしてあり、定期の照合はこのIssueの範囲外。
 
 ## 結び付け（投稿・返信）
@@ -206,7 +212,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 
 ## 既知の限界
 
-- **形式の検査（zip・XML・画像のメタデータの除去）は自前の実装**。リリース前の検証（#160）で、細工したファイルを多数与えるテストか、実績のあるライブラリへの置き換えを検討する。
+- **形式の検査（zip・`[Content_Types].xml`の読み取り・画像のメタデータの除去）は自前の実装**。`[Content_Types].xml`は決まった形だけを受け付けるため、正当なOfficeのファイルでも、この形から外れるもの（根の要素以外での名前空間の宣言など）は拒否される。リリース前の検証（#160）で、細工したファイルを多数与えるテストか、実績のあるライブラリへの置き換えを検討する。
 - 動画100MBちょうどがWorkers経由で通るかは、本番で未確認（利用者がデプロイの時に確認する。C-153(4)）。手元では`FixedLengthStream`とR2の`put`が3MBで動くことと、足りないバイト数で`put`が失敗して何も残らないことを確かめた（[ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)の未確認の一部を埋めた）。
 - データ記述子を使うzipのエントリは、サイズの突き合わせをしない（正当なファイルを通すための決定。C-176）。
 - 添付の付いた送信が失敗して再送すると、成功済みのファイルも、もう一度アップロードする（一覧を残すため）。前回のものはどの投稿にも結び付かず、24時間後の掃除で消える。
