@@ -481,9 +481,9 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
-  it("#147 コードレビュー1回目（軽微）: 案件の経路（EP-5-06〜08）の ULID の pattern は、shared/ulid-rules.ts の ULID_PATTERN と同じ判定になる（全体は #289）", () => {
-    // Crockford Base32 の文字クラスを使う pattern を、案件の経路と案件のスキーマから再帰的に集める（場所は JSON のパスで示す）。
-    // API 仕様の全体（既存の経路を含む）の直しと番人は、ほかの PR との衝突を避けるため #289 で行う
+  it("#289 AC-1: API 仕様の全体で、ULID の形を表す pattern は、shared/ulid-rules.ts の ULID_PATTERN と同じ判定になる", () => {
+    // Crockford Base32 の文字クラスを使う pattern を、API 仕様の全体から再帰的に集める（場所は JSON のパスで示す）。
+    // 集まる pattern はすべて ULID 単体の形で、複数をつなげた形・カーソルの pattern は無いため、対象から外す条件は置かない
     const found: { path: string; pattern: string }[] = [];
     const walk = (node: unknown, path: string) => {
       if (Array.isArray(node)) {
@@ -501,34 +501,11 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         else walk(value, `${path}/${key}`);
       }
     };
-    // この PR で足した案件の経路だけを対象にする（全体は #289）。パスとクエリのパラメータ（cursor は対象外）と、案件の応答のスキーマ
-    const casePaths = [
-      "/api/cases",
-      "/api/cases/{caseId}",
-      "/api/cases/{caseId}/detail",
-    ];
-    const paths = spec.paths as Record<string, Record<string, unknown>>;
-    for (const name of casePaths)
-      for (const [method, operation] of Object.entries(paths[name] ?? {})) {
-        const parameters =
-          (operation as { parameters?: { name: string; in: string }[] })
-            .parameters ?? [];
-        parameters.forEach((parameter, i) => {
-          if (
-            (parameter.in === "path" || parameter.in === "query") &&
-            parameter.name !== "cursor"
-          )
-            walk(parameter, `/paths/${name}/${method}/parameters[${i}]`);
-        });
-      }
-    const schemas = spec.components.schemas as Record<string, unknown>;
-    for (const name of ["CaseSummary", "CasePage", "CaseDetail"]) {
-      expect(schemas[name], name).toBeDefined();
-      walk(schemas[name], `/components/schemas/${name}`);
-    }
+    walk(spec, "");
     expect(found.length).toBeGreaterThan(0);
     const valid = [
       "01JTESTCASE147A00000000001",
+      "01JTESTCASE289A00000000002",
       "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
       "00000000000000000000000000",
     ];
@@ -537,6 +514,8 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
       "91JTESTCASE147A00000000001",
       "A1JTESTCASE147A00000000001",
       "01JTESTCASE147A0000000001",
+      "01JTESTCASE147A000000000011",
+      "01jtestcase147a00000000001",
       "01JTESTCASE147A0000000000I",
       "01JTESTCASE147A0000000000L",
       "01JTESTCASE147A0000000000O",
