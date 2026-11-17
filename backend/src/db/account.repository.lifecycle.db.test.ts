@@ -300,9 +300,11 @@ describe("#128 無効化（Repository・D1）", () => {
       result: "success",
     });
     // #128（128-c）計画 5.3：完了にした退職処理の申請のID（申請がなければ null）を足した形
+    // #146（統括の決定）：取り消した案件の作成申請の件数を項目として足す（申請がなければ 0）
     expect(JSON.parse(audits[0]?.detail ?? "{}")).toEqual({
       fromDepartmentId: deptA.id,
       retirementRequestId: null,
+      cancelledCaseRequestCount: 0,
     });
     const text = JSON.stringify(audits);
     expect(text).not.toContain("testuser_128_target@example.com");

@@ -117,6 +117,7 @@ describe("#128（128-c）C-177（U-3）無効化で申請を完了にする", ()
     expect(await deactivateAuditDetail()).toEqual({
       fromDepartmentId: deptA.id,
       retirementRequestId: requestId,
+      cancelledCaseRequestCount: 0,
     });
   });
 
@@ -135,6 +136,7 @@ describe("#128（128-c）C-177（U-3）無効化で申請を完了にする", ()
     expect(await deactivateAuditDetail()).toEqual({
       fromDepartmentId: deptA.id,
       retirementRequestId: null,
+      cancelledCaseRequestCount: 0,
     });
   });
 

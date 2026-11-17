@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "eb8be27b-08dc-426a-a78b-04c9bf76e480",
+  "id": "1c7b2155-7c7e-4b4b-82a0-e028c30809b0",
   "prevId": "248a2ff5-57bf-40df-bc7f-8d1c89103efb",
   "tables": {
     "audit_logs": {
@@ -89,6 +89,371 @@
         "audit_logs_result_check": {
           "name": "audit_logs_result_check",
           "value": "\"audit_logs\".\"result\" in ('success', 'failure')"
+        }
+      }
+    },
+    "case_creation_request_candidates": {
+      "name": "case_creation_request_candidates",
+      "columns": {
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "case_creation_request_candidates_request_id_case_creation_requests_id_fk": {
+          "name": "case_creation_request_candidates_request_id_case_creation_requests_id_fk",
+          "tableFrom": "case_creation_request_candidates",
+          "tableTo": "case_creation_requests",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_request_candidates_user_id_users_id_fk": {
+          "name": "case_creation_request_candidates_user_id_users_id_fk",
+          "tableFrom": "case_creation_request_candidates",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_request_candidates_added_by_users_id_fk": {
+          "name": "case_creation_request_candidates_added_by_users_id_fk",
+          "tableFrom": "case_creation_request_candidates",
+          "tableTo": "users",
+          "columnsFrom": [
+            "added_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "case_creation_request_candidates_request_id_user_id_pk": {
+          "columns": [
+            "request_id",
+            "user_id"
+          ],
+          "name": "case_creation_request_candidates_request_id_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_creation_request_departments": {
+      "name": "case_creation_request_departments",
+      "columns": {
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "department_id": {
+          "name": "department_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_creation_request_departments_department_id_idx": {
+          "name": "case_creation_request_departments_department_id_idx",
+          "columns": [
+            "department_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "case_creation_request_departments_request_id_case_creation_requests_id_fk": {
+          "name": "case_creation_request_departments_request_id_case_creation_requests_id_fk",
+          "tableFrom": "case_creation_request_departments",
+          "tableTo": "case_creation_requests",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_request_departments_department_id_departments_id_fk": {
+          "name": "case_creation_request_departments_department_id_departments_id_fk",
+          "tableFrom": "case_creation_request_departments",
+          "tableTo": "departments",
+          "columnsFrom": [
+            "department_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "case_creation_request_departments_request_id_department_id_pk": {
+          "columns": [
+            "request_id",
+            "department_id"
+          ],
+          "name": "case_creation_request_departments_request_id_department_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_creation_requests": {
+      "name": "case_creation_requests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decision_reason": {
+          "name": "decision_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "resubmitted_from": {
+          "name": "resubmitted_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_creation_requests_requested_by_id_idx": {
+          "name": "case_creation_requests_requested_by_id_idx",
+          "columns": [
+            "requested_by",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "case_creation_requests_status_id_idx": {
+          "name": "case_creation_requests_status_id_idx",
+          "columns": [
+            "status",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "case_creation_requests_client_id_title_idx": {
+          "name": "case_creation_requests_client_id_title_idx",
+          "columns": [
+            "client_id",
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "case_creation_requests_client_id_clients_id_fk": {
+          "name": "case_creation_requests_client_id_clients_id_fk",
+          "tableFrom": "case_creation_requests",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_requests_requested_by_users_id_fk": {
+          "name": "case_creation_requests_requested_by_users_id_fk",
+          "tableFrom": "case_creation_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "requested_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_requests_decided_by_users_id_fk": {
+          "name": "case_creation_requests_decided_by_users_id_fk",
+          "tableFrom": "case_creation_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "decided_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_creation_requests_resubmitted_from_case_creation_requests_id_fk": {
+          "name": "case_creation_requests_resubmitted_from_case_creation_requests_id_fk",
+          "tableFrom": "case_creation_requests",
+          "tableTo": "case_creation_requests",
+          "columnsFrom": [
+            "resubmitted_from"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "case_creation_requests_status_check": {
+          "name": "case_creation_requests_status_check",
+          "value": "\"case_creation_requests\".\"status\" in ('pending', 'approved', 'rejected', 'withdrawn', 'auto_cancelled')"
+        },
+        "case_creation_requests_rejected_reason_check": {
+          "name": "case_creation_requests_rejected_reason_check",
+          "value": "\"case_creation_requests\".\"status\" <> 'rejected' or \"case_creation_requests\".\"decision_reason\" is not null"
+        },
+        "case_creation_requests_approved_case_check": {
+          "name": "case_creation_requests_approved_case_check",
+          "value": "\"case_creation_requests\".\"status\" <> 'approved' or \"case_creation_requests\".\"case_id\" is not null"
+        },
+        "case_creation_requests_decided_check": {
+          "name": "case_creation_requests_decided_check",
+          "value": "\"case_creation_requests\".\"status\" = 'pending' or (\"case_creation_requests\".\"decided_at\" is not null and \"case_creation_requests\".\"decided_by\" is not null)"
+        },
+        "case_creation_requests_due_date_check": {
+          "name": "case_creation_requests_due_date_check",
+          "value": "\"case_creation_requests\".\"due_date\" is null or \"case_creation_requests\".\"due_date\" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'"
         }
       }
     },
@@ -1763,180 +2128,6 @@
       },
       "uniqueConstraints": {},
       "checkConstraints": {}
-    },
-    "retirement_requests": {
-      "name": "retirement_requests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_user_id": {
-          "name": "target_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "department_id": {
-          "name": "department_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pending'"
-        },
-        "decision_reason": {
-          "name": "decision_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decided_by": {
-          "name": "decided_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
-        }
-      },
-      "indexes": {
-        "retirement_requests_pending_target_unique": {
-          "name": "retirement_requests_pending_target_unique",
-          "columns": [
-            "target_user_id"
-          ],
-          "isUnique": true,
-          "where": "\"retirement_requests\".\"status\" = 'pending'"
-        },
-        "retirement_requests_requested_by_id_idx": {
-          "name": "retirement_requests_requested_by_id_idx",
-          "columns": [
-            "requested_by",
-            "id"
-          ],
-          "isUnique": false
-        },
-        "retirement_requests_status_id_idx": {
-          "name": "retirement_requests_status_id_idx",
-          "columns": [
-            "status",
-            "id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "retirement_requests_target_user_id_users_id_fk": {
-          "name": "retirement_requests_target_user_id_users_id_fk",
-          "tableFrom": "retirement_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "target_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "retirement_requests_requested_by_users_id_fk": {
-          "name": "retirement_requests_requested_by_users_id_fk",
-          "tableFrom": "retirement_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "requested_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "retirement_requests_department_id_departments_id_fk": {
-          "name": "retirement_requests_department_id_departments_id_fk",
-          "tableFrom": "retirement_requests",
-          "tableTo": "departments",
-          "columnsFrom": [
-            "department_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "retirement_requests_decided_by_users_id_fk": {
-          "name": "retirement_requests_decided_by_users_id_fk",
-          "tableFrom": "retirement_requests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "decided_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "retirement_requests_status_check": {
-          "name": "retirement_requests_status_check",
-          "value": "\"retirement_requests\".\"status\" in ('pending', 'approved', 'rejected', 'withdrawn')"
-        },
-        "retirement_requests_rejected_reason_check": {
-          "name": "retirement_requests_rejected_reason_check",
-          "value": "\"retirement_requests\".\"status\" <> 'rejected' or \"retirement_requests\".\"decision_reason\" is not null"
-        },
-        "retirement_requests_decided_check": {
-          "name": "retirement_requests_decided_check",
-          "value": "\"retirement_requests\".\"status\" = 'pending' or (\"retirement_requests\".\"decided_at\" is not null and \"retirement_requests\".\"decided_by\" is not null)"
-        }
-      }
     },
     "role_permissions": {
       "name": "role_permissions",

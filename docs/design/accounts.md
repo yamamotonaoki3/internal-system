@@ -10,7 +10,7 @@
 | --- | --- |
 | このIssueで作ったもの | 個別発行API・管理者用の一覧API・所属部署の候補API（`/api/admin/accounts`）、S-22（一覧）、S-23（登録）、共通部品`SelectField`、セッション応答の権限`perm.account.create`、監査操作`account.create` |
 | 親#126に残すもの | CSV一括登録、パスワードの再発行（#127）、社員情報の変更、一覧の検索・絞り込み、ロール付与。0-1 AC-15の「発行と同時に全社連絡へ参加させる」は、Issue #200で足した（下の「全社連絡と部署の専用チャンネルへの参加」）。無効化・再有効化は、Issue #128の最初の子（128-a）で足した（下の「無効化と再有効化」）。部署異動（即時）は、2つ目の子（128-b）で足した（下の「部署異動」）。退職処理の申請と通知は、3つ目の子（128-c）で足した（下の「退職処理の申請と通知」） |
-| #128の128-cで足したもの | 退職処理の申請の表`retirement_requests`（migration 0024）、申請の作成・自分の申請の一覧・取り下げ・全体管理者の一覧・却下のAPI（`/api/retirement-requests`・`/api/admin/retirement-requests`）、無効化のbatchへの「申請を完了にする」文の追加、通知3種類、社員一覧（S-20）の申請のボタンと自分の申請の一覧、S-22のタブ、セッション応答の`permissions`への`perm.workspace.manage`（いずれも128-a・128-bでは作っていない） |
+| #128の128-cで足したもの | 退職処理の申請の表`retirement_requests`（migration 0025）、申請の作成・自分の申請の一覧・取り下げ・全体管理者の一覧・却下のAPI（`/api/retirement-requests`・`/api/admin/retirement-requests`）、無効化のbatchへの「申請を完了にする」文の追加、通知3種類、社員一覧（S-20）の申請のボタンと自分の申請の一覧、S-22のタブ、セッション応答の`permissions`への`perm.workspace.manage`（いずれも128-a・128-bでは作っていない） |
 | 後に回したもの | 部署異動の異動日の指定（予約）は #274（決定記録 C-177） |
 | 未決定として記録するもの | A-5 レート制限（X-8の上限が未決定のため、このIssueでは入れない）。A-8 離脱確認ダイアログ（0-1 AC-21。既存の仕組みがないため作らない） |
 
@@ -25,7 +25,7 @@
 | `backend/src/routes/retirement-requests.ts` | `retirementRequestRoutes`（`POST /`・`GET /mine`・`POST /:requestId/withdraw`）と`adminRetirementRequestRoutes`（`GET /`・`POST /:requestId/reject`）。入力の形（`createSchema`・`rejectSchema`・カーソルと`status`のクエリ）の確認と応答だけを行い、認可・再認証・状態の確認はServiceに任せる。申請IDは形を確かめず渡す。`backend/src/index.ts`で`/api/retirement-requests`と`/api/admin/retirement-requests`へ登録した（128-c） |
 | `backend/src/services/retirement-request.service.ts` | `createRetirementRequestService`（`create`・`listMine`・`listForReview`・`reject`・`withdraw`）。判定の関数（`decideCreate`・`decideReject`・`decideWithdraw`）が、最初の判定と、書き込みの前提が崩れた後の読み直し（`writeWithRecheck`）の両方に使われる。`withRetirementRequestService`が構成する。承認の専用の操作は作らない（128-c） |
 | `backend/src/db/retirement-request.repository.ts` | `createRetirementRequestRepository`。対象・申請の事実を読む`findTarget`・`findForDecision`、通知の宛先を読む`findGlobalAdminIds`、`create`・`reject`・`withdraw`（1操作＝1つの`db.batch`。先頭に前提の確認、続けて申請の更新・監査・通知）、一覧の`listMine`・`listForReview`。前提の崩れは`RetirementRequestStateChangedError`、申請中の重複は`RetirementRequestConflictError`にし、それ以外のDBエラーは変換しない。`withRetirementRequests`が構成する（128-c） |
-| `backend/db/schema.ts`、`backend/db/migrations/0024_add_retirement_requests.sql` | `retirement_requests`の定義と、migration（生成物のまま）。同じ対象の申請中の申請を1件に限る部分一意索引、状態・却下の理由・決裁の列のCHECK、索引2つ。詳しくは「退職処理の申請と通知」の「データ」（128-c） |
+| `backend/db/schema.ts`、`backend/db/migrations/0025_add_retirement_requests.sql` | `retirement_requests`の定義と、migration（生成物のまま）。同じ対象の申請中の申請を1件に限る部分一意索引、状態・却下の理由・決裁の列のCHECK、索引2つ。詳しくは「退職処理の申請と通知」の「データ」（128-c） |
 | `backend/src/services/authorizer.ts`、`backend/src/routes/auth.ts`、`backend/src/services/profile.service.ts`、`backend/src/db/profile.repository.ts` | `canManageAnyDepartment`（いずれかの部署で`perm.workspace.manage`を持つか。セッション応答の`permissions`の表示の制御）、社員一覧の行ごとの`canRequestRetirement`（`listDirectory`が`canForDepartments`で計算。`DirectoryRow.hasManagerRole`は応答に出さない）（128-c） |
 | `shared/notification-kinds.ts`、`backend/src/lib/audit-actions.ts` | 通知の種類`retirement_request.submitted`・`.approved`・`.rejected`（`containsRoomContent`は偽）、監査操作`retirement_request.create`・`.reject`・`.withdraw`（128-c） |
 | `frontend/src/features/retirement-requests/`、`frontend/src/pages/MyRetirementRequestsPage.tsx` | `api/`（通信・query key）、`hooks/useRetirementRequests.ts`（却下は再認証を挟む。申請・取り下げは挟まない）、`components/`（`RetirementRequestAction`＝S-20の行のボタンと申請の確認、`RetirementRequestReviewList`＝S-22のタブ、`RejectDialog`、`MyRetirementRequestList`＝自分の申請と取り下げ、共通の`ConfirmDialog`）、`labels.ts`（状態の表示名）、`describe-error.ts`、公開部分は`index.ts`（128-c） |
@@ -132,6 +132,8 @@
 
 1つの`db.batch`で、次を確定する。順に、状態（`is_active`＝無効、`deactivated_at`、`department_id`＝NULL）、全チャンネルの参加の削除（全社連絡・部署の専用・個別。再有効化で戻さないため）、追加ロールの割り当ての削除（全体管理者・オーナーは前提で除外済み）、対象のセッションの失効（`revoked_at`）、監査`account.deactivate`（`detail`は元の部署ID`fromDepartmentId`。128-cで`retirementRequestId`を足した）。128-cで、監査の前に、対象への申請中の退職処理の申請を完了にする文と、申請者への通知を足した（「退職処理の申請と通知」の「無効化との連動」）。
 
+**【Issue #146（146-A）で足した。元の記述は残す】** 同じbatchに、対象の審査中の案件の作成申請を自動取消にする文を足した（5-3 AC-8。C-177の統括の決定(8)の「無効化の分は146-Aで足す」）。`account.repository.ts`の`autoCancelCaseRequests`が、`case_creation_requests`の`status`を`auto_cancelled`にし、`version`を1上げ、`decided_by`は無効化を行った操作者、`decided_at`は無効化の時刻にする。申請ごとの監査・通知は作らず、監査`account.deactivate`の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ審査中の件数（`readPendingCaseRequests`）が、batchの時点でも同じことを、先頭の前提の確認（`caseRequestsUnchangedSql`）に含める。詳細は[case-requests.md](case-requests.md)。
+
 DM（`conversation_members`）・既読位置・投稿には触れない。相手側のDMはそのまま残る（Issue #128の利用者の決定）。
 
 ### 再有効化で戻すもの・戻さないもの
@@ -218,7 +220,7 @@ Service内の`decideTransfer`が、事実（`findTransferState`）を読んで�
 - 変わるもの：所属（`users.department_id`）、旧部署の専用チャンネル2つ（`department`・`announcement`）の参加の削除、新部署の専用チャンネル2つ（削除されていないもの）への参加（すでに参加していれば入れない）、監査`account.transfer`
 - 監査の`detail`：`fromDepartmentId`・`toDepartmentId`・`roleIds`。`roleIds`は、入れ子にしない決まりに合わせ、対象のロールの割り当ての役割IDを昇順に`,`で区切った文字列にする（C-177。batchの前に読む）。本名・メールは入れない
 - 変わらないもの：全社連絡・個別のチャンネルの参加、DM（`conversation_members`）、ロールの割り当て、セッション
-- 案件の作成申請の自動取消（5-3 AC-8）は、案件の表がまだないため作っていない（C-177の統括の決定(8)。128-bと146-Aのうち後にマージするほうで足す）
+- 案件の作成申請の自動取消（5-3 AC-8）は、案件の表がまだないため作っていない（C-177の統括の決定(8)。128-bと146-Aのうち後にマージするほうで足す）。**【Issue #146（146-A）で足した。元の記述は残す】** 146-Aが後にマージされるため、異動の`db.batch`にも、無効化と同じ`autoCancelCaseRequests`を足した。対象の審査中の案件の作成申請を`auto_cancelled`にし（`decided_by`は異動を行った操作者、`decided_at`は異動の時刻）、監査の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ件数が変わっていたら、先頭の前提の確認（`caseRequestsUnchangedSql`）が崩れ、読み直しに入る。全体管理者の申請は取り消さない（5-3 AC-8。全体管理者の部署変更は対象外）。通知は出さない。詳細は[case-requests.md](case-requests.md)
 
 ### 前提が崩れた後の読み直し
 
@@ -242,7 +244,7 @@ Serviceの`writeWithRecheck`（無効化・再有効化と共用）が、書き�
 
 ### データ
 
-`retirement_requests`（migration 0024。`backend/db/schema.ts`の定義から生成。手作成しない）。
+`retirement_requests`（migration 0025。`backend/db/schema.ts`の定義から生成。手作成しない）。
 
 | 列・制約 | 内容 |
 | --- | --- |
@@ -373,6 +375,7 @@ batchの中身は、先頭の前提の確認の後に、申請の更新（作成
 - バックエンド：`backend/src/routes/accounts.test.ts`、`backend/src/services/account.service.test.ts`、`backend/src/db/account.repository.db.test.ts`・`account.repository.errors.db.test.ts`（参加・全社連絡がないとき）、`backend/src/services/account.service.logging.test.ts`、`backend/src/routes/accounts.channels.test.ts`、`backend/src/routes/auth.test.ts`（セッション応答の権限）、`backend/src/openapi.test.ts`
 - バックエンド（#128 無効化・再有効化）：`backend/src/db/account.repository.lifecycle.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.lifecycle.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.lifecycle.test.ts`（認可・再認証・応答・ログ）
 - バックエンド（#128 部署異動）：`backend/src/db/account.repository.transfer.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.transfer.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.transfer.test.ts`（認可・再認証・応答）。契約は`backend/src/openapi.test.ts`
+- バックエンド（#146 案件の作成申請の自動取消）：`backend/src/db/account.repository.case-request.db.test.ts`（無効化）、`account.repository.transfer.case-request.db.test.ts`（異動）。監査の`cancelledCaseRequestCount`と前提の崩れを確かめる（[case-requests.md](case-requests.md)）
 - フロントエンド：`frontend/src/pages/AccountsPage.test.tsx`、`AccountCreatePage.test.tsx`、`frontend/src/accounts-route.test.tsx`、`frontend/src/components/SelectField.test.tsx`、`frontend/src/features/accounts/account-lifecycle.test.tsx`（#128。ボタンの出し分け・一時パスワードの表示と消去）、`account-transfer.test.tsx`（#128。異動のダイアログ・再認証・エラー・完了のメッセージ）
 - E2E：`e2e/accounts.spec.ts`（シードは`e2e/seeds/accounts.sql`・`accounts-cleanup.sql`）、`e2e/accounts-lifecycle.spec.ts`（#128。無効化・再有効化と異動の2本。シードは`e2e/seeds/accounts-lifecycle.sql`・`accounts-lifecycle-cleanup.sql`。[e2e.md](../testing/e2e.md)）
 - バックエンド（#128 退職処理の申請）：`backend/src/db/retirement-request.repository.db.test.ts`（作成・却下・取り下げのbatch・前提の崩れ・一意索引・一覧・通知の宛先）、`backend/src/db/account.repository.retirement.db.test.ts`（無効化との連動・異動では残る・監査の`retirementRequestId`）、`backend/src/services/retirement-request.service.test.ts`（判定の順・読み直し）、`backend/src/routes/retirement-requests.test.ts`（認可・再認証・応答・存在の非開示）、`backend/src/lib/notification-kinds.retirement-request.test.ts`（通知の種類）、`backend/src/routes/auth.test.ts`（セッション応答の`perm.workspace.manage`）、`backend/src/routes/users.test.ts`（`canRequestRetirement`）。共通のデータは`backend/test/retirement-request-fixtures.ts`。契約は`backend/src/openapi.test.ts`
@@ -393,6 +396,7 @@ batchの中身は、先頭の前提の確認の後に、申請の更新（作成
 - Issue #199：アカウントの個別発行とアカウント一覧
 - Issue #126：アカウント管理（親）。#127・#128・#129
 - Issue #128：無効化・再有効化・部署異動・退職処理の申請。128-a（無効化・再有効化）・128-b（部署異動。即時）・128-c（退職処理の申請と通知）を実装した。決定は決定記録 C-177
+- Issue #146（146-A）：無効化・異動の`db.batch`に、案件の作成申請の自動取消を足した（[case-requests.md](case-requests.md)）
 - Issue #274：部署異動の異動日の指定（予約）。128-bでは作っていない
 - Issue #200：全社連絡と部署の専用チャンネルへの参加を足した（[channels.md](channels.md)）
 - ADR-0006：安定IDとカーソルページング

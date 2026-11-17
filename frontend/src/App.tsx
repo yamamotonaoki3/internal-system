@@ -10,6 +10,7 @@ import { AccountCreatePage } from "./pages/AccountCreatePage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ChannelApprovalsPage } from "./pages/ChannelApprovalsPage";
 import { ChannelDetailPage } from "./pages/ChannelDetailPage";
+import { CaseRequestPage } from "./pages/CaseRequestPage";
 import { ChannelRequestPage } from "./pages/ChannelRequestPage";
 import { ChannelsPage } from "./pages/ChannelsPage";
 import { ClientsPage } from "./pages/ClientsPage";
@@ -93,6 +94,7 @@ export function App() {
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/channel-requests" element={<ChannelRequestPage />} />
+        <Route path="/case-requests" element={<CaseRequestPage />} />
         <Route path="/channel-approvals" element={<ChannelApprovalsRoute />} />
         <Route path="/dms" element={<DmsPage />} />
         <Route path="/dms/new" element={<DmNewPage />} />

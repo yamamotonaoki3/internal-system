@@ -36,6 +36,11 @@ export const NOTIFICATION_VIEWS: Readonly<
     label: "チャンネルの作成の申請が却下されました",
     to: () => "/channel-requests",
   },
+  // 審査の画面（S-29）は 146-B で作るため、それまでは申請の画面へ移る
+  "case_request.submitted": {
+    label: "案件の作成の申請が届きました",
+    to: () => "/case-requests",
+  },
   // 退職処理の申請（#128）。通知の行に対象の社員の名前を保存しないため、固定の文にする
   "retirement_request.submitted": {
     label: "退職処理の申請が届きました",

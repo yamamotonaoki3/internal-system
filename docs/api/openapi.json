@@ -806,9 +806,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       },
@@ -865,9 +865,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -947,9 +947,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -1029,9 +1029,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -1100,9 +1100,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -1171,9 +1171,9 @@
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
-            },
-            "503": {
-              "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -2745,6 +2745,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
           "403": {
             "description": "送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、または初回パスワードのままの利用者（PASSWORD_CHANGE_REQUIRED）",
             "content": {
@@ -2767,9 +2770,6 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthenticated"
           }
         }
       }
@@ -2865,6 +2865,9 @@
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "503": {
             "description": "初回セットアップを使えない（トークンまたは暗号鍵が未設定・不正。SERVICE_UNAVAILABLE）",
             "content": {
@@ -2874,9 +2877,6 @@
                 }
               }
             }
-          },
-          "429": {
-            "$ref": "#/components/responses/TooManyRequests"
           }
         }
       }
@@ -4395,6 +4395,257 @@
         }
       }
     },
+    "/api/case-requests": {
+      "post": {
+        "operationId": "createCaseRequest",
+        "summary": "案件の作成を申請する（EP-5-01）",
+        "description": "権限 perm.case.request.create（会社の範囲）が必要。全体管理者でなく所属もなければ 403。取引先・担当部署・候補の有効性は書き込みの中でも確かめる。担当部署の有効なオーナー（申請者を除く）に通知する（いなければ全体管理者）。宛先が読んだ後に変わったら 409。似た件名があっても申請できる。再認証は不要。422 の fields は入力欄（clientId・title・description・dueDate・departmentIds・candidateIds・resubmitOf）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "作成した申請。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない・所属部署がない・申請できない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "審査する人が変わった（もう一度申請する）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/mine": {
+      "get": {
+        "operationId": "listMyCaseRequests",
+        "summary": "自分の案件の作成申請を新しい順に取得する（EP-5-02）",
+        "description": "本人の申請だけ。ID の降順のカーソル方式。取引先・担当部署が無効になったものは isActive が false。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "自分の申請の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/similar-title": {
+      "get": {
+        "operationId": "checkCaseRequestSimilarTitle",
+        "summary": "似た件名の申請があるかを確かめる",
+        "description": "同じ取引先の審査中の申請に、整形後の件名が完全一致するものがあるかの真偽と、整形後の件名だけを返す（件名・申請者・件数は返さない）。",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "整形後に 1〜100 文字"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "確認の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestSimilarTitle"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/{requestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawCaseRequest",
+        "summary": "案件の作成申請を取り下げる",
+        "description": "申請者本人だけが、審査中の申請を取り下げられる（再認証は不要。通知は送らない）。他人の申請・存在しない申請は、存在を明かさず同じ 404。決裁済み・取り下げ済み・自動取消済みは 409。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取り下げた結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestWithdrawn"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または本人の申請ではない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/retirement-requests": {
       "post": {
         "operationId": "createRetirementRequest",
@@ -4811,1122 +5062,238 @@
           }
         }
       },
-    "ChannelListItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "roomId",
-        "name",
-        "visibility",
-        "departmentId",
-        "departmentName",
-        "joined"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "name": {
-          "type": "string"
-        },
-        "visibility": {
-          "type": "string",
-          "enum": [
-            "public",
-            "private"
-          ]
-        },
-        "departmentId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "会社直属（全社連絡など）は null"
-        },
-        "departmentName": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "会社直属は null"
-        },
-        "joined": {
-          "type": "boolean"
-        }
-      }
-    },
-    "ChannelPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ChannelListItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ChannelMember": {
-      "type": "object",
-      "required": [
-        "id",
-        "displayName"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "displayName": {
-          "type": "string"
-        }
-      }
-    },
-    "ChannelDetail": {
-      "type": "object",
-      "required": [
-        "id",
-        "roomId",
-        "name",
-        "description",
-        "visibility",
-        "departmentId",
-        "joined",
-        "isCaseChannel",
-        "canPost",
-        "readOnly"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "visibility": {
-          "type": "string",
-          "enum": [
-            "public",
-            "private"
-          ]
-        },
-        "departmentId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "joined": {
-          "type": "boolean"
-        },
-        "isCaseChannel": {
-          "type": "boolean",
-          "description": "案件チャンネルか。今はつねに false"
-        },
-        "canPost": {
-          "type": "boolean",
-          "description": "このチャンネルに投稿できるか。参加者で、お知らせ専用なら部署のオーナーか全体管理者のとき真"
-        },
-        "readOnly": {
-          "type": "boolean",
-          "description": "チャンネルの部署が無効で読み取り専用か（参加の有無にかかわらず返す。部署のない会社直属のチャンネルは偽）。投稿の権限（canPost）とは別で、画面が編集・削除のボタンを出すかの判断に使う"
-        },
-        "memberCount": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "有効な参加者の数。参加者にだけ返す"
-        },
-        "members": {
-          "type": "array",
-          "description": "参加者の先頭の一部（件数の上限は MEMBERS_PREVIEW_LIMIT）。参加者にだけ返す",
-          "items": {
-            "$ref": "#/components/schemas/ChannelMember"
+      "ChannelListItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "roomId",
+          "name",
+          "visibility",
+          "departmentId",
+          "departmentName",
+          "joined"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "departmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "会社直属（全社連絡など）は null"
+          },
+          "departmentName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "会社直属は null"
+          },
+          "joined": {
+            "type": "boolean"
           }
         }
-      }
-    },
-    "ChannelJoined": {
-      "type": "object",
-      "required": [
-        "channelId",
-        "roomId",
-        "joinedAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "channelId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "joinedAt": {
-          "type": "string"
-        }
-      }
-    },
-    "ChannelInvited": {
-      "type": "object",
-      "required": [
-        "channelId",
-        "userId",
-        "joinedAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "channelId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "userId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "joinedAt": {
-          "type": "string"
-        }
-      }
-    },
-    "MessageItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "roomId",
-        "author",
-        "body",
-        "createdAt",
-        "editedAt",
-        "deleted",
-        "parentMessageId",
-        "replyCount",
-        "mentions",
-        "reactions",
-        "attachments"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "author": {
-          "type": "object",
-          "required": [
-            "id",
-            "displayName",
-            "isActive"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-            },
-            "displayName": {
-              "type": "string",
-              "description": "投稿時点の表示名"
-            },
-            "isActive": {
-              "type": "boolean",
-              "description": "投稿者の今の有効・無効（無効なら画面で「退職者」を併記する）"
+      },
+      "ChannelPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelListItem"
             }
-          }
-        },
-        "body": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 4000,
-          "description": "本文。削除済み（deleted が真）なら null"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "editedAt": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "最後に編集した日時。編集していない・削除済みなら null"
-        },
-        "deleted": {
-          "type": "boolean",
-          "description": "削除済みか。削除済みでも投稿者と日時は残り、本文は返さない"
-        },
-        "parentMessageId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-          "description": "返信なら親の投稿の ID、通常の投稿は null（返信は1段だけ）。部屋の一覧（EP-1-01）の項目は常に null"
-        },
-        "replyCount": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0"
-        },
-        "mentions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageMention"
           },
-          "description": "本文内の指名範囲。削除済みは空配列"
-        },
-        "reactions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/Reaction"
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ChannelMember": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
           },
-          "description": "リアクションの集計（種類は最初に付けられた時刻の順）。削除済みは空配列"
-        },
-        "attachments": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/AttachmentItem"
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "roomId",
+          "name",
+          "description",
+          "visibility",
+          "departmentId",
+          "joined",
+          "isCaseChannel",
+          "canPost",
+          "readOnly"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
           },
-          "description": "添付（ID の昇順）。削除済みは空配列"
-        }
-      }
-    },
-    "NotificationItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "kind",
-        "roomId",
-        "messageId",
-        "targetId",
-        "createdAt",
-        "readAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string",
-          "description": "通知の種類（shared/notification-kinds.tsの定義元。message.mentionedはメッセージ本文を含む）"
-        },
-        "roomId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "messageId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "指名通知では指名を含む実メッセージID"
-        },
-        "targetId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "種類で参照先が決まるID。指名通知ではスレッドの親メッセージID（通常投稿ならmessageIdと同じ）"
-        },
-        "createdAt": {
-          "type": "string"
-        },
-        "readAt": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ChannelRequestCreate": {
-      "type": "object",
-      "required": [
-        "scope",
-        "name",
-        "visibility"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "scope": {
-          "type": "string",
-          "enum": [
-            "department",
-            "company"
-          ],
-          "description": "自部署のチャンネルか、会社直属か"
-        },
-        "name": {
-          "type": "string",
-          "description": "整形後（全角英数字・全角ハイフン・アンダースコアを半角に、前後の空白を除く）で 1〜50 文字。ひらがな・カタカナ・長音符・漢字・々・〆・英数字・-・_ だけ"
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 500,
-          "description": "省略は空"
-        },
-        "visibility": {
-          "type": "string",
-          "enum": [
-            "public",
-            "private"
-          ]
-        }
-      }
-    },
-    "ChannelRequestItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "departmentId",
-        "name",
-        "visibility",
-        "status",
-        "rejectReason",
-        "createdAt",
-        "decidedAt",
-        "channelId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "departmentId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "null は会社直属"
-        },
-        "name": {
-          "type": "string"
-        },
-        "visibility": {
-          "type": "string",
-          "enum": [
-            "public",
-            "private"
-          ]
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "approved",
-            "rejected",
-            "withdrawn"
-          ]
-        },
-        "rejectReason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "却下のときだけ。文字列としてそのまま表示する"
-        },
-        "createdAt": {
-          "type": "string"
-        },
-        "decidedAt": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "channelId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "承認で作ったチャンネルの ID"
-        }
-      }
-    },
-    "ChannelRequestPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ChannelRequestItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ChannelRequestReviewItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "departmentId",
-        "name",
-        "visibility",
-        "status",
-        "rejectReason",
-        "createdAt",
-        "decidedAt",
-        "channelId",
-        "requesterId",
-        "requesterDisplayName",
-        "departmentName",
-        "canApprove"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "departmentId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "null は会社直属"
-        },
-        "departmentName": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "審査一覧専用。部署チャンネルでは現在の部署名。会社直属では departmentId とともに null"
-        },
-        "name": {
-          "type": "string"
-        },
-        "visibility": {
-          "type": "string",
-          "enum": [
-            "public",
-            "private"
-          ]
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "approved",
-            "rejected",
-            "withdrawn"
-          ]
-        },
-        "rejectReason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "却下のときだけ。文字列としてそのまま表示する"
-        },
-        "createdAt": {
-          "type": "string"
-        },
-        "decidedAt": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "channelId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "承認で作ったチャンネルの ID"
-        },
-        "requesterId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "requesterDisplayName": {
-          "type": "string"
-        },
-        "canApprove": {
-          "type": "boolean",
-          "description": "承認・却下できるか（オーナー自身の申請と決裁済みは false）"
-        }
-      }
-    },
-    "ChannelRequestReviewPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ChannelRequestReviewItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ChannelRequestReject": {
-      "type": "object",
-      "required": [
-        "reason"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "reason": {
-          "type": "string",
-          "description": "前後の空白を除いて 1〜200 文字"
-        }
-      }
-    },
-    "ChannelRequestApproved": {
-      "type": "object",
-      "required": [
-        "requestId",
-        "status",
-        "channelId",
-        "roomId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "requestId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "status": {
-          "type": "string",
-          "const": "approved"
-        },
-        "channelId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        }
-      }
-    },
-    "ChannelRequestRejected": {
-      "type": "object",
-      "required": [
-        "requestId",
-        "status",
-        "reason"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "requestId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "status": {
-          "type": "string",
-          "const": "rejected"
-        },
-        "reason": {
-          "type": "string"
-        }
-      }
-    },
-    "ChannelRequestWithdrawn": {
-      "type": "object",
-      "required": [
-        "requestId",
-        "status"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "requestId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "status": {
-          "type": "string",
-          "const": "withdrawn"
-        }
-      }
-    },
-    "NotificationPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/NotificationItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "NotificationUnreadCount": {
-      "type": "object",
-      "required": [
-        "count"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100
-        }
-      }
-    },
-    "UnreadRoom": {
-      "type": "object",
-      "required": [
-        "roomId",
-        "count"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        },
-        "count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        }
-      }
-    },
-    "UnreadPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/UnreadRoom"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "MarkRoomReadInput": {
-      "type": "object",
-      "required": [
-        "lastReadMessageId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "lastReadMessageId": {
-          "type": "string",
-          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
-          "description": "どのメッセージまで読んだか（ULID）"
-        }
-      }
-    },
-    "ReplyCreated": {
-      "type": "object",
-      "required": [
-        "id",
-        "roomId",
-        "parentMessageId",
-        "createdAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "parentMessageId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      }
-    },
-    "ReplyLatestPage": {
-      "type": "object",
-      "required": [
-        "parent",
-        "replyBlockedReason",
-        "joined",
-        "roomWritable",
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "parent": {
-          "$ref": "#/components/schemas/MessageItem"
-        },
-        "roomWritable": {
-          "type": "boolean",
-          "description": "部屋が書き込める状態か（チャンネルは参加中・未アーカイブ・部署が有効、DM は当事者で相手が有効なら真。未参加は偽）。replyBlockedReason の優先順（deleted_parent など）に関係なく決まる。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "joined": {
-          "type": "boolean",
-          "description": "今その部屋に参加しているか（チャンネルは参加中なら真、DM は当事者なら真。相手が無効でも真）。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "replyBlockedReason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "deleted_parent",
-            "not_joined",
-            "read_only",
-            "partner_inactive",
-            null
-          ],
-          "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ReplyAfterPage": {
-      "type": "object",
-      "required": [
-        "parent",
-        "replyBlockedReason",
-        "joined",
-        "roomWritable",
-        "items",
-        "hasMore"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "parent": {
-          "$ref": "#/components/schemas/MessageItem"
-        },
-        "roomWritable": {
-          "type": "boolean",
-          "description": "部屋が書き込める状態か（チャンネルは参加中・未アーカイブ・部署が有効、DM は当事者で相手が有効なら真。未参加は偽）。replyBlockedReason の優先順（deleted_parent など）に関係なく決まる。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "joined": {
-          "type": "boolean",
-          "description": "今その部屋に参加しているか（チャンネルは参加中なら真、DM は当事者なら真。相手が無効でも真）。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "replyBlockedReason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "deleted_parent",
-            "not_joined",
-            "read_only",
-            "partner_inactive",
-            null
-          ],
-          "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
-        },
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageItem"
-          }
-        },
-        "hasMore": {
-          "type": "boolean"
-        }
-      }
-    },
-    "ThreadRoom": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": [
-            "kind",
-            "id",
-            "name"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "channel"
-            },
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-            },
-            "name": {
-              "type": "string"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "required": [
-            "kind",
-            "id",
-            "partner"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "direct"
-            },
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-            },
-            "partner": {
-              "type": "object",
-              "required": [
-                "id",
-                "displayName",
-                "isActive"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-                },
-                "displayName": {
-                  "type": "string"
-                },
-                "isActive": {
-                  "type": "boolean",
-                  "description": "相手が今も有効か（無効でも一覧には含める）"
-                }
-              }
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "departmentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "joined": {
+            "type": "boolean"
+          },
+          "isCaseChannel": {
+            "type": "boolean",
+            "description": "案件チャンネルか。今はつねに false"
+          },
+          "canPost": {
+            "type": "boolean",
+            "description": "このチャンネルに投稿できるか。参加者で、お知らせ専用なら部署のオーナーか全体管理者のとき真"
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "チャンネルの部署が無効で読み取り専用か（参加の有無にかかわらず返す。部署のない会社直属のチャンネルは偽）。投稿の権限（canPost）とは別で、画面が編集・削除のボタンを出すかの判断に使う"
+          },
+          "memberCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "有効な参加者の数。参加者にだけ返す"
+          },
+          "members": {
+            "type": "array",
+            "description": "参加者の先頭の一部（件数の上限は MEMBERS_PREVIEW_LIMIT）。参加者にだけ返す",
+            "items": {
+              "$ref": "#/components/schemas/ChannelMember"
             }
           }
         }
-      ]
-    },
-    "ThreadListItem": {
-      "type": "object",
-      "required": [
-        "parent",
-        "room",
-        "lastReplyAt",
-        "unreadCount"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "parent": {
-          "$ref": "#/components/schemas/MessageItem"
-        },
-        "room": {
-          "$ref": "#/components/schemas/ThreadRoom"
-        },
-        "lastReplyAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "最後の返信（削除済みを含む）の日時"
-        },
-        "unreadCount": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100,
-          "description": "スレッドの未読の返信の件数（100 件で打ち切る。画面は 99 を超えたら「99+」と表示する）。自分の返信と削除済みの返信は数えない"
-        }
-      }
-    },
-    "ThreadListPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ThreadListItem"
+      },
+      "ChannelJoined": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "roomId",
+          "joinedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "joinedAt": {
+            "type": "string"
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "MarkThreadReadInput": {
-      "type": "object",
-      "required": [
-        "lastReadMessageId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "lastReadMessageId": {
-          "type": "string",
-          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
-          "description": "どの返信まで読んだか（そのスレッドの返信の ULID）"
-        }
-      }
-    },
-    "MessageLatestPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageItem"
+      },
+      "ChannelInvited": {
+        "type": "object",
+        "required": [
+          "channelId",
+          "userId",
+          "joinedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "joinedAt": {
+            "type": "string"
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "MessageAfterPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "hasMore"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageItem"
-          }
-        },
-        "hasMore": {
-          "type": "boolean"
-        }
-      }
-    },
-    "Reaction": {
-      "type": "object",
-      "required": [
-        "kind",
-        "value",
-        "count",
-        "reactedByMe",
-        "users"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "emoji",
-            "stamp"
-          ]
-        },
-        "value": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "絵文字（固定の一覧の文字）、またはスタンプの id"
-        },
-        "count": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "付けた人の全数（users を最大50人に打ち切っても、全数を返す）"
-        },
-        "reactedByMe": {
-          "type": "boolean",
-          "description": "見ている本人が付けているか"
-        },
-        "users": {
-          "type": "array",
-          "maxItems": 50,
-          "items": {
+      },
+      "MessageItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "roomId",
+          "author",
+          "body",
+          "createdAt",
+          "editedAt",
+          "deleted",
+          "parentMessageId",
+          "replyCount",
+          "mentions",
+          "reactions",
+          "attachments"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "author": {
             "type": "object",
             "required": [
               "id",
@@ -5941,884 +5308,1768 @@
               },
               "displayName": {
                 "type": "string",
-                "description": "今の表示名"
+                "description": "投稿時点の表示名"
               },
               "isActive": {
                 "type": "boolean",
-                "description": "今の有効・無効（無効なら画面で「（退職者）」を併記する）"
+                "description": "投稿者の今の有効・無効（無効なら画面で「退職者」を併記する）"
               }
             }
           },
-          "description": "付けた人。付けた時刻の順に最大50人"
-        }
-      }
-    },
-    "ReactionInput": {
-      "type": "object",
-      "required": [
-        "kind",
-        "value"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "emoji",
-            "stamp"
-          ]
-        },
-        "value": {
-          "type": "string",
-          "maxLength": 64,
-          "description": "固定の一覧にある絵文字、またはスタンプの id（完全一致。肌の色の違い・異体字セレクタの有無は正規化しない）"
-        }
-      }
-    },
-    "MessageReactions": {
-      "type": "object",
-      "required": [
-        "messageId",
-        "reactions"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "messageId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "reactions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/Reaction"
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "本文。削除済み（deleted が真）なら null"
           },
-          "description": "その投稿の最新の集計。種類は最初に付けられた時刻の順"
-        }
-      }
-    },
-    "MessageMention": {
-      "type": "object",
-      "required": [
-        "userId",
-        "start",
-        "end"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "userId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-          "description": "指名先の社員ID"
-        },
-        "start": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "本文中の開始位置。UTF-16単位の半開区間"
-        },
-        "end": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "本文中の終了位置。UTF-16単位の半開区間"
-        }
-      }
-    },
-    "MentionCandidateItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "displayName",
-        "departmentName"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "displayName": {
-          "type": "string"
-        },
-        "departmentName": {
-          "type": "string"
-        }
-      }
-    },
-    "MentionCandidatesPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MentionCandidateItem"
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "最後に編集した日時。編集していない・削除済みなら null"
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "削除済みか。削除済みでも投稿者と日時は残り、本文は返さない"
+          },
+          "parentMessageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "返信なら親の投稿の ID、通常の投稿は null（返信は1段だけ）。部屋の一覧（EP-1-01）の項目は常に null"
+          },
+          "replyCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "通常の投稿への返信の件数（削除済みの返信も数える）。返信自身は 0"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageMention"
+            },
+            "description": "本文内の指名範囲。削除済みは空配列"
+          },
+          "reactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reaction"
+            },
+            "description": "リアクションの集計（種類は最初に付けられた時刻の順）。削除済みは空配列"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentItem"
+            },
+            "description": "添付（ID の昇順）。削除済みは空配列"
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "MessageCreate": {
-      "type": "object",
-      "required": [
-        "body"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "body": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        },
-        "mentions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageMention"
+      },
+      "NotificationItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "roomId",
+          "messageId",
+          "targetId",
+          "createdAt",
+          "readAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
           },
-          "description": "任意。本文中の指名範囲"
-        },
-        "attachmentIds": {
-          "type": "array",
-          "maxItems": 10,
-          "uniqueItems": true,
-          "items": {
+          "kind": {
+            "type": "string",
+            "description": "通知の種類（shared/notification-kinds.tsの定義元。message.mentionedはメッセージ本文を含む）"
+          },
+          "roomId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "指名通知では指名を含む実メッセージID"
+          },
+          "targetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "種類で参照先が決まるID。指名通知ではスレッドの親メッセージID（通常投稿ならmessageIdと同じ）"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "readAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ChannelRequestCreate": {
+        "type": "object",
+        "required": [
+          "scope",
+          "name",
+          "visibility"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "department",
+              "company"
+            ],
+            "description": "自部署のチャンネルか、会社直属か"
+          },
+          "name": {
+            "type": "string",
+            "description": "整形後（全角英数字・全角ハイフン・アンダースコアを半角に、前後の空白を除く）で 1〜50 文字。ひらがな・カタカナ・長音符・漢字・々・〆・英数字・-・_ だけ"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "省略は空"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          }
+        }
+      },
+      "ChannelRequestItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "departmentId",
+          "name",
+          "visibility",
+          "status",
+          "rejectReason",
+          "createdAt",
+          "decidedAt",
+          "channelId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
             "type": "string",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
           },
-          "description": "任意。結び付ける未投稿の添付の ID（本人がアップロードし、同じ部屋・同じ文脈（通常の投稿用か、同じ親の返信用）のもの）。合計は200,000,000バイトまで"
-        }
-      }
-    },
-    "MessageEdited": {
-      "type": "object",
-      "required": [
-        "id",
-        "body",
-        "editedAt",
-        "mentions"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "body": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        },
-        "editedAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "mentions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/MessageMention"
+          "departmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "null は会社直属"
           },
-          "description": "編集後の本文内の指名範囲"
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn"
+            ]
+          },
+          "rejectReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "却下のときだけ。文字列としてそのまま表示する"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "承認で作ったチャンネルの ID"
+          }
         }
-      }
-    },
-    "MessageCreated": {
-      "type": "object",
-      "required": [
-        "id",
-        "roomId",
-        "createdAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
+      },
+      "ChannelRequestPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelRequestItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
-      }
-    },
-    "DmPartnerRef": {
-      "type": "object",
-      "required": [
-        "id",
-        "displayName"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "displayName": {
-          "type": "string"
+      },
+      "ChannelRequestReviewItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "departmentId",
+          "name",
+          "visibility",
+          "status",
+          "rejectReason",
+          "createdAt",
+          "decidedAt",
+          "channelId",
+          "requesterId",
+          "requesterDisplayName",
+          "departmentName",
+          "canApprove"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "departmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "null は会社直属"
+          },
+          "departmentName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "審査一覧専用。部署チャンネルでは現在の部署名。会社直属では departmentId とともに null"
+          },
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn"
+            ]
+          },
+          "rejectReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "却下のときだけ。文字列としてそのまま表示する"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "承認で作ったチャンネルの ID"
+          },
+          "requesterId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "requesterDisplayName": {
+            "type": "string"
+          },
+          "canApprove": {
+            "type": "boolean",
+            "description": "承認・却下できるか（オーナー自身の申請と決裁済みは false）"
+          }
         }
-      }
-    },
-    "DmStarted": {
-      "type": "object",
-      "required": [
-        "roomId",
-        "partner"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "partner": {
-          "$ref": "#/components/schemas/DmPartnerRef"
+      },
+      "ChannelRequestReviewPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelRequestReviewItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
-      }
-    },
-    "DmStart": {
-      "type": "object",
-      "required": [
-        "partnerUserId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "partnerUserId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-          "description": "DM の相手の社員ID。自分自身は指定できない（当事者は常にセッションの利用者と相手の2人）"
+      },
+      "ChannelRequestReject": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "前後の空白を除いて 1〜200 文字"
+          }
         }
-      }
-    },
-    "DmListItem": {
-      "type": "object",
-      "required": [
-        "roomId",
-        "partner",
-        "lastMessageAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "partner": {
-          "type": "object",
-          "required": [
-            "id",
-            "displayName",
-            "isActive",
-            "status"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-            },
-            "displayName": {
-              "type": "string"
-            },
-            "isActive": {
-              "type": "boolean"
-            },
-            "status": {
-              "oneOf": [
-                {
-                  "type": "object",
-                  "required": [
-                    "kind",
-                    "returnAt"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "$ref": "#/components/schemas/UserStatusKind"
-                    },
-                    "returnAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "format": "date-time"
-                    }
+      },
+      "ChannelRequestApproved": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status",
+          "channelId",
+          "roomId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "approved"
+          },
+          "channelId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        }
+      },
+      "ChannelRequestRejected": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "rejected"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelRequestWithdrawn": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "withdrawn"
+          }
+        }
+      },
+      "NotificationPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "NotificationUnreadCount": {
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      },
+      "UnreadRoom": {
+        "type": "object",
+        "required": [
+          "roomId",
+          "count"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "UnreadPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnreadRoom"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MarkRoomReadInput": {
+        "type": "object",
+        "required": [
+          "lastReadMessageId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "lastReadMessageId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "どのメッセージまで読んだか（ULID）"
+          }
+        }
+      },
+      "ReplyCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "roomId",
+          "parentMessageId",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "parentMessageId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReplyLatestPage": {
+        "type": "object",
+        "required": [
+          "parent",
+          "replyBlockedReason",
+          "joined",
+          "roomWritable",
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "parent": {
+            "$ref": "#/components/schemas/MessageItem"
+          },
+          "roomWritable": {
+            "type": "boolean",
+            "description": "部屋が書き込める状態か（チャンネルは参加中・未アーカイブ・部署が有効、DM は当事者で相手が有効なら真。未参加は偽）。replyBlockedReason の優先順（deleted_parent など）に関係なく決まる。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "joined": {
+            "type": "boolean",
+            "description": "今その部屋に参加しているか（チャンネルは参加中なら真、DM は当事者なら真。相手が無効でも真）。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "replyBlockedReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "deleted_parent",
+              "not_joined",
+              "read_only",
+              "partner_inactive",
+              null
+            ],
+            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ReplyAfterPage": {
+        "type": "object",
+        "required": [
+          "parent",
+          "replyBlockedReason",
+          "joined",
+          "roomWritable",
+          "items",
+          "hasMore"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "parent": {
+            "$ref": "#/components/schemas/MessageItem"
+          },
+          "roomWritable": {
+            "type": "boolean",
+            "description": "部屋が書き込める状態か（チャンネルは参加中・未アーカイブ・部署が有効、DM は当事者で相手が有効なら真。未参加は偽）。replyBlockedReason の優先順（deleted_parent など）に関係なく決まる。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "joined": {
+            "type": "boolean",
+            "description": "今その部屋に参加しているか（チャンネルは参加中なら真、DM は当事者なら真。相手が無効でも真）。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "replyBlockedReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "deleted_parent",
+              "not_joined",
+              "read_only",
+              "partner_inactive",
+              null
+            ],
+            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageItem"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ThreadRoom": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "id",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "channel"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "id",
+              "partner"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "direct"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "partner": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "displayName",
+                  "isActive"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "相手が今も有効か（無効でも一覧には含める）"
                   }
-                },
-                {
-                  "type": "null"
                 }
-              ],
-              "description": "相手のステータス（一言は含めない）。相手が無効なら null"
+              }
             }
           }
-        },
-        "lastMessageAt": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "最後のメッセージの日時。メッセージがなければ null"
-        }
-      }
-    },
-    "DmListPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/DmListItem"
+        ]
+      },
+      "ThreadListItem": {
+        "type": "object",
+        "required": [
+          "parent",
+          "room",
+          "lastReplyAt",
+          "unreadCount"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "parent": {
+            "$ref": "#/components/schemas/MessageItem"
+          },
+          "room": {
+            "$ref": "#/components/schemas/ThreadRoom"
+          },
+          "lastReplyAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "最後の返信（削除済みを含む）の日時"
+          },
+          "unreadCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "スレッドの未読の返信の件数（100 件で打ち切る。画面は 99 を超えたら「99+」と表示する）。自分の返信と削除済みの返信は数えない"
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "DmDetail": {
-      "type": "object",
-      "required": [
-        "roomId",
-        "partner",
-        "canPost"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "roomId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "partner": {
-          "type": "object",
-          "required": [
-            "id",
-            "displayName",
-            "department",
-            "isActive",
-            "status"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "id": {
+      },
+      "ThreadListPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadListItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MarkThreadReadInput": {
+        "type": "object",
+        "required": [
+          "lastReadMessageId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "lastReadMessageId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "どの返信まで読んだか（そのスレッドの返信の ULID）"
+          }
+        }
+      },
+      "MessageLatestPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MessageAfterPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "hasMore"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageItem"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Reaction": {
+        "type": "object",
+        "required": [
+          "kind",
+          "value",
+          "count",
+          "reactedByMe",
+          "users"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "emoji",
+              "stamp"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "絵文字（固定の一覧の文字）、またはスタンプの id"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "付けた人の全数（users を最大50人に打ち切っても、全数を返す）"
+          },
+          "reactedByMe": {
+            "type": "boolean",
+            "description": "見ている本人が付けているか"
+          },
+          "users": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "displayName",
+                "isActive"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "displayName": {
+                  "type": "string",
+                  "description": "今の表示名"
+                },
+                "isActive": {
+                  "type": "boolean",
+                  "description": "今の有効・無効（無効なら画面で「（退職者）」を併記する）"
+                }
+              }
+            },
+            "description": "付けた人。付けた時刻の順に最大50人"
+          }
+        }
+      },
+      "ReactionInput": {
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "emoji",
+              "stamp"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "固定の一覧にある絵文字、またはスタンプの id（完全一致。肌の色の違い・異体字セレクタの有無は正規化しない）"
+          }
+        }
+      },
+      "MessageReactions": {
+        "type": "object",
+        "required": [
+          "messageId",
+          "reactions"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "reactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reaction"
+            },
+            "description": "その投稿の最新の集計。種類は最初に付けられた時刻の順"
+          }
+        }
+      },
+      "MessageMention": {
+        "type": "object",
+        "required": [
+          "userId",
+          "start",
+          "end"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "指名先の社員ID"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "本文中の開始位置。UTF-16単位の半開区間"
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "本文中の終了位置。UTF-16単位の半開区間"
+          }
+        }
+      },
+      "MentionCandidateItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "departmentName"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "departmentName": {
+            "type": "string"
+          }
+        }
+      },
+      "MentionCandidatesPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MentionCandidateItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MessageCreate": {
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageMention"
+            },
+            "description": "任意。本文中の指名範囲"
+          },
+          "attachmentIds": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
               "type": "string",
               "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
             },
-            "displayName": {
-              "type": "string"
-            },
-            "department": {
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/ProfileDepartment"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "isActive": {
-              "type": "boolean"
-            },
-            "status": {
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/UserStatus"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "相手のステータス。相手が無効なら null"
-            }
+            "description": "任意。結び付ける未投稿の添付の ID（本人がアップロードし、同じ部屋・同じ文脈（通常の投稿用か、同じ親の返信用）のもの）。合計は200,000,000バイトまで"
           }
-        },
-        "canPost": {
-          "type": "boolean",
-          "description": "投稿できるか。相手が有効なときだけ真"
         }
-      }
-    },
-    "AccountCreate": {
-      "type": "object",
-      "required": [
-        "loginId",
-        "legalName",
-        "displayName",
-        "email",
-        "emailConfirmed",
-        "departmentId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "loginId": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._-]{3,32}$"
-        },
-        "legalName": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
-        },
-        "displayName": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 30
-        },
-        "email": {
-          "type": "string",
-          "format": "email",
-          "maxLength": 254
-        },
-        "emailConfirmed": {
-          "type": "boolean",
-          "const": true,
-          "description": "会社が発行したメールだと管理者が確認したこと。検証だけに使い、保存しない"
-        },
-        "departmentId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "extension": {
-          "type": "string",
-          "pattern": "^[0-9-]{1,10}$"
-        },
-        "jobTitle": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 30
+      },
+      "MessageEdited": {
+        "type": "object",
+        "required": [
+          "id",
+          "body",
+          "editedAt",
+          "mentions"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "editedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageMention"
+            },
+            "description": "編集後の本文内の指名範囲"
+          }
         }
-      }
-    },
-    "AccountReactivate": {
-      "type": "object",
-      "required": [
-        "departmentId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "departmentId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-          "description": "再有効化の後の所属部署（有効な部署）"
+      },
+      "MessageCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "roomId",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
-      }
-    },
-    "AccountReactivated": {
-      "type": "object",
-      "required": [
-        "id",
-        "initialPassword"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "initialPassword": {
-          "type": "string",
-          "description": "一時パスワード。この応答でだけ返す。保存・ログ出力をしない"
+      },
+      "DmPartnerRef": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "displayName": {
+            "type": "string"
+          }
         }
-      }
-    },
-    "AccountTransfer": {
-      "type": "object",
-      "required": [
-        "departmentId"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "departmentId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-          "description": "異動先の部署（有効で、今と違う部署）"
+      },
+      "DmStarted": {
+        "type": "object",
+        "required": [
+          "roomId",
+          "partner"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "partner": {
+            "$ref": "#/components/schemas/DmPartnerRef"
+          }
         }
-      }
-    },
-    "AccountCreated": {
-      "type": "object",
-      "required": [
-        "id",
-        "loginId",
-        "displayName",
-        "departmentId",
-        "mustChangePassword",
-        "createdAt",
-        "initialPassword"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "loginId": {
-          "type": "string"
-        },
-        "displayName": {
-          "type": "string"
-        },
-        "departmentId": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "mustChangePassword": {
-          "type": "boolean",
-          "const": true
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "initialPassword": {
-          "type": "string",
-          "description": "この応答でだけ返す。保存・ログ出力をしない"
+      },
+      "DmStart": {
+        "type": "object",
+        "required": [
+          "partnerUserId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "partnerUserId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "DM の相手の社員ID。自分自身は指定できない（当事者は常にセッションの利用者と相手の2人）"
+          }
         }
-      }
-    },
-    "AccountAdminItem": {
-      "type": "object",
-      "required": [
-        "id",
-        "loginId",
-        "displayName",
-        "department",
-        "email",
-        "extension",
-        "jobTitle",
-        "active",
-        "mustChangePassword",
-        "createdAt"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "loginId": {
-          "type": "string"
-        },
-        "displayName": {
-          "type": "string"
-        },
-        "department": {
-          "oneOf": [
-            {
+      },
+      "DmListItem": {
+        "type": "object",
+        "required": [
+          "roomId",
+          "partner",
+          "lastMessageAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "partner": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName",
+              "isActive",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean"
+              },
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "returnAt"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "$ref": "#/components/schemas/UserStatusKind"
+                      },
+                      "returnAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "相手のステータス（一言は含めない）。相手が無効なら null"
+              }
+            }
+          },
+          "lastMessageAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "最後のメッセージの日時。メッセージがなければ null"
+          }
+        }
+      },
+      "DmListPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DmListItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DmDetail": {
+        "type": "object",
+        "required": [
+          "roomId",
+          "partner",
+          "canPost"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "partner": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName",
+              "department",
+              "isActive",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "department": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ProfileDepartment"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "isActive": {
+                "type": "boolean"
+              },
+              "status": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/UserStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "相手のステータス。相手が無効なら null"
+              }
+            }
+          },
+          "canPost": {
+            "type": "boolean",
+            "description": "投稿できるか。相手が有効なときだけ真"
+          }
+        }
+      },
+      "AccountCreate": {
+        "type": "object",
+        "required": [
+          "loginId",
+          "legalName",
+          "displayName",
+          "email",
+          "emailConfirmed",
+          "departmentId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "loginId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{3,32}$"
+          },
+          "legalName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "emailConfirmed": {
+            "type": "boolean",
+            "const": true,
+            "description": "会社が発行したメールだと管理者が確認したこと。検証だけに使い、保存しない"
+          },
+          "departmentId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "extension": {
+            "type": "string",
+            "pattern": "^[0-9-]{1,10}$"
+          },
+          "jobTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          }
+        }
+      },
+      "AccountReactivate": {
+        "type": "object",
+        "required": [
+          "departmentId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "departmentId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "再有効化の後の所属部署（有効な部署）"
+          }
+        }
+      },
+      "AccountReactivated": {
+        "type": "object",
+        "required": [
+          "id",
+          "initialPassword"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "initialPassword": {
+            "type": "string",
+            "description": "一時パスワード。この応答でだけ返す。保存・ログ出力をしない"
+          }
+        }
+      },
+      "AccountTransfer": {
+        "type": "object",
+        "required": [
+          "departmentId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "departmentId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "異動先の部署（有効で、今と違う部署）"
+          }
+        }
+      },
+      "AccountCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "loginId",
+          "displayName",
+          "departmentId",
+          "mustChangePassword",
+          "createdAt",
+          "initialPassword"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "loginId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "departmentId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "const": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "initialPassword": {
+            "type": "string",
+            "description": "この応答でだけ返す。保存・ログ出力をしない"
+          }
+        }
+      },
+      "AccountAdminItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "loginId",
+          "displayName",
+          "department",
+          "email",
+          "extension",
+          "jobTitle",
+          "active",
+          "mustChangePassword",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "loginId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "department": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AccountDepartmentOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "extension": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AccountAdminPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountAdminItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AccountDepartmentOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AccountDepartmentOptions": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
               "$ref": "#/components/schemas/AccountDepartmentOption"
-            },
-            {
-              "type": "null"
             }
-          ]
-        },
-        "email": {
-          "type": "string"
-        },
-        "extension": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "jobTitle": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "active": {
-          "type": "boolean"
-        },
-        "mustChangePassword": {
-          "type": "boolean"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      }
-    },
-    "AccountAdminPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/AccountAdminItem"
-          }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "AccountDepartmentOption": {
-      "type": "object",
-      "required": [
-        "id",
-        "name"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "name": {
-          "type": "string"
-        }
-      }
-    },
-    "AccountDepartmentOptions": {
-      "type": "object",
-      "required": [
-        "items"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/AccountDepartmentOption"
           }
         }
-      }
-    },
-    "ClientAdmin": {
-      "type": "object",
-      "required": [
-        "id",
-        "code",
-        "name",
-        "active",
-        "version"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Z]{3}$"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
-        },
-        "active": {
-          "type": "boolean"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "ClientPublic": {
-      "type": "object",
-      "required": [
-        "id",
-        "code",
-        "name",
-        "active"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Z]{3}$"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
-        },
-        "active": {
-          "type": "boolean"
-        }
-      }
-    },
-    "ClientCandidate": {
-      "type": "object",
-      "required": [
-        "id",
-        "code",
-        "name"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
-        },
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Z]{3}$"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
-        }
-      }
-    },
-    "ClientAdminPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ClientAdmin"
+      },
+      "ClientAdmin": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "active",
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "ClientPublicPage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ClientPublic"
+      },
+      "ClientPublic": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "active"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "active": {
+            "type": "boolean"
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "ClientCandidatePage": {
-      "type": "object",
-      "required": [
-        "items",
-        "nextCursor"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/components/schemas/ClientCandidate"
+      },
+      "ClientCandidate": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           }
-        },
-        "nextCursor": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
-      }
-    },
-    "ClientCreate": {
-      "type": "object",
-      "required": [
-        "code",
-        "name"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Z]{3}$"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
+      },
+      "ClientAdminPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientAdmin"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
-      }
-    },
-    "ClientRename": {
-      "type": "object",
-      "required": [
-        "name",
-        "version"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 50
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
+      },
+      "ClientPublicPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientPublic"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
-      }
-    },
-    "ClientDeactivate": {
-      "type": "object",
-      "required": [
-        "active",
-        "version"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "active": {
-          "const": false,
-          "type": "boolean"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
+      },
+      "ClientCandidatePage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientCandidate"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
-      }
-    },
+      },
+      "ClientCreate": {
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        }
+      },
+      "ClientRename": {
+        "type": "object",
+        "required": [
+          "name",
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ClientDeactivate": {
+        "type": "object",
+        "required": [
+          "active",
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "const": false,
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
       "Department": {
         "type": "object",
         "required": [
@@ -7744,6 +7995,281 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CaseRequestCreate": {
+        "type": "object",
+        "required": [
+          "clientId",
+          "title",
+          "departmentIds"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "有効な取引先"
+          },
+          "title": {
+            "type": "string",
+            "description": "件名。整形後（全角英数字を半角、ハイフン類を -、連続する空白を1つ、前後の空白を除く）で 1〜100 文字"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "省略は空"
+          },
+          "dueDate": {
+            "type": "string",
+            "pattern": "^d{4}-d{2}-d{2}$",
+            "description": "納期（YYYY-MM-DD の実在する日付）。日本時間の今日以降。省略はなし"
+          },
+          "departmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "uniqueItems": true,
+            "description": "担当部署（有効な部署。1件以上・重複不可・件数の上限なし。全部署から選べる）",
+            "minItems": 1
+          },
+          "candidateIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "uniqueItems": true,
+            "description": "追加の候補（有効な社員。重複不可・申請者本人を含めない・件数の上限なし）"
+          },
+          "resubmitOf": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "再申請の元（本人の却下済み・取り下げ済み・自動取消の申請）"
+          }
+        }
+      },
+      "CaseRequestItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "dueDate",
+          "client",
+          "departments",
+          "candidates",
+          "status",
+          "rejectReason",
+          "caseId",
+          "resubmittedFrom",
+          "createdAt",
+          "decidedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "code",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "申請の後に無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "userId",
+                "displayName"
+              ],
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn",
+              "auto_cancelled"
+            ],
+            "description": "審査中・承認済み・却下・取り下げ・自動取消（申請者の無効化による）"
+          },
+          "rejectReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resubmittedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseRequestCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CaseRequestItem"
+          },
+          {
+            "type": "object",
+            "required": [
+              "titleFormatted",
+              "hasSimilarTitle"
+            ],
+            "properties": {
+              "titleFormatted": {
+                "type": "boolean",
+                "description": "整形で件名が変わったか"
+              },
+              "hasSimilarTitle": {
+                "type": "boolean",
+                "description": "同じ取引先の審査中の申請に、整形後の件名が完全一致するものがあったか（警告だけで、申請は止めない）"
+              }
+            }
+          }
+        ]
+      },
+      "CaseRequestPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseRequestItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CaseRequestWithdrawn": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "withdrawn"
+          }
+        }
+      },
+      "CaseRequestSimilarTitle": {
+        "type": "object",
+        "required": [
+          "hasSimilar",
+          "formattedTitle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "hasSimilar": {
+            "type": "boolean"
+          },
+          "formattedTitle": {
+            "type": "string"
           }
         }
       },
