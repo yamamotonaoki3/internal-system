@@ -31,6 +31,8 @@ function stub(found: ChannelDetailRow | null, departmentExists = true) {
     countMembers: vi.fn(async () => 1),
     listMembers: vi.fn(async () => []),
     join: vi.fn(async () => "2026-11-09T00:00:00.000Z"),
+    // #128：参加の書き込みが0行の後に、参加者が今も有効かを読み直す（有効なら従来どおり 404）
+    isUserActive: vi.fn(async () => true),
   };
   return {
     repository,

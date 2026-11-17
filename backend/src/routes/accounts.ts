@@ -21,7 +21,7 @@ import { isUlid } from "../lib/ulid";
 import { validate } from "../lib/validation";
 import {
   withAccountService,
-  type AccountActor,
+  type AccountLifecycleActor,
 } from "../services/account.service";
 
 const listSchema = cursorQuerySchema({
@@ -42,12 +42,20 @@ const createSchema = z
   })
   .strict();
 
-function actorOf(c: Context<{ Bindings: Env }>): AccountActor {
+const reactivateSchema = z
+  .object({ departmentId: z.string().refine(isUlid) })
+  .strict();
+
+function actorOf(c: Context<{ Bindings: Env }>): AccountLifecycleActor {
   const principal = c.get("principal");
   if (principal === null) {
     throw new AppError("UNAUTHENTICATED", "ログインしてください");
   }
-  return { userId: principal.userId, traceId: traceIdOf(c) };
+  return {
+    userId: principal.userId,
+    traceId: traceIdOf(c),
+    reauthenticatedAt: principal.reauthenticatedAt,
+  };
 }
 
 // 入力の検証より前に、管理者だけを通す
@@ -103,5 +111,31 @@ export function adminAccountRoutes() {
         );
         return c.json(created, 201);
       })
+      .post("/:id/deactivate", async (c) => {
+        const actor = actorOf(c);
+        const targetId = c.req.param("id");
+        await withAccountService(c.env, (service) =>
+          service.deactivate(actor, targetId),
+        );
+        return c.body(null, 204);
+      })
+      // 応答に一時パスワードを含むため、キャッシュさせない
+      .post(
+        "/:id/reactivate",
+        noStore,
+        validate("json", reactivateSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const targetId = c.req.param("id");
+          const { departmentId } = c.req.valid("json");
+          const result = await withAccountService(c.env, (service) =>
+            service.reactivate(actor, targetId, { departmentId }),
+          );
+          return c.json(
+            { id: result.id, initialPassword: result.initialPassword },
+            200,
+          );
+        },
+      )
   );
 }
