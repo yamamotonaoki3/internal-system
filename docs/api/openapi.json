@@ -4399,7 +4399,7 @@
       "post": {
         "operationId": "createRetirementRequest",
         "summary": "退職処理を申請する",
-        "description": "対象の今の部署のオーナー（perm.workspace.manage を対象の部署の範囲で）だけ。再認証が必要。判定の順は 404（対象がない）→ 403（対象が無効・所属なし・権限なし）→ 再認証 → 409。対象の所属・状態・ロールは変えない。有効な全体管理者へ retirement_request.submitted を通知する（申請者本人を除く）。応答に本名・メールを含めない。",
+        "description": "対象の今の部署のオーナー（perm.workspace.manage を対象の部署の範囲で）だけ。再認証は求めない。判定の順は 404（対象がない）→ 403（対象が無効・所属なし・権限なし）→ 409。対象の所属・状態・ロールは変えない。有効な全体管理者へ retirement_request.submitted を通知する（申請者本人を除く）。応答に本名・メールを含めない。",
         "requestBody": {
           "required": true,
           "content": {
@@ -4433,7 +4433,7 @@
             "$ref": "#/components/responses/Unauthenticated"
           },
           "403": {
-            "description": "権限不足・対象が無効または所属なし・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "description": "権限不足・対象が無効または所属なし、または送信元不正",
             "content": {
               "application/json": {
                 "schema": {

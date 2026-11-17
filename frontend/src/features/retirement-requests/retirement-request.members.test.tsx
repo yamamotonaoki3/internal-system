@@ -3,7 +3,7 @@
 // 公開形の仮定（契約。計画 5.5・screens.md S-13 の状態の文言）：
 //  - GET /api/users の行の canRequestRetirement が true の他人の行にだけ、ボタン「退職処理を申請」（名前に対象の表示名を含む）を出す（表示の制御。認可はサーバー）
 //  - 押すと確認のダイアログ（role=dialog、名前に「退職処理の申請」を含む。対象の表示名を出す。「申請する」「キャンセル」）
-//  - 「申請する」で再認証（useReauth().withReauth。期限内なら省略）→ POST /api/retirement-requests { targetUserId }（統括の決定：作成は再認証が必要）
+//  - 「申請する」で POST /api/retirement-requests { targetUserId }。再認証は求めない（00-foundation.md 0-5。利用者の決定）
 //  - 成功でダイアログを閉じ、一覧の上の role=status に「全体管理者へ退職処理を申請しました。処理が完了するまで社員は有効です」。次の操作で消える
 //  - 自分がどこかの部署のオーナーのとき（セッションの permissions に perm.workspace.manage。統括の決定の入口）、画面にリンク「自分の退職処理の申請」（/retirement-requests/mine）。オーナーでなければ出さない
 //  - 失敗（409 等）はダイアログの中の role=alert にサーバーの文を出し、閉じない
@@ -133,7 +133,7 @@ describe("#128（128-c）0-1 AC-20 S-20 からの申請", () => {
     expect(await rowOf("テスト社員001")).toBeTruthy();
   });
 
-  it("#128 0-1 AC-20: 再認証が切れていれば、再認証のダイアログを出し、パスワードを入れるまで送らない", async () => {
+  it("#128 0-1 AC-20（0-5）: 再認証が切れていても、再認証のダイアログを出さずに送り、完了の文を出す", async () => {
     respondProfileWorld({
       members: [member(1, { canRequestRetirement: true })],
     });
@@ -146,9 +146,13 @@ describe("#128（128-c）0-1 AC-20 S-20 からの申請", () => {
       name: /退職処理の申請/,
     });
     await user.click(within(dialog).getByRole("button", { name: "申請する" }));
-    expect(await screen.findByRole("dialog", { name: "再認証" })).toBeTruthy();
-    expect(bodies).toEqual([]);
-    expect(screen.getByRole("main").textContent).not.toContain(SUCCESS);
+    await waitFor(() =>
+      expect(bodies).toEqual([{ targetUserId: member(1).id }]),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("main").textContent).toContain(SUCCESS),
+    );
+    expect(screen.queryByRole("dialog", { name: "再認証" })).toBeNull();
   });
 
   it("#128 0-1 AC-20: 完了の文は、次の操作（別の行の申請を開く）で消える", async () => {

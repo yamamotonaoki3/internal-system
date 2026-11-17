@@ -70,7 +70,7 @@ test("#128 0-1 AC-20・3-4 AC-1〜3: オーナーが S-20 で申請 → 全体�
 }) => {
   allowSessionCheck401(page);
 
-  // ---- オーナー：S-20 の行から申請する（再認証の後に送る）。申請しただけでは社員は一覧に残る ----
+  // ---- オーナー：S-20 の行から申請する（再認証は求めない。0-5）。申請しただけでは社員は一覧に残る ----
   await login(page, OWNER);
   await page.goto("/members");
   await expect(
@@ -93,12 +93,8 @@ test("#128 0-1 AC-20・3-4 AC-1〜3: オーナーが S-20 で申請 → 全体�
   const confirm = page.getByRole("dialog", { name: /退職処理の申請/ });
   await expect(confirm).toContainText(TARGET_DISPLAY);
   await confirm.getByRole("button", { name: "申請する" }).click();
-  const ownerReauth = page.getByRole("dialog", { name: "再認証" });
-  await ownerReauth.getByLabel("パスワード", { exact: true }).fill(PASSWORD);
-  await ownerReauth
-    .getByRole("button", { name: "再認証", exact: true })
-    .click();
   expect((await submitted).status()).toBe(201);
+  await expect(page.getByRole("dialog", { name: "再認証" })).toHaveCount(0);
   await expect(
     page.getByRole("status").filter({ hasText: SUBMITTED }),
   ).toBeVisible();

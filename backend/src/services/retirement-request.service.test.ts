@@ -10,11 +10,11 @@
 //   作成：perm.workspace.manage を「対象の今の部署」の範囲で authorize（オーナーはその部署だけ。全体管理者は任命された部署だけ）。
 //   却下：perm.account.deactivate を会社の範囲で authorize（承認＝無効化の権限を持つ全体管理者）。
 //   取り下げ：申請者本人であること（権限IDではなく所有者の条件）。
-// 判定の順（統括の決定 2026-11-17）：作成 404（対象がない）→ 403（対象が無効・所属なし・ほかの部署を含む）→ 再認証 →
+// 判定の順（統括の決定 2026-11-17）：作成 404（対象がない）→ 403（対象が無効・所属なし・ほかの部署を含む）→
 //   409（department_owner：対象がその部署のオーナー〔申請者自身を含む〕／global_admin／重複は一意索引の違反を変換して duplicate_pending）。
 //           却下 403（全体管理者でない。申請の有無を明かさない）→ 再認証 → 404 → 409（not_pending）。
 //           取り下げ 404（ない・自分の申請でない。同じ応答）→ 409（not_pending）。
-//   作成・却下は再認証が必要（screens.md の重要な操作）。取り下げは求めない。
+//   作成は再認証を求めない（00-foundation.md 0-5。利用者の決定）。却下は再認証が必要。取り下げは求めない。
 // データは架空（[UNIT_TEST]）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -263,11 +263,9 @@ describe("#128（128-c）0-1 AC-20 作成の判定の順（Service）", () => {
     ["再認証していない", null],
     ["再認証から時間が経った", "2020-01-01T00:00:00.000Z"],
   ])(
-    "#128 0-1 AC-20: %s場合は、対象がオーナーでも REAUTH_REQUIRED（再認証が 409 より先、403 より後）で書き込まない",
+    "#128 0-1 AC-20（0-5）: %s場合でも、作成は再認証を求めずに create を1回呼ぶ",
     async (_label, at) => {
-      const repository = fakeRepository({
-        targets: [{ ...activeTarget, isDepartmentOwner: true }],
-      });
+      const repository = fakeRepository();
       const service = createRetirementRequestService(
         repository,
         rolesOf([OWNER_A]),
@@ -276,12 +274,12 @@ describe("#128（128-c）0-1 AC-20 作成の判定の順（Service）", () => {
         service.create(actor({ reauthenticatedAt: at }), {
           targetUserId: TARGET_ID,
         }),
-      ).rejects.toMatchObject({ code: "REAUTH_REQUIRED", status: 403 });
-      expect(repository.create).not.toHaveBeenCalled();
+      ).resolves.toMatchObject({ id: REQUEST_ID });
+      expect(repository.create).toHaveBeenCalledTimes(1);
     },
   );
 
-  it("#128 0-1 AC-20: 権限がなければ、再認証していなくても 403 FORBIDDEN（403 が再認証より先）", async () => {
+  it("#128 0-1 AC-20: 権限がなければ、再認証していなくても 403 FORBIDDEN", async () => {
     const repository = fakeRepository();
     const service = createRetirementRequestService(
       repository,

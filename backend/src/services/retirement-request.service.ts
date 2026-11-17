@@ -1,9 +1,10 @@
 // Service：退職処理の申請（#128）の作成・一覧・却下・取り下げの業務ルール。HTTP も DB のライブラリも知らない。
 // 判定の順（最初と、書き込みの前提が崩れた後の読み直しで、同じ関数を使う）：
-//   作成：404（対象がない）→ 403（対象が無効・所属なし、または対象の今の部署で perm.workspace.manage がない）→ 再認証
+//   作成：404（対象がない）→ 403（対象が無効・所属なし、または対象の今の部署で perm.workspace.manage がない）
 //         → 409（対象が部署のオーナー〔申請者自身を含む〕・全体管理者。重複は一意索引の違反を変換して duplicate_pending）
 //   却下：403（会社範囲で perm.account.deactivate がない。申請の有無を明かさない）→ 再認証 → 404 → 409（not_pending）
 //   取り下げ：404（ない・自分の申請でない。同じ応答）→ 409（not_pending）。再認証は求めない
+// 作成も再認証を求めない（00-foundation.md 0-5。オーナーによる申請自体は再認証の対象外）。
 // 承認は専用の操作を作らず、アカウントの無効化（account.service.ts）で申請を完了にする。
 import {
   RetirementRequestConflictError,
@@ -123,7 +124,6 @@ export function createRetirementRequestService(
       "perm.workspace.manage",
       { type: "department", departmentId: target.departmentId },
     );
-    assertRecentReauth(actor.reauthenticatedAt, now());
     if (target.isDepartmentOwner) throw conflict("department_owner");
     if (target.isGlobalAdmin) throw conflict("global_admin");
     return target.departmentId;

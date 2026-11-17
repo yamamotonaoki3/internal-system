@@ -1,5 +1,5 @@
 // 退職処理の申請の読み取り（自分の申請・全体管理者の一覧）と書き込み（申請・取り下げ・却下）。
-// 申請と却下は再認証が必要（期限内なら省略）。取り下げは求めない。成功したら申請の一覧と社員一覧を取り直す（自分の操作で自分の通知は増えないため、通知は取り直さない）。
+// 却下は再認証が必要（期限内なら省略）。申請・取り下げは求めない。成功したら申請の一覧と社員一覧を取り直す（自分の操作で自分の通知は増えないため、通知は取り直さない）。
 import {
   useInfiniteQuery,
   useMutation,
@@ -49,12 +49,8 @@ export function useReviewRetirementRequests(status: RetirementRequestStatus) {
 
 export function useCreateRetirementRequest() {
   const queryClient = useQueryClient();
-  const { withReauth } = useReauth();
   return useMutation({
-    mutationFn: (targetUserId: string) =>
-      sendWithReauth(withReauth, "退職処理の申請", () =>
-        createRetirementRequest(targetUserId),
-      ),
+    mutationFn: (targetUserId: string) => createRetirementRequest(targetUserId),
     onSuccess: () => invalidateAfterWrite(queryClient),
   });
 }

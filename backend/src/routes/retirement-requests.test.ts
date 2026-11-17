@@ -8,7 +8,7 @@
 //   POST /api/admin/retirement-requests/:id/reject { reason }（前後の空白を除いて 1〜200 文字。channel_requests の rejectReasonSchema と同じ定義）→ 200 { id, status: "rejected" }
 //   承認は専用の API を作らず、POST /api/admin/accounts/:targetId/deactivate（128-a）で申請を完了にする。
 //   GET /api/users の各行に canRequestRetirement（表示の制御。対象が自分の部署の有効な社員で、オーナー・全体管理者・自分自身でないとき真。申請中の申請があっても真）を足す。
-//   作成・却下は再認証が必要（期限切れ・なしは 403 REAUTH_REQUIRED）。取り下げは不要。
+//   作成は再認証を求めない（0-5）。却下は再認証が必要（期限切れ・なしは 403 REAUTH_REQUIRED）。取り下げは不要。
 //   作成の対象がない → 404、無効・所属なし・ほかの部署 → 403、オーナー（自身を含む）→ 409 department_owner、全体管理者 → 409 global_admin。
 //   エラーの応答は { code, message, reason? }（reason は最上位）。
 // 判定の順は Service、SQL の条件は DB のテストで確かめる。ここでは HTTP の認可・応答の形・通知の宛先・存在の非開示だけを確かめる。
@@ -223,13 +223,14 @@ describe("#128（128-c）0-1 AC-20 申請の作成（HTTP）", () => {
     ["再認証していない", null],
     ["再認証から11分経った", 11 * 60_000],
   ])(
-    "#128 0-1 AC-20: %sオーナーの申請は 403 REAUTH_REQUIRED で、申請も通知も残らない",
+    "#128 0-1 AC-20（0-5）: %sオーナーでも、申請は再認証を求めずに 201 で作られ、全体管理者に通知が届く",
     async (_label, ago) => {
       const res = await submit(await sessionFor(ownerA, ago), target);
-      expect(res.status).toBe(403);
-      expect(await res.json()).toMatchObject({ code: "REAUTH_REQUIRED" });
-      expect(await retirementRows()).toEqual([]);
-      expect(await retirementNotifications()).toEqual([]);
+      expect(res.status).toBe(201);
+      expect(await retirementRows()).toHaveLength(1);
+      expect(
+        (await retirementNotifications()).map((n) => [n.user_id, n.kind]),
+      ).toEqual([[admin, "retirement_request.submitted"]]);
     },
   );
 
