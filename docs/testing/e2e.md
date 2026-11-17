@@ -154,6 +154,7 @@
 - 部屋を開くと`read_positions`の行ができ、外部キーで利用者・部屋を消せなくなるため、利用者・部屋を消す既存の`e2e/seeds/*-cleanup.sql`（`accounts`・`channel-requests`・`channels`・`clients`・`departments`・`dms`・`login`・`messages`・`notifications`・`password-change`・`profile`）の先頭にも、`read_positions`の削除を足した
 - サイドバーの部屋のリンクを名前で探す既存のE2E（`e2e/channels.spec.ts`・`e2e/dms.spec.ts`）は、未読があるとリンクの名前に「未読 n件」が付くため、`e2e/room-link.ts`の`roomLinkName`で探す（名前の完全一致を保ち、未読の読み上げ名だけを許す）
 - 本番形（CSP）のスモーク（`e2e-prod/csp-style.spec.ts`）は、サイドバーが`GET /api/me/unread`を呼ぶようになったため、この一覧を空の応答（`items`が空で`nextCursor`がnull）でモックする
+- 本番形（CSP）のスモーク（`e2e-prod/csp-style.spec.ts`・`e2e-prod/markdown-csp.spec.ts`）は、サイドバーが全画面で`GET /api/cases`（参加中の進行中の案件）を取得するようになったため（Issue #147）、この一覧を空の応答（`items`が空で`nextCursor`がnull）でモックする。見本のない要求は本物のサーバーに届いて 401 になり、見本のセッションとの組み合わせで取得を繰り返すため。**注意：枠・サイドバーが新しい API を呼ぶようにしたら、本番形の E2E の見本にも足す**
 - 全件を1回で流さず、spec ごとに実行する：`npm run test:e2e -- e2e/unread.spec.ts`。本番形も同じ
 
 ### メッセージ入力欄の下書きのシナリオ（開発サーバー。Issue #239）
