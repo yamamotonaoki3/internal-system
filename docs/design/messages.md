@@ -130,7 +130,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - クエリは`after`・`cursor`・`limit`。**`after`と`cursor`の同時指定は422**（排他）。余分なクエリは422
 - **`after`なし**：新しい順に`limit`件（既定`PAGE_LIMIT.message`＝50）と`nextCursor`（より古い側の続き。`cursor.ts`の`afterCursor`・`toPage`）。画面の初回の取得に使う
 - **`after`あり**：ID昇順で、`after`**より後**（`after`自身は含まない。`afterId`は`gt`）を`limit`件（既定100、最大100）。**取得上限**を超える分があるとき`hasMore`が真になる（`limit+1`件を読み、`limit`件に切る）。壊れた`after`は422
-- 項目は`id`・`roomId`・`author`（`id`・`displayName`）・`body`・`createdAt`。EP-1-01のそのほかの項目（`editedAt`・`deleted`・`attachments`・`reactions`・`replyCount`・`pendingMarks`）は範囲外のため返さない【Issue #238で、`author`に`isActive`（投稿者のアカウントが今有効か。`users.is_active`の今の値）を足した。`after`あり・なしの両方。本名などは返さない。元の記述は残す】
+- 項目は`id`・`roomId`・`author`（`id`・`displayName`）・`body`・`createdAt`。EP-1-01のそのほかの項目（`editedAt`・`deleted`・`attachments`・`reactions`・`replyCount`・`pendingMarks`）は範囲外のため返さない【Issue #238で、`author`に`isActive`（投稿者のアカウントが今有効か。`users.is_active`の今の値）を足した。`after`あり・なしの両方。本名などは返さない。元の記述は残す】【Issue #140で、`attachments`（`{ id, name, kind, contentType, size }`の配列。ID昇順。削除済みは`[]`）を足した。元の記述は残す】
 - GETはDBを変えない。一覧は`messages`だけを読む（表示名はスナップショット列のため`users`を結合しない）【Issue #238で、`isActive`のために`users`を主キーでINNER JOINするようにした。表示名はスナップショットのままで、結合は有効・無効だけのため。SQLは1ページ1文のまま。実行計画は`messages_room_id_id_idx`と`users`の主キー。テストでSQLの数と実行計画を固定している。元の記述は残す】
 
 ### 表示名のスナップショット
@@ -201,7 +201,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 | 処理 | 入力 | 出力 |
 | --- | --- | --- |
 | `createMessageService().list` | 操作者、ルームID、`{ after, limit }`または`{ cursor?, limit }` | `after`あり：`{ items, hasMore }`、なし：`{ items, nextCursor }`。見えなければ404 |
-| `createMessageService().post` | 操作者、ルームID、本文 | `{ id, roomId, createdAt }`。見えない404／未参加・権限なし403／再試行超過503 |
+| `createMessageService().post` | 操作者、ルームID、本文 | `{ id, roomId, createdAt }`。見えない404／未参加・権限なし403／再試行超過503【Issue #140：入力に`attachmentIds`（任意）を足した。結び付けが合わなければ、404（他人の・別の部屋の・別の文脈の・存在しない添付）・409（使用済み）・422（合計の超過）】 |
 | `createMessageRepository().insertIfOrdered` | ID・ルームID・投稿者ID・表示名・本文・`createdAt?` | 挿入した行数（1か0）。0は条件を満たさなかった |
 | `ulidAfter(previous, now?)` | 前のID、時刻 | `previous`より大きいULID。桁あふれは`Error` |
 | `canPostToChannel({ purpose, isMember, canPostAnnouncement })` | 目的・参加者か・お知らせの権限 | 真偽 |
@@ -236,7 +236,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 | `features/messages/describe-error.ts`と`features/channels/describe-error.ts`の重複 | 今回は共通化していない。別のIssueで共通化する |
 | 空の部屋での2秒ごとの最新取得 | 上記のとおり。#160で実測する |
 | `merge-messages.ts`のミューテーションのスコア | 他より低めである。理由：`mergeMessages`の比較関数は、IDが重複しない前提では`a.id < b.id`と`a.id <= b.id`などが同じ結果になる**同値変異**が生き残るため。振る舞い（重複の除去・昇順）は単体テストで確かめている。計測値はIssueとPRに記録する |
-| 過去へのスクロール、自動スクロール、Markdown、添付、メンション、リアクション、スレッド、編集・削除 | 未実装（親#133以降）【Issue #138で、リアクション・スタンプを実装した（[reactions.md](reactions.md)）。一覧の項目に`reactions`を足し、他の人のリアクションは開き直すと反映する（即時の反映は#117）。元の記述は残す】【Issue #134で、Markdownと編集・削除を実装した（[message-edit-markdown.md](message-edit-markdown.md)）。**既知の制限**：ポーリングは`after`だけを取るため、開いたままの画面には他の人の編集・削除が届かない。部屋を開き直すと反映される。即時の反映は#117。元の記述は残す】 |
+| 過去へのスクロール、自動スクロール、Markdown、添付、メンション、リアクション、スレッド、編集・削除 | 未実装（親#133以降）【Issue #138で、リアクション・スタンプを実装した（[reactions.md](reactions.md)）。一覧の項目に`reactions`を足し、他の人のリアクションは開き直すと反映する（即時の反映は#117）。元の記述は残す】【Issue #134で、Markdownと編集・削除を実装した（[message-edit-markdown.md](message-edit-markdown.md)）。**既知の制限**：ポーリングは`after`だけを取るため、開いたままの画面には他の人の編集・削除が届かない。部屋を開き直すと反映される。即時の反映は#117。元の記述は残す】【Issue #140で、添付を実装した（[attachments.md](attachments.md)）。一覧の項目に`attachments`を足し、投稿・返信の入力に`attachmentIds`を足した。元の記述は残す】 |
 | D1の直列実行の公式文書の照合 | 確認済み（2026-11-10。上の「前提」）。ただし、Sessions API・読み取りレプリカを使わないことが前提 |
 | **本番のD1へのmigration 0012の適用** | **未実施**。利用者の承認が別途必要。ローカルの使い捨てD1でのリハーサルは実施済み：①0011まで適用済みでデータのあるDBに0012を適用、②新規のDBに全migrationを適用 |
 
@@ -258,3 +258,4 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - 要件：1-1 AC-1〜6、1-9 AC-1、2-3 AC-4、S-05。EP-1-01・EP-1-02・EP-2-06。【Issue #134：1-3・1-5。[message-edit-markdown.md](message-edit-markdown.md)、ADR-0026、C-171】
 - Issue #137：スレッドの返信を足した（`parent_message_id`、EP-1-01から返信を除く、`replyCount`）。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08
 - Issue #138：リアクション・スタンプを足した（表`message_reactions`、EP-1-12・EP-1-13、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`reactions`を追加。削除済みは`[]`）。`MessageRepository.listLatest`・`listAfter`の`viewerId`は必須。詳細は[reactions.md](reactions.md)。決定記録C-174。要件：1-7 AC-1〜AC-5、1-4 AC-6
+- Issue #140：メッセージの添付を足した（表`message_attachments`、EP-1-09・EP-1-10、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`attachments`を追加。削除済みは`[]`。投稿・返信の入力に`attachmentIds`。`insertIfOrdered`と`insertReplyIfOrdered`の`db.batch`に結び付けの文を追加。`requirePostable`・`requireReplyable`をアップロードの入口にも公開）。`message.service.ts`の`requireVisible`と`attachment-visibility.sql.ts`は同じ規則で、変えるときは両方を直す。詳細は[attachments.md](attachments.md)。決定記録C-176。要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5

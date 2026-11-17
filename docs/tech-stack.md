@@ -64,11 +64,12 @@
 | 管理者のMFA | 全体管理者だけTOTP（RFC 6238）。WebCryptoで自作 | なし | [0009](adr/0009-admin-mfa-totp.md) |
 | 日本語の全文検索 | D1のFTS5 trigram（1〜2文字は`LIKE`） | なし | [0010](adr/0010-japanese-search-fts5-trigram.md) |
 | 添付の検査 | Office新形式のzip構造を自前で確認 | なし | [0011](adr/0011-attachment-inspection-and-virus-scan.md) |
+| 添付の保存 | R2（バインディング`ATTACHMENTS`、バケット`internal-system-attachments`）。非公開のまま、Workerが毎回認可して配信する。手元・テストの実体は`wrangler`が使うローカルの保存先（Miniflare）で、本物のバケットには接続しない。**Issue #140で使い始めた**。本番のバケットの作成は利用者が行う | なし（Workersの標準機能。zipの読み取り・Exifの除去も自前） | [0011](adr/0011-attachment-inspection-and-virus-scan.md)・[0029](adr/0029-attachment-delivery-headers-and-content-type-check.md) |
 | スタイル | Tailwind CSS 4＋CSS変数のデザイントークン＋自前の共通部品。CSPは変えない（`style-src 'self'`）。UI部品のライブラリ・アイコン・Webフォントは入れない | `tailwindcss`・`@tailwindcss/vite`（2026-11-04、Issue #171で追加。下の「Tailwind CSS」） | [0015](adr/0015-style-foundation.md) |
 
 - 追加予定で、まだ表にないもの：react-markdown 10.1.0・remark-gfm 4.0.1（C-128。追加するIssueで、バージョンを固定して表に足す）【Issue #134で、2つを`--save-exact`で固定して追加した（下の「マークダウンの描画（Issue #134、ADR-0026）」）。元の記述は残す】、emoji-picker-react 5.1.4（C-128。条件つき）【C-174で置き換え：絵文字のピッカーは自前（emoji-picker-react は入れない）、スタンプは文字6つ。素材の未決定は解消】
 - 入れないと決めたもの：emoji-picker-react（C-128で本採用の方針だったが、Issue #138で取りやめた。C-174・[ADR-0027](adr/0027-self-made-emoji-picker.md)）。理由：本番のCSP（`style-src 'self'`）では、ライブラリが実行時に足すスタイルがブロックされて使えず（[Q-24-emoji-verification](research/Q-24-emoji-verification.md)）、動かすにはCSPに nonce を足す必要があるが、ADR-0015でCSPを変えないと決めている。絵文字は`shared/reaction-rules.ts`の固定の一覧（80個）から選ぶ自前のピッカーにした。新しい依存は増やしていない（`package.json`は変更なし）
-- `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）
+- `wrangler.jsonc`にまだないもの：R2のバインディング、Cron Triggers、Durable Objects（WebSocketへの置き換えのとき）、秘密情報（接続元のHMACの鍵など。値は利用者が`docs/secrets.md`の手順で入れる）【Issue #140で、R2のバインディング`ATTACHMENTS`を`wrangler.jsonc`に足した（Cron Triggersは、すでに足してある。添付の掃除が同じ式に相乗りする）。元の記述は残す】
 
 ## Tailwind CSS（Issue #171、ADR-0015）
 

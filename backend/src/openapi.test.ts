@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { adminAccountRoutes } from "./routes/accounts";
+import {
+  attachmentRoutes,
+  replyAttachmentRoutes,
+  roomAttachmentRoutes,
+} from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
@@ -61,6 +66,10 @@ const app = createApp({
     { path: "/api/messages", app: messageItemRoutes() },
     // #137：スレッドの既読（EP-3-09）。返信の取得・投稿（EP-1-07・EP-1-08）は messageItemRoutes に入る。index.ts と同じパスに組み込む
     { path: "/api/messages", app: threadReadPositionRoutes() },
+    // #140：添付のアップロード（通常の投稿用・返信用）と配信。index.ts と同じパスに組み込む
+    { path: "/api/rooms", app: roomAttachmentRoutes() },
+    { path: "/api/messages", app: replyAttachmentRoutes() },
+    { path: "/api/attachments", app: attachmentRoutes() },
   ],
 });
 
@@ -658,6 +667,62 @@ describe("API の仕様書：リアクション（#138）", () => {
     expect(item?.properties?.reactions?.type).toBe("array");
     expect(item?.properties?.reactions?.items?.$ref).toBe(
       "#/components/schemas/Reaction",
+    );
+  });
+  it("#140 AC-1・AC-3: 添付のアップロード（2つの入口）と配信の応答コードが書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/rooms/{roomId}/attachments": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/messages/{messageId}/replies/attachments": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "GET /api/attachments/{attachmentId}": [
+        "200",
+        "206",
+        "401",
+        "403",
+        "404",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+
+  it("#140 AC-1: 一覧の項目（MessageItem）に attachments（AttachmentItem の配列）が必須で、投稿の入力に attachmentIds がある", () => {
+    const schemas = spec.components.schemas as unknown as Record<
+      string,
+      Schema
+    >;
+    const item = schemas.MessageItem;
+    expect(item?.required).toContain("attachments");
+    expect(item?.properties?.attachments?.type).toBe("array");
+    expect(item?.properties?.attachments?.items?.$ref).toBe(
+      "#/components/schemas/AttachmentItem",
+    );
+    expect(schemas.MessageCreate?.properties?.attachmentIds?.type).toBe(
+      "array",
+    );
+    expect(schemas.AttachmentItem?.required).toEqual(
+      expect.arrayContaining(["id", "name", "kind", "contentType", "size"]),
     );
   });
 });

@@ -38,6 +38,14 @@ import {
   type Reaction,
 } from "./message-reactions.sql";
 import { insertReplyIfOrdered } from "./reply-insert.sql";
+import {
+  AttachmentBindError,
+  bindAttachments,
+  findForBinding,
+  loadMessageAttachments,
+  translateAttachmentBindError,
+  type AttachmentView,
+} from "./attachment.repository";
 
 export type MessageItem = {
   id: string;
@@ -57,6 +65,8 @@ export type MessageItem = {
   mentions: Mention[];
   /** 種類ごとの集計（種類は最初に付けられた時刻の順）。削除済みは [] */
   reactions: Reaction[];
+  /** 添付（ID の昇順。#140）。削除済みは [] */
+  attachments: AttachmentView[];
 };
 
 export type MessageInsert = {
@@ -68,6 +78,8 @@ export type MessageInsert = {
   /** 省略すると DB の現在時刻 */
   createdAt?: string;
   mentions?: readonly Mention[];
+  /** 結び付ける未投稿の添付（#140。条件は attachment.repository.ts の bindAttachments） */
+  attachmentIds?: readonly string[];
 };
 
 /** 通常の投稿への返信の件数（削除済みも数える）。messages_parent_message_id_id_idx で数える。1つの SELECT に入れるので、項目の数でクエリは増えない */
@@ -107,6 +119,7 @@ export function toItem(
   },
   mentions: Mention[] = [],
   reactions: Reaction[] = [],
+  attachments: AttachmentView[] = [],
 ): MessageItem {
   const deleted = row.deletedAt !== null;
   return {
@@ -125,6 +138,7 @@ export function toItem(
     replyCount: row.replyCount,
     mentions: deleted ? [] : mentions,
     reactions: deleted ? [] : reactions,
+    attachments: deleted ? [] : attachments,
   };
 }
 
@@ -250,10 +264,12 @@ export function createMessageRepository(db: Database) {
       if (row === undefined) return null;
       const mentions = await loadMessageMentions(db, [row.id]);
       const reactions = await loadMessageReactions(db, [row.id], viewerId);
+      const attachments = await loadMessageAttachments(db, [row.id]);
       return toItem(
         row,
         mentions.get(row.id) ?? [],
         reactions.get(row.id) ?? [],
+        attachments.get(row.id) ?? [],
       );
     },
     async isDepartmentActive(departmentId: string): Promise<boolean> {
@@ -313,9 +329,15 @@ export function createMessageRepository(db: Database) {
       const ids = page.items.map((row) => row.id);
       const mentions = await loadMessageMentions(db, ids);
       const reactions = await loadMessageReactions(db, ids, viewerId);
+      const attachments = await loadMessageAttachments(db, ids);
       return {
         items: page.items.map((row) =>
-          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+          toItem(
+            row,
+            mentions.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
+            attachments.get(row.id) ?? [],
+          ),
         ),
         nextCursor: page.nextCursor,
       };
@@ -341,9 +363,15 @@ export function createMessageRepository(db: Database) {
       const ids = page.items.map((row) => row.id);
       const mentions = await loadMessageMentions(db, ids);
       const reactions = await loadMessageReactions(db, ids, viewerId);
+      const attachments = await loadMessageAttachments(db, ids);
       return {
         items: page.items.map((row) =>
-          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+          toItem(
+            row,
+            mentions.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
+            attachments.get(row.id) ?? [],
+          ),
         ),
         hasMore: page.hasMore,
       };
@@ -374,9 +402,15 @@ export function createMessageRepository(db: Database) {
       const ids = page.items.map((row) => row.id);
       const mentions = await loadMessageMentions(db, ids);
       const reactions = await loadMessageReactions(db, ids, viewerId);
+      const attachments = await loadMessageAttachments(db, ids);
       return {
         items: page.items.map((row) =>
-          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+          toItem(
+            row,
+            mentions.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
+            attachments.get(row.id) ?? [],
+          ),
         ),
         nextCursor: page.nextCursor,
       };
@@ -401,9 +435,15 @@ export function createMessageRepository(db: Database) {
       const ids = page.items.map((row) => row.id);
       const mentions = await loadMessageMentions(db, ids);
       const reactions = await loadMessageReactions(db, ids, viewerId);
+      const attachments = await loadMessageAttachments(db, ids);
       return {
         items: page.items.map((row) =>
-          toItem(row, mentions.get(row.id) ?? [], reactions.get(row.id) ?? []),
+          toItem(
+            row,
+            mentions.get(row.id) ?? [],
+            reactions.get(row.id) ?? [],
+            attachments.get(row.id) ?? [],
+          ),
         ),
         hasMore: page.hasMore,
       };
@@ -413,6 +453,7 @@ export function createMessageRepository(db: Database) {
      * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も参加者
      * ④ お知らせ専用なら、投稿者がそのチャンネルの部署のオーナーか全体管理者
      * ①のほかは、チャンネルなら②〜④、DM なら「投稿者が当事者で、当事者に無効な社員がいない」（DM の権限 perm.dm.message.send は固定ロールがすべて持つため、ここには入れず Service が確かめる）
+     * 添付（attachmentIds）は同じ batch で結び付け、合わなければ AttachmentBindError を投げる（メッセージは作られない）
      * ※ ④の役割は perm.announcement.post を持つ役割（lib/permissions.ts）と一致させる必要がある。一致は services/message.postable-permission.test.ts が固定している
      */
     async insertIfOrdered(input: MessageInsert): Promise<number> {
@@ -447,9 +488,18 @@ export function createMessageRepository(db: Database) {
             senderId: input.senderId,
             mentions: input.mentions ?? [],
           }),
+          ...bindAttachments(db, {
+            messageId: input.id,
+            roomId: input.roomId,
+            uploaderId: input.senderId,
+            threadParentId: null,
+            attachmentIds: input.attachmentIds ?? [],
+          }),
         ]);
         return insert.meta.changes;
       } catch (error) {
+        const bindError = translateAttachmentBindError(error);
+        if (bindError instanceof AttachmentBindError) throw bindError;
         const translated = translateMessageInsertError(error);
         if (translated instanceof MessageInsertGuardError) return 0;
         throw translated;
@@ -472,7 +522,10 @@ export function createMessageRepository(db: Database) {
      */
     loadReactions: (messageId: string, userId: string) =>
       loadReactionsIfReactable(db, messageId, userId),
-    /** 返信の条件付きの INSERT（条件は reply-insert.sql.ts）。挿入した行数（1 か 0）を返す */
+    /** 結び付けが取り消された原因を分けるための、添付の読み直し（#140） */
+    findAttachmentsForBinding: (attachmentIds: readonly string[]) =>
+      findForBinding(db, attachmentIds),
+    /** 返信の条件付きの INSERT（条件は reply-insert.sql.ts）。挿入した行数（1 か 0）を返す。添付の結び付けが合わなければ AttachmentBindError */
     insertReplyIfOrdered: (input: Parameters<typeof insertReplyIfOrdered>[1]) =>
       insertReplyIfOrdered(db, input),
   };

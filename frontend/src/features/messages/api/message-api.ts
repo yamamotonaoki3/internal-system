@@ -5,6 +5,7 @@ import {
   mentionSchema,
   type Mention,
 } from "../../../../../shared/message-rules";
+import { ATTACHMENT_KINDS } from "../../../../../shared/attachment-rules";
 import { REACTION_KINDS } from "../../../../../shared/reaction-rules";
 import { apiClient } from "../../../services/api-client";
 
@@ -23,6 +24,16 @@ export const reactionSchema = z.object({
   ),
 });
 export type Reaction = z.infer<typeof reactionSchema>;
+
+/** 添付1件。URL はサーバーの応答から受け取らず、ID から attachmentUrl で組み立てる */
+export const attachmentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(ATTACHMENT_KINDS),
+  contentType: z.string().min(1),
+  size: z.number().int().min(0),
+});
+export type Attachment = z.infer<typeof attachmentSchema>;
 
 const reactionsResultSchema = z.object({
   messageId: z.string().min(1),
@@ -48,6 +59,8 @@ const messageShape = {
   replyCount: z.number().int().min(0),
   /** リアクションの集計。削除済みは空配列 */
   reactions: z.array(reactionSchema),
+  /** 添付（ID の昇順）。削除済みは空配列 */
+  attachments: z.array(attachmentSchema),
 };
 
 // 削除済みと本文がないことの食い違いは、サーバーの不具合として失敗にする
@@ -158,10 +171,12 @@ export async function postMessage(
   roomId: string,
   body: string,
   mentions: readonly Mention[] = [],
+  attachmentIds: readonly string[] = [],
 ) {
   const response = await apiClient.post(messagesPath(roomId), {
     body,
     mentions,
+    ...(attachmentIds.length > 0 && { attachmentIds }),
   });
   return createdSchema.parse(response.data);
 }
@@ -245,10 +260,12 @@ export async function postReply(
   parentMessageId: string,
   body: string,
   mentions: readonly Mention[] = [],
+  attachmentIds: readonly string[] = [],
 ) {
   const response = await apiClient.post(repliesPath(parentMessageId), {
     body,
     mentions,
+    ...(attachmentIds.length > 0 && { attachmentIds }),
   });
   return replyCreatedSchema.parse(response.data);
 }
@@ -273,4 +290,39 @@ export async function fetchMentionCandidates(
     { params: { q } },
   );
   return mentionCandidatesSchema.parse(response.data);
+}
+
+/** 添付の送り先。通常の投稿用は部屋、返信用はスレッドの親 */
+export type AttachmentTarget =
+  { kind: "room"; roomId: string } | { kind: "reply"; parentMessageId: string };
+
+// 共通の10秒では、大きな添付（動画は最大100MB）の送信が途中で切れる。
+// 100MB を約1.4Mbps の上りでも送り切れる長さとして10分にする（取り消しは AbortController で利用者が行える）
+export const ATTACHMENT_UPLOAD_TIMEOUT_MS = 600_000;
+
+const attachmentsPath = (target: AttachmentTarget) =>
+  target.kind === "room"
+    ? `/rooms/${encodeURIComponent(target.roomId)}/attachments`
+    : `${repliesPath(target.parentMessageId)}/attachments`;
+
+/** 添付を1件アップロードする。本文はファイルのバイト列、元の名前は X-File-Name（パーセントエンコード）で送る */
+export async function uploadAttachment(
+  target: AttachmentTarget,
+  file: File,
+  options: { signal?: AbortSignal } = {},
+): Promise<Attachment> {
+  const response = await apiClient.post(attachmentsPath(target), file, {
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name),
+    },
+    timeout: ATTACHMENT_UPLOAD_TIMEOUT_MS,
+    signal: options.signal,
+  });
+  return attachmentSchema.parse(response.data);
+}
+
+/** 添付の配信の URL。ID から組み立てる（応答の任意の URL を使わない） */
+export function attachmentUrl(attachmentId: string): string {
+  return `${apiClient.defaults.baseURL ?? "/api"}/attachments/${encodeURIComponent(attachmentId)}`;
 }

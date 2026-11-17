@@ -13,7 +13,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | EP-1-07（返信の取得）・EP-1-08（返信の投稿）・EP-3-08（スレッド一覧）・EP-3-09（スレッドの既読）／EP-1-01への`parentMessageId`・`replyCount`の追加と、返信を一覧に含めない変更／`messages.parent_message_id`と表`thread_read_positions`（migration 0020）／S-07（スレッドの領域）・S-35（`/threads`）・サイドバーの「スレッド」・各投稿の「返信 n 件」／返信の入力欄の下書き（scope `thread:<部屋ID>:<親ID>`） |
-| 作らないもの | 添付（#140）、リアクション（#138で別途追加。現在の仕様は[reactions.md](reactions.md)を参照）、メンション（#139で別途追加。現在の仕様は[mentions.md](mentions.md)を参照）、返信の通知、古い返信へのスクロール、他の人の編集・削除の即時反映（#117）、S-07を閉じる・S-35で別のスレッドへ切り替えるときの離脱の確認（#245。U-8）、サイドバーのスレッドの未読の合計（#240で検討） |
+| 作らないもの | 添付（#140）、リアクション（#138で別途追加。現在の仕様は[reactions.md](reactions.md)を参照）、メンション（#139で別途追加。現在の仕様は[mentions.md](mentions.md)を参照）、返信の通知、古い返信へのスクロール、他の人の編集・削除の即時反映（#117）、S-07を閉じる・S-35で別のスレッドへ切り替えるときの離脱の確認（#245。U-8）、サイドバーのスレッドの未読の合計（#240で検討）【#140で、返信への添付を別途追加した。現在の仕様は[attachments.md](attachments.md)を参照。元の記述は残す】 |
 
 ## データ
 
@@ -134,7 +134,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | 関数 | 入力 | 出力 |
 | --- | --- | --- |
 | `createMessageService().listReplies` | 利用者・親ID・`after`または`cursor`と`limit` | `parent`・`replyBlockedReason`・`joined`・`roomWritable`・`items`（`after`なら`hasMore`、最新なら`nextCursor`）。見えなければ404（`AppError`） |
-| `createMessageService().postReply` | 利用者・親ID・本文 | `{ id, roomId, parentMessageId, createdAt }`。404・403・409・503（`AppError`） |
+| `createMessageService().postReply` | 利用者・親ID・本文 | `{ id, roomId, parentMessageId, createdAt }`。404・403・409・503（`AppError`）【Issue #140：入力に`attachmentIds`（任意）を足した。返信用にアップロードした、同じ親の添付だけを結び付けられる】 |
 | `insertReplyIfOrdered` | 返信の各値 | 挿入した行数（1か0） |
 | `createThreadService().list` | 利用者・`limit`・`cursor` | `{ items, nextCursor }`（`ThreadItem`） |
 | `createUnreadService().markThreadRead` | 利用者・親ID・`lastReadMessageId` | なし（成功は204）。404・403・409 |
@@ -182,5 +182,5 @@ SQLの本数：スレッド一覧は2本、返信のGETは6本（認証・親・
 - Issue #137（親：#133）。#139（メンション。1-4 AC-4の「自分がメンションされたスレッド」の条件を追記）・#140（添付）・#138（リアクション）・#117（リアルタイム化）・#245（離脱の確認）・#240（未読の合計）・#154（部署が無効の投稿）・#160（負荷の実測）に申し送る
 - 決定：C-172（C-147の「スレッドごとの既読位置は未決定」を置き換えた）。C-59（親の削除）・C-94（公開チャンネルは未参加でも読める）・C-169（未読）・C-171（編集・削除）に従う
 - [ADR-0006](../adr/0006-id-cursor-unread.md)（ID・カーソル・未読）・[ADR-0004](../adr/0004-realtime-polling-then-websocket.md)（ポーリング）・[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーションとE2Eの範囲。(c)に当たる）
-- 関連する設計書：[messages.md](messages.md)・[unread.md](unread.md)・[drafts.md](drafts.md)・[dms.md](dms.md)・[message-edit-markdown.md](message-edit-markdown.md)・[app-shell.md](app-shell.md)・[reactions.md](reactions.md)（#138。返信・親にもリアクションを付けられる。スレッド一覧の項目`reactions`、`ThreadReplies.tsx`の`canReact`）
+- 関連する設計書：[messages.md](messages.md)・[unread.md](unread.md)・[drafts.md](drafts.md)・[dms.md](dms.md)・[message-edit-markdown.md](message-edit-markdown.md)・[app-shell.md](app-shell.md)・[reactions.md](reactions.md)（#138。返信・親にもリアクションを付けられる。スレッド一覧の項目`reactions`、`ThreadReplies.tsx`の`canReact`）、[attachments.md](attachments.md)（#140。返信にも添付できる。返信用のアップロードの入口、スレッド一覧の親の項目`attachments`）
 - 要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08・EP-3-08・EP-3-09、S-07・S-35

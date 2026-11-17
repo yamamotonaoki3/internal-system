@@ -7,6 +7,11 @@ import { withSampleUsers } from "./db/sample-user.repository";
 import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
 import { adminAccountRoutes } from "./routes/accounts";
+import {
+  attachmentRoutes,
+  replyAttachmentRoutes,
+  roomAttachmentRoutes,
+} from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
@@ -23,6 +28,7 @@ import { threadReadPositionRoutes } from "./routes/thread-read-positions";
 import { threadRoutes } from "./routes/threads";
 import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
+import { attachmentCleanupJob } from "./services/attachment.service";
 import { authCleanupJob } from "./services/auth.service";
 import { createScheduledHandler } from "./scheduled";
 
@@ -46,7 +52,10 @@ export const app = createApp({
     { path: "/api/channels", app: channelRoutes() },
     { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },
+    { path: "/api/rooms", app: roomAttachmentRoutes() },
     { path: "/api/messages", app: messageItemRoutes() },
+    { path: "/api/messages", app: replyAttachmentRoutes() },
+    { path: "/api/attachments", app: attachmentRoutes() },
     { path: "/api/messages", app: threadReadPositionRoutes() },
     { path: "/api/rooms", app: readPositionRoutes() },
   ],
@@ -54,5 +63,8 @@ export const app = createApp({
 
 export default {
   fetch: app.fetch,
-  scheduled: createScheduledHandler([authCleanupJob(withAuth)]),
+  scheduled: createScheduledHandler([
+    authCleanupJob(withAuth),
+    attachmentCleanupJob(),
+  ]),
 } satisfies ExportedHandler<Env>;

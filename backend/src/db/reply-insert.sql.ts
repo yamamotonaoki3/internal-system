@@ -6,6 +6,7 @@
 //   ③ チャンネル：未アーカイブで、投稿者が参加中・部署が有効（会社直属は有効として扱う）／DM：投稿者が当事者で、当事者に無効な社員がいない
 // お知らせ専用でも、参加者なら返信できる（U-6）ので、投稿権限（perm.announcement.post）は条件に入れない。
 // 0 行の理由（状態が崩れた・親が削除された・ID が最大以下）は、呼び出し側（Service）が読み分ける。
+// 添付（#140）は同じ batch で結び付ける（条件は attachment.repository.ts の bindAttachments）。合わなければ AttachmentBindError を投げる。
 import { sql } from "drizzle-orm";
 import { messages } from "../../db/schema";
 import type { Database } from "./database";
@@ -17,6 +18,11 @@ import {
   translateMessageInsertError,
   MessageInsertGuardError,
 } from "./message-mentions.sql";
+import {
+  AttachmentBindError,
+  bindAttachments,
+  translateAttachmentBindError,
+} from "./attachment.repository";
 
 export type ReplyInsert = {
   id: string;
@@ -27,6 +33,8 @@ export type ReplyInsert = {
   body: string;
   createdAt: string;
   mentions?: readonly Mention[];
+  /** 結び付ける返信用の未投稿の添付（#140。同じ親の文脈のものだけ） */
+  attachmentIds?: readonly string[];
 };
 
 /** 挿入した行数（1 か 0） */
@@ -67,9 +75,18 @@ export async function insertReplyIfOrdered(
         parentMessageId: input.parentMessageId,
         mentions: input.mentions ?? [],
       }),
+      ...bindAttachments(db, {
+        messageId: input.id,
+        roomId: input.roomId,
+        uploaderId: input.senderId,
+        threadParentId: input.parentMessageId,
+        attachmentIds: input.attachmentIds ?? [],
+      }),
     ]);
     return result.meta.changes;
   } catch (error) {
+    const bindError = translateAttachmentBindError(error);
+    if (bindError instanceof AttachmentBindError) throw bindError;
     const translated = translateMessageInsertError(error);
     if (translated instanceof MessageInsertGuardError) return 0;
     throw translated;

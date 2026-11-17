@@ -15,8 +15,12 @@
 //   → ③ perm.reaction.manage.own（拒否は authorize が監査に記録する）→ ④ 削除済みは 409 → ⑤ 部署が無効・DM の相手が無効は 409 → ⑥ 条件付きの書き込み。
 //   親の投稿にも返信にも同じ判定を使う（返信は、親が削除済みでも付けられる）。お知らせ専用の投稿権限は問わない。
 //   ⑥が 0 行のときは、①〜⑤をやり直して拒否の理由があればその応答にする。理由がなければ、今の状態で分ける（writeReaction）。
+// 添付（#140）：投稿・返信と同じ batch で attachmentIds を結び付ける。既存の判定の後、結び付けが合わなければ読み直して分ける：
+//   他人の・別の部屋の・別の文脈の・存在しない添付 → 404 → 使用済み → 409 → 合計の超過 → 422（それ以外は状態が変わった 409）。
+//   アップロードの入口（services/attachment.service.ts）は、requirePostable・requireReplyable をそのまま使う。
 // 書き込みは条件付きの INSERT 1文。挿入できなかった（0 行）ときは、原因を読み直して分ける：
 //   状態が崩れた → 404／403、IDが部屋の最大以下 → 最大より大きいIDで作り直して再試行（上限あり。超えたら 503）。
+import { AttachmentBindError } from "../db/attachment.repository";
 import { withMessages, type MessageRepository } from "../db/message.repository";
 import { withRoleAssignments } from "../db/role-assignment.repository";
 import { AppError } from "../lib/app-error";
@@ -28,6 +32,7 @@ import {
   REPLY_BLOCKED_REASONS,
   type Mention,
 } from "../../../shared/message-rules";
+import { MAX_ATTACHMENT_TOTAL_BYTES } from "../../../shared/attachment-rules";
 import {
   MAX_REACTION_TYPES,
   type ReactionKind,
@@ -179,6 +184,7 @@ export function createMessageService(
     });
   }
 
+  // 一覧で見てよい部屋の規則。添付の配信の条件（db/attachment-visibility.sql.ts）も同じ規則なので、変えるときは両方を直す
   async function requireVisible(roomId: string, actor: MessageActor) {
     const room = await findRoom(roomId, actor);
     if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
@@ -457,7 +463,58 @@ export function createMessageService(
     );
   }
 
+  // 結び付けが取り消されたときの原因を、今の添付の行で分ける（判定の順はファイルの先頭のコメント）
+  async function failAttachmentBinding(
+    actor: MessageActor,
+    context: { roomId: string; threadParentId: string | null },
+    attachmentIds: readonly string[],
+  ): Promise<never> {
+    const rows = await repository.findAttachmentsForBinding(attachmentIds);
+    const usable = rows.filter(
+      (row) =>
+        row.uploaderId === actor.userId &&
+        row.roomId === context.roomId &&
+        row.threadParentId === context.threadParentId,
+    );
+    if (usable.length !== attachmentIds.length)
+      throw new AppError("NOT_FOUND", "添付が見つかりません");
+    if (usable.some((row) => row.messageId !== null))
+      throw new AppError("CONFLICT", "添付はすでに使われています");
+    const total = usable.reduce((sum, row) => sum + row.sizeBytes, 0);
+    if (total > MAX_ATTACHMENT_TOTAL_BYTES)
+      throw new AppError("VALIDATION_ERROR", "添付の合計が上限を超えています", {
+        fields: ["attachmentIds"],
+      });
+    // どの理由にも当たらない＝読み直すまでに別の操作で状態が変わった
+    throw new AppError(
+      "CONFLICT",
+      "添付の状態が変わりました。もう一度お試しください",
+    );
+  }
+
+  /** 書き込みを行い、添付の結び付けが合わなければ原因に合う応答にする */
+  async function insertWithAttachments(
+    insert: () => Promise<number>,
+    actor: MessageActor,
+    context: { roomId: string; threadParentId: string | null },
+    attachmentIds: readonly string[],
+  ): Promise<number> {
+    try {
+      return await insert();
+    } catch (error) {
+      if (error instanceof AttachmentBindError)
+        return failAttachmentBinding(actor, context, attachmentIds);
+      throw error;
+    }
+  }
+
   return {
+    /** 通常の投稿をしてよいか（添付のアップロードの入口も使う。#140） */
+    requirePostable: (actor: MessageActor, roomId: string) =>
+      requirePostable(roomId, actor),
+    /** 返信してよいか（添付のアップロードの入口も使う。#140）。親を返す */
+    requireReplyable: (actor: MessageActor, parentId: string) =>
+      requireReplyable(actor, parentId),
     async edit(
       actor: MessageActor,
       messageId: string,
@@ -569,6 +626,7 @@ export function createMessageService(
       parentId: string,
       body: string,
       mentions: readonly Mention[] = [],
+      attachmentIds: readonly string[] = [],
     ): Promise<ReplyCreated> {
       const parent = await requireReplyable(actor, parentId);
       await validateMentions(body, mentions);
@@ -580,16 +638,23 @@ export function createMessageService(
       for (let retry = 0; ; retry += 1) {
         // 作り直したIDの返信が、直前の投稿より過去の時刻にならないよう、試行のたびに取り直す
         const createdAt = new Date().toISOString();
-        const inserted = await repository.insertReplyIfOrdered({
-          id,
-          roomId,
-          parentMessageId: parentId,
-          senderId: actor.userId,
-          senderDisplayName: displayName,
-          body,
-          createdAt,
-          mentions,
-        });
+        const inserted = await insertWithAttachments(
+          () =>
+            repository.insertReplyIfOrdered({
+              id,
+              roomId,
+              parentMessageId: parentId,
+              senderId: actor.userId,
+              senderDisplayName: displayName,
+              body,
+              createdAt,
+              mentions,
+              attachmentIds,
+            }),
+          actor,
+          { roomId, threadParentId: parentId },
+          attachmentIds,
+        );
         if (inserted > 0)
           return { id, roomId, parentMessageId: parentId, createdAt };
         // 状態が崩れていれば 404／403／409 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
@@ -612,6 +677,7 @@ export function createMessageService(
       roomId: string,
       body: string,
       mentions: readonly Mention[] = [],
+      attachmentIds: readonly string[] = [],
     ): Promise<MessageCreated> {
       await requirePostable(roomId, actor);
       await validateMentions(body, mentions);
@@ -622,15 +688,22 @@ export function createMessageService(
       for (let retry = 0; ; retry += 1) {
         // 作り直したIDの投稿が、直前の投稿より過去の時刻にならないよう、試行のたびに取り直す
         const createdAt = new Date().toISOString();
-        const inserted = await repository.insertIfOrdered({
-          id,
-          roomId,
-          senderId: actor.userId,
-          senderDisplayName: displayName,
-          body,
-          createdAt,
-          mentions,
-        });
+        const inserted = await insertWithAttachments(
+          () =>
+            repository.insertIfOrdered({
+              id,
+              roomId,
+              senderId: actor.userId,
+              senderDisplayName: displayName,
+              body,
+              createdAt,
+              mentions,
+              attachmentIds,
+            }),
+          actor,
+          { roomId, threadParentId: null },
+          attachmentIds,
+        );
         if (inserted > 0) return { id, roomId, createdAt };
         // 状態が崩れていれば 404／403 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
         await requirePostable(roomId, actor);

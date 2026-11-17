@@ -5,6 +5,7 @@ import { toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import { unreadLowerBound } from "../lib/unread-bound";
 import { withDatabase, type Database } from "./database";
+import { loadMessageAttachments } from "./attachment.repository";
 import { toItem, type MessageItem } from "./message.repository";
 import { listThreadRows } from "./thread-list.sql";
 import { loadMessageMentions } from "./message-mentions.sql";
@@ -88,6 +89,7 @@ export function createThreadRepository(db: Database) {
       const ids = page.items.map((row) => row.id);
       const mentions = await loadMessageMentions(db, ids);
       const reactions = await loadMessageReactions(db, ids, userId);
+      const attachments = await loadMessageAttachments(db, ids);
       const items = page.items.map((row): ThreadItem => {
         const unreadCount = counts.get(row.id);
         if (unreadCount === undefined)
@@ -109,6 +111,7 @@ export function createThreadRepository(db: Database) {
             },
             mentions.get(row.id) ?? [],
             reactions.get(row.id) ?? [],
+            attachments.get(row.id) ?? [],
           ),
           room: toRoom(row),
           lastReplyAt: row.last_reply_at,

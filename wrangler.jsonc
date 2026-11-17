@@ -16,7 +16,8 @@
     "APP_ENV": "production",
     "ALLOWED_ORIGINS": "http://localhost:5173"
   },
-  // Cron Triggers（UTC で書く）。17 18 * * * は毎日 UTC 18:17 = 日本時間 03:17 の auth-cleanup（期限切れのセッション・試行制限の掃除）。
+  // Cron Triggers（UTC で書く）。17 18 * * * は毎日 UTC 18:17 = 日本時間 03:17 の auth-cleanup（期限切れのセッション・試行制限の掃除）と、
+  // attachment-cleanup（24時間を過ぎた未投稿の添付の掃除。#140）。
   // 本番への適用は、利用者がデプロイして行う
   "triggers": {
     "crons": ["17 18 * * *"]
@@ -26,6 +27,14 @@
       "binding": "DB",
       "database_name": "internal-system-db",
       "migrations_dir": "backend/db/migrations"
+    }
+  ],
+  // メッセージの添付の実体（#140）。非公開のまま使い、配信は Worker が毎回権限を確かめて行う（r2.dev・署名付きURLは使わない）。
+  // 本番のバケットの作成は、利用者がデプロイの時に行う
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "internal-system-attachments"
     }
   ]
 }

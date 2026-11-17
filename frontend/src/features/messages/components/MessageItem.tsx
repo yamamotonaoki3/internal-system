@@ -2,11 +2,13 @@
 // 編集はその場で編集欄に切り替え、削除は確認のダイアログを出す。削除済みは本文の代わりに「このメッセージは削除されました」を出す（C-57）。
 // onOpenThread があるときは、スレッドを開く「返信 n 件」（まだなければ「返信」）のボタンを付ける。返信（親がある投稿）には付けない（返信は1段だけ）。
 // 削除済みの投稿は、返信が残っているときだけ付ける（既存の返信を見られる）。
+// 添付（#140）は本文の下に出す。削除済みには出さない。
 import { useState } from "react";
 import { Button } from "../../../components/Button";
 import type { RoomMessage } from "../api/message-api";
 import { formatMessageTime } from "../format-time";
 import { DeleteMessageDialog } from "./DeleteMessageDialog";
+import { MessageAttachments } from "./MessageAttachments";
 import { MessageBody } from "./MessageBody";
 import { MessageEditForm } from "./MessageEditForm";
 import { ReactionBar } from "./ReactionBar";
@@ -132,6 +134,9 @@ export function MessageItem({
         />
       ) : (
         <MessageBody body={message.body} mentions={message.mentions} />
+      )}
+      {!message.deleted && (
+        <MessageAttachments attachments={message.attachments} />
       )}
       {!message.deleted && (
         <ReactionBar

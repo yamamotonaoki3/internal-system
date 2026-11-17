@@ -205,6 +205,7 @@ describe("#137 AC-1（1-4 AC-1）返信の投稿", () => {
     });
     expect(Object.keys(page.parent).sort()).toEqual(
       [
+        "attachments",
         "author",
         "body",
         "createdAt",
