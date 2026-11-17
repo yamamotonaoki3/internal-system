@@ -11,7 +11,8 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 | 区分 | 内容 |
 | --- | --- |
 | 147-Aで作ったもの | API3つ（EP-5-06 一覧・EP-5-07 概要・EP-5-08 詳細）／「有効な参加者」の共通の SQL の部品`activeChannelMember`／管理の資格（参加者数と`canManage`）を読み取りの SQL の中で決める仕組み／S-16（案件一覧）・S-17（詳細の骨格）／メニュー「案件」とサイドバーの「案件」の見出しの下の参加中の案件／承認の通知の移動先の変更（C-179(3)の約束）／自分の申請の案件番号のリンク／承認の後の案件のキャッシュの取り直し |
-| 後の子（着手の順） | **147-C-1** チャンネルの参加の行を資格に使う経路（書き込み6・読み取り7）を「有効な参加者」に変える／**147-B** 参加者の追加・削除・本人の退出、自動参加の人は外せないこと（役割の名前の表示を含む）、最後の有効な参加者、納期の変更（`canEditDueDate`）、S-18 の参加者の管理／**147-C-2** 無効化で案件の参加の記録を残すこと、AC-15 の守り、再有効化・異動の確認、オーナー交代による自動参加、既存の案件の補完 |
+| 147-C-1で作ったもの | チャンネルの参加の行を資格に使う経路（書き込み6・読み取り7＋`findForManage`の`isMember`）を「有効な参加者」に変えた（実装では、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り〔メッセージ5・参加者2・メンションの候補1〕を`roomViewableBy`で判定する形に変えた）。APIも画面も追加しない（下の「147-C-1 が広げた経路」） |
+| 後の子（着手の順） | **147-B** 参加者の追加・削除・本人の退出、自動参加の人は外せないこと（役割の名前の表示を含む）、最後の有効な参加者、納期の変更（`canEditDueDate`）、S-18 の参加者の管理／**147-C-2** 無効化で案件の参加の記録を残すこと、AC-15 の守り、再有効化・異動の確認、オーナー交代による自動参加、既存の案件の補完 |
 | 他の Issue に回すもの | やり取り・未読・最終更新（#148）、TODO・進捗（#149）、終了・再開・再編集（#150）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
@@ -62,14 +63,50 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 - 参加の行（`channel_members`）があり、**かつ利用者が有効（`users.is_active = 1`）**であること。一覧の`joined`・`isParticipant`・詳細の 403 の判定は、この部品だけを使う
 - 一覧の`joined`・`isParticipant`と、詳細の中身を読む SQL（案件の行・参加者の一覧）は、この部品を条件に入れる。引数は、部屋（案件の`channel_id`）と利用者。どちらも値でも外側の表の列（SQL の式）でも渡せるので、一覧の1行ごとの判定（`CASE WHEN`）にも使える
 - **「記録として残す参加の行」と「いまの閲覧・操作の資格」を分ける**。参加の行は、退職者を参加者の一覧に残す・参加者数に数えるための記録で（C-142(1)）、資格ではない。資格の判定に`channel_members`を直接結合する書き方は、この子の後は作らない
-- いまは、無効化の batch が対象の参加の行をすべて消すので、行が残る無効な社員はいない。147-C-2 が案件専用チャンネルの行を残すようにする前に、147-C-1 が、チャンネルの書き込み6経路・読み取り7経路（`message.repository.ts`・`reply-insert.sql.ts`・`message-modify.sql.ts`・`message-reactions.sql.ts`・`read-position-advance.sql.ts`・`thread-read-advance.sql.ts`、`channel.repository.ts`・`thread-list.sql.ts`・`attachment-visibility.sql.ts`・`unread-targets.sql.ts`・`notification.repository.ts`）の条件を、この部品と同じ「有効な参加者」に揃える。検索（#155）もこの部品を使う
+- この時点では、無効化は、まだ参加の行を消す（147-C-2 で、記録を残す形に変える）。147-C-1 は、その前に、資格の判定を記録から切り離すための変更で、実装した（次の節）。検索（#155）もこの部品を使う
+
+### 147-C-1 が広げた経路（実装済み）
+
+条件は`activeChannelMember`と同じ規則（参加の行があり、本人が有効）に揃えた。ほかの条件（部屋が未アーカイブ、部署が有効、お知らせ専用の役割、公開・非公開）は変えていない。書き込みが0行・見えないときの Service の扱い（原因を読み分け、見えないものは 404）も変えていない。
+
+| 区分 | ファイル（関数） | 経路 |
+| --- | --- | --- |
+| 書き込み | `message.repository.ts`（`insertIfOrdered`の`postable`） | 投稿（添付の結び付けを含む） |
+| 書き込み | `reply-insert.sql.ts` | 返信 |
+| 書き込み | `message-modify.sql.ts`（`modifiable`） | 投稿の編集・削除 |
+| 書き込み | `message-reactions.sql.ts`（`reactable`） | リアクションの追加・取り消し |
+| 書き込み | `read-position-advance.sql.ts` | 既読位置の前進 |
+| 書き込み | `thread-read-advance.sql.ts` | スレッドの既読位置の前進 |
+| 読み取り | `channel.repository.ts`（`list`の`joined`） | チャンネル一覧の参加中の判定・非公開の表示 |
+| 読み取り | `channel.repository.ts`（`findForViewer`の`joinedAt`） | チャンネルの詳細・メンバーの一覧、メッセージの一覧・返信・スレッド・メンションの候補・未読の呼び出し元の判定 |
+| 読み取り | `thread-list.sql.ts` | スレッドの一覧 |
+| 読み取り | `attachment-visibility.sql.ts`（`attachmentVisible`） | 添付の配信 |
+| 読み取り | `unread-targets.sql.ts` | 未読の対象・未読の数 |
+| 読み取り | `notification.repository.ts`（`viewableRoom`） | 通知の一覧・未読数・既読（部屋の内容を含む種類の閲覧の可否） |
+| 読み取り | `channel.repository.ts`（`findForManage`の`isMember`） | チャンネルの管理の操作の資格。計画の洗い出しにはなかったが、資格の判定に使われていたので足した |
+
+- 共通の部品：`room-visibility.sql.ts`の`roomViewableBy(roomId, viewerId)`（下の「中身の読み取り」）、`channel-member.sql.ts`の`activeChannelMember`（`EXISTS`の条件。書き込み・スレッド・添付・通知）と、`activeMembershipJoin`（drizzle の`channel_members`の外部結合の条件。`list`・`findForViewer`・`findForManage`。閲覧者の有効性は主キーで1行を引く）。`unread-targets.sql.ts`は、既存の結合に`users`の有効性の結合を足した
+- 変えなかったもの：①招待の相手が参加済みかの判定（`channel.repository.ts`の`findInvitee`の`joined`。相手が無効なら、先に 404 になる）、②公開チャンネルの閲覧・公開チャンネルへの参加、③DM（`conversation_members`。当事者に無効な社員がいれば読めない・書けない既存の条件がある）、④参加者数・参加者の一覧（もともと`users.is_active = 1`で数える）、⑤通知・メンションの宛先（`eligibleMentionRecipient`など。もともと有効な利用者だけに絞っている）
+- 有効な参加者から見える動きは変えていない。変わるのは、参加の行だけが残った無効な利用者と、認証の後に無効化が確定した処理中の要求の扱い。管理の権限のない無効な利用者の、チャンネルの管理の操作は、403 ではなく 404（見えない）になる
+- **中身の読み取り（コードレビュー1回目の重大への対応）**：`findForViewer`が「参加中」を返した後、本文・返信・参加者を読む別の SQL の前に無効化が確定すると、後ろの SQL が資格を確かめ直さず、非公開の中身が返る。そこで、見える・見えないの規則（閲覧者が有効で、チャンネルなら、未アーカイブで、公開か閲覧者が参加している非公開。DM なら当事者）を、`room-visibility.sql.ts`の`roomViewableBy`にまとめ、中身を読む SQL の条件に入れた。閲覧者が無効なら、公開チャンネル・DM も返さない（有効な閲覧者に返す結果は変えていない）
+
+| 区分 | ファイル（関数） | 経路 |
+| --- | --- | --- |
+| 中身の読み取り（メッセージ5） | `message.repository.ts`（`listLatest`・`listAfter`・`findItem`・`listRepliesLatest`・`listRepliesAfter`） | メッセージの一覧・1件・返信の一覧。SQL に`roomViewableBy`を入れた |
+| 中身の読み取り（参加者2） | `channel.repository.ts`（`countMembers`・`listMembers`） | 閲覧者を必須で受け取り、有効な参加者でなければ 0・空。チャンネルの詳細は、非公開で 0 なら 404。公開チャンネルの非参加者は、これまでどおり、参加者の情報なしで 200 |
+| 中身の読み取り（メンションの候補1） | `listMentionCandidates`の`visibleTo`（必須） | 部屋を見てよい閲覧者にだけ名簿を返す |
+| 規則の寄せ直し | `attachment-visibility.sql.ts`の`attachmentVisible`、`notification.repository.ts`の`viewableRoom` | `roomViewableBy`を使う形に寄せた |
+
+- DM の「当事者に無効な社員がいれば読めない」は、既存の規則（読めなくするのは送信だけ）のまま変えていない
+- 経路の数：計画は「書き込み6・読み取り7」だったが、実装で変えたのは、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り（メッセージ5・参加者2・メンションの候補1）。招待の相手の判定（`findInvitee`）は変えていない
+- テストの場所：`backend/src/db/channel-member.active-writes.db.test.ts`（書き込み6経路。参加の行を残したまま操作者を無効にすると何も残らない）、`backend/src/db/channel-member.active-reads.db.test.ts`（読み取りの各経路）、`backend/src/services/channel-member.active-race.test.ts`（認証の後・取得の前に無効化が確定する競合）
 
 ## 設計の方針：中身を読む SQL の条件に、その時点の資格を入れる
 
 - 資格（有効な参加者・管理の資格）を先に確かめてから、別の読み取りで中身（説明・参加者・参加者数）を読む書き方はしない。確かめた後、読むまでの間に無効化・交代が確定した処理中の要求に、中身が返ってしまうため（コードレビュー1回目の重大2件。C-182）
 - 詳細（`findDetailExtras`）：案件の行（説明・チャンネルの ID・作成者）と参加者の一覧を、**1つの`db.batch`で読み**、どちらの文にも「操作者が有効な参加者である」条件（`activeChannelMember`）を入れる。案件の行の側は、資格の判定結果（`visible`）と一緒に読み、資格がなければ中身を捨てて`not_visible`を返す。参加者の一覧の側は、条件を満たさなければ0行になる。案件がなければ`not_found`。Service は、`not_found`を 404、`not_visible`を 403 に分ける
 - 参加者数・`canManage`：`list`・`findSummary`が、操作者の ID だけを受け取り、行を読む SQL の中で決める（`participantCount`は、同じ文の中で、有効な参加者か管理の資格のある行にだけ数える）
-- 後の子（147-C-1・147-B）も同じ方針にする：書き込みは前提を batch の先頭の条件にし、読み取りは中身を読む SQL に資格を入れる。Service の事前の判定は、エラーの分類（403・404）のためのもので、最後の砦ではない
+- 後の子（147-C-1・147-B）も同じ方針にする：書き込みは前提を batch の先頭の条件にし、読み取りは中身を読む SQL に資格を入れる。資格を確かめる読み取りと、中身の読み取りが別の文になっている既存の経路にも、同じ方針を通した（147-C-1。`roomViewableBy`）。**後の変更で、部屋の中身を読む SQL を足すときは、`roomViewableBy`を条件に入れる。**Service の事前の判定は、エラーの分類（403・404）のためのもので、最後の砦ではない
 
 ## 管理の資格と参加者数
 
@@ -132,7 +169,7 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 | 名前・番号での絞り込み（S-16・5-1 AC-19） | 作らない。方式が未決定（#155） |
 | S-16 の「自分の申請」の状況 | 出さない。S-18 の「自分の申請」に置いたまま |
 | 参加者の追加・削除・退出、納期の変更、S-18 の参加者の管理、参加者の役割の名前の表示（Q8）、`canEditDueDate` | 147-B |
-| 参加の行を使うチャンネルの経路を「有効な参加者」に変えること | 147-C-1。147-C-2 の前提 |
+| 参加の行を使うチャンネルの経路を「有効な参加者」に変えること | 147-C-1 で実装済み（147-C-2 の前提）。記録を残す変更は147-C-2 |
 | 無効化で案件の参加の記録を残すこと・AC-15 の守り・オーナー交代による自動参加・既存の案件の補完 | 147-C-2。いまの無効化は、案件の参加の行も消す（C-142(1)と食い違う既存の挙動。147-C-2 で直す） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
 | 本番の D1 への適用 | migration がないため該当しない |
