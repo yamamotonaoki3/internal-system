@@ -113,6 +113,158 @@ const CHANGING = ["POST", "PUT", "PATCH", "DELETE"];
 type Operation = { responses: Record<string, unknown> };
 
 /** 仕様書の操作（名前は "GET /api/health" の形） */
+// #289: ULID の形の pattern の番人。pattern の中身ではなく、項目の名前で ID を集める（別の書き方の緩い形式も検出するため）。
+type JsonObject = Record<string, unknown>;
+const isObject = (node: unknown): node is JsonObject =>
+  node !== null && typeof node === "object" && !Array.isArray(node);
+// ULID ではない ID の名前。ULID として検証されていない（実装の検証と仕様が一致している）ため、対象から外す
+const NON_ULID_ID_NAMES: Record<string, string> = {
+  // 利用者が決める文字列（英数字と . _ -。3〜32文字）で、ULID ではない
+  loginId: "利用者が決めるログイン用の文字列",
+  // リクエストごとの追跡用の ID で、ULID ではない
+  traceId: "追跡用の ID",
+};
+// 実装が ULID の形を検証せず、長さだけを検証するパスのパラメータ（形式の違う ID も存在しない ID と同じく 404 にするため）。
+// 仕様が実装と一致するよう pattern を付けない。対象は「パス」と「パラメータ名」の組で、スキーマのプロパティは外さない
+const LENGTH_ONLY_PATH_PARAMETERS = new Set([
+  "/api/rooms/{roomId}/attachments|roomId",
+  "/api/rooms/{roomId}/mention-candidates|roomId",
+  "/api/rooms/{roomId}/messages|roomId",
+  "/api/messages/{messageId}/replies/attachments|messageId",
+  "/api/messages/{messageId}|messageId",
+  "/api/messages/{messageId}/reactions|messageId",
+  "/api/messages/{messageId}/reactions/{kind}/{value}|messageId",
+  "/api/messages/{messageId}/replies|messageId",
+  "/api/me/notifications/{notificationId}/read|notificationId",
+  "/api/case-requests/{requestId}/withdraw|requestId",
+  "/api/case-requests/{requestId}/approve|requestId",
+  "/api/case-requests/{requestId}/reject|requestId",
+  "/api/retirement-requests/{requestId}/withdraw|requestId",
+  "/api/admin/retirement-requests/{requestId}/reject|requestId",
+]);
+const isLengthOnlyPathParameter = (name: string, path: string) => {
+  const route =
+    /^\/paths\/(\/.+)\/(?:get|post|put|patch|delete)\/parameters\[\d+\]\/schema$/.exec(
+      path,
+    )?.[1];
+  return (
+    route !== undefined && LENGTH_ONLY_PATH_PARAMETERS.has(route + "|" + name)
+  );
+};
+const isIdName = (name: string) => name === "id" || name.endsWith("Id");
+const resolveRef = (root: unknown, node: unknown): unknown => {
+  let current = node;
+  for (let i = 0; i < 10; i++) {
+    if (!isObject(current) || typeof current.$ref !== "string") return current;
+    let target: unknown = root;
+    for (const key of current.$ref.replace("#/", "").split("/"))
+      target = isObject(target) ? target[key] : undefined;
+    current = target;
+  }
+  return current;
+};
+const isStringSchema = (root: unknown, schema: unknown) => {
+  const resolved = resolveRef(root, schema);
+  if (!isObject(resolved)) return false;
+  return Array.isArray(resolved.type)
+    ? resolved.type.includes("string")
+    : resolved.type === "string";
+};
+// ID を表す項目（パス・クエリのパラメータ、スキーマのプロパティ、Ids で終わる配列の要素）の schema を、JSON のパスつきで集める
+const collectIdSchemas = (root: unknown) => {
+  const found: { path: string; schema: unknown }[] = [];
+  const consider = (name: string, schema: unknown, path: string) => {
+    if (NON_ULID_ID_NAMES[name] !== undefined) return;
+    if (isLengthOnlyPathParameter(name, path)) return;
+    const resolved = resolveRef(root, schema);
+    if (isIdName(name) && isStringSchema(root, resolved))
+      found.push({ path, schema: resolved });
+    else if (name.endsWith("Ids") && isObject(resolved) && resolved.items)
+      found.push({
+        path: path + "/items",
+        schema: resolveRef(root, resolved.items),
+      });
+  };
+  const walk = (node: unknown, path: string) => {
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => walk(child, path + "[" + i + "]"));
+      return;
+    }
+    if (!isObject(node)) return;
+    if (
+      typeof node.name === "string" &&
+      (node.in === "path" || node.in === "query")
+    )
+      consider(node.name, node.schema, path + "/schema");
+    if (isObject(node.properties))
+      for (const [name, schema] of Object.entries(node.properties))
+        consider(name, schema, path + "/properties/" + name);
+    for (const [key, value] of Object.entries(node))
+      walk(value, path + "/" + key);
+  };
+  walk(root, "");
+  return found;
+};
+// Crockford の文字クラスを使う pattern を、JSON のパスつきで集める
+const collectCrockfordPatterns = (root: unknown) => {
+  const found: { path: string; schema: unknown }[] = [];
+  const walk = (node: unknown, path: string) => {
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => walk(child, path + "[" + i + "]"));
+      return;
+    }
+    if (!isObject(node)) return;
+    for (const [key, value] of Object.entries(node)) {
+      if (
+        key === "pattern" &&
+        typeof value === "string" &&
+        value.includes("0-9A-HJKMNP-TV-Z")
+      )
+        found.push({ path, schema: node });
+      else walk(value, path + "/" + key);
+    }
+  };
+  walk(root, "");
+  return found;
+};
+const ULID_VALID_SAMPLES = [
+  "01JTESTCASE147A00000000001",
+  "01JTESTCASE289A00000000002",
+  "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
+  "00000000000000000000000000",
+];
+const ULID_INVALID_SAMPLES = [
+  "81JTESTCASE147A00000000001",
+  "91JTESTCASE147A00000000001",
+  "A1JTESTCASE147A00000000001",
+  "01JTESTCASE147A0000000001",
+  "01JTESTCASE147A000000000011",
+  "01jtestcase147a00000000001",
+  "01JTESTCASE147A0000000000I",
+  "01JTESTCASE147A0000000000L",
+  "01JTESTCASE147A0000000000O",
+  "01JTESTCASE147A0000000000U",
+];
+// schema の pattern が ULID_PATTERN と同じ判定か（pattern が無い場合も「合わない」）
+const matchesUlidRules = (schema: unknown) => {
+  if (!isObject(schema) || typeof schema.pattern !== "string") return false;
+  const re = new RegExp(schema.pattern);
+  return [...ULID_VALID_SAMPLES, ...ULID_INVALID_SAMPLES].every(
+    (sample) => re.test(sample) === ULID_PATTERN.test(sample),
+  );
+};
+const findMismatchedUlidPaths = (root: unknown) => [
+  ...collectIdSchemas(root)
+    .filter(({ schema }) => !matchesUlidRules(schema))
+    .map(({ path, schema }) => {
+      const pattern = isObject(schema) ? schema.pattern : undefined;
+      return path + " (pattern: " + String(pattern) + ")";
+    }),
+  ...collectCrockfordPatterns(root)
+    .filter(({ schema }) => !matchesUlidRules(schema))
+    .map(({ path, schema }) => path + " [Crockford] " + JSON.stringify(schema)),
+];
+
 const operations = Object.entries(spec.paths).flatMap(([path, item]) =>
   Object.entries(item as Record<string, Operation>)
     .filter(([method]) => METHODS.includes(method))
@@ -481,59 +633,47 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
-  it("#289 AC-1: API 仕様の全体で、ULID の形を表す pattern は、shared/ulid-rules.ts の ULID_PATTERN と同じ判定になる", () => {
-    // Crockford Base32 の文字クラスを使う pattern を、API 仕様の全体から再帰的に集める（場所は JSON のパスで示す）。
-    // 集まる pattern はすべて ULID 単体の形で、複数をつなげた形・カーソルの pattern は無いため、対象から外す条件は置かない
-    const found: { path: string; pattern: string }[] = [];
-    const walk = (node: unknown, path: string) => {
-      if (Array.isArray(node)) {
-        node.forEach((child, i) => walk(child, `${path}[${i}]`));
-        return;
-      }
-      if (node === null || typeof node !== "object") return;
-      for (const [key, value] of Object.entries(node)) {
-        if (
-          key === "pattern" &&
-          typeof value === "string" &&
-          value.includes("0-9A-HJKMNP-TV-Z")
-        )
-          found.push({ path, pattern: value });
-        else walk(value, `${path}/${key}`);
-      }
-    };
-    walk(spec, "");
-    expect(found.length).toBeGreaterThan(0);
-    const valid = [
-      "01JTESTCASE147A00000000001",
-      "01JTESTCASE289A00000000002",
-      "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
-      "00000000000000000000000000",
-    ];
-    const invalid = [
-      "81JTESTCASE147A00000000001",
-      "91JTESTCASE147A00000000001",
-      "A1JTESTCASE147A00000000001",
-      "01JTESTCASE147A0000000001",
-      "01JTESTCASE147A000000000011",
-      "01jtestcase147a00000000001",
-      "01JTESTCASE147A0000000000I",
-      "01JTESTCASE147A0000000000L",
-      "01JTESTCASE147A0000000000O",
-      "01JTESTCASE147A0000000000U",
-    ];
-    // 見本自体が ULID_PATTERN の判定どおりであること（見本の書き間違いを防ぐ）
-    for (const sample of valid)
+  it("#289 AC-1: API 仕様の全体で、ID の項目（名前が id・〜Id・〜Ids）の pattern は、shared/ulid-rules.ts の ULID_PATTERN と同じ判定になる（pattern の無い項目も失敗）", () => {
+    // 集める対象（空振りしない）と、見本自体が ULID_PATTERN の判定どおりであること（見本の書き間違いを防ぐ）
+    expect(collectIdSchemas(spec).length).toBeGreaterThan(0);
+    expect(collectCrockfordPatterns(spec).length).toBeGreaterThan(0);
+    for (const sample of ULID_VALID_SAMPLES)
       expect(ULID_PATTERN.test(sample), sample).toBe(true);
-    for (const sample of invalid)
+    for (const sample of ULID_INVALID_SAMPLES)
       expect(ULID_PATTERN.test(sample), sample).toBe(false);
-    const mismatched = found.filter(({ pattern }) => {
-      const re = new RegExp(pattern);
-      return [...valid, ...invalid].some(
-        (sample) => re.test(sample) !== ULID_PATTERN.test(sample),
-      );
-    });
-    expect(mismatched.map(({ path, pattern }) => `${path} ${pattern}`)).toEqual(
-      [],
+    expect(findMismatchedUlidPaths(spec)).toEqual([]);
+  });
+  it("#289 AC-2: 番人は、別の書き方の緩い pattern・pattern の無い ID の項目を検出できる", () => {
+    const original = JSON.stringify(spec);
+    const clone = () => JSON.parse(original) as typeof spec;
+    expect(findMismatchedUlidPaths(clone())).toEqual(
+      findMismatchedUlidPaths(spec),
+    );
+    const idSchemas = (root: typeof spec) =>
+      collectIdSchemas(root).filter(({ schema }) => matchesUlidRules(schema));
+    // 緩い pattern（Crockford の文字クラスを使わない書き方）に変える
+    const loose = clone();
+    const target = idSchemas(loose)[0]?.schema as JsonObject;
+    expect(target).toBeDefined();
+    target.pattern = "^[0-9A-Z]{26}$";
+    expect(matchesUlidRules(target)).toBe(false);
+    expect(findMismatchedUlidPaths(loose).length).toBeGreaterThan(
+      findMismatchedUlidPaths(spec).length,
+    );
+    // pattern を消す
+    const missing = clone();
+    const target2 = idSchemas(missing)[0]?.schema as JsonObject;
+    delete target2.pattern;
+    expect(matchesUlidRules(target2)).toBe(false);
+    expect(findMismatchedUlidPaths(missing).length).toBeGreaterThan(
+      findMismatchedUlidPaths(spec).length,
+    );
+    // 緩い形式の Crockford の pattern も検出する
+    const crockford = clone();
+    const target3 = idSchemas(crockford)[0]?.schema as JsonObject;
+    target3.pattern = "^[0-9A-HJKMNP-TV-Z]{26}$";
+    expect(findMismatchedUlidPaths(crockford).length).toBeGreaterThan(
+      findMismatchedUlidPaths(spec).length,
     );
   });
   it("#136 AC-1・AC-3（C-168(2)・(4)・(5)・(7)）: DM の開始・一覧・詳細と、メッセージの DM の枝の応答コードが書かれている", () => {
