@@ -1,6 +1,7 @@
 // S-29 の審査一覧。読み込み中・エラー・なし・ありの4つの状態を出し分ける。状態で絞り込む（既定は承認待ち）。
 // 承認（候補を足すダイアログ）・却下（理由のダイアログ）は再認証を経ない（C-81）。決裁できない申請（canApprove=false）にはボタンを出さない。
 // 409 はサーバーの文言をそのまま一覧の上に出し、一覧を取り直す（useDecideCaseRequest）。却下の理由は文字列として出す。
+// 422 で fields に該当の欄（候補・理由）があるときは、ダイアログを開いたまま入力を残し、その欄のエラーとして出す。
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
@@ -11,7 +12,7 @@ import {
   type CaseRequestReviewItem,
   type CaseRequestStatus,
 } from "../api/case-request-api";
-import { describeError } from "../describe-error";
+import { describeError, isApiError } from "../describe-error";
 import { useDecideCaseRequest } from "../hooks/useDecideCaseRequest";
 import { useReviewCaseRequests } from "../hooks/useReviewCaseRequests";
 import { STATUS_LABELS } from "../labels";
@@ -36,6 +37,7 @@ function isCaseRequestStatus(value: string): value is CaseRequestStatus {
 type ApproveDialogProps = {
   item: CaseRequestReviewItem;
   pending: boolean;
+  candidateError?: string;
   onSubmit: (additionalCandidateIds: string[]) => void;
   onClose: () => void;
 };
@@ -44,6 +46,7 @@ type ApproveDialogProps = {
 function ApproveDialog({
   item,
   pending,
+  candidateError,
   onSubmit,
   onClose,
 }: ApproveDialogProps) {
@@ -73,6 +76,7 @@ function ApproveDialog({
         <CandidatePicker
           selfId={item.requesterId}
           selected={added}
+          error={candidateError}
           onChange={setAdded}
         />
         <div className="flex gap-2">
@@ -99,22 +103,42 @@ export function CaseRequestReviewList() {
   const [rejecting, setRejecting] = useState<CaseRequestReviewItem | null>(
     null,
   );
+  // 422 で該当の欄が示されたときのサーバーの文（ダイアログの欄に出す）
+  const [fieldError, setFieldError] = useState<string>();
   const requests = useReviewCaseRequests(status);
   const decide = useDecideCaseRequest();
 
+  // 該当の欄があれば、ダイアログを閉じずにその欄の文を覚える。なければ閉じて、一覧の上に出す
+  function settle(field: string, error: unknown, close: () => void) {
+    if (isApiError(error) && error.fields?.includes(field)) {
+      setFieldError(error.message);
+      return;
+    }
+    close();
+  }
+
   function approve(item: CaseRequestReviewItem, ids: string[]) {
     if (decide.isPending) return;
-    // 成功しても失敗しても確認を閉じる。失敗の理由は一覧の上に出す
+    // 成功しても、候補の欄以外の失敗でも確認を閉じる。失敗の理由は一覧の上に出す
+    setFieldError(undefined);
     decide.mutate(
       { kind: "approve", requestId: item.id, additionalCandidateIds: ids },
-      { onSettled: () => setApproving(null) },
+      {
+        onSuccess: () => setApproving(null),
+        onError: (error) =>
+          settle("additionalCandidateIds", error, () => setApproving(null)),
+      },
     );
   }
 
   function reject(item: CaseRequestReviewItem, reason: string) {
+    setFieldError(undefined);
     decide.mutate(
       { kind: "reject", requestId: item.id, reason },
-      { onSettled: () => setRejecting(null) },
+      {
+        onSuccess: () => setRejecting(null),
+        onError: (error) => settle("reason", error, () => setRejecting(null)),
+      },
     );
   }
 
@@ -148,6 +172,7 @@ export function CaseRequestReviewList() {
                       aria-label={`${item.title}の申請を承認する`}
                       onClick={() => {
                         decide.reset();
+                        setFieldError(undefined);
                         setApproving(item);
                       }}
                     >
@@ -159,6 +184,7 @@ export function CaseRequestReviewList() {
                       aria-label={`${item.title}の申請を却下する`}
                       onClick={() => {
                         decide.reset();
+                        setFieldError(undefined);
                         setRejecting(item);
                       }}
                     >
@@ -226,7 +252,7 @@ export function CaseRequestReviewList() {
           </option>
         ))}
       </SelectField>
-      {decide.isError && (
+      {decide.isError && fieldError === undefined && (
         <Alert tone="error" role="alert">
           {describeError(decide.error)}
         </Alert>
@@ -236,6 +262,7 @@ export function CaseRequestReviewList() {
         <ApproveDialog
           item={approving}
           pending={decide.isPending}
+          candidateError={fieldError}
           onSubmit={(ids) => approve(approving, ids)}
           onClose={() => setApproving(null)}
         />
@@ -243,6 +270,7 @@ export function CaseRequestReviewList() {
       {rejecting !== null && (
         <RejectReasonDialog
           pending={decide.isPending}
+          serverError={fieldError}
           onSubmit={(reason) => reject(rejecting, reason)}
           onClose={() => setRejecting(null)}
         />

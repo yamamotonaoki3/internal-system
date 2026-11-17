@@ -134,7 +134,7 @@ test("#146 5-3 AC-3・S-29: メンバーのメニューには「案件承認」�
   await expect(page).toHaveURL(/\/case-requests$/);
   await expect(cardOf(page, APPROVE_TITLE)).toContainText("承認済み");
   // 5-1 AC-18：申請者の自分の申請に案件番号が出る（取引先コード QKF・日本時間の承認日・連番）
-  await expect(cardOf(page, APPROVE_TITLE)).toContainText(/QKF-d{6}-d{4}/);
+  await expect(cardOf(page, APPROVE_TITLE)).toContainText(/QKF-\d{6}-\d{4}/);
   await expect(cardOf(page, REJECT_TITLE)).toContainText("却下");
   await expect(cardOf(page, REJECT_TITLE)).toContainText(REJECT_REASON);
 });

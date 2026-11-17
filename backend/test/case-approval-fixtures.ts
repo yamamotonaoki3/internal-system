@@ -268,6 +268,20 @@ export async function cleanupCaseApprovalTestData() {
       env.DB.prepare(
         `DELETE FROM notifications WHERE room_id IN (${inRooms})`,
       ).bind(rooms),
+      // メッセージを参照する行（リアクション・メンション・スレッドの既読位置・添付）を、メッセージより先に消す
+      // （投稿者・付けた人がテストの利用者でなくても。#146 レビュー1回目の後始末の不足）
+      env.DB.prepare(
+        `DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM messages WHERE room_id IN (${inRooms}))`,
+      ).bind(rooms),
+      env.DB.prepare(
+        `DELETE FROM message_mentions WHERE message_id IN (SELECT id FROM messages WHERE room_id IN (${inRooms}))`,
+      ).bind(rooms),
+      env.DB.prepare(
+        `DELETE FROM thread_read_positions WHERE parent_message_id IN (SELECT id FROM messages WHERE room_id IN (${inRooms}))`,
+      ).bind(rooms),
+      env.DB.prepare(
+        `DELETE FROM message_attachments WHERE room_id IN (${inRooms}) OR message_id IN (SELECT id FROM messages WHERE room_id IN (${inRooms}))`,
+      ).bind(rooms),
       env.DB.prepare(`DELETE FROM messages WHERE room_id IN (${inRooms})`).bind(
         rooms,
       ),

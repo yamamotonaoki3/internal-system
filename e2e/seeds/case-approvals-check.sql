@@ -4,7 +4,9 @@ SELECT
   (SELECT COUNT(*) FROM cases c
      JOIN case_creation_requests r ON r.case_id = c.id
      WHERE r.id = '01JTE2E00000000000B0008146' AND r.status = 'approved'
-       AND c.case_number GLOB 'QKF-[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]') AS check_case_count,
+       -- D1 の GLOB のパターンは 50 バイトまで。形（QKF-6桁-4桁）は、長さと、数字だけの部分に分けて確かめる
+       AND length(c.case_number) = 15 AND c.case_number GLOB 'QKF-[0-9]*' AND substr(c.case_number, 11, 1) = '-'
+       AND substr(c.case_number, 5, 6) NOT GLOB '*[^0-9]*' AND substr(c.case_number, 12, 4) NOT GLOB '*[^0-9]*') AS check_case_count,
   (SELECT COUNT(*) FROM channels ch
      JOIN cases c ON c.channel_id = ch.room_id
      WHERE c.request_id = '01JTE2E00000000000B0008146'

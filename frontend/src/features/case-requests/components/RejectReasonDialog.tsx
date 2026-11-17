@@ -6,11 +6,18 @@ import { TextAreaField } from "../../../components/TextAreaField";
 
 type Props = {
   pending: boolean;
+  /** サーバーが理由の欄の誤りとして返した文（422）。入力は残し、欄のエラーとして出す */
+  serverError?: string;
   onSubmit: (reason: string) => void;
   onClose: () => void;
 };
 
-export function RejectReasonDialog({ pending, onSubmit, onClose }: Props) {
+export function RejectReasonDialog({
+  pending,
+  serverError,
+  onSubmit,
+  onClose,
+}: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string>();
@@ -49,7 +56,7 @@ export function RejectReasonDialog({ pending, onSubmit, onClose }: Props) {
             hint="1〜200文字。申請した人に表示されます"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            error={error}
+            error={error ?? serverError}
           />
           <div className="flex gap-2">
             <Button type="submit" variant="danger" disabled={pending}>

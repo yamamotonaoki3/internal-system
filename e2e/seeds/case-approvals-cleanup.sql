@@ -10,6 +10,18 @@ WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name G
 DELETE FROM notifications
 WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*')
    OR user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_caseapp!_%' ESCAPE '!');
+-- 案件専用チャンネルのメッセージと、それを参照する行（リアクション・メンション・スレッドの既読位置・添付）。投稿者・付けた人が E2E の利用者でなくても消す
+DELETE FROM message_reactions
+WHERE message_id IN (SELECT id FROM messages WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*'));
+DELETE FROM message_mentions
+WHERE message_id IN (SELECT id FROM messages WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*'));
+DELETE FROM thread_read_positions
+WHERE parent_message_id IN (SELECT id FROM messages WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*'));
+DELETE FROM message_attachments
+WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*')
+   OR message_id IN (SELECT id FROM messages WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*'));
+DELETE FROM messages
+WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*');
 DELETE FROM channel_members
 WHERE channel_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKF-*');
 DELETE FROM case_departments

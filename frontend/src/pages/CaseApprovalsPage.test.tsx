@@ -435,3 +435,126 @@ describe("#146 5-3 AC-6 却下", () => {
     );
   });
 });
+
+// #146 レビュー1回目（軽微）：422 の fields は、該当の入力欄に関連付ける（Skill「frontend-state」）。ダイアログは開いたまま・入力は残す。
+// fields に該当のない失敗（409 など）は、これまでどおり一覧の上に出してダイアログを閉じる（上のテスト）。
+function describedText(element: HTMLElement): string {
+  const ids = (element.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter((id) => id !== "");
+  return ids
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+}
+
+describe("#146 レビュー1回目（軽微）：承認・却下の 422 を該当の欄に出す", () => {
+  const CANDIDATE_MESSAGE = "追加の候補に、承認できない人が含まれています";
+  const REASON_MESSAGE = "却下の理由を1〜200文字で入力してください";
+
+  it("#146 error-api・5-3 AC-5: 承認で 422（additionalCandidateIds）なら、ダイアログは開いたまま・足した候補の選択は残り、候補の欄が aria-invalid になってエラーが説明として関連付く", async () => {
+    respondChoices();
+    respondReviewCaseRequests([target]);
+    const sent = failPost(`/api/case-requests/${target.id}/approve`, 422, {
+      code: "VALIDATION_ERROR",
+      message: CANDIDATE_MESSAGE,
+      fields: ["additionalCandidateIds"],
+    });
+    const { user } = renderPage();
+    const card = await findCard("[UNIT_TEST]保守契約");
+    await user.click(within(card).getByRole("button", { name: APPROVE_NAME }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "案件の作成の承認",
+    });
+    const search = within(dialog).getByRole("textbox", { name: "候補の検索" });
+    await user.type(search, "testuser");
+    await user.click(
+      await within(dialog).findByRole("button", {
+        name: `${CANDIDATE.displayName}を追加`,
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "承認する" }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getByRole("textbox", { name: "候補の検索" })
+          .getAttribute("aria-invalid"),
+      ).toBe("true"),
+    );
+    expect(
+      describedText(
+        within(dialog).getByRole("textbox", { name: "候補の検索" }),
+      ),
+    ).toContain(CANDIDATE_MESSAGE);
+    // ダイアログは開いたままで、足した候補の選択も残る
+    expect(
+      screen.getByRole("dialog", { name: "案件の作成の承認" }),
+    ).toBeTruthy();
+    expect(within(dialog).getByText(CANDIDATE.displayName)).toBeTruthy();
+    expect(
+      within(dialog).getByRole("button", {
+        name: `${CANDIDATE.displayName}を外す`,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("#146 error-api・5-3 AC-6: 却下で 422（reason）なら、ダイアログは開いたまま・入力した理由は残り、理由の欄が aria-invalid になってエラーが説明として関連付く", async () => {
+    respondReviewCaseRequests([target]);
+    const sent = failPost(`/api/case-requests/${target.id}/reject`, 422, {
+      code: "VALIDATION_ERROR",
+      message: REASON_MESSAGE,
+      fields: ["reason"],
+    });
+    const { user } = renderPage();
+    const card = await findCard("[UNIT_TEST]保守契約");
+    await user.click(within(card).getByRole("button", { name: REJECT_NAME }));
+    const dialog = await screen.findByRole("dialog", { name: "却下の理由" });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "理由" }),
+      "件名を見直してください",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "却下する" }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getByRole("textbox", { name: "理由" })
+          .getAttribute("aria-invalid"),
+      ).toBe("true"),
+    );
+    const reasonInput = within(dialog).getByRole("textbox", { name: "理由" });
+    expect(describedText(reasonInput)).toContain(REASON_MESSAGE);
+    expect((reasonInput as HTMLTextAreaElement).value).toBe(
+      "件名を見直してください",
+    );
+    expect(screen.getByRole("dialog", { name: "却下の理由" })).toBeTruthy();
+  });
+
+  it("#146 error-api: 承認の 422 で fields に additionalCandidateIds がないとき（別の欄名）は、これまでどおり確認を閉じて一覧の上に出す", async () => {
+    respondReviewCaseRequests([target]);
+    failPost(`/api/case-requests/${target.id}/approve`, 422, {
+      code: "VALIDATION_ERROR",
+      message: "入力が正しくありません",
+      fields: ["unknownField"],
+    });
+    const { user } = renderPage();
+    const card = await findCard("[UNIT_TEST]保守契約");
+    await user.click(within(card).getByRole("button", { name: APPROVE_NAME }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "案件の作成の承認",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "承認する" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("alert")
+          .some((a) => a.textContent?.includes("入力が正しくありません")),
+      ).toBe(true),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "案件の作成の承認" }),
+    ).toBeNull();
+  });
+});
