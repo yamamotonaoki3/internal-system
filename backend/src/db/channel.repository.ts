@@ -1,6 +1,6 @@
 // Repository：チャンネルの一覧・詳細・参加（DB へのアクセスはこの層に閉じ込める）。
 // 参加の行と、参加の監査ログは、同じ db.batch で確定する（片方が失敗したら、どちらも残さない）。
-import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { channelMembers, channels, departments, users } from "../../db/schema";
 import type { ChannelVisibility } from "../lib/channel-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
@@ -75,7 +75,8 @@ export function createChannelRepository(db: Database) {
         .limit(1);
       return rows.length > 0;
     },
-    // 閲覧者が見てよいもの：アーカイブされていない、公開または参加中の非公開
+    // 閲覧者が見てよいもの：アーカイブされていない、公開または参加中の非公開。
+    // 案件専用チャンネルは参加者にも一覧に出さない（案件の画面から開く。#146 5-1 AC-6）
     async list(viewerId: string, options: ChannelListOptions) {
       const joinedFilter =
         options.joined === undefined
@@ -107,6 +108,7 @@ export function createChannelRepository(db: Database) {
         .where(
           and(
             isNull(channels.deletedAt),
+            ne(channels.purpose, "case"),
             or(
               eq(channels.visibility, "public"),
               isNotNull(channelMembers.userId),

@@ -32,6 +32,8 @@ export const ACTION_LABELS: ReadonlyMap<string, string> = new Map([
   ["channel_request.withdraw", "チャンネル作成の取り下げ"],
   ["case_request.create", "案件の作成の申請"],
   ["case_request.withdraw", "案件の作成の申請の取り下げ"],
+  ["case_request.approve", "案件の作成の申請の承認"],
+  ["case_request.reject", "案件の作成の申請の却下"],
   ["retirement_request.create", "退職処理の申請"],
   ["retirement_request.reject", "退職処理の申請の却下"],
   ["retirement_request.withdraw", "退職処理の申請の取り下げ"],

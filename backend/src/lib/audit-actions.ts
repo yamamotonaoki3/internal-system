@@ -32,6 +32,8 @@ export const AUDIT_ACTIONS = [
   "retirement_request.create",
   "retirement_request.reject",
   "retirement_request.withdraw",
+  "case_request.approve",
+  "case_request.reject",
   "message.delete",
   "audit_log.view",
 ] as const;

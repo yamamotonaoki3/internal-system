@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bd75e1b6-3840-434b-8eb2-1ef0a196dfe2",
+  "id": "af8329ad-f4f3-4dab-8014-898e782abad6",
   "prevId": "4b9b7345-625f-4308-822d-bcad2fad60c1",
   "tables": {
     "audit_logs": {
@@ -76,34 +76,6 @@
         "audit_logs_occurred_at_id_idx": {
           "name": "audit_logs_occurred_at_id_idx",
           "columns": [
-            "occurred_at",
-            "id"
-          ],
-          "isUnique": false
-        },
-        "audit_logs_actor_occurred_idx": {
-          "name": "audit_logs_actor_occurred_idx",
-          "columns": [
-            "actor_id",
-            "occurred_at",
-            "id"
-          ],
-          "isUnique": false
-        },
-        "audit_logs_action_occurred_idx": {
-          "name": "audit_logs_action_occurred_idx",
-          "columns": [
-            "action",
-            "occurred_at",
-            "id"
-          ],
-          "isUnique": false
-        },
-        "audit_logs_target_occurred_idx": {
-          "name": "audit_logs_target_occurred_idx",
-          "columns": [
-            "target_type",
-            "target_id",
             "occurred_at",
             "id"
           ],
@@ -482,6 +454,356 @@
         "case_creation_requests_due_date_check": {
           "name": "case_creation_requests_due_date_check",
           "value": "\"case_creation_requests\".\"due_date\" is null or \"case_creation_requests\".\"due_date\" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'"
+        }
+      }
+    },
+    "case_departments": {
+      "name": "case_departments",
+      "columns": {
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "department_id": {
+          "name": "department_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_departments_department_id_idx": {
+          "name": "case_departments_department_id_idx",
+          "columns": [
+            "department_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "case_departments_case_id_cases_id_fk": {
+          "name": "case_departments_case_id_cases_id_fk",
+          "tableFrom": "case_departments",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "case_departments_department_id_departments_id_fk": {
+          "name": "case_departments_department_id_departments_id_fk",
+          "tableFrom": "case_departments",
+          "tableTo": "departments",
+          "columnsFrom": [
+            "department_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "case_departments_case_id_department_id_pk": {
+          "columns": [
+            "case_id",
+            "department_id"
+          ],
+          "name": "case_departments_case_id_department_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_number_sequences": {
+      "name": "case_number_sequences",
+      "columns": {
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "year": {
+          "name": "year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_number": {
+          "name": "last_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "case_number_sequences_client_id_clients_id_fk": {
+          "name": "case_number_sequences_client_id_clients_id_fk",
+          "tableFrom": "case_number_sequences",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "case_number_sequences_client_id_year_pk": {
+          "columns": [
+            "client_id",
+            "year"
+          ],
+          "name": "case_number_sequences_client_id_year_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "case_number_sequences_last_number_check": {
+          "name": "case_number_sequences_last_number_check",
+          "value": "\"case_number_sequences\".\"last_number\" between 1 and 9999"
+        }
+      }
+    },
+    "cases": {
+      "name": "cases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_number": {
+          "name": "case_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "number_client_id": {
+          "name": "number_client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "approved_by": {
+          "name": "approved_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "cases_case_number_unique": {
+          "name": "cases_case_number_unique",
+          "columns": [
+            "case_number"
+          ],
+          "isUnique": true
+        },
+        "cases_channel_id_unique": {
+          "name": "cases_channel_id_unique",
+          "columns": [
+            "channel_id"
+          ],
+          "isUnique": true
+        },
+        "cases_request_id_unique": {
+          "name": "cases_request_id_unique",
+          "columns": [
+            "request_id"
+          ],
+          "isUnique": true
+        },
+        "cases_client_id_title_idx": {
+          "name": "cases_client_id_title_idx",
+          "columns": [
+            "client_id",
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "cases_number_client_id_clients_id_fk": {
+          "name": "cases_number_client_id_clients_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "number_client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cases_client_id_clients_id_fk": {
+          "name": "cases_client_id_clients_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cases_channel_id_channels_room_id_fk": {
+          "name": "cases_channel_id_channels_room_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "channel_id"
+          ],
+          "columnsTo": [
+            "room_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cases_created_by_users_id_fk": {
+          "name": "cases_created_by_users_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cases_approved_by_users_id_fk": {
+          "name": "cases_approved_by_users_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "users",
+          "columnsFrom": [
+            "approved_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "cases_case_number_check": {
+          "name": "cases_case_number_check",
+          "value": "length(\"cases\".\"case_number\") = 15 and substr(\"cases\".\"case_number\", 1, 3) glob '[A-Z][A-Z][A-Z]' and substr(\"cases\".\"case_number\", 4, 1) = '-' and substr(\"cases\".\"case_number\", 5, 6) glob '[0-9][0-9][0-9][0-9][0-9][0-9]' and substr(\"cases\".\"case_number\", 11, 1) = '-' and substr(\"cases\".\"case_number\", 12, 4) glob '[0-9][0-9][0-9][0-9]'"
+        },
+        "cases_status_check": {
+          "name": "cases_status_check",
+          "value": "\"cases\".\"status\" in ('active', 'closed')"
         }
       }
     },

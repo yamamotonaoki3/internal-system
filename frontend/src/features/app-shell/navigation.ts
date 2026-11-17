@@ -52,6 +52,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         to: "/channel-approvals",
         requires: "perm.channel.request.approve.owner",
       },
+      // 案件作成の承認（S-29。#146）。全体管理者かいずれかの部署のオーナー
+      {
+        id: "case-approvals",
+        label: "案件承認",
+        to: "/case-approvals",
+        requires: "perm.case.request.approve",
+      },
     ],
   },
   {

@@ -8,7 +8,7 @@
 
 | 区分 | 内容 |
 | --- | --- |
-| 作ったもの | 検索のAPI 1本（`POST /api/admin/audit-logs/search`。EP-0-19）／閲覧の記録（`audit_log.view`）を資格の確認と同じ`db.batch`で行う仕組み／絞り込み用の索引3つ（migration 0026）／セッションの`permissions`への`perm.audit_log.view`／S-25の画面とメニュー「監査ログ」／削除・更新の経路がないことを確かめる静的なテスト |
+| 作ったもの | 検索のAPI 1本（`POST /api/admin/audit-logs/search`。EP-0-19）／閲覧の記録（`audit_log.view`）を資格の確認と同じ`db.batch`で行う仕組み／絞り込み用の索引3つ（migration 0027）／セッションの`permissions`への`perm.audit_log.view`／S-25の画面とメニュー「監査ログ」／削除・更新の経路がないことを確かめる静的なテスト |
 | 作らないもの | 変更・削除・書き出しのAPI・ボタン（0-6 AC-4、R-16）／429の試行制限（全体管理者だけが使うAPIで、既存の管理者の一覧にも試行制限がないため）／操作者の候補を返すAPI（操作者・対象は一覧の行から指定する）／1年の保持の削除の仕組み（C-74）／DBのトリガーで削除・更新を禁じること／運用ログ（`logger.audit`）の閲覧 |
 | 表示の側だけ作ったもの | 0-6 AC-7（アカウント登録の失敗の記録）。失敗の分類（`failureCategory`）と件数（`affectedCount`）を表示し、対象の社員を出さない規則までを作った。**失敗を記録する側は、CSVの一括登録のIssue #129で作る**（利用者の決定。Issue #156のコメント）。この Issue の完了条件は「監査ログに記録されているものを、全体管理者が閲覧・絞り込みできる」 |
 | 決定 | [C-180](../requirements/decision-register.md) |
@@ -25,7 +25,7 @@
 | --- | --- |
 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`に`audit_log.view`を足した。`AUDIT_TARGET_TYPES`（対象の種類の固定の一覧。10種）を足した。検索の入力の検証と画面の絞り込みの定義元。各書き込みの`targetType`の型をこの一覧に絞ることはしていない |
 | `backend/db/schema.ts` | `auditLogs`に複合索引3つを足した |
-| `backend/db/migrations/0026_add_audit_log_filter_indexes.sql`、`meta/0026_snapshot.json`、`meta/_journal.json` | 索引3つだけの migration（`drizzle-kit generate`の生成物）。#146-B も0026を使っているため、**後にマージするほうが番号を振り直す** |
+| `backend/db/migrations/0027_add_audit_log_filter_indexes.sql`、`meta/0027_snapshot.json`、`meta/_journal.json` | 索引3つだけの migration（`drizzle-kit generate`の生成物）。#146-B も0026を使っているため、**後にマージするほうが番号を振り直す** |
 
 ### バックエンド
 
@@ -112,7 +112,7 @@
 - 操作者が不明（ログイン失敗など）は`actor: null`。行がない操作者は`{ displayName: null, isActive: false }`
 - アカウント登録の失敗（`account.create`で結果が失敗）は、`target`を解決せずnullにし、`failureCategory`・`affectedCount`を出す
 
-## 索引（migration 0026）
+## 索引（migration 0027）
 
 `audit_logs_actor_occurred_idx`（`actor_id`・`occurred_at`・`id`）、`audit_logs_action_occurred_idx`（`action`・`occurred_at`・`id`）、`audit_logs_target_occurred_idx`（`target_type`・`target_id`・`occurred_at`・`id`）。期間だけ・絞り込みなしは既存の`(occurred_at, id)`を使う。`result`は2値で選択性が低いので索引にしない。操作者・操作・対象の各絞り込みで索引が使われ、全件の走査と並び替えの一時領域が出ないことは、`EXPLAIN QUERY PLAN`のテストで確かめる。
 
