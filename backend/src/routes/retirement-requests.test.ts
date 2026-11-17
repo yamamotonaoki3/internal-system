@@ -413,6 +413,51 @@ describe("#128（128-c）C-177（U-1・U-8）一覧・却下・取り下げの�
     },
   );
 
+  it.each(["pending", "approved", "rejected", "withdrawn"] as const)(
+    "#128 C-177（U-1）: 全体管理者の一覧は、状態に %s を指定すると、その状態の申請だけを返す（200）",
+    async (status) => {
+      const ids = {
+        pending: requestId,
+        approved: await insertRetirementRequest({
+          targetUserId: member,
+          requestedBy: ownerA,
+          departmentId: deptA.id,
+          status: "approved",
+          decidedBy: admin,
+        }),
+        rejected: await insertRetirementRequest({
+          targetUserId: ownerB,
+          requestedBy: ownerA,
+          departmentId: deptA.id,
+          status: "rejected",
+          decidedBy: admin,
+        }),
+        withdrawn: await insertRetirementRequest({
+          targetUserId: gone,
+          requestedBy: ownerA,
+          departmentId: deptA.id,
+          status: "withdrawn",
+        }),
+      };
+      const res = await request("GET", `${ADMIN_BASE}?status=${status}`, {
+        token: await sessionFor(admin),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { items: { id: string }[] };
+      expect(body.items.map((item) => item.id)).toEqual([ids[status]]);
+    },
+  );
+
+  it.each(["done", "", "PENDING"])(
+    "#128 C-177（U-1）: 全体管理者の一覧は、状態に %j（定めた4つ以外）を指定すると 422",
+    async (status) => {
+      const res = await request("GET", `${ADMIN_BASE}?status=${status}`, {
+        token: await sessionFor(admin),
+      });
+      expect(res.status).toBe(422);
+    },
+  );
+
   it("#128 C-177（U-1）: 自分の申請の一覧は申請者だけに見え、ほかの部署のオーナー・全体管理者の「自分の申請」には出ない", async () => {
     const mine = await request("GET", `${BASE}/mine`, {
       token: await sessionFor(ownerA),

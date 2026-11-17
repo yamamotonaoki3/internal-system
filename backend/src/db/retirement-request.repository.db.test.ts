@@ -629,3 +629,152 @@ describe("#128（128-c）C-177（U-1）取り下げ（Repository・D1）", () =>
     },
   );
 });
+
+/** エラーと、その原因の連鎖（cause）のメッセージをつなげた文字列（元のエラーが変換されずに伝わったかを確かめる） */
+function messagesOf(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    messages.push(current.message);
+    current = current.cause;
+  }
+  return messages.join(" | ");
+}
+
+// 全体管理者は DB の制約で1人だけ（user_role_assignments の role_id の一意）。宛先の確認は、その1人との食い違いで確かめる
+describe("#128（128-c）0-1 AC-20・3-4 AC-1 通知の宛先の確認（Repository・D1）", () => {
+  it("#128 3-4 AC-1: 申請者以外に有効な全体管理者がいなければ、reviewerIds が空でも申請は作られ、通知は送らない", async () => {
+    await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ?")
+      .bind(admin)
+      .run();
+    await create({ reviewerIds: [] });
+    expect(await retirementRows()).toHaveLength(1);
+    expect(await retirementNotifications()).toEqual([]);
+  });
+
+  it.each<[string, () => Promise<string[]>]>([
+    [
+      "宛先の全体管理者が無効になった",
+      async () => {
+        await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ?")
+          .bind(admin)
+          .run();
+        return [admin];
+      },
+    ],
+    ["宛先が空だが、有効な全体管理者がいる", async () => []],
+    ["宛先が、全体管理者でない社員だけ", async () => [other]],
+    ["宛先に、全体管理者でない社員も入っている", async () => [admin, other]],
+  ])(
+    "#128 3-4 AC-1: %sなら RetirementRequestStateChangedError で、申請・監査・通知が何も残らない",
+    async (_label, prepare) => {
+      const reviewerIds = await prepare();
+      const before = await retirementSnapshot();
+      await expect(create({ reviewerIds })).rejects.toBeInstanceOf(
+        RetirementRequestStateChangedError,
+      );
+      expect(await retirementSnapshot()).toEqual(before);
+    },
+  );
+});
+
+describe("#128（128-c）C-177（U-2）DB の違反の変換（Repository・D1）", () => {
+  it("#128 C-177（U-2）: 同じ対象への2件目の Conflict は、元の DB エラー（一意制約の違反）を cause に持つ", async () => {
+    await create();
+    const error = await create({ now: RETIRE_LATER }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RetirementRequestConflictError);
+    expect(messagesOf((error as Error).cause)).toMatch(
+      /UNIQUE constraint failed: retirement_requests\.target_user_id/,
+    );
+  });
+
+  it("#128 0-1 AC-20: 前提の崩れの StateChanged は、元の DB エラー（NOT NULL 制約の違反）を cause に持つ", async () => {
+    const error = await create({ actorId: other }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RetirementRequestStateChangedError);
+    expect(messagesOf((error as Error).cause)).toMatch(
+      /NOT NULL constraint failed: users\.login_id/,
+    );
+  });
+
+  it.each<[string, string]>([
+    [
+      "申請中の索引以外の一意制約の違反（通知のID）",
+      "UNIQUE constraint failed: notifications.id",
+    ],
+    [
+      "申請中の索引以外の一意制約の違反（社員ID）",
+      "UNIQUE constraint failed: users.login_id",
+    ],
+    [
+      "前提の確認の列以外の NOT NULL 違反（通知の宛先）",
+      "NOT NULL constraint failed: notifications.user_id",
+    ],
+    [
+      "前提の確認の列以外の NOT NULL 違反（申請の対象）",
+      "NOT NULL constraint failed: retirement_requests.target_user_id",
+    ],
+    ["制約の違反でない失敗", "unit_fail_128c_plain"],
+  ])(
+    "#128 0-1 AC-20: %sは、重複・前提の崩れに変換せず、同じエラーのまま伝わり、何も残らない",
+    async (_label, message) => {
+      await env.DB.exec(
+        `CREATE TRIGGER unit_fail_128c_notification BEFORE INSERT ON notifications WHEN NEW.kind LIKE 'retirement_request.%' BEGIN SELECT RAISE(ABORT, '${message}'); END`,
+      );
+      const before = await retirementSnapshot();
+      const error = await create().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(RetirementRequestStateChangedError);
+      expect(error).not.toBeInstanceOf(RetirementRequestConflictError);
+      expect(messagesOf(error)).toContain(message);
+      expect(await retirementSnapshot()).toEqual(before);
+    },
+  );
+});
+
+describe("#128（128-c）C-177 監査の記録（Repository・D1。docs/design/accounts.md の表）", () => {
+  it("#128 C-177: 作成の監査は、対象の種類 retirement_request・対象 = 申請ID・detail は targetUserId と departmentId だけ", async () => {
+    const created = await create();
+    const [audit] = await retirementAudits();
+    expect(audit).toMatchObject({
+      actor_id: ownerA,
+      action: "retirement_request.create",
+      target_type: "retirement_request",
+      target_id: created.id,
+      result: "success",
+    });
+    expect(JSON.parse(audit?.detail ?? "{}")).toEqual({
+      targetUserId: target,
+      departmentId: deptA.id,
+    });
+  });
+
+  it("#128 C-177: 却下の監査は、対象の種類 retirement_request・対象 = 申請ID・detail は requestedBy だけ（理由の文は入れない）", async () => {
+    const { id } = await create();
+    await reject(id);
+    const audit = (await retirementAudits()).find(
+      (a) => a.action === "retirement_request.reject",
+    );
+    expect(audit).toMatchObject({
+      actor_id: admin,
+      target_type: "retirement_request",
+      target_id: id,
+      result: "success",
+    });
+    expect(JSON.parse(audit?.detail ?? "{}")).toEqual({ requestedBy: ownerA });
+  });
+
+  it("#128 C-177: 取り下げの監査は、対象の種類 retirement_request・対象 = 申請ID・detail は requestedBy だけ", async () => {
+    const { id } = await create();
+    await withdraw(id);
+    const audit = (await retirementAudits()).find(
+      (a) => a.action === "retirement_request.withdraw",
+    );
+    expect(audit).toMatchObject({
+      actor_id: ownerA,
+      target_type: "retirement_request",
+      target_id: id,
+      result: "success",
+    });
+    expect(JSON.parse(audit?.detail ?? "{}")).toEqual({ requestedBy: ownerA });
+  });
+});

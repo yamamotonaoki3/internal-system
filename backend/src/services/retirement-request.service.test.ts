@@ -243,6 +243,10 @@ describe("#128（128-c）0-1 AC-20 作成の判定の順（Service）", () => {
       "無効（所属なし）",
       { ...activeTarget, isActive: false, departmentId: null },
     ],
+    [
+      "無効だが所属がある（部署の割り当てが残っている）",
+      { ...activeTarget, isActive: false },
+    ],
     ["有効だが所属なし", { ...activeTarget, departmentId: null }],
   ])(
     "#128 0-1 AC-20: 対象が%sなら、自分の部署のオーナーでも 403 FORBIDDEN で書き込まない",
@@ -377,6 +381,23 @@ describe("#128（128-c）0-1 AC-20 作成の判定の順（Service）", () => {
       status: 409,
       details: { reason: "duplicate_pending" },
     });
+  });
+
+  it("#128 C-177（U-2）: 409 CONFLICT（duplicate_pending）は、元の RetirementRequestConflictError を cause に持つ", async () => {
+    const original = new RetirementRequestConflictError("duplicate_pending");
+    const repository = fakeRepository({
+      create: async () => {
+        throw original;
+      },
+    });
+    const service = createRetirementRequestService(
+      repository,
+      rolesOf([OWNER_A]),
+    );
+    const error = await service
+      .create(actor(), { targetUserId: TARGET_ID })
+      .catch((e: unknown) => e);
+    expect((error as Error).cause).toBe(original);
   });
 });
 
