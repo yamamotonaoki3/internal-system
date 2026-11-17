@@ -140,7 +140,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `backend/db/migrations/0025_add_retirement_requests.sql` | `retirement_requests`テーブルと索引（Issue #128の128-c）。同じ対象の申請中の申請を1件に限る部分一意索引。生成物のまま |
 | `backend/db/migrations/0026_add_cases.sql` | `cases`・`case_departments`・`case_number_sequences`の3つの表と索引（Issue #146の146-B）。案件番号のCHECKは、D1のパターンの長さの上限のため、長さと部分ごとのGLOBに分けた。参加者の正は`channel_members`（`case_participants`は作らない）。`drizzle-kit generate`の生成物 |
 | `frontend/src/features/case-requests/`、`frontend/src/pages/CaseRequestPage.tsx` | S-18（案件の作成の申請と自分の申請・取り下げ・再申請。説明欄の下書き）とメニュー「案件の申請」（Issue #146）。S-29（案件作成の承認。146-Bで作った。メニュー「承認＞案件承認」）。`backend/src/db/channel.repository.ts`の`list`は、案件専用チャンネルを一覧から除く |
-| `backend/db/migrations/0027_add_audit_log_filter_indexes.sql` | `audit_logs`の絞り込み用の複合索引3つ（操作者・操作・対象。Issue #156）。索引だけで、既存データの補完はない。#146-B も0026を使うため、後にマージするほうが番号を振り直す。生成物のまま |
+| `backend/db/migrations/0027_add_audit_log_filter_indexes.sql` | `audit_logs`の絞り込み用の複合索引3つ（操作者・操作・対象。Issue #156）。索引だけで、既存データの補完はない。#146-B が0026を使ったため、mainの取り込みで0027に振り直した。生成物のまま |
 | `frontend/src/features/case-requests/`、`frontend/src/pages/CaseRequestPage.tsx` | S-18（案件の作成の申請と自分の申請・取り下げ・再申請。説明欄の下書き）とメニュー「案件の申請」（Issue #146）。S-29（審査）は146-Bで作る |
 | `backend/src/routes/audit-logs.ts`、`backend/src/services/audit-log.service.ts`、`backend/src/db/audit-log.repository.ts`（読み取り`createAuditLogReader`）、`backend/src/lib/audit-actions.ts`（`AUDIT_TARGET_TYPES`）、`frontend/src/features/audit-logs/` | 監査ログの閲覧（Issue #156。S-25・EP-0-19）。全体管理者だけが`POST /api/admin/audit-logs/search`で検索し、閲覧の記録（`audit_log.view`）を資格の確認と同じ`db.batch`で残す。応答は決めた項目だけを返す（`detail`の原文・`trace_id`・本名・メールは出さない）。変更・削除・書き出しの経路は持たない。セッションの`permissions`に`perm.audit_log.view`を足し、`SessionPrincipal`に`sessionId`を足した。詳細は[audit-logs.md](audit-logs.md) |
 

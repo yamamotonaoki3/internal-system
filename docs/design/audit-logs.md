@@ -25,7 +25,7 @@
 | --- | --- |
 | `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`に`audit_log.view`を足した。`AUDIT_TARGET_TYPES`（対象の種類の固定の一覧。10種）を足した。検索の入力の検証と画面の絞り込みの定義元。各書き込みの`targetType`の型をこの一覧に絞ることはしていない |
 | `backend/db/schema.ts` | `auditLogs`に複合索引3つを足した |
-| `backend/db/migrations/0027_add_audit_log_filter_indexes.sql`、`meta/0027_snapshot.json`、`meta/_journal.json` | 索引3つだけの migration（`drizzle-kit generate`の生成物）。#146-B も0026を使っているため、**後にマージするほうが番号を振り直す** |
+| `backend/db/migrations/0027_add_audit_log_filter_indexes.sql`、`meta/0027_snapshot.json`、`meta/_journal.json` | 索引3つだけの migration（`drizzle-kit generate`の生成物）。#146-B が0026を使ったため、mainの取り込みで0026から0027に振り直した |
 
 ### バックエンド
 
@@ -47,7 +47,7 @@
 | --- | --- |
 | `frontend/src/features/audit-logs/audit-log-api.ts` | `searchAuditLogs`。共通の`apiClient`で`POST /admin/audit-logs/search`を呼び、応答をzodで検証する。決めた項目以外（`detail`・`trace_id`など）が紛れても画面に渡さない |
 | `frontend/src/features/audit-logs/query-keys.ts` | `auditLogKeys.search`。キーに**利用者のID**と「絞り込む」を押した回数を含める（下の「画面」） |
-| `frontend/src/features/audit-logs/action-labels.ts` | 操作の種類・対象の種類の日本語の名前。名前がない操作は、操作のIDをそのまま出す（空にしない）。足りない操作がないことは、画面のテストが`AUDIT_ACTIONS`と照らして確かめる |
+| `frontend/src/features/audit-logs/action-labels.ts` | 操作の種類・対象の種類の日本語の名前。名前がない操作は、操作のIDをそのまま出す（空にしない）。案件の作成の申請の承認・却下（`case_request.approve`・`case_request.reject`）の名前を含む。足りない操作がないことは、画面のテストが`AUDIT_ACTIONS`と照らして確かめる |
 | `frontend/src/features/audit-logs/AuditLogFilters.tsx` | 絞り込みのフォーム（期間・操作の種類・結果）。期間の誤りと、422の`fields`を入力欄の近くに文字で出す |
 | `frontend/src/features/audit-logs/AuditLogsPage.tsx` | S-25。一覧（パソコンは表、狭い画面はカード形式）・「さらに読み込む」・エラー・0件。`useInfiniteQuery`を使う |
 | `frontend/src/App.tsx` | `/audit-logs`と`AuditLogsRoute`（`perm.audit_log.view`がなければ`NotFoundPage`。セッション確認中は待つ） |
@@ -103,6 +103,12 @@
 
 セッションの状態を先に見るので、ログアウトした人に権限の状態を教えない。
 
+## 監査の行は書き換えない（同じbatchの中で決まる値を入れるとき）
+
+同じ`db.batch`の中で決まる値（採番した案件番号・数えた参加者数など）を監査の`detail`に入れるときは、**行を入れてから`UPDATE`で書き換えない**。値が決まった後に、`auditLogInsertWithDetailSql`（`audit-log.repository.ts`）で、`detail`をSQLの式（`json_object(...)`など）で組み立てて**1回の`INSERT…SELECT`**で入れる。項目名は呼び出し側で固定し、入れ子にしない。使っているのは案件の承認（`case-request.repository.ts`の`approve`）。#146-Bの承認は、行を入れた直後に`json_set`で書き換えていたが、0-6 AC-4と合わないため、C-180で訂正した（`detail`の項目・値は変えていない）。
+
+番人のテスト`backend/src/audit-log.immutable.test.ts`が見る範囲は、本番のコード（`backend/src`のテスト以外・`backend/db/migrations`・`backend/db/scripts`）のうち、`audit_logs`への`DELETE`・`UPDATE`・`DROP`・`TRUNCATE`と`.delete(auditLogs)`・`.update(auditLogs)`。`INSERT`は対象外。#146-Bの承認の書き換えは、このテストが、mainの取り込みで検出した。
+
 ## 一覧のSQLと名前の解決
 
 - 1つのSELECTで、`audit_logs`に`users`（操作者）・`users`（対象が利用者）・`departments`・`clients`・`channels`をLEFT JOINする（N+1にしない）。対象の結合は`target_type`で絞る。チャンネルの`target_id`は`room_id`
@@ -123,6 +129,7 @@
 - 絞り込み：期間・操作の種類・結果はフォームで、**操作した人・対象は一覧の行の「この人で絞り込む」「この対象で絞り込む」から**指定する（候補を返すAPIを作らないため）。指定中は外せる。「絞り込む」を押したときだけ検索する（入力ごとには送らない）
 - ページ送りは**「さらに読み込む」**（`useInfiniteQuery`）。`nextCursor`がnullなら出さない。0件は「該当する記録はありません」。`screens.md`の「前へ／次へ」は、文書のほうを直した（C-180）
 - 取得のたびに閲覧の記録が残るため、`refetchOnWindowFocus`・`refetchOnReconnect`・`retry`を無効にし、「絞り込む」「さらに読み込む」「再試行」を押したときだけ送る。同じ条件で押し直したときも最初から読み直すため、キーに押した回数を入れる。閲覧の内容を手元に長く残さないため`gcTime`は0
+- 検索中（取得中）は「絞り込む」を無効にし、多重送信（検索と閲覧の記録の重複）を防ぐ
 - **検索のキーに利用者のIDを含める**。401の処理はセッションのキャッシュだけを捨てるので、利用者が切り替わったときに、前の利用者の一覧を出さないため（0-2 AC-8。#284と同じ型の問題を、この画面では最初から避ける）。利用者のIDが確かめられるまで取得しない
 - エラー：422の`fields`は該当の入力欄（期間の誤りは終了日）／403は「権限がありません」／そのほかは一覧の上に再試行つきのエラー
 - 変更・削除・書き出しのボタンは置かない
@@ -143,7 +150,7 @@
 | 単体（`toAuditLogItem`・0行の読み直しの順・認可） | `backend/src/services/audit-log.service.test.ts` |
 | 結合（ルート。401・403・422、認可が検証より先、変更・削除のルートがないこと） | `backend/src/routes/audit-logs.test.ts`、`backend/src/routes/auth.test.ts`（セッションの`permissions`） |
 | 静的（削除・更新の経路がないこと） | `backend/src/audit-log.immutable.test.ts` |
-| 契約・定数 | `backend/src/openapi.test.ts`、`backend/src/lib/audit-actions.test.ts` |
+| 契約・定数 | `backend/src/openapi.test.ts`（検索のAPIの`pattern`の番人：``の抜け・重なりを検出し、日付の形の項目が実際の日付に一致することを確かめる）、`backend/src/lib/audit-actions.test.ts` |
 | 画面 | `frontend/src/features/audit-logs/AuditLogsPage.test.tsx`、`AuditLogsPage.session-switch.test.tsx`、`audit-log-api.test.ts`、`frontend/src/audit-logs-route.test.tsx`、`frontend/src/features/app-shell/navigation.audit-logs.test.tsx`、`frontend/src/features/auth/api/auth-api.audit-log.test.ts` |
 | テストの部品 | `backend/test/audit-log-fixtures.ts`、`frontend/src/test/audit-log-handlers.ts` |
 | E2E | `e2e/audit-logs.spec.ts`（シード`e2e/seeds/audit-logs.sql`、後始末`e2e/seeds/audit-logs-cleanup.sql`。[e2e.md](../testing/e2e.md)） |
