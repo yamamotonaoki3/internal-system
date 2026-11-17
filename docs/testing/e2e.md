@@ -235,7 +235,7 @@
 - ファイルはテストの中でバイト列から作る（架空・無害。実在の画像・文書は使わない）。
 - シード：`e2e/seeds/attachments.sql`（部署「[E2E_TEST] 添付」、社員`e2euser_att_a`・`_b`〔`@example.com`。パスワードのハッシュは既存の行から参照し、値を書かない〕、非公開チャンネル1つ、親の投稿1件。本文は`[E2E_TEST]`で始める）。後始末：`e2e/seeds/attachments-cleanup.sql`（社員ID`e2euser_att_`と部署名`[E2E_TEST] 添付`の識別子だけ。`message_attachments`を先に消し、残数を確かめる）。`beforeAll`・`afterAll`で流す。
 - **R2の手元の実体の後始末**：DBの行を消す**前に**、テストの部屋・利用者の添付の`storage_key`をDBから読み、`wrangler r2 object delete --local`で、手元の保存先（`.wrangler/state/test`のバケット`internal-system-attachments`）から1件ずつ消す。行を先に消すとキーが分からなくなり、実体が残る。本物のバケットには接続しない（`--local`と`--persist-to`を付ける）。`cleanup.sql`（`npm run db:cleanup:test`）は行だけを消し、R2の実体は消さない。
-- 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。
+- 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。#143で、チャンネルの詳細の見本に`version`・`manage`を足した。**応答の項目を必須で足したら、本番形のE2Eの見本にも足す**。
 - `shared/`の追加に当たるため、ADR-0020に従い、開発用の全件（`npm run test:e2e`）と本番形の全件（`npm run test:e2e:prod`）を、1つずつ順に実行する。
 - 全件を1回で流さず、spec ごとに実行する：`npm run test:e2e -- e2e/attachments.spec.ts`
 

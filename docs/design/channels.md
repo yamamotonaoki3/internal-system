@@ -193,12 +193,12 @@
 | `backend/src/lib/audit-actions.ts` | `channel.update`・`channel.archive`・`channel.restore`を足した |
 | `backend/src/db/channel-manage.sql.ts`（新規） | 書き込みの文。`channelManagerSql`（操作者が有効で管理できる人の条件。権限の規則のSQL版）、前提の確認`assertStatement`、`channelUpdateStatements`・`channelArchiveStatements`・`channelRestoreStatements` |
 | `backend/src/db/channel.repository.ts` | `findForManage`（管理の判定に使う行）・`listNotifyRecipients`（通知の宛先）・`update`・`archive`・`restore`（batchの実行とエラーの変換）。専用エラー`ChannelManageConflictError`・`ChannelNameTakenError` |
-| `backend/src/db/notification.repository.ts` | `notificationInserts`に任意の`onlyWhen`を足した。通知の一覧用に`archiveStatesFor`を足した（[notifications.md](notifications.md)） |
+| `backend/src/db/notification.repository.ts` | 通知の一覧用に`archiveStatesFor`を足した（[notifications.md](notifications.md)） |
 | `backend/src/services/channel-manage.service.ts`（新規） | `createChannelManageService`・`withChannelManageService`。`update`・`archive`・`restore`と、判定の順・0行の後の読み直し・宛先のやり直し |
 | `backend/src/services/channel.service.ts` | 詳細（`get`）の応答に`version`・`manage`を足した（`manageOf`。表示用） |
 | `backend/src/services/notification.service.ts`、`backend/src/routes/notifications.ts` | 一覧に`listWithArchiveStates`を足し、routeがそれを呼ぶ |
 | `backend/src/routes/channels.ts` | `PATCH /:channelId`・`POST /:channelId/delete`・`POST /:channelId/restore`。本文は`strict`で、`version`は必須の整数。`validate`で形を確かめる |
-| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3操作と、詳細・通知の一覧の項目の追加 |
+| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3操作と、詳細・通知の一覧の項目の追加。`ChannelUpdate`（変更の本文）は、名前・説明の少なくとも一方を必須にした。1件既読の応答を204から200（通知の項目）に変えた |
 | `frontend/src/features/channels/` | `api/channel-api.ts`（`updateChannel`・`archiveChannel`・`restoreChannel`。詳細のスキーマに`version`・`manage`を必須で足した）、`hooks/useManageChannel.ts`（3つの操作のフックと、再認証が完了しなかったときの`ReauthNotCompletedError`、409の後に詳細を取り直す`useRefetchChannelDetail`）、`components/ChannelManageMenu.tsx`（「⋯」）・`ChannelEditDialog.tsx`・`ChannelArchiveDialog.tsx`・`ChannelRestoreDialog.tsx`、`describe-error.ts`の`describeManageError`、`index.ts`（143-bが使う3つの部品と`CHANNEL_ARCHIVED_STATE`を公開） |
 | `frontend/src/features/notifications/` | `notification-views.ts`（`channel.archived`・`channel.restored`の文言・`suffix`・移動先）、`NotificationList.tsx`（アーカイブ中の通知の表示）、`api/notification-api.ts`（`reason`・`roomArchived`） |
 | `frontend/src/features/audit-logs/action-labels.ts` | 監査の3操作の日本語の名前を足した |
@@ -251,8 +251,8 @@
 | アーカイブ | 前提の確認 → 監査（`channel.archive`） → 通知（宛先の人数分） → アーカイブの記録のINSERT → チャンネルのUPDATE（`deleted_at`・`deleted_by`・版+1） |
 | 復元 | 前提の確認 → 監査（`channel.restore`） → 通知 → 開いている記録を閉じるUPDATE → チャンネルのUPDATE（`deleted_at`・`deleted_by`をNULLに、版+1） |
 
-- **前提の確認**は、`channels.version`を「条件が成り立てばそのまま、崩れていればNULL」にするUPDATE（`project-rules.md`の`assertStatement`と同じ方式）。NOT NULL違反でbatch全体が取り消される。条件は、判定のうちDBの行で決まるもの：チャンネルがある・版が送られた版と同じ・状態と種類（名前の変更は通常、説明だけなら案件以外。アーカイブ・復元は通常で、未アーカイブ／アーカイブ済み）・**操作者が有効で管理できる人（`channelManagerSql`）**。アーカイブ・復元は、さらに**通知の宛先の集合が読んだものと同じこと**（人数と、読んだ宛先に含まれる人数の両方）、復元は**読んだ記録が開いていること**。再認証は時刻がセッションの値でDBの行でないため入れない
-- 監査・通知・記録の文にも、同じ条件を付ける（`onlyWhen`）。チャンネルが物理削除と同時に消えた場合、先頭のUPDATEは0行で失敗しないため、それらだけが残るのを防ぐ
+- **前提の確認**は、`channels.version`を「条件が成り立てばそのまま、崩れていればNULL」にするUPDATE（`project-rules.md`の`assertStatement`と同じ方式）。NOT NULL違反でbatch全体が取り消される。条件は、判定のうちDBの行で決まるもの：チャンネルがある・版が送られた版と同じ・状態と種類（名前の変更は通常、説明だけなら案件以外。アーカイブ・復元は通常で、未アーカイブ／アーカイブ済み）・**操作者が有効で管理できる人（`channelManagerSql`）**。アーカイブ・復元は、さらに**通知の宛先の集合が読んだものと同じこと**（人数と、読んだ宛先に含まれる人数の両方。宛先のIDはJSONの値1つで渡し、`json_each`で展開する。C-181 (11)）、復元は**読んだ記録が開いていること**。再認証は時刻がセッションの値でDBの行でないため入れない
+- 監査・通知・記録の文にも、同じ条件を付ける（監査は`auditLogInsert`の`onlyWhen`、通知は`archiveNotificationInsert`の条件）。通知は、宛先の人数によらず1文で作る：ID（`newUlid`）と宛先の組をJSONの値1つで渡し、`json_each`で展開する`INSERT ... SELECT`（C-181 (11)）。チャンネルが物理削除と同時に消えた場合、先頭のUPDATEは0行で失敗しないため、それらだけが残るのを防ぐ
 - 監査と通知を、チャンネルのUPDATEより**前**に置く。後ろだと、UPDATE済みで状態の条件が常に偽になり、1件も残らない（`join`と同じ理由）
 - 監査の`detail`：変更は変えた項目の名前（`fields`。値は入れない）、アーカイブは理由の有無（`hasReason`。理由の文は入れない）、復元は`detail`なし
 - `channelManagerSql`は、`resolvePermissions`の規則（全体管理者＝会社の範囲、オーナー＝チャンネルの部署の範囲、会社直属は全体管理者だけ）をSQLで書いた**二重定義**。全組（全体管理者・自部署のオーナー・他部署のオーナー・一般・無効・会社直属）で、権限表のとおりの結果になることを`channel-manage.db.test.ts`で固定している（`resolvePermissions`を直接呼んで突き合わせるテストではなく、期待値を表で持つ）
@@ -269,7 +269,8 @@
 | --- | --- |
 | 同じチャンネルのアーカイブが2つ | 後のほうは前提の確認で取り消され、読み直しで409。監査・通知は二重に出ない |
 | アーカイブと復元 | 先に確定したほうだけ成功し、後は409 |
-| 同じ版からの2人の編集 | 後のほうは409で、先の変更が残る。アーカイブ→復元で状態が戻っても、古い版の要求は409 |
+| 同じ版からの2人の編集 | 後のほうは409で、先の変更が残る。アーカイブ→復元で状態が戻っても、古い版の要求は409。画面は、開いた時点の版を送り続け、409の後は入力を保ったまま最新の内容を読み込ませる（背景の再取得で進んだ版で上書きしない） |
+| 宛先が多いとき | 宛先のIDの集合と、通知の（ID・宛先）の組を、JSONの値1つで渡し`json_each`で展開するので、宛先の数によらずbatchの文の数と束縛する値の数が一定（D1の1文100パラメータの上限のため） |
 | アーカイブと参加・招待（通知の宛先） | 宛先の集合を前提の確認で比べるので、確定済みの参加者は必ず宛先に入る。変わっていれば取り消してやり直す |
 | アーカイブと投稿・返信・リアクションなど | 各書き込みの文の`deleted_at IS NULL`で、アーカイブの確定後のものは0行（下の表） |
 | 名前の変更とチャンネル作成の承認（同じ名前） | 一意索引で後のほうが失敗する（変更は409。承認は#131の既存の扱い） |
@@ -295,15 +296,16 @@
 ### 通知と監査
 
 - アーカイブ・復元の通知は、そのチャンネルの**有効な参加者のうち、操作した本人を除く**全員（D-5）。種類は`channel.archived`・`channel.restored`、`room_id`はチャンネル、`target_id`はその回のアーカイブの記録のID。業務のUPDATEと同じbatchで確定する。名前・説明の変更は通知しない（2-6 AC-5③）。通知の一覧の`reason`・`roomArchived`の作り方、過去の通知を開いたときの動きは[notifications.md](notifications.md)
-- `notificationInserts`の`onlyWhen`：指定したときだけ`INSERT ... SELECT`（`WHERE onlyWhen`）にする。指定しない既存の呼び出し（申請・招待・指名など）は変わらない（回帰をテストで固定）
+- 通知の作成は`channel-manage.sql.ts`の`archiveNotificationInsert`が行う（`notificationInserts`の`onlyWhen`は使わなくなったので外した）。既存の呼び出し（申請・招待・指名など）は変わらない（回帰をテストで固定）
 - 監査の3操作は`audit-actions.ts`の一覧に足した。管理の拒否（403）は`authorize`が運用ログに記録する（見えないチャンネルの404は記録しない）。D1の`audit_logs`に残るのは、成功した3操作だけ
 
 ### 画面（S-05の「⋯」メニュー）
 
 - `ChannelDetailView`のヘッダーに`ChannelManageMenu`を置く。詳細の`manage`のどれかが真のときだけ出し、「（チャンネル名）の操作」という名前のボタンで開く。キーボードで開閉でき、矢印キーで項目を移り、Escで閉じてフォーカスをボタンに戻す。S-39と共有する部品として`features/channels/index.ts`から公開する。表示の制御で、認可はサーバー
+- メニューの項目は共通の`Button`（`role="menuitem"`）で作る
 - メニューの項目：「名前・説明を編集」（`canRename`か`canEditDescription`）、「アーカイブ」（`canArchive`）。アーカイブ済みのチャンネルはS-05で開けない（404）ので、復元はS-05に出さない（入口は143-b）
-- **編集のダイアログ**：名前（`canRename`が真のときだけ）・説明。画面の検査は`shared/`の規則（サーバーの検査は省略しない）。422の`fields`は該当の欄、名前の重複の409は`CHANNEL_NAME_TAKEN_MESSAGE`の文で見分けて名前の欄に出す。入力を変えて閉じるときは、離れる前の確認（`features/leave-guard`）。再認証なし。成功で閉じ、ヘッダーに「チャンネルの名前・説明を変更しました」を出し、`channelKeys.all`を取り直す
-- **アーカイブのダイアログ**：理由（任意。500文字まで。残りの文字数を表示）→「アーカイブ」→ 再認証（S-26。`useReauth`）→ 送信。409はAPIの文を出し、詳細を取り直す。**成功したら、そのチャンネルの詳細は取り直さず**（もう見られず404になるため）、`/channels`へ移って「アーカイブしました」を出す（`pages/ChannelsPage.tsx`が`CHANNEL_ARCHIVED_STATE`の印を読む）。取り直すのは`channelKeys`の詳細以外のキーだけ。未読・スレッド・通知は、定期の取り直しで反映する（機能をまたぐ公開が要るため、後の子で見直す。C-181 (9)）
+- **編集のダイアログ**：名前（`canRename`が真のときだけ）・説明。画面の検査は`shared/`の規則（サーバーの検査は省略しない）。422の`fields`は該当の欄、名前の重複の409は`CHANNEL_NAME_TAKEN_MESSAGE`の文で見分けて名前の欄に出す。入力を変えて閉じるときは、離れる前の確認（`features/leave-guard`）。再認証なし。成功で閉じ、ヘッダーに「チャンネルの名前・説明を変更しました」を出し、`channelKeys.all`を取り直す。**送る版は、ダイアログを開いた時点のもの**を保持する（背景の再取得で`channel.version`が進んでも変えない。進んだ版で古い入力を送ると、ほかの人の変更を上書きするため）。**名前の重複以外の409**（版の不一致）の後は、入力を保ったまま保存を止め、「最新の内容を読み込んでから、もう一度編集してください」と「最新の内容を読み込む」ボタンを出す。押すと`useLoadLatestChannel`が詳細を取り直し、名前・説明・版を入れ替える（読み込みに失敗したら欄の外に文を出す）。**既知の差**：名前の重複以外の409は、すべて「ほかの人の変更と重なった」として扱う（この画面からは通常起きない、種類による409も同じ表示になる）（C-181 (10)）
+- **アーカイブのダイアログ**：理由（任意。500文字まで。残りの文字数を表示）→「アーカイブ」→ 再認証（S-26。`useReauth`）→ 送信。**送る版は、ダイアログを開いた時点のもの**（復元のダイアログも同じ）。409はAPIの文を出し、詳細を取り直す。**成功したら、そのチャンネルの詳細は取り直さず**（もう見られず404になるため）、`/channels`へ移って「アーカイブしました」を出す（`pages/ChannelsPage.tsx`が`CHANNEL_ARCHIVED_STATE`の印を読む）。取り直すのは`channelKeys`の詳細以外のキーだけ。未読・スレッド・通知は、定期の取り直しで反映する（機能をまたぐ公開が要るため、後の子で見直す。C-181 (9)）
 - **復元のダイアログ**：確認 →「復元」→ 再認証 → 送信。143-aでは部品と画面のテストだけで、143-bのS-39・S-38が使う
 - 再認証が中止・失敗したときは要求を送らず、決まった文を出す（`ReauthNotCompletedError`）。再認証の有効期間切れ（REAUTH_REQUIRED）も決まった文にする
 - 画面の文言（テストに定めがなかったため、実装のとおり。契約は`frontend/src/channel-manage.test.tsx`）：
@@ -319,6 +321,7 @@
 | 再認証が完了しなかった | 「再認証が完了しなかったため、操作は実行していません」 |
 | 再認証の期限切れ | 「再認証の有効期間が切れました。もう一度操作してください」 |
 | アーカイブの後の一覧 | 「アーカイブしました」 |
+| 編集で版が重なった（名前の重複以外の409） | 「ほかの人が先に変更しました。最新の内容を読み込んでから、もう一度編集してください」、ボタン「最新の内容を読み込む」 |
 
 ### 主な入出力（143-a）
 

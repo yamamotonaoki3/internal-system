@@ -79,7 +79,7 @@
 
 ### 既読（POST …/:notificationId/read、POST …/read-all）
 
-- 1件既読：`markRead`が、`visibleToRecipient`と`id`で絞った行の`read_at`を、まだ空のときだけ設定する（既読済みの`read_at`は最初の時刻のまま）。更新対象の行がなければ（他人宛て・存在しない・ULIDでない・閲覧できない）、Serviceが**404**にする。存在を漏らさないため、他人宛てと存在しないIDで応答を変えない。成功は204
+- 1件既読：`markRead`が、`visibleToRecipient`と`id`で絞った行の`read_at`を、まだ空のときだけ設定する（既読済みの`read_at`は最初の時刻のまま）。更新対象の行がなければ（他人宛て・存在しない・ULIDでない・閲覧できない）、Serviceが**404**にする。存在を漏らさないため、他人宛てと存在しないIDで応答を変えない。成功は204【Issue #143で、200でその通知の最新の項目（一覧と同じ形。`reason`・`roomArchived`を含む）を返す形に変えた。`markReadAndDescribe`。既読済みも200。`read-all`の204は変えない。通知を開くときに、アーカイブの状態を確かめるため（C-181 (12)）。元の記述は残す】
 - すべて既読：`markAllRead`が、本人の未読（`visibleToRecipient`を通る分）を既読にする。204
 - 既読にしても行は消さない（3-4 AC-5）
 
@@ -99,11 +99,11 @@
 
 - **種類**：`channel.archived`・`channel.restored`（`shared/notification-kinds.ts`。どちらも`containsRoomContent: false`なので、権限を失っても残る）。宛先は、そのチャンネルの有効な参加者のうち、操作した本人を除く全員（D-5）。`room_id`はチャンネル、`target_id`はその回のアーカイブの記録（`channel_archive_events.id`）。作成は`channel-manage.sql.ts`で、アーカイブ・復元の業務のUPDATEと同じ`db.batch`。詳細は[channels.md](channels.md)
 - **理由の持ち方**：`notifications`に`reason`列は足さない（全列を並べる既存の`INSERT ... SELECT`が列数の不一致で失敗するため）。アーカイブ1回ごとの記録の`reason`を、通知の`target_id`から引く。再アーカイブして理由を変えても、古い通知はその回の理由のまま。申し送りの4（理由の列）は、この方式で満たした
-- **`notificationInserts`の`onlyWhen`**：任意の引数。指定すると、その条件が成り立つときだけ作る`INSERT ... SELECT`にする（ID・列の並びは今と同じ）。指定しない既存の呼び出しは変わらない
+- **作成の方法**：アーカイブ・復元の通知は、`notificationInserts`ではなく`channel-manage.sql.ts`の`archiveNotificationInsert`が、宛先の人数によらず1文で作る（ID（`newUlid`）と宛先の組をJSONの値1つで渡し、`json_each`で展開する`INSERT ... SELECT`。条件は業務のUPDATEと同じ。D1の1文100パラメータの上限のため）。`notificationInserts`の`onlyWhen`は、使わなくなったので外した。既存の呼び出しは変わらない
 - **一覧の応答の追加項目**（EP-3-04。必須の項目。C-181 (3)）：`reason`（`channel.archived`の行だけその回の理由。理由なし・ほかの種類は`null`）と`roomArchived`（真偽）。`roomArchived`は、部屋の内容を含まない種類（`channel_request.approved`・`channel.archived`・`channel.restored`）の行だけ、`room_id`のチャンネルが今アーカイブ中かで決まり、ほかの種類は常に偽
 - **作り方（Serviceの層で足す。C-181 (4)）**：Repositoryの一覧（`listForRecipient`）の項目は変えない。`createNotificationService().listWithArchiveStates`が、一覧の結果の通知IDを`createNotificationRepository().archiveStatesFor`に渡し、各行に`reason`・`roomArchived`を足す。`archiveStatesFor`は本人宛ての条件だけを当てる（一覧の後に部屋が見えなくなっても、返した行の事実を欠かさないため）。**IDは1つのJSONの値で渡し、`json_each`で展開する**。1ページ分（最大100件）のIDを`IN`に並べると、他の条件の値と合わせてD1の1文で束縛できる値の数の上限を超えて失敗したため。読めない行があれば、成功に見せかけず例外にする。routeの`GET /api/me/notifications`が`listWithArchiveStates`を呼ぶ
 - **見せてよい人**：一覧は本人宛ての行だけを返す（`visibleToRecipient`）ので、理由・アーカイブ中かを知るのは、そのチャンネルについて通知を受けた本人（アーカイブの時の参加者・申請者）だけ。チャンネルのAPI（詳細・メッセージ）は今までどおり、存在しない・見えない・アーカイブ済みを区別せず同じ404で、そこからは漏らさない
-- **過去の通知を開いたときの動き**（3-4 AC-5）：`NotificationList.tsx`は、`channel.archived`の行、または`roomArchived`が真の行を、文言の後に「（アーカイブされました）」を付けたボタンにする。押すと（未読なら）既読にして、**チャンネルへ移らず**、その場に「このチャンネルはアーカイブされました」を出す。復元の通知は、今アーカイブ中でなければ（`roomArchived`が偽）チャンネルへ移る。物理削除で行が消えたチャンネルは`roomArchived`が偽になり、移動先で「見つかりません」になる（物理削除の後の表示は定めがなく、143-cで扱う）
+- **過去の通知を開いたときの動き**（3-4 AC-5）：`NotificationList.tsx`は、`channel.archived`の行、または`roomArchived`が真の行を、文言の後に「（アーカイブされました）」を付けたボタンにする。**どの通知も、押すと、未読・既読のどちらでも既読のAPIを呼び**、その応答（その通知の最新の項目）の`roomArchived`で決める：真（アーカイブの通知は常に）なら、**チャンネルへ移らず**、その場に「このチャンネルはアーカイブされました」を出す。偽ならチャンネルへ移る（一覧を取った後にアーカイブされても、移らない）。既読の呼び出しに失敗したら移動せず、エラーを出す。物理削除で行が消えたチャンネルは`roomArchived`が偽になり、移動先で「見つかりません」になる（物理削除の後の表示は定めがなく、143-cで扱う）
 - **文言**（`notification-views.ts`。D-5）：`channel.archived`は「参加しているチャンネルがアーカイブされました」、理由があれば「（理由：…）」を後ろに付ける（対応表の`suffix`。テキストとして出し、HTMLとして解釈しない）、移動先なし。`channel.restored`は「参加しているチャンネルが復元されました」、移動先はチャンネル
 - **部屋の内容を含む通知（指名・招待）**：アーカイブ中は、今の`viewableRoom`で一覧・未読数から除く。復元されれば再び出る（D-R1）。3-4 AC-5の「過去の通知は残り、開くと『アーカイブされました』」は、部屋の内容を含まない通知についての定めと読む
 
@@ -166,7 +166,7 @@
 | --- | --- |
 | 一覧（EP-3-04） | `GET /api/me/notifications`。クエリは`limit`・`cursor`。200で`items`と`nextCursor`。401／422。【#143で、`items`の各行に必須の`reason`（`null`可）・`roomArchived`を足した】 |
 | 未読数（EP-3-05） | `GET /api/me/notifications/unread-count`。200で`count`（最大100）。401 |
-| 1件既読（EP-3-06） | `POST /api/me/notifications/{notificationId}/read`。204（既読済みも204）。401／403（`FORBIDDEN_ORIGIN`）／404（存在しない・他人宛て・ULIDでない）／429 |
+| 1件既読（EP-3-06） | `POST /api/me/notifications/{notificationId}/read`。204（既読済みも204）【#143で、200でその通知の最新の項目（一覧の項目と同じ形）を返す形に変えた。既読済みも200。`read-all`は204のまま】。401／403（`FORBIDDEN_ORIGIN`）／404（存在しない・他人宛て・ULIDでない）／429 |
 | すべて既読（EP-3-07） | `POST /api/me/notifications/read-all`。204。401／403（`FORBIDDEN_ORIGIN`）／429 |
 
 応答の最終の形はOpenAPI（`docs/api/openapi.json`）に従う。EP-3-03（`POST /api/me/read-all`。部屋の未読。#240で扱う）とは別物。部屋ごとの未読の件数と既読（EP-3-01・EP-3-02）は#237で実装した（[unread.md](unread.md)）。レート制限は入れていない（上限がX-8で未決定のため。channels・messages・profileと同じ扱い）。
@@ -176,7 +176,7 @@
 | 処理 | 入力 | 出力 |
 | --- | --- | --- |
 | `notificationInserts(db, recipientIds, input)` | 宛先の利用者IDの一覧、`kind`・`roomId?`・`messageId?`・`targetId?` | 通知を作る文の配列（実行しない。重複した宛先は1件、0人は空） |
-| `notificationInserts(db, recipientIds, input, { onlyWhen? })`（#143） | 上に加えて、任意のSQL条件`onlyWhen` | 指定すると、条件が成り立つときだけ作る`INSERT ... SELECT`の配列。指定しなければ上と同じ |
+| `createNotificationService().markReadAndDescribe`（#143） | 操作者、通知ID | 既読にした通知の最新の項目（`reason`・`roomArchived`を含む）。他人宛て・存在しない・見えなくなったものは404 |
 | `createNotificationService().listWithArchiveStates`（#143） | 操作者、`limit`・`cursor?` | `list`の各行に`reason`・`roomArchived`を足したページ。読めない行があれば例外 |
 | `createNotificationRepository().archiveStatesFor`（#143） | 利用者ID、通知IDの配列（JSONの1つの値で束縛） | 通知IDごとの`reason`・`roomArchived`のMap。本人宛ての行だけ |
 | `visibleToRecipient(recipientId, definitions?)` | 宛先の利用者ID、種類の定義（既定は定義元） | 読み取りのSQL条件 |
