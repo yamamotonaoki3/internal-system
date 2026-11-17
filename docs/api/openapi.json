@@ -7894,6 +7894,7 @@
                     "perm.workspace.create",
                     "perm.workspace.manage",
                     "perm.channel.request.approve.owner",
+                    "perm.case.request.approve",
                     "perm.audit_log.view"
                   ]
                 }

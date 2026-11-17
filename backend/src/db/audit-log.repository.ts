@@ -62,6 +62,23 @@ export function auditLogInsert<A extends string = AuditAction>(
 }
 
 /**
+ * detail の値が同じ batch の中で決まる場合の書き込み（INSERT だけ。後から書き換えない：0-6 AC-4）。
+ * detail は json_object(...) などの SQL の式で渡す。項目名は呼び出し側で固定し、入れ子にしない。
+ * 他の列は auditLogInsert と同じ値を入れる。
+ */
+export function auditLogInsertWithDetailSql(
+  db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
+  input: Omit<AuditLogInput, "detail"> & { detail: SQL },
+  deps: { newId?: () => Ulid } = {},
+) {
+  // 列は audit_logs の定義の順（id, occurred_at, actor_id, action, target_type, target_id, result, trace_id, detail）
+  return db.insert(auditLogs).select(sql`
+    SELECT ${(deps.newId ?? newUlid)()}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+      ${input.actorId}, ${input.action}, ${input.targetType}, ${input.targetId},
+      ${input.result}, ${input.traceId}, ${input.detail}`);
+}
+
+/**
  * セッションの利用者を操作者・対象として記録する、条件付きの書き込み（ログインの成功・ログアウト）。
  * 該当するセッションがあるときだけ書く（requireActive のときは、失効前のセッションだけ）。
  * セッションの作成・失効と同じ db.batch に入れると、セッションが変わったときだけ監査が残る。

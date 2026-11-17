@@ -5,7 +5,6 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { jstDateOf } from "../../../shared/case-rules";
 import {
-  auditLogs,
   caseCreationRequestCandidates,
   caseCreationRequestDepartments,
   caseCreationRequests,
@@ -23,7 +22,10 @@ import {
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid, newUlid } from "../lib/ulid";
-import { auditLogInsert } from "./audit-log.repository";
+import {
+  auditLogInsert,
+  auditLogInsertWithDetailSql,
+} from "./audit-log.repository";
 import { withDatabase, type BatchItem, type Database } from "./database";
 import { notificationInserts } from "./notification.repository";
 import {
@@ -678,7 +680,6 @@ export function createCaseRequestRepository(db: Database) {
       const facts = await readDecisionFacts(input.requestId);
       const caseId = newUlid();
       const roomId = newUlid();
-      const auditId = newUlid();
       const { year, yymmdd } = jstDateOf(new Date(input.now));
       const requestId = input.requestId;
       const requestDepartments = sql`SELECT d.department_id FROM case_creation_request_departments d WHERE d.request_id = ${requestId}`;
@@ -780,39 +781,25 @@ export function createCaseRequestRepository(db: Database) {
             decidedAt: input.now,
           })
           .where(eq(caseCreationRequests.id, requestId)),
-        // 12. 監査（件名・説明は入れない）。案件番号と参加者の数は batch の中で決まるため、書いた直後に同じ batch の中で値を入れる
-        auditLogInsert(
-          db,
-          {
-            actorId: input.deciderId,
-            action: "case_request.approve",
-            targetType: "case_request",
-            targetId: requestId,
-            result: "success",
-            traceId: input.traceId,
-            detail: {
-              requestId,
-              caseId,
-              caseNumber: null,
-              channelId: roomId,
-              departmentCount: facts.departmentCount,
-              participantCount: 0,
-              ownerCount: 0,
-              adminCount: 0,
-            },
-          },
-          { newId: () => auditId },
-        ),
-        db
-          .update(auditLogs)
-          .set({
-            detail: sql`json_set(${auditLogs.detail},
-              '$.caseNumber', (SELECT k.case_number FROM cases k WHERE k.id = ${caseId}),
-              '$.participantCount', (SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = ${roomId}),
-              '$.ownerCount', ${membersAmong(activeOwners)},
-              '$.adminCount', ${membersAmong(activeAdmins)})`,
-          })
-          .where(eq(auditLogs.id, auditId)),
+        // 12. 監査（件名・説明は入れない）。案件番号と参加者の数は batch の中で決まるため、案件・参加者を入れた後に、
+        // 同じ batch の中の値から detail を組み立てて1回で入れる（監査ログは書き換えない：0-6 AC-4）
+        auditLogInsertWithDetailSql(db, {
+          actorId: input.deciderId,
+          action: "case_request.approve",
+          targetType: "case_request",
+          targetId: requestId,
+          result: "success",
+          traceId: input.traceId,
+          detail: sql`json_object(
+            'requestId', ${requestId},
+            'caseId', ${caseId},
+            'caseNumber', (SELECT k.case_number FROM cases k WHERE k.id = ${caseId}),
+            'channelId', ${roomId},
+            'departmentCount', CAST(${facts.departmentCount} AS INTEGER),
+            'participantCount', (SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = ${roomId}),
+            'ownerCount', ${membersAmong(activeOwners)},
+            'adminCount', ${membersAmong(activeAdmins)})`,
+        }),
         // 13. 申請者への通知（決裁者が申請者なら送らない）
         ...notificationInserts(db, requesterToNotify(facts, input), {
           kind: "case_request.approved",
