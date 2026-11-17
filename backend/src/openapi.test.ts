@@ -566,6 +566,105 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     expect(codes).not.toContain("429");
   });
 
+  it("#156 0-6 AC-3（C-180）: 監査ログの検索の from・to の pattern は、JST の日付 YYYY-MM-DD だけに一致する", () => {
+    const search = (
+      spec as unknown as {
+        components: {
+          schemas: Record<
+            string,
+            { properties?: Record<string, { pattern?: string }> }
+          >;
+        };
+      }
+    ).components.schemas.AuditLogSearch;
+    for (const key of ["from", "to"]) {
+      const pattern = search?.properties?.[key]?.pattern;
+      expect(pattern, key).toBeTypeOf("string");
+      const regex = new RegExp(pattern ?? "");
+      expect(regex.test("2026-11-17"), `${key} 一致`).toBe(true);
+      for (const bad of ["2026-1-7", "20261117", "2026-11-17T00:00:00Z"])
+        expect(regex.test(bad), `${key} ${bad}`).toBe(false);
+    }
+  });
+
+  it("#156 0-6 AC-3: 仕様書のすべての pattern は、正規表現として読め、復号後にバックスラッシュが2つ続く書き間違いを含まない", () => {
+    const patterns: { at: string; pattern: string }[] = [];
+    const walk = (node: unknown, at: string) => {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${at}[${i}]`));
+      } else if (node !== null && typeof node === "object") {
+        for (const [key, child] of Object.entries(node)) {
+          if (key === "pattern" && typeof child === "string")
+            patterns.push({ at: `${at}.${key}`, pattern: child });
+          else walk(child, `${at}.${key}`);
+        }
+      }
+    };
+    walk(spec, "$");
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const { at, pattern } of patterns) {
+      expect(() => new RegExp(pattern), at).not.toThrow();
+      expect(pattern.includes("\\\\"), `${at}: ${pattern}`).toBe(false);
+    }
+  });
+
+  it("#156 0-6 AC-3: 仕様書のどの pattern も、バックスラッシュの抜けた文字クラス（d{・w+ など）を含まない", () => {
+    // 判定の正規表現そのものの確認（合う例・合わない例）
+    const missingBackslash = /(?<!\\)[dws][{+*]/;
+    expect(missingBackslash.test("^d{4}-d{2}$")).toBe(true);
+    expect(missingBackslash.test("^w+$")).toBe(true);
+    expect(missingBackslash.test("^\\d{4}-\\d{2}$")).toBe(false);
+    expect(missingBackslash.test("^[0-9]{4}$")).toBe(false);
+    expect(missingBackslash.test("^[a-z]+$")).toBe(false);
+
+    const found: { at: string; pattern: string }[] = [];
+    const walk = (node: unknown, at: string) => {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${at}[${i}]`));
+      } else if (node !== null && typeof node === "object") {
+        for (const [key, child] of Object.entries(node)) {
+          if (key === "pattern" && typeof child === "string")
+            found.push({ at: `${at}.${key}`, pattern: child });
+          else walk(child, `${at}.${key}`);
+        }
+      }
+    };
+    walk(spec, "$");
+    expect(found.length).toBeGreaterThan(0);
+    for (const { at, pattern } of found)
+      expect(missingBackslash.test(pattern), `${at}: ${pattern}`).toBe(false);
+  });
+
+  it("#156 0-6 AC-3: 説明に YYYY-MM-DD を含む文字列の項目の pattern は、2026-11-17 に一致する", () => {
+    const dated: { at: string; pattern: string }[] = [];
+    const walk = (node: unknown, at: string) => {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${at}[${i}]`));
+      } else if (node !== null && typeof node === "object") {
+        const schema = node as {
+          type?: unknown;
+          pattern?: unknown;
+          description?: unknown;
+        };
+        if (
+          schema.type === "string" &&
+          typeof schema.pattern === "string" &&
+          typeof schema.description === "string" &&
+          schema.description.includes("YYYY-MM-DD")
+        )
+          dated.push({ at, pattern: schema.pattern });
+        for (const [key, child] of Object.entries(node))
+          walk(child, `${at}.${key}`);
+      }
+    };
+    walk(spec, "$");
+    expect(dated.length).toBeGreaterThan(0);
+    for (const { at, pattern } of dated)
+      expect(new RegExp(pattern).test("2026-11-17"), `${at}: ${pattern}`).toBe(
+        true,
+      );
+  });
+
   it("#156 0-6 AC-4（R-16）: 監査ログの変更・削除・書き出しの操作は、仕様書にも実際のルートにもない（検索の POST だけ）", () => {
     const auditOperations = (names: string[]) =>
       names.filter((name) => name.includes("/api/admin/audit-logs"));

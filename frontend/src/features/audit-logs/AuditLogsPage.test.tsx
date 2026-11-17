@@ -517,6 +517,86 @@ describe("#156 0-6 AC-3: ページ送り（さらに読み込む）", () => {
   });
 });
 
+/** 手で解決できる保留（固定の時間の待ちを使わない） */
+function deferred() {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+describe("#156 0-6 AC-3: 検索中の多重送信の防止", () => {
+  it("#156 0-6 AC-3: 絞り込みの検索の応答を待つ間は「絞り込む」が無効で、押しても Enter で送っても要求が増えない。応答の後は、また押せる", async () => {
+    const gate = deferred();
+    const calls = respondAuditSearch(async (_body, n) => {
+      if (n === 2) await gate.promise;
+      return { items: [auditItem(n)], nextCursor: null };
+    });
+    const { user } = renderApp("/audit-logs");
+    await rowWith(auditTargetName(1));
+
+    const button = screen.getByRole("button", { name: "絞り込む" });
+    await user.click(button);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+
+    await user.click(button);
+    await user.type(screen.getByLabelText("開始日"), "{Enter}");
+    fireEvent.submit(screen.getByRole("form", { name: "絞り込み" }));
+    expect(calls).toHaveLength(2);
+
+    gate.release();
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    expect(calls).toHaveLength(2);
+    await user.click(button);
+    await waitFor(() => expect(calls).toHaveLength(3));
+  });
+
+  it("#156 0-6 AC-3: 画面を開いたときの最初の検索の応答を待つ間も、「絞り込む」は無効で、押しても要求が増えない", async () => {
+    const gate = deferred();
+    const calls = respondAuditSearch(async (_body, n) => {
+      if (n === 1) await gate.promise;
+      return { items: [auditItem(n)], nextCursor: null };
+    });
+    const { user } = renderApp("/audit-logs");
+    await screen.findByRole("heading", { name: "監査ログ" });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const button = screen.getByRole("button", { name: "絞り込む" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+
+    await user.click(button);
+    fireEvent.submit(screen.getByRole("form", { name: "絞り込み" }));
+    expect(calls).toHaveLength(1);
+
+    gate.release();
+    await rowWith(auditTargetName(1));
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    expect(calls).toHaveLength(1);
+  });
+
+  it("#156 0-6 AC-3: 「さらに読み込む」は、読み込み中は無効で、押しても要求が重ならない", async () => {
+    const gate = deferred();
+    const calls = respondAuditSearch(async (_body, n) => {
+      if (n === 2) await gate.promise;
+      return {
+        items: [auditItem(n)],
+        nextCursor: n === 1 ? "cursor-1" : null,
+      };
+    });
+    const { user } = renderApp("/audit-logs");
+    await rowWith(auditTargetName(1));
+    const more = screen.getByRole("button", { name: "さらに読み込む" });
+    await user.click(more);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await waitFor(() => expect(more.hasAttribute("disabled")).toBe(true));
+    await user.click(more);
+    expect(calls).toHaveLength(2);
+    gate.release();
+    await waitFor(() => expect(calls).toHaveLength(2));
+  });
+});
+
 describe("#156 0-6 AC-3: エラーと自動の再取得", () => {
   it("#156 0-6 AC-1: 403 のときは「権限がありません」を示し、一覧は出さない", async () => {
     respondAuditSearch(() =>

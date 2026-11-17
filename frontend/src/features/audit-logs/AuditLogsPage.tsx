@@ -193,7 +193,11 @@ export function AuditLogsPage() {
     gcTime: 0,
   });
 
+  // 取得中は送らない（Enter・submit が重なっても、要求と閲覧の記録を増やさない）
+  const searching = logs.isFetching;
+
   const submit = () => {
+    if (searching) return;
     if (draft.from !== "" && draft.to !== "" && draft.from > draft.to) {
       setRangeError("開始日は終了日以前の日付にしてください");
       return;
@@ -299,6 +303,7 @@ export function AuditLogsPage() {
         draft={draft}
         onChange={setDraft}
         onSubmit={submit}
+        searching={searching}
         rangeError={rangeError}
         fieldErrors={fieldErrors}
       />

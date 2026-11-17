@@ -35,6 +35,8 @@ type Props = {
   draft: FilterDraft;
   onChange: (draft: FilterDraft) => void;
   onSubmit: () => void;
+  /** 取得中は「絞り込む」を押せなくする */
+  searching: boolean;
   /** 開始日が終了日より後のとき（検索しない） */
   rangeError: string | null;
   /** サーバーが 422 で返した入力欄ごとの誤り */
@@ -45,6 +47,7 @@ export function AuditLogFilters({
   draft,
   onChange,
   onSubmit,
+  searching,
   rangeError,
   fieldErrors,
 }: Props) {
@@ -132,7 +135,9 @@ export function AuditLogFilters({
           </Button>
         </p>
       )}
-      <Button type="submit">絞り込む</Button>
+      <Button type="submit" disabled={searching}>
+        絞り込む
+      </Button>
     </form>
   );
 }
