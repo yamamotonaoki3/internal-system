@@ -3,6 +3,7 @@
 // 無効化・再有効化（#128）は、batch の先頭の assertStatement で前提を確かめ、崩れていれば NOT NULL 違反で batch 全体を取り消す（#196 の方式）。
 import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import {
+  caseCreationRequests,
   channelMembers,
   departments,
   sessions,
@@ -302,15 +303,45 @@ export function createAccountRepository(db: Database) {
       const target = rows[0];
       if (target === undefined) throw new AccountStateChangedError();
       const fromDepartmentId = target.departmentId;
+      // 監査の detail（取り消す案件の作成申請の件数。#146・5-3 AC-8）を読む。読んだ件数が batch の時点でも同じことを、前提の条件に含める
+      const [pending] = await db
+        .select({ n: sql<number>`COUNT(*)` })
+        .from(caseCreationRequests)
+        .where(
+          and(
+            eq(caseCreationRequests.requestedBy, input.targetId),
+            eq(caseCreationRequests.status, "pending"),
+          ),
+        );
+      if (pending === undefined)
+        throw new Error("審査中の申請の件数を読めませんでした");
+      const cancelledCaseRequestCount = pending.n;
       const condition = sql`${input.actorId} <> ${input.targetId}
         AND EXISTS (SELECT 1 FROM users t
           WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id IS ${fromDepartmentId})
         AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
           WHERE r.user_id = ${input.targetId} AND r.role_id IN (${ROLE_IDS.globalAdmin}, ${ROLE_IDS.owner}))
+        AND (SELECT COUNT(*) FROM case_creation_requests c
+          WHERE c.requested_by = ${input.targetId} AND c.status = 'pending') = ${cancelledCaseRequestCount}
         AND ${actorIsGlobalAdmin(input.actorId)}`;
       try {
         await db.batch([
           assertStatement(db, input, condition),
+          // 申請者の審査中の案件の作成申請を自動で取り消す（5-3 AC-8）。申請ごとの監査・通知は作らない
+          db
+            .update(caseCreationRequests)
+            .set({
+              status: "auto_cancelled",
+              version: sql`${caseCreationRequests.version} + 1`,
+              decidedBy: input.actorId,
+              decidedAt: input.now,
+            })
+            .where(
+              and(
+                eq(caseCreationRequests.requestedBy, input.targetId),
+                eq(caseCreationRequests.status, "pending"),
+              ),
+            ),
           db
             .update(users)
             .set({
@@ -341,7 +372,7 @@ export function createAccountRepository(db: Database) {
             targetId: input.targetId,
             result: "success",
             traceId: input.traceId,
-            detail: { fromDepartmentId },
+            detail: { fromDepartmentId, cancelledCaseRequestCount },
           }),
         ]);
       } catch (error) {

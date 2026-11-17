@@ -11,6 +11,7 @@ import {
   roomAttachmentRoutes,
 } from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
+import { caseRequestRoutes } from "./routes/case-requests";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
@@ -70,6 +71,8 @@ const app = createApp({
     { path: "/api/rooms", app: roomAttachmentRoutes() },
     { path: "/api/messages", app: replyAttachmentRoutes() },
     { path: "/api/attachments", app: attachmentRoutes() },
+    // #146：案件の作成申請・自分の申請・取り下げ・類似件名の確認。index.ts と同じパスに組み込む
+    { path: "/api/case-requests", app: caseRequestRoutes() },
   ],
 });
 
@@ -268,6 +271,29 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         "404",
         "409",
       ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#146 5-3 AC-1・AC-7・AC-14（EP-5-01・EP-5-02）: 案件の作成申請・自分の申請・取り下げ・類似件名の確認の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/case-requests": ["201", "401", "403", "409", "422"],
+      "GET /api/case-requests/mine": ["200", "401", "422"],
+      "POST /api/case-requests/{requestId}/withdraw": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+      ],
+      "GET /api/case-requests/similar-title": ["200", "401", "422"],
     };
     for (const [name, codes] of Object.entries(expected)) {
       const operation = operations.find((entry) => entry.name === name);

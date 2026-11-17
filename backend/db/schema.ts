@@ -642,3 +642,95 @@ export const channelCreationRequests = sqliteTable(
     ),
   ],
 );
+
+// 案件の作成申請（#146）。approved・rejected は 146-B で使うが、CHECK の作り直しを避けるため先に入れる。
+// auto_cancelled は、申請者の無効化による自動取消（5-3 AC-8）。case_id は将来の案件の物理削除を止めないため外部キーにしない
+export const caseCreationRequests = sqliteTable(
+  "case_creation_requests",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    dueDate: text("due_date"),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "withdrawn", "auto_cancelled"],
+    })
+      .notNull()
+      .default("pending"),
+    version: integer("version").notNull().default(1),
+    decidedBy: text("decided_by").references(() => users.id),
+    decisionReason: text("decision_reason"),
+    caseId: text("case_id"),
+    resubmittedFrom: text("resubmitted_from").references(
+      (): AnySQLiteColumn => caseCreationRequests.id,
+    ),
+    requestedAt: text("requested_at").notNull().default(nowUtc),
+    decidedAt: text("decided_at"),
+  },
+  (t) => [
+    check(
+      "case_creation_requests_status_check",
+      sql`${t.status} in ('pending', 'approved', 'rejected', 'withdrawn', 'auto_cancelled')`,
+    ),
+    check(
+      "case_creation_requests_rejected_reason_check",
+      sql`${t.status} <> 'rejected' or ${t.decisionReason} is not null`,
+    ),
+    check(
+      "case_creation_requests_approved_case_check",
+      sql`${t.status} <> 'approved' or ${t.caseId} is not null`,
+    ),
+    check(
+      "case_creation_requests_decided_check",
+      sql`${t.status} = 'pending' or (${t.decidedAt} is not null and ${t.decidedBy} is not null)`,
+    ),
+    check(
+      "case_creation_requests_due_date_check",
+      sql`${t.dueDate} is null or ${t.dueDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
+    index("case_creation_requests_requested_by_id_idx").on(t.requestedBy, t.id),
+    index("case_creation_requests_status_id_idx").on(t.status, t.id),
+    index("case_creation_requests_client_id_title_idx").on(t.clientId, t.title),
+  ],
+);
+
+export const caseCreationRequestDepartments = sqliteTable(
+  "case_creation_request_departments",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => caseCreationRequests.id),
+    departmentId: text("department_id")
+      .notNull()
+      .references(() => departments.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.requestId, t.departmentId] }),
+    index("case_creation_request_departments_department_id_idx").on(
+      t.departmentId,
+    ),
+  ],
+);
+
+export const caseCreationRequestCandidates = sqliteTable(
+  "case_creation_request_candidates",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => caseCreationRequests.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    addedBy: text("added_by")
+      .notNull()
+      .references(() => users.id),
+    addedAt: text("added_at").notNull().default(nowUtc),
+  },
+  (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
+);

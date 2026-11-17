@@ -23,6 +23,11 @@ export function threadDraftScope(
   return `thread:${roomId}:${parentMessageId}`;
 }
 
+/** 案件の作成の申請（S-18）の説明欄の scope。申請の画面は1つなので固定の値 */
+export function caseRequestDraftScope(): string {
+  return "case-request:new";
+}
+
 export function draftKey(userId: string, scope: string): string {
   return `${userDraftKeyPrefix(userId)}${scope}`;
 }
