@@ -123,6 +123,8 @@
 
 1つの`db.batch`で、次を確定する。順に、状態（`is_active`＝無効、`deactivated_at`、`department_id`＝NULL）、全チャンネルの参加の削除（全社連絡・部署の専用・個別。再有効化で戻さないため）、追加ロールの割り当ての削除（全体管理者・オーナーは前提で除外済み）、対象のセッションの失効（`revoked_at`）、監査`account.deactivate`（`detail`は元の部署IDだけ）。
 
+**【Issue #146（146-A）で足した。元の記述は残す】** 同じbatchに、対象の審査中の案件の作成申請を自動取消にする文を足した（5-3 AC-8。C-177の統括の決定(8)の「無効化の分は146-Aで足す」）。`account.repository.ts`の`autoCancelCaseRequests`が、`case_creation_requests`の`status`を`auto_cancelled`にし、`version`を1上げ、`decided_by`は無効化を行った操作者、`decided_at`は無効化の時刻にする。申請ごとの監査・通知は作らず、監査`account.deactivate`の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ審査中の件数（`readPendingCaseRequests`）が、batchの時点でも同じことを、先頭の前提の確認（`caseRequestsUnchangedSql`）に含める。詳細は[case-requests.md](case-requests.md)。
+
 DM（`conversation_members`）・既読位置・投稿には触れない。相手側のDMはそのまま残る（Issue #128の利用者の決定）。
 
 ### 再有効化で戻すもの・戻さないもの
@@ -208,7 +210,7 @@ Service内の`decideTransfer`が、事実（`findTransferState`）を読んで�
 - 変わるもの：所属（`users.department_id`）、旧部署の専用チャンネル2つ（`department`・`announcement`）の参加の削除、新部署の専用チャンネル2つ（削除されていないもの）への参加（すでに参加していれば入れない）、監査`account.transfer`
 - 監査の`detail`：`fromDepartmentId`・`toDepartmentId`・`roleIds`。`roleIds`は、入れ子にしない決まりに合わせ、対象のロールの割り当ての役割IDを昇順に`,`で区切った文字列にする（C-177。batchの前に読む）。本名・メールは入れない
 - 変わらないもの：全社連絡・個別のチャンネルの参加、DM（`conversation_members`）、ロールの割り当て、セッション
-- 案件の作成申請の自動取消（5-3 AC-8）は、案件の表がまだないため作っていない（C-177の統括の決定(8)。128-bと146-Aのうち後にマージするほうで足す）
+- 案件の作成申請の自動取消（5-3 AC-8）は、案件の表がまだないため作っていない（C-177の統括の決定(8)。128-bと146-Aのうち後にマージするほうで足す）。**【Issue #146（146-A）で足した。元の記述は残す】** 146-Aが後にマージされるため、異動の`db.batch`にも、無効化と同じ`autoCancelCaseRequests`を足した。対象の審査中の案件の作成申請を`auto_cancelled`にし（`decided_by`は異動を行った操作者、`decided_at`は異動の時刻）、監査の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ件数が変わっていたら、先頭の前提の確認（`caseRequestsUnchangedSql`）が崩れ、読み直しに入る。全体管理者の申請は取り消さない（5-3 AC-8。全体管理者の部署変更は対象外）。通知は出さない。詳細は[case-requests.md](case-requests.md)
 
 ### 前提が崩れた後の読み直し
 
@@ -251,6 +253,7 @@ Serviceの`writeWithRecheck`（無効化・再有効化と共用）が、書き�
 - バックエンド：`backend/src/routes/accounts.test.ts`、`backend/src/services/account.service.test.ts`、`backend/src/db/account.repository.db.test.ts`・`account.repository.errors.db.test.ts`（参加・全社連絡がないとき）、`backend/src/services/account.service.logging.test.ts`、`backend/src/routes/accounts.channels.test.ts`、`backend/src/routes/auth.test.ts`（セッション応答の権限）、`backend/src/openapi.test.ts`
 - バックエンド（#128 無効化・再有効化）：`backend/src/db/account.repository.lifecycle.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.lifecycle.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.lifecycle.test.ts`（認可・再認証・応答・ログ）
 - バックエンド（#128 部署異動）：`backend/src/db/account.repository.transfer.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.transfer.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.transfer.test.ts`（認可・再認証・応答）。契約は`backend/src/openapi.test.ts`
+- バックエンド（#146 案件の作成申請の自動取消）：`backend/src/db/account.repository.case-request.db.test.ts`（無効化）、`account.repository.transfer.case-request.db.test.ts`（異動）。監査の`cancelledCaseRequestCount`と前提の崩れを確かめる（[case-requests.md](case-requests.md)）
 - フロントエンド：`frontend/src/pages/AccountsPage.test.tsx`、`AccountCreatePage.test.tsx`、`frontend/src/accounts-route.test.tsx`、`frontend/src/components/SelectField.test.tsx`、`frontend/src/features/accounts/account-lifecycle.test.tsx`（#128。ボタンの出し分け・一時パスワードの表示と消去）、`account-transfer.test.tsx`（#128。異動のダイアログ・再認証・エラー・完了のメッセージ）
 - E2E：`e2e/accounts.spec.ts`（シードは`e2e/seeds/accounts.sql`・`accounts-cleanup.sql`）、`e2e/accounts-lifecycle.spec.ts`（#128。無効化・再有効化と異動の2本。シードは`e2e/seeds/accounts-lifecycle.sql`・`accounts-lifecycle-cleanup.sql`。[e2e.md](../testing/e2e.md)）
 
@@ -268,6 +271,7 @@ Serviceの`writeWithRecheck`（無効化・再有効化と共用）が、書き�
 - Issue #199：アカウントの個別発行とアカウント一覧
 - Issue #126：アカウント管理（親）。#127・#128・#129
 - Issue #128：無効化・再有効化・部署異動・退職処理の申請。128-a（無効化・再有効化）・128-b（部署異動。即時）を実装した。決定は決定記録 C-177
+- Issue #146（146-A）：無効化・異動の`db.batch`に、案件の作成申請の自動取消を足した（[case-requests.md](case-requests.md)）
 - Issue #274：部署異動の異動日の指定（予約）。128-bでは作っていない
 - Issue #200：全社連絡と部署の専用チャンネルへの参加を足した（[channels.md](channels.md)）
 - ADR-0006：安定IDとカーソルページング
