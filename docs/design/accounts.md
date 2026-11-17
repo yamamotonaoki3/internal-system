@@ -1,4 +1,4 @@
-# アカウントの個別発行・一覧・無効化・再有効化（Issue #199・#128）
+# アカウントの個別発行・一覧・無効化・再有効化・部署異動（Issue #199・#128）
 
 ## 目的
 
@@ -9,8 +9,8 @@
 | 区分 | 内容 |
 | --- | --- |
 | このIssueで作ったもの | 個別発行API・管理者用の一覧API・所属部署の候補API（`/api/admin/accounts`）、S-22（一覧）、S-23（登録）、共通部品`SelectField`、セッション応答の権限`perm.account.create`、監査操作`account.create` |
-| 親#126に残すもの | CSV一括登録、パスワードの再発行（#127）、社員情報の変更、一覧の検索・絞り込み、ロール付与。0-1 AC-15の「発行と同時に全社連絡へ参加させる」は、Issue #200で足した（下の「全社連絡と部署の専用チャンネルへの参加」）。無効化・再有効化は、Issue #128の最初の子（128-a）で足した（下の「無効化と再有効化」） |
-| #128で後に足すもの | 部署異動（128-b）、退職処理の申請と通知（128-c）。128-aでは作っていない（決定記録 C-177） |
+| 親#126に残すもの | CSV一括登録、パスワードの再発行（#127）、社員情報の変更、一覧の検索・絞り込み、ロール付与。0-1 AC-15の「発行と同時に全社連絡へ参加させる」は、Issue #200で足した（下の「全社連絡と部署の専用チャンネルへの参加」）。無効化・再有効化は、Issue #128の最初の子（128-a）で足した（下の「無効化と再有効化」）。部署異動（即時）は、2つ目の子（128-b）で足した（下の「部署異動」） |
+| #128で後に足すもの | 退職処理の申請と通知（128-c）。128-a・128-bでは作っていない。部署異動の異動日の指定（予約）は #274（決定記録 C-177） |
 | 未決定として記録するもの | A-5 レート制限（X-8の上限が未決定のため、このIssueでは入れない）。A-8 離脱確認ダイアログ（0-1 AC-21。既存の仕組みがないため作らない） |
 
 ## ファイルと役割
@@ -18,21 +18,22 @@
 | ファイル | 役割 |
 | --- | --- |
 | `shared/account-rules.ts` | 発行の入力規則の定義元。本名50文字・表示名30文字を持ち、社員ID・メール・内線・役職は`shared/setup-rules.ts`の定義を参照して二重に定義しない。`noControlCharacters`と各`account*Schema`をAPIと画面が共用する |
-| `backend/src/routes/accounts.ts` | `adminAccountRoutes`。`requireAccountAdmin`が認可を入力検証より先に行い、`createSchema`で入力を検証する。発行応答に`noStore`を付ける。#128で`POST /:id/deactivate`・`POST /:id/reactivate`（`reactivateSchema`。応答は`noStore`）を足した |
-| `backend/src/services/account.service.ts` | `createAccountService`が認可・部署の確認・初期パスワード生成とハッシュ・本名の暗号化・重複の409変換を行う。`withAccountService`が構成する。#128で`deactivate`・`reactivate`と、判定の純粋な関数`decideDeactivation`・`decideReactivation`、書き込みの失敗を読み直す`writeWithRecheck`を足した |
-| `backend/src/db/account.repository.ts` | `createAccountRepository`が部署の確認、利用者の追加と監査ログの`db.batch`、一覧を扱う。一意制約違反を`AccountConflictError`にする。`withAccounts`が構成する。#128で`findAccountState`・`deactivate`・`reactivate`、前提の確認の`assertStatement`、前提が崩れたときの`AccountStateChangedError`、参加の文を発行と共用する`joinInitialChannels`を足した |
+| `backend/src/routes/accounts.ts` | `adminAccountRoutes`。`requireAccountAdmin`が認可を入力検証より先に行い、`createSchema`で入力を検証する。発行応答に`noStore`を付ける。#128で`POST /:id/deactivate`・`POST /:id/reactivate`（`reactivateSchema`。応答は`noStore`）・`POST /:id/transfer`（`transferSchema`。204）を足した |
+| `backend/src/services/account.service.ts` | `createAccountService`が認可・部署の確認・初期パスワード生成とハッシュ・本名の暗号化・重複の409変換を行う。`withAccountService`が構成する。#128で`deactivate`・`reactivate`と、判定の純粋な関数`decideDeactivation`・`decideReactivation`、書き込みの失敗を読み直す`writeWithRecheck`を足した。128-bで`transfer`と、異動の判定`decideTransfer`（異動元の部署を返す）を足した |
+| `backend/src/db/account.repository.ts` | `createAccountRepository`が部署の確認、利用者の追加と監査ログの`db.batch`、一覧を扱う。一意制約違反を`AccountConflictError`にする。`withAccounts`が構成する。#128で`findAccountState`・`deactivate`・`reactivate`、前提の確認の`assertStatement`、前提が崩れたときの`AccountStateChangedError`、参加の文を発行と共用する`joinInitialChannels`を足した。128-bで`findTransferState`（異動の判定に使う対象の事実）・`transfer`・型`AccountTransferState`・`AccountTransferInput`を足した（`AccountStateChangedError`・`assertStatement`は共用） |
 | `backend/src/services/authorizer.ts` | `canManageAccounts`が`perm.account.create`の会社scope判定を返す（セッション応答用） |
 | `backend/src/routes/auth.ts` | セッション取得の`permissions`に`perm.account.create`を含める |
-| `backend/src/lib/audit-actions.ts` | 監査操作名`account.create`を足した。#128で`account.deactivate`・`account.reactivate`を足した |
+| `backend/src/lib/audit-actions.ts` | 監査操作名`account.create`を足した。#128で`account.deactivate`・`account.reactivate`・`account.transfer`を足した |
 | `backend/src/index.ts` | `/api/admin/accounts`へ`adminAccountRoutes`を登録 |
 | `frontend/src/features/accounts/DeactivateDialog.tsx`・`ReactivateDialog.tsx` | 無効化の確認ダイアログ、再有効化のダイアログ（部署の選択→送信→一時パスワードの一度だけの表示）。#128 |
-| `frontend/src/features/accounts/useAccountLifecycle.ts` | `useDeactivateAccount`（`useMutation`）と、成功後に取り直す`invalidateAfterLifecycle`（`accountKeys`・`channelKeys`・`profileKeys`）。再有効化は一時パスワードを返すためhookにしない。#128 |
+| `frontend/src/features/accounts/TransferDialog.tsx` | 異動のダイアログ（異動先の部署の選択→再認証を挟んで送信）。#128（128-b） |
+| `frontend/src/features/accounts/useAccountLifecycle.ts` | `useDeactivateAccount`・`useTransferAccount`（どちらも`useMutation`）と、成功後に取り直す`invalidateAfterLifecycle`（`accountKeys`・`channelKeys`・`profileKeys`）。再有効化は一時パスワードを返すためhookにしない。#128 |
 | `frontend/src/features/accounts/lifecycle-errors.ts` | `sendWithReauth`（再認証を挟んで送る。再認証が完了しなかったときは要求を送らず`NotSentError`にする）、`describeLifecycleError`（想定できる失敗を画面の文にし、想定外はnullを返して呼び出し側に再送出させる）。#128 |
-| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3操作のAPI仕様と実routeとの契約確認 |
-| `frontend/src/features/accounts/account-api.ts` | `fetchDepartmentOptions`・`fetchAdminAccounts`・`submitAccount`。応答はzodで検証する。#128で`deactivateAccount`・`reactivateAccount`を足した |
+| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 発行・無効化・再有効化・異動のAPI仕様と実routeとの契約確認 |
+| `frontend/src/features/accounts/account-api.ts` | `fetchDepartmentOptions`・`fetchAdminAccounts`・`submitAccount`。応答はzodで検証する。#128で`deactivateAccount`・`reactivateAccount`・`transferAccount`を足した |
 | `frontend/src/features/accounts/query-keys.ts` | `accountKeys`（一覧・部署の候補） |
 | `frontend/src/features/accounts/AccountForm.tsx`、`schemas/account-form.ts` | 入力フォーム（react-hook-form）と入力チェック。`initialDisplayName`が本名から表示名の初期値を作る。422の`fields`を該当欄へ、409・403・503をフォーム全体の案内にする |
-| `frontend/src/features/accounts/AccountsList.tsx` | 一覧表。`useInfiniteQuery`でカーソル順に続きを取得する。#128で「操作」列（有効な行に「無効化」、無効な行に「再有効化」）を足した |
+| `frontend/src/features/accounts/AccountsList.tsx` | 一覧表。`useInfiniteQuery`でカーソル順に続きを取得する。#128で「操作」列（有効な行に「異動」と「無効化」、無効な行に「再有効化」）を足した |
 | `frontend/src/pages/AccountsPage.tsx`、`AccountCreatePage.tsx` | S-22・S-23の画面構成 |
 | `frontend/src/components/SelectField.tsx` | 共通の選択欄（[style-foundation.md](style-foundation.md)） |
 | `frontend/src/features/setup/components/InitialPasswordNotice.tsx` | 初回セットアップと共用の初期パスワード表示。`proceedLabel`で進むボタンの文言を変えられる（S-23は「一覧へ戻る」） |
@@ -87,7 +88,7 @@
 
 ## 無効化と再有効化（Issue #128。128-a）
 
-決定は決定記録 C-177。実装したのは、無効化・再有効化だけ。部署異動（128-b）と退職処理の申請（128-c）は、まだない。
+決定は決定記録 C-177。この節で扱うのは、無効化・再有効化（128-a）。部署異動は次の「部署異動」の節、退職処理の申請（128-c）は、まだない。
 
 ### API契約
 
@@ -159,6 +160,71 @@ Serviceの`writeWithRecheck`は、書き込みが`AccountStateChangedError`で�
 ### 要件・画面案との差
 
 - `api-draft.md`のEP-0-10・EP-0-11と違い、パスは`/api/admin/accounts/:id/...`、無効化の応答は204、再有効化の応答は`id`・`initialPassword`。それぞれの行に実装の注記を足した
+- 部署異動（128-b）は、`api-draft.md`にEP番号がない（EP-0-16は社員情報の変更）。末尾の「2026-11-17 Issue #128（128-b）の実装」に形を追記した。要件0-1 AC-16の「異動日を指定」は #274 に回し、AC-16〜18の注記に実装の範囲を書いた
+
+## 部署異動（Issue #128。128-b）
+
+決定は決定記録 C-177（利用者の決定U-4：異動は即時だけ。異動日の指定（予約）は Issue #274）。全体管理者が、有効な社員を別の部署へ即時に異動する。
+
+### API契約
+
+| 項目 | 契約 |
+| --- | --- |
+| 異動 | `POST /api/admin/accounts/:id/transfer`。本文は`departmentId`だけ（余剰項目は422）。成功は204 |
+| 409の`reason` | `inactive`（対象が無効）・`department_owner`（対象が今の部署のオーナー）。応答の最上位に出す |
+| その他のエラー | 401、403（全体管理者以外・再認証の期限切れ`REAUTH_REQUIRED`）、404（対象がない）、422（異動先の部署がない・無効、今と同じ部署。`fields`は`departmentId`） |
+
+### 判定の順
+
+Service内の`decideTransfer`が、事実（`findTransferState`）を読んで順に確かめる。最初の判定と、書き込みの前提が崩れた後の読み直しで、同じ関数を使う。成功すると異動元の部署（判定の時の所属）を返す。
+
+1. 対象がない（404）
+2. 権限`perm.employee.info.edit`を会社の範囲で持たない（403。全体管理者だけが持つ。R-12。決定記録 C-177）
+3. 異動先の部署がない・無効（422）、異動先が今の部署と同じ（422）
+4. 再認証（403`REAUTH_REQUIRED`）
+5. 対象が無効、または所属がない（409`inactive`）、対象が今の部署のオーナー（409`department_owner`）
+
+- routeの`requireAccountAdmin`（`perm.account.create`）が、先に全体管理者以外を403にする。HTTPでは、全体管理者以外には対象の有無を教えない
+- 止めるのは、対象が今の部署のオーナーである場合だけ。ほかの部署のオーナー・全体管理者・本人は異動できる（C-177）。オーナーの割り当ては`findTransferState`が`ownedDepartmentIds`として返し、判定は「今の部署がその中にあるか」で行う
+
+### 書き込み：前提の確認と取り消し（#196の方式）
+
+`createAccountRepository().transfer`は、無効化・再有効化と同じく、`db.batch`の先頭に`assertStatement`を置く（`AccountStateChangedError`・`translateError`も共用）。先頭の前提は、次をすべて満たすときだけ書き込む。
+
+| 前提 | 対応する判定 |
+| --- | --- |
+| 異動先が今の部署と違う | 422（今と同じ部署） |
+| 対象が有効で、所属が判定の時に読んだ部署のまま | 409`inactive`、読んだ所属からの変化 |
+| 対象が、その部署のオーナーでない | 409`department_owner` |
+| 異動先の部署が有効 | 422 |
+| 操作者が有効で、会社範囲の全体管理者 | 403 |
+
+再認証は、無効化・再有効化と同じく、セッションの時刻でDBの行ではないため、Serviceで確かめ、前提に入れない。
+
+### 異動で変わるもの・変わらないもの
+
+1つの`db.batch`で、順に次を確定する。
+
+- 変わるもの：所属（`users.department_id`）、旧部署の専用チャンネル2つ（`department`・`announcement`）の参加の削除、新部署の専用チャンネル2つ（削除されていないもの）への参加（すでに参加していれば入れない）、監査`account.transfer`
+- 監査の`detail`：`fromDepartmentId`・`toDepartmentId`・`roleIds`。`roleIds`は、入れ子にしない決まりに合わせ、対象のロールの割り当ての役割IDを昇順に`,`で区切った文字列にする（C-177。batchの前に読む）。本名・メールは入れない
+- 変わらないもの：全社連絡・個別のチャンネルの参加、DM（`conversation_members`）、ロールの割り当て、セッション
+- 案件の作成申請の自動取消（5-3 AC-8）は、案件の表がまだないため作っていない（C-177の統括の決定(8)。128-bと146-Aのうち後にマージするほうで足す）
+
+### 前提が崩れた後の読み直し
+
+Serviceの`writeWithRecheck`（無効化・再有効化と共用）が、書き込みが`AccountStateChangedError`で失敗したときだけ、最初と同じ`decideTransfer`を呼んで事実を読み直す。権限の確認から順に確かめ直すため、403・404・409・422のどれかが決まる。どれにも当たらなければ、成功扱いにせず`AccountStateChangedError`をそのまま投げる。
+
+### 同時の操作
+
+同じ対象への異動が同時に来たときは、一方だけが先に確定する。もう一方は、確定した後の所属が判定の時に読んだ所属と変わっているため、前提が崩れてbatch全体が取り消される。読み直しで理由が決まればその応答（例：同じ部署への異動なら422）を返し、決まらなければ`AccountStateChangedError`のままになる。監査・参加の削除・参加は、確定した1回分だけになる（DBテストで確かめる）。異動と無効化が同時に来たときも、後に確定する側が前提（有効・所属が同じ）で止まる。
+
+### 画面の流れ（S-22）
+
+- 行の操作列：有効な行に「異動」（本人の行にも出す）。表示の制御で、認可はサーバー。無効な行には出さない
+- `TransferDialog`：対象の表示名と、変わるもの（今の部署の専用チャンネルから外れ、異動先の専用チャンネルに参加する。ロールと個別のチャンネルの参加は変わらない）を示し、異動先の部署（`fetchDepartmentOptions`の候補）を選ぶ。未選択は送らず欄のエラーにする。候補は有効な部署すべてで、今の部署はサーバーが422にする
+- 送信：`useTransferAccount`が`sendWithReauth`で再認証（期限内なら省く）を挟んで送る。成功でダイアログが閉じ、`invalidateAfterLifecycle`で一覧・チャンネル・プロフィールを取り直し、`onDone`で一覧の上に「アカウントを異動しました」を出す（無効化・再有効化と同じ出し方。C-177）
+- 失敗はダイアログの中に出す。422で`fields`に`departmentId`があるときは、異動先の欄のエラーにする（`isDepartmentFieldError`）。そのほかの409・422はサーバーのメッセージ、再認証が完了しなかったときは要求を送らない旨を出す
+- 異動の確認のダイアログ・完了のメッセージは、画面の仕様（`screens.md`）に定めがなく、無効化・再有効化と同じ出し方で足した（C-177）
 
 ## 初期パスワードの扱い
 
@@ -175,7 +241,7 @@ Serviceの`writeWithRecheck`は、書き込みが`AccountStateChangedError`で�
 
 | 後続 | 足す位置 |
 | --- | --- |
-| #127・#128・#129（再発行・部署異動・退職処理の申請・社員情報の変更など。無効化・再有効化は#128の128-aで実装済み） | 操作ごとにrouteを`adminAccountRoutes`へ足し、Serviceに認可つきの操作を足す。128-bの異動は、128-aと同じ`assertStatement`の方式でbatchを足す。128-cは、無効化のbatchに申請を完了にする文を足す（今は差し込み口を作らない）。一覧の行の操作は`AccountsList`の列に足す。`AccountListItem`は`active`・`mustChangePassword`を既に持つ。再認証が必要な操作は、既存の再認証の仕組み（[auth-session.md](auth-session.md)）を呼ぶ |
+| #127・#128・#129（再発行・部署異動・退職処理の申請・社員情報の変更など。無効化・再有効化は#128の128-a、部署異動（即時）は128-bで実装済み） | 操作ごとにrouteを`adminAccountRoutes`へ足し、Serviceに認可つきの操作を足す。128-bの異動は、128-aと同じ`assertStatement`の方式でbatchを足した。異動日の指定（#274）は、予約の仕組みを別に足す。128-cは、無効化のbatchに申請を完了にする文を足す（今は差し込み口を作らない）。一覧の行の操作は`AccountsList`の列に足す。`AccountListItem`は`active`・`mustChangePassword`を既に持つ。再認証が必要な操作は、既存の再認証の仕組み（[auth-session.md](auth-session.md)）を呼ぶ |
 | 一覧の検索・絞り込み | `listAdmin`の入力に条件を足す。要件のEP-0-09は`status`・`departmentId`を想定している |
 | 部署の候補の統合 | `listActiveDepartments`は部署の管理（#196）のRepositoryができたら、そちらへ統合する |
 
@@ -184,8 +250,9 @@ Serviceの`writeWithRecheck`は、書き込みが`AccountStateChangedError`で�
 - 入力規則：`backend/src/lib/account-rules.test.ts`、`frontend/src/features/accounts/schemas/account-form.test.ts`
 - バックエンド：`backend/src/routes/accounts.test.ts`、`backend/src/services/account.service.test.ts`、`backend/src/db/account.repository.db.test.ts`・`account.repository.errors.db.test.ts`（参加・全社連絡がないとき）、`backend/src/services/account.service.logging.test.ts`、`backend/src/routes/accounts.channels.test.ts`、`backend/src/routes/auth.test.ts`（セッション応答の権限）、`backend/src/openapi.test.ts`
 - バックエンド（#128 無効化・再有効化）：`backend/src/db/account.repository.lifecycle.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.lifecycle.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.lifecycle.test.ts`（認可・再認証・応答・ログ）
-- フロントエンド：`frontend/src/pages/AccountsPage.test.tsx`、`AccountCreatePage.test.tsx`、`frontend/src/accounts-route.test.tsx`、`frontend/src/components/SelectField.test.tsx`、`frontend/src/features/accounts/account-lifecycle.test.tsx`（#128。ボタンの出し分け・一時パスワードの表示と消去）
-- E2E：`e2e/accounts.spec.ts`（シードは`e2e/seeds/accounts.sql`・`accounts-cleanup.sql`）、`e2e/accounts-lifecycle.spec.ts`（#128。シードは`e2e/seeds/accounts-lifecycle.sql`・`accounts-lifecycle-cleanup.sql`。[e2e.md](../testing/e2e.md)）
+- バックエンド（#128 部署異動）：`backend/src/db/account.repository.transfer.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.transfer.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.transfer.test.ts`（認可・再認証・応答）。契約は`backend/src/openapi.test.ts`
+- フロントエンド：`frontend/src/pages/AccountsPage.test.tsx`、`AccountCreatePage.test.tsx`、`frontend/src/accounts-route.test.tsx`、`frontend/src/components/SelectField.test.tsx`、`frontend/src/features/accounts/account-lifecycle.test.tsx`（#128。ボタンの出し分け・一時パスワードの表示と消去）、`account-transfer.test.tsx`（#128。異動のダイアログ・再認証・エラー・完了のメッセージ）
+- E2E：`e2e/accounts.spec.ts`（シードは`e2e/seeds/accounts.sql`・`accounts-cleanup.sql`）、`e2e/accounts-lifecycle.spec.ts`（#128。無効化・再有効化と異動の2本。シードは`e2e/seeds/accounts-lifecycle.sql`・`accounts-lifecycle-cleanup.sql`。[e2e.md](../testing/e2e.md)）
 
 ## 要件定義書との食い違い（記録）
 
@@ -200,7 +267,8 @@ Serviceの`writeWithRecheck`は、書き込みが`AccountStateChangedError`で�
 
 - Issue #199：アカウントの個別発行とアカウント一覧
 - Issue #126：アカウント管理（親）。#127・#128・#129
-- Issue #128：無効化・再有効化・部署異動・退職処理の申請。128-a（無効化・再有効化）を実装した。決定は決定記録 C-177
+- Issue #128：無効化・再有効化・部署異動・退職処理の申請。128-a（無効化・再有効化）・128-b（部署異動。即時）を実装した。決定は決定記録 C-177
+- Issue #274：部署異動の異動日の指定（予約）。128-bでは作っていない
 - Issue #200：全社連絡と部署の専用チャンネルへの参加を足した（[channels.md](channels.md)）
 - ADR-0006：安定IDとカーソルページング
 - ADR-0012：サーバー側で毎回認可する
