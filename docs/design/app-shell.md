@@ -34,6 +34,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | ヘッダーのステータスボタン | 作らない（#121の時点）。**Issue #130で作った**（`StatusButton`。[profile-status.md](profile-status.md)） | — |
 | 社員一覧（S-20）のナビ | **Issue #130で、`primaryNavItems`に「社員一覧」（`/members`）を足した** | — |
 | スレッド一覧（S-35）のナビ | **Issue #137で、`primaryNavItems`に「スレッド」（`/threads`）を足した**（社員一覧の次。ログイン後の全員が使える） | — |
+| 案件の作成の申請（S-18）のナビ | **Issue #146（146-A）で、`primaryNavItems`に「案件の申請」（`/case-requests`）を足した**（スレッドの次。全員に出す。権限の条件は付けない。案件一覧（S-16）が#147でできるまでの仮の入口）。設計は[case-requests.md](case-requests.md) | — |
 | 他部署の拠点ラベルの印 | 作らない | 担当 Issue なし（C-119 の細部が未決定） |
 | 再接続の表示 | 作らない | 担当 Issue なし |
 

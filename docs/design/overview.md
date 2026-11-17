@@ -133,6 +133,9 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | `frontend/src/features/messages/`の`components/AttachmentPicker.tsx`・`AttachmentList.tsx`・`MessageAttachments.tsx`・`MessageComposer.tsx`・`hooks/usePostMessage.ts`・`api/message-api.ts`、`frontend/src/components/FileInput.tsx` | 添付の選択・一覧・取り消し・1件ずつのアップロードと、メッセージの添付の表示（Issue #140）。詳細は[attachments.md](attachments.md) |
 | `frontend/src/features/drafts/`、`frontend/src/features/leave-guard/` | 入力欄の下書きの端末への一時保存と、離脱の確認（画面の移動・ログアウト・再読み込み）（Issue #239）。`main.tsx`で画面の振り分けを`LeaveGuardProvider`で包む。設計は[drafts.md](drafts.md) |
 | 取引先マスタ（Issue #192） | 管理・社員向けAPIとS-36管理画面を実装済み。先行テストはGreenだが、全体QAは未完了。ファイル責務と処理の流れは [client-management.md](client-management.md) に記載する |
+| `shared/case-rules.ts`、`backend/src/lib/case-request-rules.ts`、`backend/src/db/case-request.repository.ts`、`backend/src/services/case-request.service.ts`、`backend/src/routes/case-requests.ts` | 案件の作成の申請（146-A）。件名・説明・納期の規則の定義元（件名の整形・日本時間の日付）、通知の宛先、申請・自分の申請・取り下げ・類似件名の確認の4つのAPI（Issue #146）。1操作＝1回の`db.batch`で、前提を`CASE WHEN … ELSE NULL`で確かめ直す。`backend/src/db/account.repository.ts`の無効化・異動のbatchに、審査中の申請の自動取消を足した。設計は[case-requests.md](case-requests.md) |
+| `backend/db/migrations/0024_add_case_creation_requests.sql` | `case_creation_requests`・`case_creation_request_departments`・`case_creation_request_candidates`の3つの表と索引（Issue #146）。状態は5つ（`auto_cancelled`を含む）。`case_id`は外部キーにしない |
+| `frontend/src/features/case-requests/`、`frontend/src/pages/CaseRequestPage.tsx` | S-18（案件の作成の申請と自分の申請・取り下げ・再申請。説明欄の下書き）とメニュー「案件の申請」（Issue #146）。S-29（審査）は146-Bで作る |
 
 （追加・変更したファイルを、実装したPRの中で、この表に足す。共通部品の個々のファイルは、下の「共通部品（Issue #118）」に書く）
 
@@ -181,6 +184,7 @@ D1の制約（対話型トランザクションがない、1文の束縛値は10
 | チャンネルへの招待（Issue #135・#132の残り。S-12・EP-2-12。招待の表を作らず参加の行と監査ログで記録、判定の順と書き込みの3文の共通の条件、0行の後の読み直しと401、通知`channel.invited`、確定画面までの流れ） | [channels.md](channels.md) | #135（親 #132）、C-175 |
 | メッセージのメンション（Issue #139。候補検索、指名の保存と通知、表示の強調、スレッド一覧への反映。実装と全体確認中） | [mentions.md](mentions.md) | #139（親 #133）、C-173 |
 | メッセージの添付（Issue #140。S-05・S-06・S-07。EP-1-09・EP-1-10、migration 0023、R2の`ATTACHMENTS`、受け付ける値の定義元`shared/attachment-rules.ts`、アップロードの2つの入口（通常の投稿用・返信用）と判定の順、中身の検査・Exifの除去・補償、一覧と同じ条件の認可つきの配信とRange（416を返さない）、結び付けのbatch、未投稿の掃除、情報漏えいの経路と対策、既知の限界）【C-176、ADR-0029】 | [attachments.md](attachments.md) | #140（親 #133）、ADR-0011・0012・0029 |
+| 案件の作成の申請（Issue #146の146-A。S-18。EP-5-01・EP-5-02・取り下げ・類似件名の確認、migration 0024、件名の整形の定義元`shared/case-rules.ts`、判定の順、batchの中で確かめる前提と崩れたときの応答、通知の宛先、申請者の無効化・異動による自動取消、存在の非開示、同時の操作、説明欄の下書き、146-Bで足すもの）【C-178】 | [case-requests.md](case-requests.md) | #146、ADR-0006・0012・0020・0028 |
 | リアクション・スタンプ（Issue #138。S-05・S-06・S-07。EP-1-12・EP-1-13、migration 0022、受け付ける値の定義元`shared/reaction-rules.ts`、判定の順と部屋の条件`reactable`、0行のときの扱いと冪等、応答の集計での書き戻しと利用者の確認、自前のピッカーとキーボード操作、既知の制限）【C-174、ADR-0027】 | [reactions.md](reactions.md) | #138（親 #133）、ADR-0015・0020・0027 |
 | スレッドの返信とスレッド一覧（Issue #137。S-07・S-35。EP-1-07・EP-1-08・EP-3-08・EP-3-09、migration 0020、返信の判定の順と書き込みの条件、返信も部屋のIDの並びに入る不変条件、`replyBlockedReason`と`joined`・`roomWritable`、一覧の含める条件と100件の上限、`ThreadLayout`が同じ構造を返す理由、既知の限界）【C-172】 | [threads.md](threads.md) | #137（親 #133）、ADR-0006 |
 

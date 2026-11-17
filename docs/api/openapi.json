@@ -4394,6 +4394,257 @@
           }
         }
       }
+    },
+    "/api/case-requests": {
+      "post": {
+        "operationId": "createCaseRequest",
+        "summary": "案件の作成を申請する（EP-5-01）",
+        "description": "権限 perm.case.request.create（会社の範囲）が必要。全体管理者でなく所属もなければ 403。取引先・担当部署・候補の有効性は書き込みの中でも確かめる。担当部署の有効なオーナー（申請者を除く）に通知する（いなければ全体管理者）。宛先が読んだ後に変わったら 409。似た件名があっても申請できる。再認証は不要。422 の fields は入力欄（clientId・title・description・dueDate・departmentIds・candidateIds・resubmitOf）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "作成した申請。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない・所属部署がない・申請できない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "審査する人が変わった（もう一度申請する）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/mine": {
+      "get": {
+        "operationId": "listMyCaseRequests",
+        "summary": "自分の案件の作成申請を新しい順に取得する（EP-5-02）",
+        "description": "本人の申請だけ。ID の降順のカーソル方式。取引先・担当部署が無効になったものは isActive が false。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "自分の申請の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/similar-title": {
+      "get": {
+        "operationId": "checkCaseRequestSimilarTitle",
+        "summary": "似た件名の申請があるかを確かめる",
+        "description": "同じ取引先の審査中の申請に、整形後の件名が完全一致するものがあるかの真偽と、整形後の件名だけを返す（件名・申請者・件数は返さない）。",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "整形後に 1〜100 文字"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "確認の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestSimilarTitle"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/{requestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawCaseRequest",
+        "summary": "案件の作成申請を取り下げる",
+        "description": "申請者本人だけが、審査中の申請を取り下げられる（再認証は不要。通知は送らない）。他人の申請・存在しない申請は、存在を明かさず同じ 404。決裁済み・取り下げ済み・自動取消済みは 409。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取り下げた結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestWithdrawn"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または本人の申請ではない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7378,6 +7629,281 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CaseRequestCreate": {
+        "type": "object",
+        "required": [
+          "clientId",
+          "title",
+          "departmentIds"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "有効な取引先"
+          },
+          "title": {
+            "type": "string",
+            "description": "件名。整形後（全角英数字を半角、ハイフン類を -、連続する空白を1つ、前後の空白を除く）で 1〜100 文字"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "省略は空"
+          },
+          "dueDate": {
+            "type": "string",
+            "pattern": "^d{4}-d{2}-d{2}$",
+            "description": "納期（YYYY-MM-DD の実在する日付）。日本時間の今日以降。省略はなし"
+          },
+          "departmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "uniqueItems": true,
+            "description": "担当部署（有効な部署。1件以上・重複不可・件数の上限なし。全部署から選べる）",
+            "minItems": 1
+          },
+          "candidateIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "uniqueItems": true,
+            "description": "追加の候補（有効な社員。重複不可・申請者本人を含めない・件数の上限なし）"
+          },
+          "resubmitOf": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "再申請の元（本人の却下済み・取り下げ済み・自動取消の申請）"
+          }
+        }
+      },
+      "CaseRequestItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "dueDate",
+          "client",
+          "departments",
+          "candidates",
+          "status",
+          "rejectReason",
+          "caseId",
+          "resubmittedFrom",
+          "createdAt",
+          "decidedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "code",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "申請の後に無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "userId",
+                "displayName"
+              ],
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn",
+              "auto_cancelled"
+            ],
+            "description": "審査中・承認済み・却下・取り下げ・自動取消（申請者の無効化による）"
+          },
+          "rejectReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resubmittedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseRequestCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CaseRequestItem"
+          },
+          {
+            "type": "object",
+            "required": [
+              "titleFormatted",
+              "hasSimilarTitle"
+            ],
+            "properties": {
+              "titleFormatted": {
+                "type": "boolean",
+                "description": "整形で件名が変わったか"
+              },
+              "hasSimilarTitle": {
+                "type": "boolean",
+                "description": "同じ取引先の審査中の申請に、整形後の件名が完全一致するものがあったか（警告だけで、申請は止めない）"
+              }
+            }
+          }
+        ]
+      },
+      "CaseRequestPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseRequestItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CaseRequestWithdrawn": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "withdrawn"
+          }
+        }
+      },
+      "CaseRequestSimilarTitle": {
+        "type": "object",
+        "required": [
+          "hasSimilar",
+          "formattedTitle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "hasSimilar": {
+            "type": "boolean"
+          },
+          "formattedTitle": {
+            "type": "string"
           }
         }
       }
