@@ -281,6 +281,22 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
+  it("#143 軽微2（コードレビュー1回目）: ChannelUpdate は version を必須にし、名前・説明の少なくとも一方を anyOf と required で必須にしている（version だけの本文を許さない）", () => {
+    const schemas = (
+      spec as unknown as {
+        components: { schemas: Record<string, Record<string, unknown>> };
+      }
+    ).components.schemas;
+    const update = schemas.ChannelUpdate;
+    expect(update).toBeDefined();
+    expect(update?.required as string[] | undefined).toContain("version");
+    const anyOf = update?.anyOf as { required?: string[] }[] | undefined;
+    expect(Array.isArray(anyOf)).toBe(true);
+    const alternatives = (anyOf ?? []).map((entry) =>
+      [...(entry.required ?? [])].sort().join(","),
+    );
+    expect(alternatives.sort()).toEqual(["description", "name"]);
+  });
   it("#201 AC-1・AC-2・AC-3: メッセージの一覧・投稿の契約が書かれている", () => {
     const expected: Record<string, string[]> = {
       "GET /api/rooms/{roomId}/messages": ["200", "401", "404", "422"],

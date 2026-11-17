@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useReauth } from "../../auth";
 import {
   archiveChannel,
+  fetchChannel,
   restoreChannel,
   updateChannel,
   type ChannelUpdateInput,
@@ -90,4 +91,15 @@ export function useRefetchChannelDetail(channelId: string) {
   const queryClient = useQueryClient();
   return () =>
     queryClient.invalidateQueries({ queryKey: channelKeys.detail(channelId) });
+}
+
+/** 詳細を取り直し、最新の内容を返す（版の 409 の後に、編集の基準を入れ替えるため） */
+export function useLoadLatestChannel(channelId: string) {
+  const queryClient = useQueryClient();
+  return () =>
+    queryClient.fetchQuery({
+      queryKey: channelKeys.detail(channelId),
+      queryFn: () => fetchChannel(channelId),
+      staleTime: 0,
+    });
 }

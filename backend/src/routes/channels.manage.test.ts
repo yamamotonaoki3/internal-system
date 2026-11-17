@@ -940,3 +940,66 @@ describe("#143 a-AC-5（3-4 AC-5・重大3）過去の通知の reason・roomArc
     expect(archivedBody).toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("#143 重大3（コードレビュー1回目）既読の API が返す、その時点の roomArchived", () => {
+  it("#143 重大3: 一覧を取った後にアーカイブされると、本人宛ての通知の既読の応答の roomArchived は真（既読済みの通知でも）", async () => {
+    const room = await channelA("既読の応答");
+    const approved = await insertNotification({
+      userId: member.userId,
+      kind: "channel_request.approved",
+      roomId: room,
+      id: testId("NTFR"),
+    });
+    const listed = (await notificationsOf(member.token)).find(
+      (item) => item.id === approved,
+    );
+    expect(listed?.roomArchived).toBe(false);
+    await archiveRequest(
+      room,
+      { version: await channelVersion(room) },
+      ownerA.token,
+    );
+    for (let i = 0; i < 2; i += 1) {
+      const response = await apiRequest(
+        "POST",
+        `/api/me/notifications/${approved}/read`,
+        { token: member.token },
+      );
+      expect(response.status).toBe(200);
+      expect(await json(response)).toMatchObject({
+        id: approved,
+        kind: "channel_request.approved",
+        roomId: room,
+        roomArchived: true,
+        reason: null,
+      });
+    }
+  });
+
+  it("#143 重大3（security）: 他人宛ての通知は、既読の API でも存在しないものと同じ 404 で、状態を返さない", async () => {
+    const room = await channelA("他人の通知");
+    const others = await insertNotification({
+      userId: member2.userId,
+      kind: "channel_request.approved",
+      roomId: room,
+      id: testId("NTFO"),
+    });
+    await archiveRequest(
+      room,
+      { version: await channelVersion(room) },
+      ownerA.token,
+    );
+    const other = await apiRequest(
+      "POST",
+      `/api/me/notifications/${others}/read`,
+      { token: member.token },
+    );
+    const missing = await apiRequest(
+      "POST",
+      `/api/me/notifications/${testId("NTFX")}/read`,
+      { token: member.token },
+    );
+    expect(other.status).toBe(404);
+    expect(await json(other)).toEqual(await json(missing));
+  });
+});

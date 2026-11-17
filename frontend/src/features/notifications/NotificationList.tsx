@@ -21,6 +21,11 @@ type NotificationListProps = {
   views?: Readonly<Record<string, NotificationView>>;
 };
 
+/** アーカイブ中のチャンネルについての通知か（アーカイブの通知は常に） */
+function isArchived(item: NotificationItem): boolean {
+  return item.kind === "channel.archived" || item.roomArchived;
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleString("ja-JP", {
     dateStyle: "short",
@@ -49,22 +54,19 @@ export function NotificationList({
   const items = notifications.data.pages.flatMap((page) => page.items);
   if (items.length === 0) return <p>新しい通知はありません</p>;
 
-  // 既読にしてから移動する。既読に失敗したら移動せず、markRead.error を下のアラートに出す
-  function open(item: NotificationItem, to: string) {
-    if (item.readAt !== null) {
-      void navigate(to);
-      return;
-    }
-    markRead.mutate(item.id, { onSuccess: () => void navigate(to) });
-  }
-
-  // アーカイブ中のチャンネルは開けないため、移動せずにその場で知らせる。既読の扱いは open と同じ
-  function showArchived(item: NotificationItem) {
-    if (item.readAt !== null) {
-      setArchivedShownId(item.id);
-      return;
-    }
-    markRead.mutate(item.id, { onSuccess: () => setArchivedShownId(item.id) });
+  // 押した時点の状態を、既読の API の応答（未読・既読のどちらでも送る）で確かめてから、移動するか・アーカイブされたと知らせるかを決める（#143）。
+  // 一覧を取った後にアーカイブされても移らない。既読に失敗したら移動せず、markRead.error を下のアラートに出す
+  function open(item: NotificationItem) {
+    markRead.mutate(item.id, {
+      onSuccess: (latest) => {
+        if (isArchived(latest)) {
+          setArchivedShownId(latest.id);
+          return;
+        }
+        const { to } = describeNotification(latest, views);
+        if (to !== null) void navigate(to);
+      },
+    });
   }
 
   const error = markRead.error ?? markAllRead.error;
@@ -88,8 +90,7 @@ export function NotificationList({
         {items.map((item) => {
           const { label, to } = describeNotification(item, views);
           const unread = item.readAt === null;
-          const archived =
-            item.kind === "channel.archived" || item.roomArchived;
+          const archived = isArchived(item);
           const summary = (
             <>
               <span className="font-bold">{label}</span>{" "}
@@ -106,7 +107,7 @@ export function NotificationList({
                   <Button
                     variant="ghost"
                     disabled={markRead.isPending}
-                    onClick={() => showArchived(item)}
+                    onClick={() => open(item)}
                   >
                     {summary}
                     <span className="text-text-muted">
@@ -136,7 +137,7 @@ export function NotificationList({
                 <Button
                   variant="ghost"
                   disabled={markRead.isPending}
-                  onClick={() => open(item, to)}
+                  onClick={() => open(item)}
                 >
                   {summary}
                 </Button>

@@ -1,6 +1,6 @@
 // アーカイブしたチャンネルの復元の確認（#143。EP-2-38）。S-39・S-38（#143-b）が使う共通の部品。
 // 「復元」→ 再認証（S-26）→ 送る。409（ほかの操作が先に確定した）は文を出す。
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { useSession } from "../../auth";
@@ -10,7 +10,7 @@ import { useRestoreChannel } from "../hooks/useManageChannel";
 export function ChannelRestoreDialog({
   channelId,
   channelName,
-  version,
+  version: openedVersion,
   onClose,
   onRestored,
 }: {
@@ -21,6 +21,8 @@ export function ChannelRestoreDialog({
   onRestored?: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 送る版は開いた時点のもの（背景の再取得で進んだ版で送らない）
+  const [version] = useState(openedVersion);
   const restore = useRestoreChannel(channelId);
   // 再認証は読み込んだセッションの再認証の時刻を更新するため、単独で開かれた場合もセッションを読み込んでおく
   useSession();

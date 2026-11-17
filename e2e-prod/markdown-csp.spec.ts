@@ -91,6 +91,13 @@ async function mockApi(page: Page): Promise<void> {
       departmentId: null,
       joined: true,
       isCaseChannel: false,
+      // #143：詳細の応答に version・manage（必須）が加わった
+      version: 1,
+      manage: {
+        canRename: false,
+        canEditDescription: false,
+        canArchive: false,
+      },
       canPost: true,
       readOnly: false,
       memberCount: 1,

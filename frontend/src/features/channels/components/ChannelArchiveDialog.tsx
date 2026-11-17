@@ -18,7 +18,7 @@ import {
 export function ChannelArchiveDialog({
   channelId,
   channelName,
-  version,
+  version: openedVersion,
   onClose,
   onArchived,
 }: {
@@ -29,6 +29,8 @@ export function ChannelArchiveDialog({
   onArchived: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 送る版は開いた時点のもの（背景の再取得で進んだ版で送らない）
+  const [version] = useState(openedVersion);
   const archive = useArchiveChannel(channelId);
   const refetchDetail = useRefetchChannelDetail(channelId);
   const [reason, setReason] = useState("");

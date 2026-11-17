@@ -2,7 +2,7 @@
 // 画面の検査は shared/channel-name-rules.ts の規則（サーバーの検査は省略しない）。名前は canRename のときだけ出して送る。
 // 入力を変えている間は、離れる前の確認（leave-guard）を登録し、キャンセルでも確認する。
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, type UseFormSetError } from "react-hook-form";
 import { z } from "zod";
 import {
@@ -18,13 +18,15 @@ import { useLeaveConfirmation, useLeaveGuard } from "../../leave-guard";
 import type { ChannelDetail } from "../api/channel-api";
 import { describeError, isApiError } from "../describe-error";
 import {
-  useRefetchChannelDetail,
+  useLoadLatestChannel,
   useUpdateChannel,
 } from "../hooks/useManageChannel";
 
 const NAME_ERROR =
   "名前は1〜50文字の、ひらがな・カタカナ・漢字・英数字・「-」「_」で入力してください";
 const DESCRIPTION_ERROR = "説明は500文字以内で入力してください";
+const STALE_MESSAGE =
+  "ほかの人が先に変更しました。最新の内容を読み込んでから、もう一度編集してください";
 
 type EditInput = { name: string; description: string };
 
@@ -74,7 +76,12 @@ export function ChannelEditDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const update = useUpdateChannel(channel.id);
-  const refetchDetail = useRefetchChannelDetail(channel.id);
+  const loadLatest = useLoadLatestChannel(channel.id);
+  // 送る版は、開いた時点（または「最新の内容を読み込む」の時点）のもの。背景の再取得で進んだ版で、古い入力を送らない
+  const [baseVersion, setBaseVersion] = useState(channel.version);
+  // 版の 409 の後は、最新の内容を読み込むまで保存しない
+  const [stale, setStale] = useState(false);
+  const [loading, setLoading] = useState(false);
   const leave = useLeaveConfirmation();
   const { canRename, canEditDescription } = channel.manage;
   const {
@@ -110,17 +117,39 @@ export function ChannelEditDialog({
     onClose();
   }
 
+  async function reload() {
+    setLoading(true);
+    try {
+      const latest = await loadLatest();
+      reset({ name: latest.name, description: latest.description });
+      setBaseVersion(latest.version);
+      setStale(false);
+    } catch (error) {
+      setError("root.server", { message: describeError(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const onSubmit = async (values: EditInput) => {
+    if (stale) return;
     try {
       await update.mutateAsync({
-        version: channel.version,
+        version: baseVersion,
         ...(canRename ? { name: values.name } : {}),
         ...(canEditDescription ? { description: values.description } : {}),
       });
     } catch (error) {
+      // 名前の重複以外の 409 は、ほかの人の変更と重なった：入力を保ったまま、最新の内容の読み込みを求める
+      if (
+        isApiError(error) &&
+        error.status === 409 &&
+        error.message !== CHANNEL_NAME_TAKEN_MESSAGE
+      ) {
+        setStale(true);
+        return;
+      }
       applyServerError(error, setError);
-      // ほかの人の変更・アーカイブと重なった：今の状態を読み直す
-      if (isApiError(error) && error.status === 409) await refetchDetail();
       return;
     }
     // 送った値を基準にして、離れる前の確認を外してから閉じる
@@ -168,6 +197,18 @@ export function ChannelEditDialog({
             }
             {...register("description")}
           />
+        )}
+        {stale && (
+          <Alert tone="error" role="alert">
+            <p className="mb-2">{STALE_MESSAGE}</p>
+            <Button
+              variant="secondary"
+              disabled={loading}
+              onClick={() => void reload()}
+            >
+              最新の内容を読み込む
+            </Button>
+          </Alert>
         )}
         {errors.root?.server && (
           <Alert tone="error" role="alert" as="p">

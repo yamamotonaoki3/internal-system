@@ -818,3 +818,50 @@ describe("#143 a-AC-1〜a-AC-5 読み込み（findForManage・listNotifyRecipien
     expect(recipients).not.toContain(outsider);
   });
 });
+
+describe("#143 重大2（コードレビュー1回目）宛先が多いチャンネル（D1 の1文 100 パラメータの上限）", () => {
+  const MANY = 120;
+
+  /** 有効な参加者 MANY 人（操作者 ownerA を除く）を持つチャンネルと、その宛先（ID の昇順） */
+  async function crowdedChannel(label: string) {
+    const ids: string[] = [];
+    for (let i = 0; i < MANY; i += 1)
+      ids.push(
+        await insertUser(
+          `testuser_chmandb_many${String(i).padStart(3, "0")}`,
+          deptA.id,
+        ),
+      );
+    const room = await channelA(label, [ownerA, ...ids]);
+    return { room, recipients: sorted(ids) };
+  }
+
+  it("#143 重大2: 宛先が 120 人でも、アーカイブと復元が成功し、通知が宛先の人数分できる", async () => {
+    const { room, recipients } = await crowdedChannel("多数");
+    expect(recipients.length).toBeGreaterThan(100);
+    expect(
+      await withChannels(env, (r) => r.listNotifyRecipients(room, ownerA)),
+    ).toEqual(recipients);
+    const eventId = testId("ARCV");
+    expect(
+      await archive(room, ownerA, { recipientIds: recipients, eventId }),
+    ).not.toBeNull();
+    expect(await archiveNotifications(room, "channel.archived")).toHaveLength(
+      MANY,
+    );
+    expect(
+      await restore(room, ownerA, { eventId, recipientIds: recipients }),
+    ).not.toBeNull();
+    expect(await archiveNotifications(room, "channel.restored")).toHaveLength(
+      MANY,
+    );
+  });
+
+  it("#143 重大2: 宛先が 120 人でも、読んだ後に1人が無効になれば前提の確認で取り消し、何も変わらない", async () => {
+    const { room, recipients } = await crowdedChannel("多数の崩れ");
+    await deactivateUser(recipients[MANY - 1] ?? "");
+    const before = await manageSnapshot(room);
+    await expectConflict(archive(room, ownerA, { recipientIds: recipients }));
+    expect(await manageSnapshot(room)).toEqual(before);
+  });
+});

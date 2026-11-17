@@ -181,7 +181,7 @@ function renderDetail() {
       </QueryClientProvider>
     </MemoryRouter>,
   );
-  return { user };
+  return { user, client };
 }
 
 const currentPath = () => screen.getByTestId("path").textContent;
@@ -268,6 +268,28 @@ describe("#143 a-AC-6（C-131）ヘッダーの「⋯」メニューの出し分
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement).toBe(button);
+  });
+
+  it("#143 軽微1（ADR-0015・共通の部品への置き換えの後も）: 開くと先頭の項目にフォーカスし、↓・↑で項目を巡回し、Enter で選んだ項目のダイアログを開く", async () => {
+    respondWorld();
+    const { user } = renderDetail();
+    const button = await menuButton();
+    button.focus();
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByRole("menu");
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items).toHaveLength(2);
+    await waitFor(() => expect(document.activeElement).toBe(items[0]));
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(items[1]);
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(items[0]);
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(items[1]);
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("dialog", { name: ARCHIVE_TITLE }),
+    ).toBeDefined();
   });
 });
 
@@ -434,6 +456,96 @@ describe("#143 a-AC-1・a-AC-6 名前・説明の編集のダイアログ", () =
     const dirty = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(dirty);
     expect(dirty.defaultPrevented).toBe(true);
+  });
+});
+
+describe("#143 重大1（コードレビュー1回目）編集のダイアログの版の基準", () => {
+  const STALE =
+    "ほかの人が先に変更しました。最新の内容を読み込んでから、もう一度編集してください";
+  const conflict = () =>
+    HttpResponse.json(
+      {
+        code: "CONFLICT",
+        message: "ほかの人が先に変更しました。読み込み直してください",
+      },
+      { status: 409 },
+    );
+
+  it("#143 重大1: ダイアログを開いた後に、詳細の再取得で版が進んでも、保存は開いた時点の版で送る", async () => {
+    const world = respondWorld();
+    const { user, client } = renderDetail();
+    const dialog = await openEdit(user);
+    const before = world.detailRequests;
+    world.version = 4;
+    await client.invalidateQueries();
+    await waitFor(() => expect(world.detailRequests).toBeGreaterThan(before));
+    await user.type(within(dialog).getByLabelText(/説明/), "追記");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(world.patches).toHaveLength(1));
+    expect(world.patches[0]).toMatchObject({ version: 3 });
+  });
+
+  it("#143 重大1: 版の 409 の後は、入力を保ったまま文言と「最新の内容を読み込む」を出し、もう一度「保存」を押しても送らない", async () => {
+    const world = respondWorld({ patch: conflict });
+    const { user } = renderDetail();
+    const dialog = await openEdit(user);
+    const description = within(dialog).getByLabelText(/説明/);
+    await user.type(description, "追記");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(dialog).findByText(STALE)).toBeDefined();
+    expect(
+      within(dialog).getByRole("button", { name: "最新の内容を読み込む" }),
+    ).toBeDefined();
+    expect((description as HTMLTextAreaElement).value).toBe(
+      "[E2E_TEST]説明追記",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(world.detailRequests).toBeGreaterThan(0));
+    expect(world.patches).toHaveLength(1);
+  });
+
+  it("#143 重大1: 「最新の内容を読み込む」で、欄が最新の名前・説明になり、その後の保存は新しい版で送る", async () => {
+    // 1回目だけ 409。その間に、ほかの人が名前・説明・版を変えている
+    const world: World = respondWorld({
+      patch: () => {
+        if (world.patches.length === 1) {
+          world.name = "E2E_TEST_他人の名前";
+          world.description = "他人の説明";
+          world.version = 5;
+          return conflict();
+        }
+        return HttpResponse.json({
+          id: ID,
+          name: world.name,
+          description: "自分の説明",
+          version: 6,
+          updatedAt: "2026-11-17T00:00:00.000Z",
+        });
+      },
+    });
+    const { user } = renderDetail();
+    const dialog = await openEdit(user);
+    await user.type(within(dialog).getByLabelText(/説明/), "追記");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await user.click(
+      await within(dialog).findByRole("button", {
+        name: "最新の内容を読み込む",
+      }),
+    );
+    const name = within(dialog).getByLabelText(/名前/) as HTMLInputElement;
+    const description = within(dialog).getByLabelText(
+      /説明/,
+    ) as HTMLTextAreaElement;
+    await waitFor(() => expect(name.value).toBe("E2E_TEST_他人の名前"));
+    expect(description.value).toBe("他人の説明");
+    await user.clear(description);
+    await user.type(description, "自分の説明");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(world.patches).toHaveLength(2));
+    expect(world.patches[1]).toMatchObject({
+      version: 5,
+      description: "自分の説明",
+    });
   });
 });
 

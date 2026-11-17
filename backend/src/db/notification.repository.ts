@@ -70,31 +70,22 @@ export type NotificationItem = {
  * 宛先ごとに 1 件ずつ通知を作る文を返す（実行しない）。宛先の重複は 1 件にまとめ、0 人なら空配列。
  * 「操作した本人を除く」などの宛先の絞り込みは、呼び出し側の責務（渡された宛先にだけ作る）。
  * kind の型引数の既定値は定義元の種類：本番のコードは、定義にない種類を渡せない。
- * onlyWhen を渡すと、その条件が成り立つときだけ作る（業務の更新と同じ条件で、確定の時点の状態に合わせるため）。
  */
 export function notificationInserts<K extends string = NotificationKind>(
   db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
   recipientIds: readonly string[],
   input: NotificationInput<K>,
-  deps: { onlyWhen?: SQL } = {},
 ) {
-  return [...new Set(recipientIds)].map((userId) => {
-    const row = {
+  return [...new Set(recipientIds)].map((userId) =>
+    db.insert(notifications).values({
       id: newUlid(),
       userId,
       kind: input.kind,
       roomId: input.roomId ?? null,
       messageId: input.messageId ?? null,
       targetId: input.targetId ?? null,
-    };
-    if (deps.onlyWhen === undefined)
-      return db.insert(notifications).values(row);
-    // 列は notifications の定義の順（id, user_id, kind, room_id, message_id, target_id, created_at, read_at）
-    return db.insert(notifications).select(sql`
-      SELECT ${row.id}, ${row.userId}, ${row.kind}, ${row.roomId}, ${row.messageId}, ${row.targetId},
-        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL
-      WHERE ${deps.onlyWhen}`);
-  });
+    }),
+  );
 }
 
 /**
@@ -186,6 +177,32 @@ export function createNotificationRepository(
         if (!isUlid(row.id)) throw new Error("通知IDが不正です");
         return { v: row.createdAt, id: row.id };
       });
+    },
+
+    /** 本人宛てで、一覧と同じ条件（visibleToRecipient）を通る通知を1件読む。なければ null */
+    async findForRecipient(
+      recipientId: string,
+      notificationId: string,
+    ): Promise<NotificationItem | null> {
+      const rows = await db
+        .select({
+          id: notifications.id,
+          kind: notifications.kind,
+          roomId: notifications.roomId,
+          messageId: notifications.messageId,
+          targetId: notifications.targetId,
+          createdAt: notifications.createdAt,
+          readAt: notifications.readAt,
+        })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.id, notificationId),
+            visibleToRecipient(recipientId, definitions),
+          ),
+        )
+        .limit(1);
+      return rows[0] ?? null;
     },
 
     /**

@@ -3262,7 +3262,7 @@
       "post": {
         "operationId": "markMyNotificationRead",
         "summary": "自分宛ての通知を 1 件既読にする",
-        "description": "既読済みも 204 で、read_at は最初の時刻のまま。存在しない・他人宛て・ULID でない ID は区別せず 404（存在を漏らさない）。",
+        "description": "既読済みも 200 で、read_at は最初の時刻のまま。存在しない・他人宛て・ULID でない ID は区別せず 404（存在を漏らさない）。",
         "parameters": [
           {
             "name": "notificationId",
@@ -3275,13 +3275,20 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "既読にした（Cache-Control: no-store）",
+          "200": {
+            "description": "既読にした。その通知の最新の項目（一覧と同じ形。押した時点の roomArchived・reason を含む）（Cache-Control: no-store）",
             "headers": {
               "Cache-Control": {
                 "schema": {
                   "type": "string",
                   "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
                 }
               }
             }
@@ -9692,7 +9699,19 @@
             "type": "string",
             "maxLength": 500
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "description"
+            ]
+          }
+        ]
       },
       "ChannelUpdated": {
         "type": "object",

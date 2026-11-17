@@ -135,3 +135,70 @@ describe("#143 a-AC-5（3-4 AC-5）過去の通知の「アーカイブされま
     expect(view.container.querySelector("img")).toBeNull();
   });
 });
+
+describe("#143 重大3（コードレビュー1回目）表示の後にアーカイブされたチャンネルへの通知", () => {
+  it.each([
+    ["未読", null],
+    ["既読", "2026-11-16T00:00:00.000Z"],
+  ] as const)(
+    "#143 重大3: 一覧では roomArchived が偽だった%sの申請の承認の通知を押すと、既読の API で最新の状態を確かめ、アーカイブ済みなら移らずに知らせる",
+    async (_label, readAt) => {
+      const items: ArchiveAware[] = [
+        {
+          ...archiveAware(6, "channel_request.approved", {
+            roomArchived: false,
+          }),
+          readAt,
+        },
+      ];
+      const world = respondNotifications({ items });
+      const { user } = renderList();
+      const row = await itemOf("チャンネルの作成の申請が承認されました");
+      expect(row.textContent).not.toContain("（アーカイブされました）");
+      // 表示の後に、ほかの人がアーカイブした
+      const current = world.items[0] as ArchiveAware | undefined;
+      if (current === undefined) throw new Error("通知がありません");
+      current.roomArchived = true;
+      await user.click(within(row).getByRole("button"));
+      expect(await screen.findByText(ARCHIVED_NOTE)).toBeDefined();
+      expect(world.readPosts).toEqual([items[0]?.id]);
+      expect(currentPath()).toBe("/notifications");
+    },
+  );
+
+  it("#143 重大3: 2ページ読み込んで一覧の取り直しが止まっていても、押したときの最新の状態で、移らずに知らせる", async () => {
+    const items: ArchiveAware[] = [
+      archiveAware(8, "channel.restored", { roomArchived: false }),
+      archiveAware(7, "channel.restored", { roomArchived: false }),
+    ];
+    const world = respondNotifications({ items, pageSize: 1 });
+    const { user } = renderList();
+    await user.click(await screen.findByRole("button", { name: "さらに表示" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(2),
+    );
+    const older = world.items[1] as ArchiveAware | undefined;
+    if (older === undefined) throw new Error("通知がありません");
+    older.roomArchived = true;
+    const rows = screen.getAllByRole("listitem");
+    await user.click(within(rows[1] as HTMLElement).getByRole("button"));
+    expect(await screen.findByText(ARCHIVED_NOTE)).toBeDefined();
+    expect(world.readPosts).toEqual([items[1]?.id]);
+    expect(currentPath()).toBe("/notifications");
+  });
+
+  it("#143 重大3: 押したときにアーカイブされていなければ、これまでどおり移る（既読の通知も最新の状態を確かめる）", async () => {
+    const items: ArchiveAware[] = [
+      {
+        ...archiveAware(9, "channel.restored", { roomArchived: false }),
+        readAt: "2026-11-16T00:00:00.000Z",
+      },
+    ];
+    const world = respondNotifications({ items });
+    const { user } = renderList();
+    const row = await itemOf("参加しているチャンネルが復元されました");
+    await user.click(within(row).getByRole("button"));
+    await waitFor(() => expect(currentPath()).toBe(`/channels/${ROOM_ID}`));
+    expect(world.readPosts).toEqual([items[0]?.id]);
+  });
+});

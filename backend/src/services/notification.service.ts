@@ -93,6 +93,30 @@ export function createNotificationService(
       if (!found) throw new AppError("NOT_FOUND", "通知が見つかりません");
     },
 
+    /**
+     * 1件を既読にし、その通知の最新の項目（一覧と同じ形。reason・roomArchived を含む）を返す（#143。EP-3-05）。
+     * 画面は、押した時点の roomArchived で、移動するか・アーカイブされたと知らせるかを決める
+     */
+    async markReadAndDescribe(
+      actor: NotificationActor,
+      notificationId: string,
+    ): Promise<NotificationItem & NotificationArchiveState> {
+      await this.markRead(actor, notificationId);
+      const item = await notifications.findForRecipient(
+        actor.userId,
+        notificationId,
+      );
+      // 既読にした直後に見えなくなった（部屋の内容を含む通知で閲覧の権限を失った）場合は、存在しないものと同じにする
+      if (item === null)
+        throw new AppError("NOT_FOUND", "通知が見つかりません");
+      const state = (
+        await notifications.archiveStatesFor(actor.userId, [item.id])
+      ).get(item.id);
+      if (state === undefined)
+        throw new Error("通知の表示に必要な状態を読み取れません");
+      return { ...item, ...state };
+    },
+
     async markAllRead(actor: NotificationActor): Promise<void> {
       await authorizeOwn(actor);
       await notifications.markAllRead(actor.userId, now().toISOString());

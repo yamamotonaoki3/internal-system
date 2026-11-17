@@ -4,11 +4,11 @@
 // 条件は Service の最初の判定のうち DB の行で決まるもの（状態・種類・操作者が有効・管理できる人・版・宛先の集合）をすべて含む。再認証は DB の行でないので入れない。
 // 監査・通知・記録の文にも同じ条件を付ける：チャンネルの行が消えた場合、先頭の UPDATE は0行で失敗しないため、それらだけが残るのを防ぐ。
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
-import { channelArchiveEvents, channels } from "../../db/schema";
+import { channelArchiveEvents, channels, notifications } from "../../db/schema";
 import { ROLE_IDS } from "../lib/permissions";
+import { newUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
 import type { Database } from "./database";
-import { notificationInserts } from "./notification.repository";
 
 /**
  * 操作者が有効で、チャンネル（別名 c）を管理できる人であること：会社範囲の全体管理者か、チャンネルの部署のオーナー。
@@ -32,12 +32,10 @@ function recipientsUnchanged(
 ): SQL {
   const current = sql`FROM channel_members m JOIN users u ON u.id = m.user_id
     WHERE m.channel_id = ${roomId} AND u.is_active = 1 AND m.user_id <> ${actorId}`;
-  const total = sql`(SELECT COUNT(*) ${current}) = ${recipientIds.length}`;
-  if (recipientIds.length === 0) return total;
-  return sql`${total} AND (SELECT COUNT(*) ${current} AND m.user_id IN (${sql.join(
-    recipientIds.map((id) => sql`${id}`),
-    sql`, `,
-  )})) = ${recipientIds.length}`;
+  // 宛先の ID は JSON の値1つで渡す（人数に比例して値の数を増やさない。D1 の1文あたりの上限のため）
+  return sql`(SELECT COUNT(*) ${current}) = ${recipientIds.length}
+    AND (SELECT COUNT(*) ${current}
+      AND m.user_id IN (SELECT value FROM json_each(${JSON.stringify(recipientIds)}))) = ${recipientIds.length}`;
 }
 
 /** チャンネル（別名 c）の行があり、版が一致し、状態・種類の条件と管理できる人の条件を満たすこと */
@@ -48,6 +46,27 @@ function channelMatches(
   return sql`EXISTS (SELECT 1 FROM channels c
     WHERE c.room_id = ${input.roomId} AND c.version = ${input.version}
       AND ${state} AND ${channelManagerSql(input.actorId)})`;
+}
+
+/**
+ * アーカイブ・復元の通知を、宛先の人数によらず1文で作る（ID と宛先の組を JSON の値1つで渡し、json_each で展開する）。
+ * 列は notifications の定義の順（id, user_id, kind, room_id, message_id, target_id, created_at, read_at）
+ */
+function archiveNotificationInsert(
+  db: Database,
+  input: { roomId: string; eventId: string; recipientIds: readonly string[] },
+  kind: "channel.archived" | "channel.restored",
+  onlyWhen: SQL,
+) {
+  const rows = [...new Set(input.recipientIds)].map((userId) => [
+    newUlid(),
+    userId,
+  ]);
+  return db.insert(notifications).select(sql`
+    SELECT json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), ${kind}, ${input.roomId}, NULL, ${input.eventId},
+      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL
+    FROM json_each(${JSON.stringify(rows)}) j
+    WHERE ${onlyWhen}`);
 }
 
 function assertStatement(db: Database, roomId: string, condition: SQL) {
@@ -167,16 +186,7 @@ export function channelArchiveStatements(
       },
       { onlyWhen: condition },
     ),
-    ...notificationInserts(
-      db,
-      input.recipientIds,
-      {
-        kind: "channel.archived",
-        roomId: input.roomId,
-        targetId: input.eventId,
-      },
-      { onlyWhen: condition },
-    ),
+    archiveNotificationInsert(db, input, "channel.archived", condition),
     db.insert(channelArchiveEvents).select(sql`
       SELECT ${input.eventId}, ${input.roomId}, ${input.actorId}, ${input.now}, ${input.reason}, NULL, NULL
       WHERE ${condition}`),
@@ -217,15 +227,11 @@ export function channelRestoreStatements(
       },
       { onlyWhen: sql`${condition} AND ${eventOpen}` },
     ),
-    ...notificationInserts(
+    archiveNotificationInsert(
       db,
-      input.recipientIds,
-      {
-        kind: "channel.restored",
-        roomId: input.roomId,
-        targetId: input.eventId,
-      },
-      { onlyWhen: sql`${condition} AND ${eventOpen}` },
+      input,
+      "channel.restored",
+      sql`${condition} AND ${eventOpen}`,
     ),
     // 記録は消さずに閉じる（その回の理由を、古い通知のために残す）。UPDATE より前に置く（後ろだと状態の条件が偽になる）
     db

@@ -38,12 +38,14 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
   return unreadCountSchema.parse(response.data).count;
 }
 
+/** 1件を既読にし、その通知の最新の項目（押した時点の roomArchived を含む。#143）を返す */
 export async function markNotificationRead(
   notificationId: string,
-): Promise<void> {
-  await apiClient.post(
+): Promise<NotificationItem> {
+  const response = await apiClient.post(
     `/me/notifications/${encodeURIComponent(notificationId)}/read`,
   );
+  return notificationItemSchema.parse(response.data);
 }
 
 export async function markAllNotificationsRead(): Promise<void> {

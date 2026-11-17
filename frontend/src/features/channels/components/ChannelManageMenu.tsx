@@ -102,10 +102,9 @@ export function ChannelManageMenu({
         >
           {items.map((item) => (
             <li key={item.key} role="none">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 role="menuitem"
-                className="w-full rounded px-3 py-2 text-left hover:bg-bg"
                 onClick={() => {
                   setMenuOpen(false);
                   setSaved(false);
@@ -113,7 +112,7 @@ export function ChannelManageMenu({
                 }}
               >
                 {item.label}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
