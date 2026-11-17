@@ -14,6 +14,7 @@ import type { CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import type { Mention } from "../../../shared/message-rules";
 import { createProfileRepository } from "./profile.repository";
+import { roomViewableBy } from "./room-visibility.sql";
 import {
   activeMentionNames,
   guardInsertedMessage,
@@ -46,6 +47,7 @@ import {
   translateAttachmentBindError,
   type AttachmentView,
 } from "./attachment.repository";
+import { activeChannelMember } from "./channel-member.sql";
 
 export type MessageItem = {
   id: string;
@@ -84,6 +86,10 @@ export type MessageInsert = {
 
 /** 通常の投稿への返信の件数（削除済みも数える）。messages_parent_message_id_id_idx で数える。1つの SELECT に入れるので、項目の数でクエリは増えない */
 const replyCountColumn = sql<number>`(SELECT COUNT(*) FROM messages r WHERE r.parent_message_id = ${messages.id})`;
+
+/** 返信の部屋（親の部屋）。親を主キーで1回引く */
+const parentRoomOf = (parentMessageId: string) =>
+  sql`(SELECT p.room_id FROM messages p WHERE p.id = ${parentMessageId})`;
 
 const messageColumns = {
   id: messages.id,
@@ -163,12 +169,22 @@ export function createMessageRepository(db: Database) {
       .from(messages)
       .innerJoin(users, eq(users.id, messages.senderId));
   return {
-    // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）
+    // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）。中身を読む関数は、同じ規則（roomViewableBy）を SQL にも入れる
     findRoomForViewer: channels.findForViewer,
+    /** 名簿を読む SQL に、閲覧者（visibleTo）がこの部屋をいま見てよい条件を入れる（資格の確認の後に無効化が確定しても、名簿を返さない） */
     async listMentionCandidates(
-      options: Parameters<typeof profiles.listDirectory>[0],
+      options: Omit<
+        Parameters<typeof profiles.listDirectory>[0],
+        "onlyWhen"
+      > & {
+        visibleTo: { roomId: string; viewerId: string };
+      },
     ) {
-      const page = await profiles.listDirectory(options);
+      const { visibleTo, ...query } = options;
+      const page = await profiles.listDirectory({
+        ...query,
+        onlyWhen: roomViewableBy(sql`${visibleTo.roomId}`, visibleTo.viewerId),
+      });
       return {
         items: page.items.map((item) => ({
           id: item.id,
@@ -258,7 +274,12 @@ export function createMessageRepository(db: Database) {
       viewerId: string,
     ): Promise<MessageItem | null> {
       const rows = await selectWithAuthor()
-        .where(eq(messages.id, messageId))
+        .where(
+          and(
+            eq(messages.id, messageId),
+            roomViewableBy(messages.roomId, viewerId),
+          ),
+        )
         .limit(1);
       const row = rows[0];
       if (row === undefined) return null;
@@ -314,6 +335,7 @@ export function createMessageRepository(db: Database) {
           and(
             eq(messages.roomId, roomId),
             isNull(messages.parentMessageId),
+            roomViewableBy(sql`${roomId}`, viewerId),
             cursor === undefined
               ? undefined
               : afterCursor(
@@ -354,6 +376,7 @@ export function createMessageRepository(db: Database) {
           and(
             eq(messages.roomId, roomId),
             isNull(messages.parentMessageId),
+            roomViewableBy(sql`${roomId}`, viewerId),
             afterId(messages.id, after),
           ),
         )
@@ -387,6 +410,7 @@ export function createMessageRepository(db: Database) {
         .where(
           and(
             eq(messages.parentMessageId, parentMessageId),
+            roomViewableBy(parentRoomOf(parentMessageId), viewerId),
             cursor === undefined
               ? undefined
               : afterCursor(
@@ -426,6 +450,7 @@ export function createMessageRepository(db: Database) {
         .where(
           and(
             eq(messages.parentMessageId, parentMessageId),
+            roomViewableBy(parentRoomOf(parentMessageId), viewerId),
             afterId(messages.id, after),
           ),
         )
@@ -450,7 +475,7 @@ export function createMessageRepository(db: Database) {
     },
     /**
      * 次のすべてを満たすときだけ1行を挿入し、挿入した行数（1 か 0）を返す。確認から書き込みまでに状態が変わっても条件を破る行を残さない。
-     * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も参加者
+     * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も有効な参加者（channel-member.sql の activeChannelMember）
      * ④ お知らせ専用なら、投稿者がそのチャンネルの部署のオーナーか全体管理者
      * ①のほかは、チャンネルなら②〜④、DM なら「投稿者が当事者で、当事者に無効な社員がいない」（DM の権限 perm.dm.message.send は固定ロールがすべて持つため、ここには入れず Service が確かめる）
      * 添付（attachmentIds）は同じ batch で結び付け、合わなければ AttachmentBindError を投げる（メッセージは作られない）
@@ -459,8 +484,8 @@ export function createMessageRepository(db: Database) {
     async insertIfOrdered(input: MessageInsert): Promise<number> {
       const postable = sql`EXISTS (
         SELECT 1 FROM channels c
-        JOIN channel_members m ON m.channel_id = c.room_id AND m.user_id = ${input.senderId}
         WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
+          AND ${activeChannelMember(sql`c.room_id`, input.senderId)}
           AND (c.purpose <> 'announcement'
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.owner} AND a.department_id = c.department_id)
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.globalAdmin})))`;

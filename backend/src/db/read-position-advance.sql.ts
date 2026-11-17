@@ -2,6 +2,7 @@
 // D1 は書き込みを直列に実行するため、同時の既読化でも最大の ID が残る。
 import { sql } from "drizzle-orm";
 import type { Database } from "./database";
+import { activeChannelMember } from "./channel-member.sql";
 
 /**
  * 既読位置を messageId まで進め、変更した行数（1 か 0）を返す。
@@ -21,9 +22,9 @@ export async function advanceReadPosition(
     WHERE EXISTS (SELECT 1 FROM messages m WHERE m.id = ${messageId} AND m.room_id = ${roomId})
       AND (
         EXISTS (
-          SELECT 1 FROM channel_members cm
-          JOIN channels c ON c.room_id = cm.channel_id
-          WHERE cm.channel_id = ${roomId} AND cm.user_id = ${userId} AND c.deleted_at IS NULL)
+          SELECT 1 FROM channels c
+          WHERE c.room_id = ${roomId} AND c.deleted_at IS NULL
+            AND ${activeChannelMember(sql`c.room_id`, userId)})
         OR EXISTS (
           SELECT 1 FROM conversation_members conv
           WHERE conv.conversation_id = ${roomId} AND conv.user_id = ${userId}))

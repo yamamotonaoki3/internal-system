@@ -65,7 +65,7 @@
 
 `createChannelService`の`join`は、次の順で判定する。
 
-1. **見えるか**（`canViewChannel`）：アーカイブされておらず、公開か、参加中の非公開。見えなければ404（非公開・アーカイブ済み・存在しないものを区別しない。存在を開示しない）
+1. **見えるか**（`canViewChannel`）：アーカイブされておらず、公開か、参加中の非公開。見えなければ404（非公開・アーカイブ済み・存在しないものを区別しない。存在を開示しない）【#147（147-C-1）：「参加中」は有効な参加者（`activeChannelMember`。参加の行があり、本人が有効）。見える・見えない規則は`roomViewableBy`（`room-visibility.sql.ts`）にまとめ、メンバーの数・一覧もこれで判定する。参加の行は記録で、資格の判定は[cases.md](cases.md)の「147-C-1 が広げた経路」に従う。無効な利用者は、参加の行が残っていても非公開チャンネルは見えない（404）】
 2. **参加済みか**：参加済みなら、何もせず200（べき等）。監査ログは書かない。参加日時は、すでにある行の値を返す
 3. **参加できるか**（`canJoinChannel`）：アーカイブされていない公開チャンネル。できなければ404
 4. 参加する（Repositoryの`join`）
@@ -75,7 +75,7 @@
 ### 一覧（`GET /api/channels`）
 
 - 見せる範囲：アーカイブされていない、会社直属と全部署の公開チャンネル、および自分が参加している非公開チャンネル。参加していない非公開は出さない。**案件専用チャンネル（`purpose = 'case'`）は、参加者にも一覧に出さない**（Issue #146の146-B。5-1 AC-6。案件の画面から開く。条件は`channel.repository.ts`の`list`の`WHERE`に入れてある。[case-requests.md](case-requests.md)）
-- 各項目に、`departmentId`（会社直属は`null`）、`departmentName`（会社直属は`null`）、`joined`を含める。参加の有無は`channel_members`のLEFT JOINで求めるため、件数が増えてもSQLの数は増えない
+- 各項目に、`departmentId`（会社直属は`null`）、`departmentName`（会社直属は`null`）、`joined`を含める。参加の有無は`channel_members`のLEFT JOINで求めるため、件数が増えてもSQLの数は増えない【#147（147-C-1）：`joined`の結合は`activeMembershipJoin`で、参加の行があり本人が有効なときだけ真。`findForViewer`の`joinedAt`と`findForManage`の`isMember`も同じ条件】
 - 絞り込み：`departmentId`（存在しない部署は404）、`joined`（`true`／`false`）。並びは名前の比較キー・ルームIDの昇順で、`cursor.ts`のカーソル方式（`PAGE_LIMIT`。既定20、最大100）。壊れたカーソルは422
 
 ### 参加（`POST /api/channels/:channelId/join`）

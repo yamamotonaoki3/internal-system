@@ -8,6 +8,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { CursorPayload } from "../lib/cursor";
 import type { Database } from "./database";
+import { activeChannelMember } from "./channel-member.sql";
 
 const rowSchema = z.object({
   id: z.string(),
@@ -79,9 +80,9 @@ export async function listThreadRows(
       WHERE t.last_reply_id IS NOT NULL
         AND (
           EXISTS (
-            SELECT 1 FROM channel_members m
-            JOIN channels ch ON ch.room_id = m.channel_id
-            WHERE m.channel_id = pp.room_id AND m.user_id = ${userId} AND ch.deleted_at IS NULL)
+            SELECT 1 FROM channels ch
+            WHERE ch.room_id = pp.room_id AND ch.deleted_at IS NULL
+              AND ${activeChannelMember(sql`ch.room_id`, userId)})
           OR ${directVisible})
         AND ${olderThan(options.cursor)}
       ORDER BY t.last_reply_id DESC, t.parent_id DESC

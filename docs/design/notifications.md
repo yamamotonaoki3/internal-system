@@ -90,7 +90,7 @@
 - 常に「本人宛て」（`user_id = 本人`）
 - 定義元で`containsRoomContent: true`の種類にだけ、部屋の条件を足す。`roomContentKinds()`が空のとき（今の0件）は部屋の条件を付けない（空の`IN ()`を作らない）。今の部屋の条件は「その種類の通知が`room_id`を持つこと」だけ
 - **#133が条件を足す位置はここ**：3-1 AC-3の「閲覧権限を失った部屋の内容を含む通知を除く」を、`containsRoomContent`が真の種類の部屋の条件として足す。権限が戻れば通知は再び見える（行は消さないため）
-- **【Issue #237で足した。元の記述は残す】** 部屋の内容を含む種類には、`room_id`を持つことに加えて、**閲覧できる部屋であること**（`viewableRoom`。未アーカイブで、公開または自分が参加中のチャンネル、または自分が当事者のDM）を求める。`canViewChannel`と同じ規則をSQLで書いた二重定義なので、公開・非公開×参加・未参加×アーカイブの全組で一致することを`notification.room-visibility.db.test.ts`で固定している。`roomContentKinds()`が空の今の本番の定義（`channel_request.*`は`containsRoomContent: false`）では条件が付かず、SQLは変わらない。テストは定義を差し替えて行い、本番の定義元にテスト用の種類を足していない
+- **【Issue #237で足した。元の記述は残す】** 部屋の内容を含む種類には、`room_id`を持つことに加えて、**閲覧できる部屋であること**（`viewableRoom`。未アーカイブで、公開または自分が参加中のチャンネル、または自分が当事者のDM）を求める。`canViewChannel`と同じ規則をSQLで書いた二重定義なので、公開・非公開×参加・未参加×アーカイブの全組で一致することを`notification.room-visibility.db.test.ts`で固定している。`roomContentKinds()`が空の今の本番の定義（`channel_request.*`は`containsRoomContent: false`）では条件が付かず、SQLは変わらない。テストは定義を差し替えて行い、本番の定義元にテスト用の種類を足していない【#147（147-C-1）：`viewableRoom`は`roomViewableBy`を使い、「自分が参加中」は有効な参加者。参加の行が残った無効な利用者の非公開の部屋の内容は出ない】
 - 見られる範囲が別の規則の部屋（例：案件の参加者で決まる案件専用チャンネル）を足すIssueは、`viewableRoom`と、未読の対象の部屋（`unread-targets.sql.ts`。[unread.md](unread.md)）の**両方**を広げる
 - 公開チャンネルは抜けても閲覧できるため、部屋の内容を含む通知は残る。未読の対象は参加者だけ（C-94）、通知を消すのは閲覧権限を失ったとき（3-1 AC-3）、という違いがある
 - `containsRoomContent`が偽の種類（アーカイブ・復元）は、権限を失っても残る

@@ -141,7 +141,7 @@ describe("#200 AC-2 一覧のカーソル（Repository）", () => {
     await insertMember(dept.dedicatedChannelId, userId);
     await insertMember(dept.dedicatedChannelId, inactive);
     const count = await withChannels(env, (repository) =>
-      repository.countMembers(dept.dedicatedChannelId),
+      repository.countMembers(dept.dedicatedChannelId, userId),
     );
     expect(count).toBe(1);
   });

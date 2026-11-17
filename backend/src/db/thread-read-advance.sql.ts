@@ -7,6 +7,7 @@
 // 0 行の理由（状態が崩れた・返信がそのスレッドにない・すでに新しい）は、呼び出し側（Service）が読み分ける。
 import { sql } from "drizzle-orm";
 import type { Database } from "./database";
+import { activeChannelMember } from "./channel-member.sql";
 
 /** 既読位置を lastReadMessageId まで進め、変更した行数（1 か 0）を返す */
 export async function advanceThreadReadPosition(
@@ -28,9 +29,9 @@ export async function advanceThreadReadPosition(
         WHERE p.id = ${parentMessageId} AND p.parent_message_id IS NULL
           AND (
             EXISTS (
-              SELECT 1 FROM channel_members cm
-              JOIN channels c ON c.room_id = cm.channel_id
-              WHERE cm.channel_id = p.room_id AND cm.user_id = ${userId} AND c.deleted_at IS NULL)
+              SELECT 1 FROM channels c
+              WHERE c.room_id = p.room_id AND c.deleted_at IS NULL
+                AND ${activeChannelMember(sql`c.room_id`, userId)})
             OR EXISTS (
               SELECT 1 FROM conversation_members conv
               WHERE conv.conversation_id = p.room_id AND conv.user_id = ${userId})))

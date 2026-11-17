@@ -566,7 +566,10 @@ export function createMessageService(
       query: { keyword?: string; limit: number; cursor?: CursorPayload },
     ) {
       await requireParticipatingRoom(roomId, actor);
-      return repository.listMentionCandidates(query);
+      return repository.listMentionCandidates({
+        ...query,
+        visibleTo: { roomId, viewerId: actor.userId },
+      });
     },
     async list(actor: MessageActor, roomId: string, query: MessageListQuery) {
       await requireVisible(roomId, actor);
