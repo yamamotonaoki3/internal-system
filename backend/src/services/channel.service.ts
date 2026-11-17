@@ -260,12 +260,14 @@ export function createChannelService(
       if (channel.joinedAt === null)
         return { ...base, joined: false, canPost: false };
       const [memberCount, members, canPostByRole] = await Promise.all([
-        repository.countMembers(roomId),
-        repository.listMembers(roomId, MEMBERS_PREVIEW_LIMIT),
+        repository.countMembers(roomId, actor.userId),
+        repository.listMembers(roomId, MEMBERS_PREVIEW_LIMIT, actor.userId),
         channel.purpose === "announcement"
           ? canPostAnnouncement(actor, channel.departmentId)
           : Promise.resolve(false),
       ]);
+      // 閲覧者本人が有効な参加者なら1以上になる。0 は、確認の後に資格を失ったこと（見えないものと同じ 404）
+      if (memberCount === 0) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
       const canPost = canPostToChannel({
         purpose: channel.purpose,
         isMember: true,

@@ -8,7 +8,10 @@ import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import type { ChannelPurpose } from "../../../shared/message-rules";
 import { auditLogInsert } from "./audit-log.repository";
-import { activeMembershipJoin } from "./channel-member.sql";
+import {
+  activeChannelMember,
+  activeMembershipJoin,
+} from "./channel-member.sql";
 import {
   channelInviteStatements,
   type ChannelInviteInput,
@@ -269,24 +272,37 @@ export function createChannelRepository(db: Database) {
         .limit(1);
       return rows[0] ?? null;
     },
-    // 参加者は有効な社員だけ。無効にした社員は、参加者の表示にも数にも含めない
-    async countMembers(roomId: string): Promise<number> {
+    // 参加者は有効な社員だけ。無効にした社員は、参加者の表示にも数にも含めない。
+    // 閲覧者がいま有効な参加者でなければ何も返さない（資格の確認の後に無効化が確定しても、参加者を返さない。C-182(10)）
+    async countMembers(roomId: string, viewerId: string): Promise<number> {
       const rows = await db
         .select({ n: sql<number>`COUNT(*)`.mapWith(Number) })
         .from(channelMembers)
         .innerJoin(users, eq(users.id, channelMembers.userId))
         .where(
-          and(eq(channelMembers.channelId, roomId), eq(users.isActive, true)),
+          and(
+            eq(channelMembers.channelId, roomId),
+            eq(users.isActive, true),
+            activeChannelMember(sql`${roomId}`, viewerId),
+          ),
         );
       return rows[0]?.n ?? 0;
     },
-    async listMembers(roomId: string, limit: number): Promise<ChannelMember[]> {
+    async listMembers(
+      roomId: string,
+      limit: number,
+      viewerId: string,
+    ): Promise<ChannelMember[]> {
       return db
         .select({ id: users.id, displayName: users.displayName })
         .from(channelMembers)
         .innerJoin(users, eq(users.id, channelMembers.userId))
         .where(
-          and(eq(channelMembers.channelId, roomId), eq(users.isActive, true)),
+          and(
+            eq(channelMembers.channelId, roomId),
+            eq(users.isActive, true),
+            activeChannelMember(sql`${roomId}`, viewerId),
+          ),
         )
         .orderBy(asc(users.id))
         .limit(limit);

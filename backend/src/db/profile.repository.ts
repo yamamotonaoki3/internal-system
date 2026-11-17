@@ -238,11 +238,14 @@ export function createProfileRepository(db: Database) {
       keyword?: string;
       limit: number;
       cursor?: CursorPayload;
+      /** 呼び出し側が足す条件（メンションの候補の、部屋を見てよい条件） */
+      onlyWhen?: SQL;
     }) {
       const conditions: SQL[] = [
         eq(users.isActive, true),
         sql`${users.departmentId} IS NOT NULL`,
       ];
+      if (options.onlyWhen !== undefined) conditions.push(options.onlyWhen);
       if (options.departmentId !== undefined)
         conditions.push(eq(users.departmentId, options.departmentId));
       // LIKE は使わない：D1 の LIKE はパターンが 50 バイトまでで、100 文字の検索語（日本語は 300 バイト）を受けられない。

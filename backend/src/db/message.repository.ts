@@ -14,6 +14,7 @@ import type { CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import type { Mention } from "../../../shared/message-rules";
 import { createProfileRepository } from "./profile.repository";
+import { roomViewableBy } from "./room-visibility.sql";
 import {
   activeMentionNames,
   guardInsertedMessage,
@@ -85,6 +86,10 @@ export type MessageInsert = {
 
 /** 通常の投稿への返信の件数（削除済みも数える）。messages_parent_message_id_id_idx で数える。1つの SELECT に入れるので、項目の数でクエリは増えない */
 const replyCountColumn = sql<number>`(SELECT COUNT(*) FROM messages r WHERE r.parent_message_id = ${messages.id})`;
+
+/** 返信の部屋（親の部屋）。親を主キーで1回引く */
+const parentRoomOf = (parentMessageId: string) =>
+  sql`(SELECT p.room_id FROM messages p WHERE p.id = ${parentMessageId})`;
 
 const messageColumns = {
   id: messages.id,
@@ -164,12 +169,22 @@ export function createMessageRepository(db: Database) {
       .from(messages)
       .innerJoin(users, eq(users.id, messages.senderId));
   return {
-    // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）
+    // 見てよいかの判定は Service が行う（チャンネルの Repository の読み取りを使う）。中身を読む関数は、同じ規則（roomViewableBy）を SQL にも入れる
     findRoomForViewer: channels.findForViewer,
+    /** 名簿を読む SQL に、閲覧者（visibleTo）がこの部屋をいま見てよい条件を入れる（資格の確認の後に無効化が確定しても、名簿を返さない） */
     async listMentionCandidates(
-      options: Parameters<typeof profiles.listDirectory>[0],
+      options: Omit<
+        Parameters<typeof profiles.listDirectory>[0],
+        "onlyWhen"
+      > & {
+        visibleTo: { roomId: string; viewerId: string };
+      },
     ) {
-      const page = await profiles.listDirectory(options);
+      const { visibleTo, ...query } = options;
+      const page = await profiles.listDirectory({
+        ...query,
+        onlyWhen: roomViewableBy(sql`${visibleTo.roomId}`, visibleTo.viewerId),
+      });
       return {
         items: page.items.map((item) => ({
           id: item.id,
@@ -259,7 +274,12 @@ export function createMessageRepository(db: Database) {
       viewerId: string,
     ): Promise<MessageItem | null> {
       const rows = await selectWithAuthor()
-        .where(eq(messages.id, messageId))
+        .where(
+          and(
+            eq(messages.id, messageId),
+            roomViewableBy(messages.roomId, viewerId),
+          ),
+        )
         .limit(1);
       const row = rows[0];
       if (row === undefined) return null;
@@ -315,6 +335,7 @@ export function createMessageRepository(db: Database) {
           and(
             eq(messages.roomId, roomId),
             isNull(messages.parentMessageId),
+            roomViewableBy(sql`${roomId}`, viewerId),
             cursor === undefined
               ? undefined
               : afterCursor(
@@ -355,6 +376,7 @@ export function createMessageRepository(db: Database) {
           and(
             eq(messages.roomId, roomId),
             isNull(messages.parentMessageId),
+            roomViewableBy(sql`${roomId}`, viewerId),
             afterId(messages.id, after),
           ),
         )
@@ -388,6 +410,7 @@ export function createMessageRepository(db: Database) {
         .where(
           and(
             eq(messages.parentMessageId, parentMessageId),
+            roomViewableBy(parentRoomOf(parentMessageId), viewerId),
             cursor === undefined
               ? undefined
               : afterCursor(
@@ -427,6 +450,7 @@ export function createMessageRepository(db: Database) {
         .where(
           and(
             eq(messages.parentMessageId, parentMessageId),
+            roomViewableBy(parentRoomOf(parentMessageId), viewerId),
             afterId(messages.id, after),
           ),
         )

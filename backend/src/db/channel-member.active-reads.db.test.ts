@@ -251,8 +251,8 @@ describe("#147 147-C-1 参加者の数え方・宛先・候補から、無効な
   it("#147 147-C-1: チャンネルの参加者の数・一覧（countMembers・listMembers）に、参加の行が残った無効な社員を含めない", async () => {
     await setUserActive(w.memberS2.id, false);
     const { count, members } = await withChannels(env, async (r) => ({
-      count: await r.countMembers(room.roomId),
-      members: await r.listMembers(room.roomId, 100),
+      count: await r.countMembers(room.roomId, w.memberS1.id),
+      members: await r.listMembers(room.roomId, 100, w.memberS1.id),
     }));
     expect(count).toBe(1);
     expect(members.map((m) => m.id)).toEqual([w.memberS1.id]);
@@ -271,7 +271,11 @@ describe("#147 147-C-1 参加者の数え方・宛先・候補から、無効な
     const ids = async () =>
       (
         await withMessages(env, (r) =>
-          r.listMentionCandidates({ departmentId: w.deptS.id, limit: 100 }),
+          r.listMentionCandidates({
+            departmentId: w.deptS.id,
+            limit: 100,
+            visibleTo: { roomId: room.roomId, viewerId: w.memberS1.id },
+          }),
         )
       ).items.map((item) => item.id);
     expect(await ids()).toContain(w.memberS2.id);
@@ -322,5 +326,190 @@ describe("#147 147-C-1 管理の判定の元（channel.repository の findForMan
 
   it("#147 147-C-1: 参加していない有効な社員（memberD1）は、isMember が偽", async () => {
     expect(await isMember(w.memberD1.id)).toBe(false);
+  });
+});
+
+// #147 147-C-1 レビュー1回目（C-182(10)）：中身を読む関数そのものが、閲覧者のその時点の資格で絞ること。
+// 前提にする形（いまのコードの引数のまま。どれも既に閲覧者の ID を受け取っている）：
+//   message.repository の listLatest(roomId, limit, cursor, viewerId)・listAfter(roomId, after, limit, viewerId)・
+//   findItem(messageId, viewerId)・listRepliesLatest(parentId, limit, cursor, viewerId)・listRepliesAfter(parentId, after, limit, viewerId)
+// 規則は findForViewer と同じ：非公開は有効な参加者だけ、公開は参加していない有効な社員にも返す（既存の規則）。
+describe("#147 147-C-1 レビュー1回目：中身を読む関数が、閲覧者のその時点の資格で絞る（D1）", () => {
+  const BEFORE_ALL = fixedIdAt(1_861_000_000_000);
+  const PUBLIC_CHANNEL_ID = fixedIdAt(1_861_000_200_000);
+  const PUBLIC_MESSAGE_ID = fixedIdAt(1_861_000_201_000);
+
+  type ContentCase = {
+    name: string;
+    /** 閲覧者に返した行の数 */
+    count: (
+      roomId: string,
+      parentId: string,
+      viewerId: string,
+    ) => Promise<number>;
+  };
+  const CONTENTS: ContentCase[] = [
+    {
+      name: "メッセージの一覧（最新。listLatest）",
+      count: async (roomId, _p, viewerId) =>
+        (
+          await withMessages(env, (r) =>
+            r.listLatest(roomId, 50, undefined, viewerId),
+          )
+        ).items.length,
+    },
+    {
+      name: "メッセージの一覧（続き。listAfter）",
+      count: async (roomId, _p, viewerId) =>
+        (
+          await withMessages(env, (r) =>
+            r.listAfter(roomId, BEFORE_ALL, 50, viewerId),
+          )
+        ).items.length,
+    },
+    {
+      name: "1件の取得（findItem）",
+      count: async (_r, parentId, viewerId) =>
+        (await withMessages(env, (r) => r.findItem(parentId, viewerId))) ===
+        null
+          ? 0
+          : 1,
+    },
+    {
+      name: "返信の取得（最新。listRepliesLatest）",
+      count: async (_r, parentId, viewerId) =>
+        (
+          await withMessages(env, (r) =>
+            r.listRepliesLatest(parentId, 50, undefined, viewerId),
+          )
+        ).items.length,
+    },
+    {
+      name: "返信の取得（続き。listRepliesAfter）",
+      count: async (_r, parentId, viewerId) =>
+        (
+          await withMessages(env, (r) =>
+            r.listRepliesAfter(parentId, BEFORE_ALL, 50, viewerId),
+          )
+        ).items.length,
+    },
+  ];
+
+  beforeEach(async () => {
+    await insertChannel({
+      id: PUBLIC_CHANNEL_ID,
+      name: "casereq公開の確認",
+      purpose: "normal",
+      departmentId: w.deptS.id,
+      visibility: "public",
+    });
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at, parent_message_id)
+         VALUES (?, ?, ?, 'テスト太郎', '[UNIT_TEST]公開の本文', ?, NULL)`,
+      ).bind(PUBLIC_MESSAGE_ID, PUBLIC_CHANNEL_ID, w.memberS2.id, AT),
+      env.DB.prepare(
+        `INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at, parent_message_id)
+         VALUES (?, ?, ?, 'テスト太郎', '[UNIT_TEST]公開の返信', ?, ?)`,
+      ).bind(
+        fixedIdAt(1_861_000_202_000),
+        PUBLIC_CHANNEL_ID,
+        w.memberS2.id,
+        AT,
+        PUBLIC_MESSAGE_ID,
+      ),
+    ]);
+  });
+
+  afterEach(async () => {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM messages WHERE room_id = ?").bind(
+        PUBLIC_CHANNEL_ID,
+      ),
+      env.DB.prepare("DELETE FROM channels WHERE room_id = ?").bind(
+        PUBLIC_CHANNEL_ID,
+      ),
+      env.DB.prepare("DELETE FROM rooms WHERE id = ?").bind(PUBLIC_CHANNEL_ID),
+    ]);
+  });
+
+  it.each(CONTENTS)(
+    "#147 147-C-1 有効な参加者（対）: $name は非公開の部屋の行を返す",
+    async ({ count }) => {
+      expect(await count(room.roomId, ROOT_ID, w.memberS1.id)).toBeGreaterThan(
+        0,
+      );
+    },
+  );
+
+  it.each(CONTENTS)(
+    "#147 147-C-1 C-182(10): 参加の行を残したまま無効にした閲覧者には、$name が非公開の部屋の行を返さない",
+    async ({ count }) => {
+      await setUserActive(w.memberS1.id, false);
+      expect(await count(room.roomId, ROOT_ID, w.memberS1.id)).toBe(0);
+    },
+  );
+
+  it.each(CONTENTS)(
+    "#147 147-C-1 C-182(10): 非公開の部屋に参加していない有効な社員（memberD1）には、$name が行を返さない",
+    async ({ count }) => {
+      expect(await count(room.roomId, ROOT_ID, w.memberD1.id)).toBe(0);
+    },
+  );
+
+  it.each(CONTENTS)(
+    "#147 147-C-1 既存の規則: 公開チャンネルは、参加していない有効な社員（memberD1）にも $name が行を返す",
+    async ({ count }) => {
+      expect(
+        await count(PUBLIC_CHANNEL_ID, PUBLIC_MESSAGE_ID, w.memberD1.id),
+      ).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe("#147 147-C-1 レビュー1回目：参加者の数・一覧・メンションの候補が、閲覧者のその時点の資格で絞る（D1）", () => {
+  const members = (viewerId: string) =>
+    withChannels(env, async (r) => ({
+      count: await r.countMembers(room.roomId, viewerId),
+      ids: (await r.listMembers(room.roomId, 100, viewerId)).map((m) => m.id),
+    }));
+  const candidates = async (viewerId: string) =>
+    (
+      await withMessages(env, (r) =>
+        r.listMentionCandidates({
+          limit: 100,
+          visibleTo: { roomId: room.roomId, viewerId },
+        }),
+      )
+    ).items.map((item) => item.id);
+
+  it("#147 147-C-1 有効な参加者（対）: countMembers・listMembers は数と一覧を返す", async () => {
+    const result = await members(w.memberS1.id);
+    expect(result.count).toBe(2);
+    expect([...result.ids].sort()).toEqual(
+      [w.memberS1.id, w.memberS2.id].sort(),
+    );
+  });
+
+  it("#147 147-C-1 C-182(10): 参加の行を残したまま無効にした閲覧者には、countMembers は 0、listMembers は空", async () => {
+    await setUserActive(w.memberS1.id, false);
+    expect(await members(w.memberS1.id)).toEqual({ count: 0, ids: [] });
+  });
+
+  it("#147 147-C-1 C-182(10): 参加していない有効な社員（memberD1）には、countMembers は 0、listMembers は空", async () => {
+    expect(await members(w.memberD1.id)).toEqual({ count: 0, ids: [] });
+  });
+
+  it("#147 147-C-1 有効な参加者（対）: listMentionCandidates は候補を返す", async () => {
+    expect(await candidates(w.memberS1.id)).toContain(w.memberS2.id);
+  });
+
+  it("#147 147-C-1 C-182(10): 参加の行を残したまま無効にした閲覧者には、listMentionCandidates は空", async () => {
+    await setUserActive(w.memberS1.id, false);
+    expect(await candidates(w.memberS1.id)).toEqual([]);
+  });
+
+  it("#147 147-C-1 C-182(10): 部屋に参加していない有効な社員（memberD1）には、listMentionCandidates は空", async () => {
+    expect(await candidates(w.memberD1.id)).toEqual([]);
   });
 });
