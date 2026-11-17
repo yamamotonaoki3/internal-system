@@ -23,6 +23,8 @@ const item = (
   targetId,
   createdAt: "2026-11-11T00:00:00.000Z",
   readAt: null,
+  reason: null,
+  roomArchived: false,
 });
 
 describe("#124 AC-2 describeNotification", () => {

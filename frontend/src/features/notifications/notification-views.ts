@@ -5,6 +5,8 @@ import type { NotificationItem } from "./api/notification-api";
 
 export type NotificationView = {
   label: string;
+  /** 文言の後に付ける、通知の行の値から作る文（アーカイブの理由など）。null なら付けない */
+  suffix?: (item: NotificationItem) => string | null;
   /** 開いたときの移動先。null なら移動先なし */
   to: (item: NotificationItem) => string | null;
 };
@@ -62,6 +64,17 @@ export const NOTIFICATION_VIEWS: Readonly<
     label: "退職処理の申請が却下されました",
     to: () => "/retirement-requests/mine",
   },
+  // チャンネルのアーカイブ・復元（#143。D-5）。アーカイブ中のチャンネルは開けないため、アーカイブの通知は移動先なし
+  "channel.archived": {
+    label: "参加しているチャンネルがアーカイブされました",
+    suffix: (item) =>
+      item.reason === null ? null : `（理由：${item.reason}）`,
+    to: () => null,
+  },
+  "channel.restored": {
+    label: "参加しているチャンネルが復元されました",
+    to: (item) => (item.roomId === null ? null : `/channels/${item.roomId}`),
+  },
 };
 
 const GENERIC_LABEL = "通知";
@@ -75,5 +88,8 @@ export function describeNotification(
     return { label: GENERIC_LABEL, to: null };
   const view = views[item.kind];
   if (view === undefined) return { label: GENERIC_LABEL, to: null };
-  return { label: view.label, to: view.to(item) };
+  return {
+    label: view.label + (view.suffix?.(item) ?? ""),
+    to: view.to(item),
+  };
 }

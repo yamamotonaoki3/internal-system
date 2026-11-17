@@ -10,6 +10,10 @@ const notificationItemSchema = z.object({
   targetId: z.string().nullable(),
   createdAt: z.string(),
   readAt: z.string().nullable(),
+  // channel.archived の行だけ、その回のアーカイブの理由（#143）
+  reason: z.string().nullable(),
+  // チャンネルについての通知で、そのチャンネルが今アーカイブ中か（#143）
+  roomArchived: z.boolean(),
 });
 const notificationPageSchema = z.object({
   items: z.array(notificationItemSchema),
@@ -34,12 +38,14 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
   return unreadCountSchema.parse(response.data).count;
 }
 
+/** 1件を既読にし、その通知の最新の項目（押した時点の roomArchived を含む。#143）を返す */
 export async function markNotificationRead(
   notificationId: string,
-): Promise<void> {
-  await apiClient.post(
+): Promise<NotificationItem> {
+  const response = await apiClient.post(
     `/me/notifications/${encodeURIComponent(notificationId)}/read`,
   );
+  return notificationItemSchema.parse(response.data);
 }
 
 export async function markAllNotificationsRead(): Promise<void> {

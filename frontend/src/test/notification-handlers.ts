@@ -2,7 +2,7 @@
 // 契約（実装前の仮置き。計画「HTTP API」）：
 //   GET  /api/me/notifications?cursor&limit        → { items: [{ id, kind, roomId, messageId, targetId, createdAt, readAt }], nextCursor }（新しい順）
 //   GET  /api/me/notifications/unread-count        → { count }（100 で打ち切り）
-//   POST /api/me/notifications/:notificationId/read → 204（既読にする。状態に反映する）
+//   POST /api/me/notifications/:notificationId/read → 200 その通知の最新の項目（既読にする。状態に反映する。#143 で 204 から変更）
 //   POST /api/me/notifications/read-all             → 204（すべて既読にする。状態に反映する）
 // 名前を use〜 にしない（React Hooks の規則の誤検知を避ける）。
 import { http, HttpResponse } from "msw";
@@ -16,6 +16,9 @@ export type TestNotification = {
   targetId: string | null;
   createdAt: string;
   readAt: string | null;
+  // #143：通知の一覧の応答に reason・roomArchived（必須）が加わった
+  reason: string | null;
+  roomArchived: boolean;
 };
 
 /** n 番目の通知。ID は n の昇順（辞書順＝時刻順）。respondNotifications には新しい順（大きい n が先）で渡す */
@@ -31,6 +34,8 @@ export function notification(
     targetId: `01JTESTTARGET${String(n).padStart(13, "0")}`,
     createdAt: new Date(Date.UTC(2026, 10, 1, 0, n)).toISOString(),
     readAt: null,
+    reason: null,
+    roomArchived: false,
     ...overrides,
   };
 }
@@ -110,7 +115,8 @@ export function respondNotifications(
           { status: 404 },
         );
       found.readAt = found.readAt ?? READ_AT;
-      return new HttpResponse(null, { status: 204 });
+      // #143 重大3：既読の応答は、その通知の最新の項目（roomArchived を含む）を返す
+      return HttpResponse.json({ ...found });
     }),
   );
   return world;

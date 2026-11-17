@@ -3,6 +3,8 @@
 // 作成・既読は監査ログに残さない（既定の方針 4）。認可の拒否は authorize が記録する。
 import {
   withNotifications,
+  type NotificationArchiveState,
+  type NotificationItem,
   type NotificationRepository,
 } from "../db/notification.repository";
 import type { RoleAssignmentRepository } from "../db/role-assignment.repository";
@@ -46,6 +48,33 @@ export function createNotificationService(
       return notifications.listForRecipient(actor.userId, options);
     },
 
+    /**
+     * 画面の一覧（EP-3-04）：list の各行に、アーカイブに関わる表示の事実（reason・roomArchived。#143）を足す。
+     * 事実が読めない行（本人宛ての行が見つからない。起きないはず）は、成功に見せかけず例外にする
+     */
+    async listWithArchiveStates(
+      actor: NotificationActor,
+      options: { limit: number; cursor?: CursorPayload },
+    ): Promise<{
+      items: (NotificationItem & NotificationArchiveState)[];
+      nextCursor: string | null;
+    }> {
+      const page = await this.list(actor, options);
+      const states = await notifications.archiveStatesFor(
+        actor.userId,
+        page.items.map((item) => item.id),
+      );
+      return {
+        nextCursor: page.nextCursor,
+        items: page.items.map((item) => {
+          const state = states.get(item.id);
+          if (state === undefined)
+            throw new Error("通知の表示に必要な状態を読み取れません");
+          return { ...item, ...state };
+        }),
+      };
+    },
+
     async countUnread(actor: NotificationActor): Promise<number> {
       await authorizeOwn(actor);
       return notifications.countUnread(actor.userId);
@@ -62,6 +91,30 @@ export function createNotificationService(
         now().toISOString(),
       );
       if (!found) throw new AppError("NOT_FOUND", "通知が見つかりません");
+    },
+
+    /**
+     * 1件を既読にし、その通知の最新の項目（一覧と同じ形。reason・roomArchived を含む）を返す（#143。EP-3-05）。
+     * 画面は、押した時点の roomArchived で、移動するか・アーカイブされたと知らせるかを決める
+     */
+    async markReadAndDescribe(
+      actor: NotificationActor,
+      notificationId: string,
+    ): Promise<NotificationItem & NotificationArchiveState> {
+      await this.markRead(actor, notificationId);
+      const item = await notifications.findForRecipient(
+        actor.userId,
+        notificationId,
+      );
+      // 既読にした直後に見えなくなった（部屋の内容を含む通知で閲覧の権限を失った）場合は、存在しないものと同じにする
+      if (item === null)
+        throw new AppError("NOT_FOUND", "通知が見つかりません");
+      const state = (
+        await notifications.archiveStatesFor(actor.userId, [item.id])
+      ).get(item.id);
+      if (state === undefined)
+        throw new Error("通知の表示に必要な状態を読み取れません");
+      return { ...item, ...state };
     },
 
     async markAllRead(actor: NotificationActor): Promise<void> {

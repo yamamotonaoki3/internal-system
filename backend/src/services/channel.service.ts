@@ -16,6 +16,7 @@ import {
   type ChannelListOptions,
   type ChannelMember,
   type ChannelRepository,
+  type ChannelViewRow,
 } from "../db/channel.repository";
 import {
   withRoleAssignments,
@@ -27,6 +28,8 @@ import {
   canInviteToChannel,
   canJoinChannel,
   canViewChannel,
+  channelManageActions,
+  channelScopeOf,
   type ChannelVisibility,
 } from "../lib/channel-rules";
 import { createLogger } from "../lib/logger/logger";
@@ -54,9 +57,19 @@ export type ChannelDetail = {
   readOnly: boolean;
   /** 案件チャンネル（#134 以降）。今はつねに false */
   isCaseChannel: false;
+  /** 管理の操作（#143）が送る版 */
+  version: number;
+  /** 閲覧者に出してよい管理の操作（表示用。判定は管理の API が毎回行う） */
+  manage: ChannelManageView;
   /** 参加者にだけ返す */
   memberCount?: number;
   members?: ChannelMember[];
+};
+
+export type ChannelManageView = {
+  canRename: boolean;
+  canEditDescription: boolean;
+  canArchive: boolean;
 };
 
 export type ChannelJoined = {
@@ -136,6 +149,41 @@ export function createChannelService(
     });
   }
 
+  // 表示用の管理の操作（#143）。can で判定し、拒否を監査に記録しない（記録するのは管理の API だけ）
+  async function manageOf(
+    actor: ChannelActor,
+    channel: {
+      purpose: ChannelViewRow["purpose"];
+      deletedAt: string | null;
+      departmentId: string | null;
+    },
+  ): Promise<ChannelManageView> {
+    const actions = channelManageActions(channel);
+    const needsEdit = actions.rename || actions.editDescription;
+    if (!needsEdit && !actions.archive)
+      return { canRename: false, canEditDescription: false, canArchive: false };
+    if (roles === undefined)
+      throw new Error("権限の判定に必要な Repository が渡されていません");
+    const authorizer = createAppAuthorizer(roles, {
+      logger: createLogger({ traceId: actor.traceId, userId: actor.userId }),
+    });
+    const scope = channelScopeOf(channel);
+    const principal = { userId: actor.userId };
+    const [canEdit, canDelete] = await Promise.all([
+      needsEdit
+        ? authorizer.can(principal, "perm.channel.edit", scope)
+        : Promise.resolve(false),
+      actions.archive
+        ? authorizer.can(principal, "perm.channel.delete", scope)
+        : Promise.resolve(false),
+    ]);
+    return {
+      canRename: actions.rename && canEdit,
+      canEditDescription: actions.editDescription && canEdit,
+      canArchive: actions.archive && canDelete,
+    };
+  }
+
   // 見えるチャンネルだけを返す。見えないものは、理由を区別せず 404 にする
   async function requireVisible(roomId: string, actor: ChannelActor) {
     const channel = await repository.findForViewer(roomId, actor.userId);
@@ -196,6 +244,7 @@ export function createChannelService(
     },
     async get(actor: ChannelActor, roomId: string): Promise<ChannelDetail> {
       const channel = await requireVisible(roomId, actor);
+      const manage = await manageOf(actor, channel);
       const base = {
         id: channel.roomId,
         roomId: channel.roomId,
@@ -205,6 +254,8 @@ export function createChannelService(
         departmentId: channel.departmentId,
         isCaseChannel: false,
         readOnly: !channel.departmentIsActive,
+        version: channel.version,
+        manage,
       } as const;
       if (channel.joinedAt === null)
         return { ...base, joined: false, canPost: false };

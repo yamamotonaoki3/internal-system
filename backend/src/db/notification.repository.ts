@@ -6,6 +6,7 @@ import {
   and,
   desc,
   eq,
+  inArray,
   isNotNull,
   isNull,
   notInArray,
@@ -39,6 +40,21 @@ export type NotificationInput<K extends string = NotificationKind> = {
   messageId?: string | null;
   targetId?: string | null;
 };
+
+/** 通知の行ごとの、アーカイブに関わる表示の事実（#143・3-4 AC-5） */
+export type NotificationArchiveState = {
+  /** channel.archived の行だけ、その回のアーカイブの理由（なければ null）。ほかの種類は null */
+  reason: string | null;
+  /** 部屋の内容を含まない、チャンネルについての種類の行だけ、そのチャンネルが今アーカイブ中か。ほかの種類は false */
+  roomArchived: boolean;
+};
+
+// roomArchived を計算する種類（部屋の内容を含まず、チャンネルを移動先にするもの）
+const ROOM_ARCHIVED_KINDS = [
+  "channel_request.approved",
+  "channel.archived",
+  "channel.restored",
+] as const satisfies readonly NotificationKind[];
 
 export type NotificationItem = {
   id: string;
@@ -161,6 +177,74 @@ export function createNotificationRepository(
         if (!isUlid(row.id)) throw new Error("通知IDが不正です");
         return { v: row.createdAt, id: row.id };
       });
+    },
+
+    /** 本人宛てで、一覧と同じ条件（visibleToRecipient）を通る通知を1件読む。なければ null */
+    async findForRecipient(
+      recipientId: string,
+      notificationId: string,
+    ): Promise<NotificationItem | null> {
+      const rows = await db
+        .select({
+          id: notifications.id,
+          kind: notifications.kind,
+          roomId: notifications.roomId,
+          messageId: notifications.messageId,
+          targetId: notifications.targetId,
+          createdAt: notifications.createdAt,
+          readAt: notifications.readAt,
+        })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.id, notificationId),
+            visibleToRecipient(recipientId, definitions),
+          ),
+        )
+        .limit(1);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * 本人宛ての通知のうち、渡した ID の行の reason・roomArchived を返す（#143）。ID は一覧（visibleToRecipient を通したもの）から渡す。
+     * ここでは本人宛ての条件だけを当てる：一覧の後に部屋が見えなくなっても、一覧で返した行の事実を欠かさないため。
+     * 理由はその通知が指すアーカイブの記録（target_id）から読むため、再アーカイブしても古い通知は古い理由のまま
+     */
+    async archiveStatesFor(
+      recipientId: string,
+      notificationIds: readonly string[],
+    ): Promise<Map<string, NotificationArchiveState>> {
+      if (notificationIds.length === 0) return new Map();
+      const rows = await db
+        .select({
+          id: notifications.id,
+          reason: sql<
+            string | null
+          >`CASE WHEN ${notifications.kind} = 'channel.archived'
+            THEN (SELECT e.reason FROM channel_archive_events e
+              WHERE e.id = ${notifications.targetId} AND e.channel_id = ${notifications.roomId})
+            END`,
+          roomArchived:
+            sql<boolean>`${inArray(notifications.kind, [...ROOM_ARCHIVED_KINDS])}
+            AND EXISTS (SELECT 1 FROM channels c
+              WHERE c.room_id = ${notifications.roomId} AND c.deleted_at IS NOT NULL)`.mapWith(
+              Boolean,
+            ),
+        })
+        .from(notifications)
+        .where(
+          and(
+            // ID は JSON の1つの値で渡す（D1 の1文あたりの値の数の上限を、一覧の件数で超えないため）
+            sql`${notifications.id} IN (SELECT value FROM json_each(${JSON.stringify(notificationIds)}))`,
+            eq(notifications.userId, recipientId),
+          ),
+        );
+      return new Map(
+        rows.map((row) => [
+          row.id,
+          { reason: row.reason, roomArchived: row.roomArchived },
+        ]),
+      );
     },
 
     /** 本人の未読数。UNREAD_COUNT_LIMIT で打ち切る */

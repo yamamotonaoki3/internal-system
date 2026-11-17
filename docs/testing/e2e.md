@@ -59,6 +59,7 @@
 | チャンネル・DMの未読の件数と既読（サイドバー・DM一覧。Issue #237） | `e2e/unread.spec.ts` | 下の「未読の件数と既読のシナリオ」を参照 |
 | スレッドの返信とスレッド一覧（S-07・S-35。Issue #137） | `e2e/threads.spec.ts` | 下の「スレッドの返信とスレッド一覧のシナリオ」を参照 |
 | リアクション・スタンプ（S-05・S-07。Issue #138） | `e2e/reactions.spec.ts` | 下の「リアクション・スタンプのシナリオ」を参照 |
+| チャンネルの名前・説明の変更、アーカイブ・復元（S-05の「⋯」・通知。Issue #143の143-a） | `e2e/channel-archive.spec.ts` | 1件（`serial`）。部署のオーナー・参加者の2つのブラウザ（ログインは2人で1回ずつ）。オーナーが「⋯」→「名前・説明を編集」で名前を変える（再読み込みなしで見出しが変わる）→「アーカイブ」で理由を入れて再認証し、一覧へ移って「アーカイブしました」→ 参加者はチャンネルを開けず投稿もできない → 参加者の通知に理由つきで届き、押すと移動せずに「このチャンネルはアーカイブされました」→ 復元（入口のS-39・S-38は143-bのため、ここではAPIで再認証して復元。版はシードの1→名前の変更で2→アーカイブで3）→ 参加者は再び開いて画面から投稿できる。判定の順・存在の非開示・各経路の404の細部はバックエンドのテスト、メニュー・ダイアログの分岐は`frontend/src/channel-manage.test.tsx`で確かめ、ここでは重ねない。シード：`e2e/seeds/channel-archive.sql`（部署「[E2E_TEST]部署143アーカイブ」、社員`e2euser_charch_`、公開の通常のチャンネル`E2E_TEST_charch_1`（固定のルームID）。名前に`[ ]`が使えないため、チャンネル名は`E2E_TEST_charch_`で始める）。後始末：`e2e/seeds/channel-archive-cleanup.sql`（識別子だけを外部キーの順に消し、残数0を確かめる。`channel_archive_events`を含む）。`shared/`・認証の応答を変えるため、E2Eは全件（ADR-0020）。設計は [channels.md](../design/channels.md) |
 | チャンネルへの招待（S-12・S-05・サイドバー・通知。Issue #135） | `e2e/channel-invite.spec.ts` | 1件（`serial`）。参加者A・招待される社員B・部署のオーナーの3つのブラウザ（ログインは3人で1回ずつ）。招待の前はBの一覧に出ず、URLを開いても「チャンネルが見つかりません」→ Aが選択・再認証・確定画面・確定で招待 → Aの参加者が再読み込みなしで増え、Bのサイドバーに出て通知が届き、通知からチャンネルを開ける。判定の順・存在の非開示の細部はバックエンドのテストで確かめる。シード：`e2e/seeds/channel-invite.sql`（部署「[E2E_TEST]部署135招待」、社員`e2euser_chinv_`。非公開チャンネルは申請→承認のAPIで作り、名前は`E2E_TEST_invite_`で始める）。後始末：`e2e/seeds/channel-invite-cleanup.sql`（識別子だけを消し、残数0を確かめる）。設計は [channels.md](../design/channels.md) |
 | メッセージの添付（S-05・S-07。Issue #140） | `e2e/attachments.spec.ts` | 下の「メッセージの添付のシナリオ」を参照 |
 
@@ -235,7 +236,7 @@
 - ファイルはテストの中でバイト列から作る（架空・無害。実在の画像・文書は使わない）。
 - シード：`e2e/seeds/attachments.sql`（部署「[E2E_TEST] 添付」、社員`e2euser_att_a`・`_b`〔`@example.com`。パスワードのハッシュは既存の行から参照し、値を書かない〕、非公開チャンネル1つ、親の投稿1件。本文は`[E2E_TEST]`で始める）。後始末：`e2e/seeds/attachments-cleanup.sql`（社員ID`e2euser_att_`と部署名`[E2E_TEST] 添付`の識別子だけ。`message_attachments`を先に消し、残数を確かめる）。`beforeAll`・`afterAll`で流す。
 - **R2の手元の実体の後始末**：DBの行を消す**前に**、テストの部屋・利用者の添付の`storage_key`をDBから読み、`wrangler r2 object delete --local`で、手元の保存先（`.wrangler/state/test`のバケット`internal-system-attachments`）から1件ずつ消す。行を先に消すとキーが分からなくなり、実体が残る。本物のバケットには接続しない（`--local`と`--persist-to`を付ける）。`cleanup.sql`（`npm run db:cleanup:test`）は行だけを消し、R2の実体は消さない。
-- 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。
+- 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。#143で、チャンネルの詳細の見本に`version`・`manage`を足した。**応答の項目を必須で足したら、本番形のE2Eの見本にも足す**。
 - `shared/`の追加に当たるため、ADR-0020に従い、開発用の全件（`npm run test:e2e`）と本番形の全件（`npm run test:e2e:prod`）を、1つずつ順に実行する。
 - 全件を1回で流さず、spec ごとに実行する：`npm run test:e2e -- e2e/attachments.spec.ts`
 

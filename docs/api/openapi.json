@@ -1632,6 +1632,80 @@
             "$ref": "#/components/responses/ValidationError"
           }
         }
+      },
+      "patch": {
+        "operationId": "updateChannel",
+        "summary": "チャンネルの名前・説明を変更する（EP-2-36）",
+        "description": "担当部署のオーナー（自部署のチャンネル）と全体管理者。判定の順：行がない・アーカイブ済み（404）→ 見えず管理もできない（404。拒否の監査に残さない）→ 権限 perm.channel.edit（403）→ 案件専用（409）、名前を送り通常のチャンネルでない（409）→ 版の不一致（409）。再認証・通知なし。監査 channel.update（detail は変えた項目の名前だけ）。応答にメッセージ・参加者を含めない。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "変更した",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelUpdated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "管理できない（FORBIDDEN。見える公開チャンネル・参加中の非公開のとき）、送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "存在しない・アーカイブ済み・見えないうえに管理できないチャンネル（区別しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "名前の重複（アーカイブ済みを含む）、名前を変えられないチャンネル、案件専用、版の不一致",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
       }
     },
     "/api/channels/{channelId}/join": {
@@ -3188,7 +3262,7 @@
       "post": {
         "operationId": "markMyNotificationRead",
         "summary": "自分宛ての通知を 1 件既読にする",
-        "description": "既読済みも 204 で、read_at は最初の時刻のまま。存在しない・他人宛て・ULID でない ID は区別せず 404（存在を漏らさない）。",
+        "description": "既読済みも 200 で、read_at は最初の時刻のまま。存在しない・他人宛て・ULID でない ID は区別せず 404（存在を漏らさない）。",
         "parameters": [
           {
             "name": "notificationId",
@@ -3201,13 +3275,20 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "既読にした（Cache-Control: no-store）",
+          "200": {
+            "description": "既読にした。その通知の最新の項目（一覧と同じ形。押した時点の roomArchived・reason を含む）（Cache-Control: no-store）",
             "headers": {
               "Cache-Control": {
                 "schema": {
                   "type": "string",
                   "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItem"
                 }
               }
             }
@@ -5521,6 +5602,158 @@
           }
         }
       }
+    },
+    "/api/channels/{channelId}/delete": {
+      "post": {
+        "operationId": "archiveChannel",
+        "summary": "チャンネルをアーカイブする（EP-2-37）",
+        "description": "担当部署のオーナーと全体管理者が、範囲内の通常のチャンネルをアーカイブする（論理削除）。再認証が必要。判定の順：行がない（404）→ 見えず管理もできない（404）→ 権限 perm.channel.delete（403）→ 再認証（403 REAUTH_REQUIRED）→ アーカイブできない種類（409）→ すでにアーカイブ済み（409）→ 版の不一致（409）。参加者（操作した本人・無効な社員を除く）に通知 channel.archived、監査 channel.archive（detail は hasReason だけ）を同じ batch で確定する。メッセージ・添付は残る。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelArchive"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "アーカイブした",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelArchived"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "管理できない（FORBIDDEN。見える公開チャンネル・参加中の非公開のとき）、送信元不正（FORBIDDEN_ORIGIN）、再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "存在しない・見えないうえに管理できないチャンネル（区別しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "アーカイブできない種類、すでにアーカイブ済み、版の不一致、同時の操作と重なった",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/channels/{channelId}/restore": {
+      "post": {
+        "operationId": "restoreChannel",
+        "summary": "アーカイブしたチャンネルを復元する（EP-2-38）",
+        "description": "担当部署のオーナー（誰がアーカイブしたものでも）と全体管理者。再認証が必要。判定の順はアーカイブと同じで、状態は「アーカイブされていない」が 409。参加者に通知 channel.restored、監査 channel.restore を同じ batch で確定する。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRestore"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "復元した",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelRestored"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "管理できない（FORBIDDEN。見える公開チャンネル・参加中の非公開のとき）、送信元不正（FORBIDDEN_ORIGIN）、再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "存在しない・見えないうえに管理できないチャンネル（区別しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "復元できない種類、アーカイブされていない、版の不一致、同時の操作と重なった",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5679,7 +5912,9 @@
           "joined",
           "isCaseChannel",
           "canPost",
-          "readOnly"
+          "readOnly",
+          "version",
+          "manage"
         ],
         "additionalProperties": false,
         "properties": {
@@ -5736,6 +5971,13 @@
             "items": {
               "$ref": "#/components/schemas/ChannelMember"
             }
+          },
+          "version": {
+            "type": "integer",
+            "description": "管理の操作（EP-2-36〜38）が送る版"
+          },
+          "manage": {
+            "$ref": "#/components/schemas/ChannelManage"
           }
         }
       },
@@ -5902,7 +6144,9 @@
           "messageId",
           "targetId",
           "createdAt",
-          "readAt"
+          "readAt",
+          "reason",
+          "roomArchived"
         ],
         "additionalProperties": false,
         "properties": {
@@ -5941,6 +6185,17 @@
               "string",
               "null"
             ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "channel.archived の行だけ、その回のアーカイブの理由（なければ null）。ほかの種類は null"
+          },
+          "roomArchived": {
+            "type": "boolean",
+            "description": "channel_request.approved・channel.archived・channel.restored の行だけ、そのチャンネルが今アーカイブ中か。ほかの種類は false"
           }
         }
       },
@@ -9669,6 +9924,9 @@
               "channel.join",
               "channel.invite",
               "channel.company_general_backfill",
+              "channel.update",
+              "channel.archive",
+              "channel.restore",
               "status.proxy_set",
               "profile.display_name_change",
               "channel_request.create",
@@ -9770,6 +10028,9 @@
               "channel.join",
               "channel.invite",
               "channel.company_general_backfill",
+              "channel.update",
+              "channel.archive",
+              "channel.restore",
               "status.proxy_set",
               "profile.display_name_change",
               "channel_request.create",
@@ -9911,6 +10172,165 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ChannelUpdate": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "name・description の少なくとも1つを送る",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "詳細で読んだチャンネルの版。今の版と違えば 409"
+          },
+          "name": {
+            "type": "string",
+            "description": "全角英数字・－・＿を半角にし、前後の空白を除いてから 1〜50 文字（2-2 AC-13）。会社内で重複不可（アーカイブ済みを含む）"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "description"
+            ]
+          }
+        ]
+      },
+      "ChannelUpdated": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "version",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelArchive": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "詳細で読んだチャンネルの版。今の版と違えば 409"
+          },
+          "reason": {
+            "type": "string",
+            "description": "任意。前後の空白を除いて 1〜500 文字。空・空白だけは理由なし（V-48）"
+          }
+        }
+      },
+      "ChannelArchived": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "deletedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "deletedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelRestore": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "詳細で読んだチャンネルの版。今の版と違えば 409"
+          }
+        }
+      },
+      "ChannelRestored": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "restoredAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "restoredAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelManage": {
+        "type": "object",
+        "required": [
+          "canRename",
+          "canEditDescription",
+          "canArchive"
+        ],
+        "additionalProperties": false,
+        "description": "閲覧者に出してよい管理の操作（表示用。判定は管理の API が毎回行う。拒否を監査に残さない）",
+        "properties": {
+          "canRename": {
+            "type": "boolean"
+          },
+          "canEditDescription": {
+            "type": "boolean"
+          },
+          "canArchive": {
+            "type": "boolean"
           }
         }
       }

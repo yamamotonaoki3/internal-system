@@ -1,6 +1,7 @@
 // チャンネルの閲覧・参加の判定と、全社連絡の固定値。画面にもDBにも依存しない純粋な定義。
 // 全社連絡のルームIDは migration 0011（手作成）の固定値と一致させる（テストで突き合わせる）。
 import type { ChannelPurpose } from "../../../shared/message-rules";
+import type { Scope } from "./authorization";
 
 /** 全社連絡の名前（0011 の値と同じ） */
 export const COMPANY_GENERAL_CHANNEL_NAME = "全社連絡";
@@ -52,4 +53,45 @@ export function canInviteToChannel(
   if (channel.purpose === "case") return "case_channel";
   if (!channel.departmentIsActive) return "department_inactive";
   return "allowed";
+}
+
+export type ChannelManageActions = {
+  rename: boolean;
+  editDescription: boolean;
+  archive: boolean;
+  restore: boolean;
+};
+
+/**
+ * 種類と状態から「種類として」できる管理の操作（#143。権限は別に判定する）。
+ * 名前の変更・アーカイブ・復元は通常のチャンネルだけ（D-2）。部署の専用・お知らせ専用・全社連絡は説明の変更だけ。
+ * 案件専用は案件と連動するため、どれもできない。アーカイブ済みは復元だけ（通常のチャンネル以外がアーカイブ済みの行は異常なので何もさせない）
+ */
+export function channelManageActions(channel: {
+  purpose: ChannelPurpose;
+  deletedAt: string | null;
+}): ChannelManageActions {
+  const normal = channel.purpose === "normal";
+  if (channel.deletedAt !== null)
+    return {
+      rename: false,
+      editDescription: false,
+      archive: false,
+      restore: normal,
+    };
+  return {
+    rename: normal,
+    editDescription: channel.purpose !== "case",
+    archive: normal,
+    restore: false,
+  };
+}
+
+/** 管理の権限の範囲（#143）：チャンネルの部署があれば部署の範囲、なければ（会社直属）会社の範囲 */
+export function channelScopeOf(channel: {
+  departmentId: string | null;
+}): Scope {
+  return channel.departmentId === null
+    ? { type: "company" }
+    : { type: "department", departmentId: channel.departmentId };
 }

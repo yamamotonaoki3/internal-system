@@ -21,7 +21,7 @@ export function notificationRoutes() {
       const actor = actorOf(c);
       const { limit, cursor } = c.req.valid("query");
       const page = await withNotificationService(c.env, (service) =>
-        service.list(
+        service.listWithArchiveStates(
           actor,
           cursor === undefined ? { limit } : { limit, cursor },
         ),
@@ -48,10 +48,13 @@ export function notificationRoutes() {
       validate("param", notificationParamSchema),
       async (c) => {
         const actor = actorOf(c);
-        await withNotificationService(c.env, (service) =>
-          service.markRead(actor, c.req.valid("param").notificationId),
+        const item = await withNotificationService(c.env, (service) =>
+          service.markReadAndDescribe(
+            actor,
+            c.req.valid("param").notificationId,
+          ),
         );
-        return c.body(null, 204);
+        return c.json(item);
       },
     );
 }

@@ -209,3 +209,42 @@ describe("#124 AC-1（R-57）宛先は常に操作した本人", () => {
     );
   });
 });
+
+describe("#143 a-AC-5 一覧の状態（reason・roomArchived）の付け合わせ", () => {
+  it("#143 a-AC-5（error-api）: 一覧の通知の状態が読み取れなければ、成功にせず AppError でない例外にする", async () => {
+    const notifications = fakeNotifications({
+      archiveStatesFor: vi.fn(async () => new Map()),
+    });
+    const service = createNotificationService(notifications, memberRoles, {
+      now: () => NOW,
+    });
+    const error = await service
+      .listWithArchiveStates(actor, { limit: 20 })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(AppError);
+  });
+
+  it("#143 a-AC-5: 状態が読めれば、各通知に reason・roomArchived を付けて返す", async () => {
+    const notifications = fakeNotifications({
+      archiveStatesFor: vi.fn(
+        async () =>
+          new Map([[NOTIFICATION_ID, { reason: "理由", roomArchived: true }]]),
+      ),
+    });
+    const service = createNotificationService(notifications, memberRoles, {
+      now: () => NOW,
+    });
+    const page = await service.listWithArchiveStates(actor, { limit: 20 });
+    expect(page.items).toEqual([
+      expect.objectContaining({
+        id: NOTIFICATION_ID,
+        reason: "理由",
+        roomArchived: true,
+      }),
+    ]);
+  });
+});

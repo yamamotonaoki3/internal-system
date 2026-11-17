@@ -4,7 +4,7 @@
 //  - GET  /api/me/notifications?cursor&limit → 200 { items: [{ id, kind, roomId, messageId, targetId, createdAt, readAt }], nextCursor }
 //      created_at 降順・id 降順。limit 既定 20（PAGE_LIMIT.default）、1〜100。範囲外・壊れた cursor は 422 VALIDATION_ERROR（fields に limit / cursor）。Cache-Control: no-store
 //  - GET  /api/me/notifications/unread-count → 200 { count }（100 で打ち切り）。no-store
-//  - POST /api/me/notifications/:notificationId/read → 204（本文なし）。既読済みも 204 で read_at は最初の時刻のまま。
+//  - POST /api/me/notifications/:notificationId/read → 200（その通知の最新の項目。#143 重大3 で 204 から変更）。既読済みも 200 で read_at は最初の時刻のまま。
 //      不存在・他人宛て・ULID でない ID は 404 NOT_FOUND（存在を漏らさない）で、何も変えない
 //  - POST /api/me/notifications/read-all → 204。本人の未読だけを既読にする
 //  - 共通：未認証 401 UNAUTHENTICATED、許可外の Origin の POST は 403 FORBIDDEN_ORIGIN（何も変わらない）
@@ -172,6 +172,8 @@ describe("#124 AC-1（3-4 AC-3・R-57）一覧：本人宛てだけが、新し�
         "kind",
         "messageId",
         "readAt",
+        "reason",
+        "roomArchived",
         "roomId",
         "targetId",
       ].sort(),
@@ -292,20 +294,25 @@ describe("#124 AC-1 未読数", () => {
     const ids = await insertNotifications(alice.userId, 105);
     expect(await unreadCount(alice)).toBe(100);
     const first = ids[0] ?? "";
-    expect((await post(`${BASE}/${first}/read`)).status).toBe(204);
+    expect((await post(`${BASE}/${first}/read`)).status).toBe(200);
     expect(await unreadCount(alice)).toBe(100);
     for (const id of ids.slice(1, 7))
-      expect((await post(`${BASE}/${id}/read`)).status).toBe(204);
+      expect((await post(`${BASE}/${id}/read`)).status).toBe(200);
     expect(await unreadCount(alice)).toBe(98);
   });
 });
 
 describe("#124 AC-1（R-57・3-4 AC-5）1 件を既読にする", () => {
-  it("#124 AC-1: 本人の未読は 204（本文なし）で既読になり、固定した時刻が read_at に入る。未読数が 1 減る", async () => {
+  // #143 重大3（コードレビュー1回目・統括の決定）：1件の既読の応答を 204 から、その通知の最新の項目（200）に変えた
+  it("#124 AC-1・#143 重大3: 本人の未読は 200 で既読になり、本文はその通知の項目（readAt 入り）。固定した時刻が read_at に入る。未読数が 1 減る", async () => {
     const [id] = await insertNotifications(alice.userId, 2);
     const res = await post(`${BASE}/${id}/read`);
-    expect(res.status).toBe(204);
-    expect(await res.text()).toBe("");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      id,
+      readAt: NOTIFICATION_NOW,
+      roomArchived: false,
+    });
     expect((await notificationRow(id ?? ""))?.read_at).toBe(NOTIFICATION_NOW);
     expect(await unreadCount(alice)).toBe(1);
   });
@@ -321,12 +328,12 @@ describe("#124 AC-1（R-57・3-4 AC-5）1 件を既読にする", () => {
     });
   });
 
-  it("#124 AC-1: 既読済みへの既読も 204 で、read_at は最初の時刻のまま", async () => {
+  it("#124 AC-1・#143 重大3: 既読済みへの既読も 200 で、read_at は最初の時刻のまま", async () => {
     const [id] = await insertNotifications(alice.userId, 1);
     await post(`${BASE}/${id}/read`);
     vi.setSystemTime(new Date("2026-11-11T00:10:00.000Z"));
     const again = await post(`${BASE}/${id}/read`);
-    expect(again.status).toBe(204);
+    expect(again.status).toBe(200);
     expect((await notificationRow(id ?? ""))?.read_at).toBe(NOTIFICATION_NOW);
   });
 
@@ -407,7 +414,7 @@ describe("#124 AC-1 API 仕様書（docs/api/openapi.json）", () => {
     const expected: Record<string, string[]> = {
       "/api/me/notifications": ["get:200,401,422"],
       "/api/me/notifications/unread-count": ["get:200,401"],
-      "/api/me/notifications/{notificationId}/read": ["post:204,401,403,404"],
+      "/api/me/notifications/{notificationId}/read": ["post:200,401,403,404"],
       "/api/me/notifications/read-all": ["post:204,401,403"],
     };
     const paths = spec.paths as unknown as Record<

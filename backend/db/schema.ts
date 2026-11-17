@@ -870,3 +870,40 @@ export const caseNumberSequences = sqliteTable(
     ),
   ],
 );
+
+// チャンネルのアーカイブの記録（#143）。アーカイブ1回ごとに1行。今アーカイブ中かは channels.deleted_at を正とする。
+// 通知の target_id がこの行を指すため、再アーカイブしても古い通知はその回の理由を引ける。復元では行を消さずに閉じる
+export const channelArchiveEvents = sqliteTable(
+  "channel_archive_events",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.roomId),
+    archivedBy: text("archived_by")
+      .notNull()
+      .references(() => users.id),
+    archivedAt: text("archived_at").notNull(),
+    reason: text("reason"),
+    restoredBy: text("restored_by").references(() => users.id),
+    restoredAt: text("restored_at"),
+  },
+  (t) => [
+    check(
+      "channel_archive_events_reason_check",
+      sql`${t.reason} is null or length(${t.reason}) between 1 and 500`,
+    ),
+    check(
+      "channel_archive_events_restored_check",
+      sql`(${t.restoredAt} is null) = (${t.restoredBy} is null)`,
+    ),
+    // 開いている（復元していない）記録は、チャンネルごとに1つだけ
+    uniqueIndex("channel_archive_events_open_unique")
+      .on(t.channelId)
+      .where(sql`${t.restoredAt} is null`),
+    index("channel_archive_events_channel_id_archived_at_idx").on(
+      t.channelId,
+      t.archivedAt,
+    ),
+  ],
+);

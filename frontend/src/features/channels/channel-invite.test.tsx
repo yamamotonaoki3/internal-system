@@ -57,6 +57,13 @@ function respondWorld(
         visibility: "private",
         departmentId: "01JTESTDEPT000000000000S01",
         isCaseChannel: false,
+        // #143：詳細の応答に version・manage（必須）が加わった
+        version: 1,
+        manage: {
+          canRename: false,
+          canEditDescription: false,
+          canArchive: false,
+        },
         joined,
         canPost: joined,
         readOnly: options.readOnly ?? false,
