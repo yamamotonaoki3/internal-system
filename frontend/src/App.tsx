@@ -4,13 +4,16 @@ import { Route, Routes } from "react-router";
 import { AppShell } from "./features/app-shell/AppShell";
 import { AuditLogsPage } from "./features/audit-logs";
 import { RequireAuth } from "./features/auth/components/RequireAuth";
+import { useSignedInUserId } from "./features/auth";
 import { useSession } from "./features/auth/hooks/useSession";
 import { ReauthProvider } from "./features/auth/ReauthProvider";
 import { HomePage } from "./pages/HomePage";
 import { AccountCreatePage } from "./pages/AccountCreatePage";
 import { AccountsPage } from "./pages/AccountsPage";
+import { ArchivePage } from "./pages/ArchivePage";
 import { ChannelApprovalsPage } from "./pages/ChannelApprovalsPage";
 import { ChannelDetailPage } from "./pages/ChannelDetailPage";
+import { ChannelManagePage } from "./pages/ChannelManagePage";
 import { CaseApprovalsPage } from "./pages/CaseApprovalsPage";
 import { CaseDetailPage } from "./pages/CaseDetailPage";
 import { CaseRequestPage } from "./pages/CaseRequestPage";
@@ -82,6 +85,25 @@ function AuditLogsRoute() {
   return <AuditLogsPage />;
 }
 
+// チャンネル管理（S-39）とアーカイブ（S-38）。全体管理者かいずれかの部署のオーナー（#143-b）。
+// セッション確認中は拒否せず待つ。表示の制御であり、認可はサーバーが毎回行う
+function ChannelAdminRoute({ page }: { page: "manage" | "archive" }) {
+  const session = useSession();
+  const userId = useSignedInUserId();
+  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isError) return null;
+  const required =
+    page === "manage" ? "perm.channel.edit" : "perm.channel.delete";
+  if (!session.data.permissions?.includes(required)) return <NotFoundPage />;
+  // 利用者が替わったら、ページの状態（ダイアログの対象・完了の通知・絞り込みの入力）ごと作り直す。ID が確かめられる前は描画しない
+  if (userId === undefined) return <p role="status">確認中です</p>;
+  return page === "manage" ? (
+    <ChannelManagePage key={userId} />
+  ) : (
+    <ArchivePage key={userId} />
+  );
+}
+
 function AccountManageRoute({ page }: { page: "list" | "create" }) {
   const session = useSession();
   if (session.isPending) return <p role="status">確認中です</p>;
@@ -116,6 +138,11 @@ export function App() {
           element={<AccountManageRoute page="create" />}
         />
         <Route path="/audit-logs" element={<AuditLogsRoute />} />
+        <Route
+          path="/channel-management"
+          element={<ChannelAdminRoute page="manage" />}
+        />
+        <Route path="/archive" element={<ChannelAdminRoute page="archive" />} />
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/channel-requests" element={<ChannelRequestPage />} />

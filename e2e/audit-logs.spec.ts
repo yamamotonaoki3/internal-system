@@ -56,10 +56,10 @@ test("#156 0-6 AC-1〜AC-6: 全体管理者がメニューから開き、操作�
   allowSessionCheck401(page);
   await login(page, ADMIN);
 
-  // ---- メニュー（管理＞マスタ・ログ＞監査ログ）から開く ----
+  // ---- メニュー（管理＞マスタ・記録＞監査ログ）から開く ----
   const menuLink = page.getByRole("link", { name: "監査ログ", exact: true });
   if (!(await menuLink.first().isVisible()))
-    await page.getByText("マスタ・ログ", { exact: true }).first().click();
+    await page.getByText("マスタ・記録", { exact: true }).first().click();
   await menuLink.first().click();
   await expect(page).toHaveURL(/\/audit-logs$/);
   await expect(

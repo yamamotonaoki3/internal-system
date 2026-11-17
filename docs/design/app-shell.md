@@ -27,7 +27,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | 案件のセクション | 作らない（#121の時点）。**Issue #147（147-A）で作った**（サイドバーの`CaseSidebarSection`。見出し「案件」の下に参加している進行中の案件の最初の1ページを出し、件名を押すとS-17へ移る。`SidebarNav.tsx`のDMのセクションの次の1か所で呼ぶ。読み込み中・エラー・0件はこの部品の中に出し、枠全体は壊さない。[cases.md](cases.md)） | — |
 | スレッド一覧 | 作らない（#121の時点）。**Issue #137で作った**（`primaryNavItems`に「スレッド」（`/threads`、S-35）を足した。権限の条件は付けない。サイドバーに未読の合計は出さない（#240で検討）。[threads.md](threads.md)） | — |
 | 自分専用の整理スペース | 作らない | #144 |
-| アーカイブの項目（全体管理者・担当部署のオーナーだけ） | 作らない | #151 または #143（どちらが担当かは未確定） |
+| アーカイブの項目（全体管理者・担当部署のオーナーだけ） | 作らない（#121の時点）。**Issue #143の143-bで作った**（サイドバーの下の方、管理メニューの外の独立した項目。`navigation.ts`の`archiveNavItem`を、`SidebarNav.tsx`が`AdminMenu`の下に、`perm.channel.delete`を持つときだけ出す。ドロワーにも同じ部品で出る。S-38を開く。[channels.md](channels.md)） | 案件のアーカイブの行は #151 |
 | ヘッダーの検索 | 作らない | #155 |
 | ヘッダーの通知 | 作らない（#121の時点）。**Issue #124で作った**（`NotificationBell`。押すとS-14へ直接移る。[notifications.md](notifications.md)） | — |
 | 下部メニューの「通知」 | 作らない（#121の時点）。**Issue #124で作った**（ホーム → 通知 → 自分）。**Issue #136で「DM」を足した**（ホーム → DM → 通知 → 自分） | — |
@@ -128,7 +128,8 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | 確定（実装した） | 4つのまとまり（承認・アカウント・部署・マスタ・記録）／まとまりごとに開閉できる／権限のある項目だけを出す／項目が0個のまとまりは見出しごと出さない／一般メンバーには「管理」自体を出さない |
 | 確定（Issue #131で実装した） | 「承認」のまとまりに「チャンネル承認」（`/channel-approvals`）を足した。`requires`は`perm.channel.request.approve.owner`で、全体管理者と、いずれかの部署のオーナーに出す（`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが申請ごとに行う）。`navigation.ts`の`adminNavGroups`の`approval`の`items`に1件足しただけで、`AdminMenu`の出し分けの仕組みは変えていない。設計は[channel-requests.md](channel-requests.md) |
 | 確定（Issue #146の146-Bで実装した） | 「承認」のまとまりに「案件承認」（`/case-approvals`）を足した。`requires`は`perm.case.request.approve`で、全体管理者と、いずれかの部署のオーナーに出す（チャンネル承認と同じ判定の結果。`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが申請ごとに行う）。`navigation.ts`の`adminNavGroups`の`approval`の`items`に1件足しただけで、`AdminMenu`の出し分けの仕組みは変えていない。権限のない人が`/case-approvals`を開くと「ページが見つかりません」。設計は[case-requests.md](case-requests.md) |
-| 確定（Issue #156で実装した） | 「マスタ・ログ」のまとまり（`navigation.ts`の`master-log`）に「監査ログ」（`/audit-logs`）を足した。`requires`は`perm.audit_log.view`で、全体管理者だけに出す（`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが毎回行う）。まとまりの名前は、コードのまま「マスタ・ログ」（`screens.md`の「マスタ・記録」との違いは、利用者に確認中）。設計は[audit-logs.md](audit-logs.md) |
+| 確定（Issue #156で実装した。名前は#143の143-bで「マスタ・記録」に直した） | 「マスタ・ログ」（#143の143-bで「マスタ・記録」に直した）のまとまり（`navigation.ts`の`master-log`）に「監査ログ」（`/audit-logs`）を足した。`requires`は`perm.audit_log.view`で、全体管理者だけに出す（`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが毎回行う）。まとまりの名前は、実装した時点ではコードのまま「マスタ・ログ」だった（`screens.md`の「マスタ・記録」との違いは、利用者に確認中）【**C-183（Issue #143の143-b）で「マスタ・記録」に決定し、コードの表示名を直した**。`id`は`master-log`のまま】。設計は[audit-logs.md](audit-logs.md) |
+| 確定（Issue #143の143-bで実装した） | 「部署」のまとまりに「チャンネル管理」（`/channel-management`。S-39。`requires`は`perm.channel.edit`で、全体管理者と、いずれかの部署のオーナーに出す。`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが毎回行う）を足した。`navigation.ts`の`adminNavGroups`の`department`の`items`に1件足しただけで、`AdminMenu`の出し分けの仕組みは変えていない。サイドバーの独立した「アーカイブ」（`archiveNavItem`。管理メニューの外）は上の表。権限のない人が`/channel-management`・`/archive`を直接開いたときは、`App.tsx`の`ChannelAdminRoute`が「ページが見つかりません」を出す（確認中は「確認中です」）。下部メニュー（スマートフォン）は変えていない。設計は[channels.md](channels.md) |
 | 確定（Issue #196で実装した） | 「部署」のまとまりに「部署管理」（`/departments`。`perm.workspace.create`がある人にだけ出す）を足した。メニューの項目はS-24（一覧）の1つで、S-08（作成）は一覧の「部署を作成」から開く（下の未決定「1項目にまとめるか」は、この実装を暫定として残す）。設計は[department-management.md](department-management.md) |
 | 確定（後続が実装） | 開閉状態を社員ごとに保存する（サイドバーのセクションの開閉と同じ仕組み）／各まとまりに入る項目（承認はS-11（Issue #131で実装済み）・S-29・S-37、アカウントはS-22・S-23・S-28、部署のS-13、マスタ・記録はS-36・S-25） |
 | 未決定（決まるまで推測で作らない） | S-24とS-08を管理メニュー内で1項目にまとめるか／アーカイブの位置の細部／第2段階の画面（S-30・S-31）の置き場／全体管理者が任命された部署の扱い／サイドバーのセクションの折りたたみの細部 |

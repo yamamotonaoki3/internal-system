@@ -51,7 +51,7 @@
 | `frontend/src/features/audit-logs/AuditLogFilters.tsx` | 絞り込みのフォーム（期間・操作の種類・結果）。期間の誤りと、422の`fields`を入力欄の近くに文字で出す |
 | `frontend/src/features/audit-logs/AuditLogsPage.tsx` | S-25。一覧（パソコンは表、狭い画面はカード形式）・「さらに読み込む」・エラー・0件。`useInfiniteQuery`を使う |
 | `frontend/src/App.tsx` | `/audit-logs`と`AuditLogsRoute`（`perm.audit_log.view`がなければ`NotFoundPage`。セッション確認中は待つ） |
-| `frontend/src/features/app-shell/navigation.ts` | 管理メニューの「マスタ・ログ」のまとまりに「監査ログ」を足した（`requires`は`perm.audit_log.view`。[app-shell.md](app-shell.md)） |
+| `frontend/src/features/app-shell/navigation.ts` | 管理メニューの「マスタ・ログ」のまとまりに「監査ログ」を足した（`requires`は`perm.audit_log.view`。[app-shell.md](app-shell.md)）【Issue #143の143-bで、まとまりの名前を「マスタ・記録」に直した（C-183）。`id`・項目は変えていない】 |
 | `frontend/src/features/auth/api/auth-api.ts` | セッションの`permissions`の型とzodの列挙値に`perm.audit_log.view`を足した（足さないと応答の検証で落ちる） |
 
 ## API（POST /api/admin/audit-logs/search。EP-0-19）

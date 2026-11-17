@@ -1,9 +1,14 @@
 // チャンネルの名前・説明の編集（#143。EP-2-36）。再認証はしない。読んだ版と一緒に送り、ほかの人の変更と重なればサーバーが 409 にする。
 // 画面の検査は shared/channel-name-rules.ts の規則（サーバーの検査は省略しない）。名前は canRename のときだけ出して送る。
 // 入力を変えている間は、離れる前の確認（leave-guard）を登録し、キャンセルでも確認する。
+// 「最新の内容を読み込む」の応答を待つ間は、入力欄と保存を無効にする（応答で入力が上書きされて失われないように。#290）。
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useRef, useState } from "react";
-import { useForm, type UseFormSetError } from "react-hook-form";
+import {
+  useForm,
+  type FieldError,
+  type UseFormSetError,
+} from "react-hook-form";
 import { z } from "zod";
 import {
   CHANNEL_NAME_TAKEN_MESSAGE,
@@ -29,6 +34,22 @@ const STALE_MESSAGE =
   "ほかの人が先に変更しました。最新の内容を読み込んでから、もう一度編集してください";
 
 type EditInput = { name: string; description: string };
+
+/** 欄のエラーの文：サーバーの文はそのまま、画面の検査は決まった文 */
+function fieldMessage(
+  error: FieldError | undefined,
+  fallback: string,
+): string | undefined {
+  if (error === undefined) return undefined;
+  return error.type === "server" ? error.message : fallback;
+}
+
+/** 「最新の内容を読み込む」で読む内容 */
+export type LatestChannel = {
+  name: string;
+  description: string;
+  version: number;
+};
 
 /** 名前を変えられないチャンネルでは、名前の欄を検査しない（送らない） */
 function editSchema(canRename: boolean) {
@@ -66,6 +87,7 @@ export function ChannelEditDialog({
   channel,
   onClose,
   onSaved,
+  loadLatest: loadLatestOverride,
 }: {
   channel: Pick<
     ChannelDetail,
@@ -73,15 +95,20 @@ export function ChannelEditDialog({
   >;
   onClose: () => void;
   onSaved: () => void;
+  /** 最新の内容の読み方。省略時はチャンネルの詳細（EP-2-06）。S-39 は管理者用の1件（EP-2-43）を渡す */
+  loadLatest?: () => Promise<LatestChannel>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const update = useUpdateChannel(channel.id);
-  const loadLatest = useLoadLatestChannel(channel.id);
+  const loadLatestDetail = useLoadLatestChannel(channel.id);
+  const loadLatest = loadLatestOverride ?? loadLatestDetail;
   // 送る版は、開いた時点（または「最新の内容を読み込む」の時点）のもの。背景の再取得で進んだ版で、古い入力を送らない
   const [baseVersion, setBaseVersion] = useState(channel.version);
   // 版の 409 の後は、最新の内容を読み込むまで保存しない
   const [stale, setStale] = useState(false);
   const [loading, setLoading] = useState(false);
+  // 読み込みが終わり、欄が有効に戻った後に、フォーカスを入力欄へ戻す（無効にした間にフォーカスが外れるため）
+  const focusAfterLoadRef = useRef(false);
   const leave = useLeaveConfirmation();
   const { canRename, canEditDescription } = channel.manage;
   const {
@@ -109,6 +136,13 @@ export function ChannelEditDialog({
   });
 
   const busy = isSubmitting || update.isPending;
+  const focusField = canRename ? "name" : "description";
+
+  useEffect(() => {
+    if (loading || !focusAfterLoadRef.current) return;
+    focusAfterLoadRef.current = false;
+    setFocus(focusField);
+  }, [loading, focusField, setFocus]);
 
   async function cancel() {
     if (busy) return;
@@ -127,6 +161,7 @@ export function ChannelEditDialog({
     } catch (error) {
       setError("root.server", { message: describeError(error) });
     } finally {
+      focusAfterLoadRef.current = true;
       setLoading(false);
     }
   }
@@ -174,28 +209,18 @@ export function ChannelEditDialog({
             label="名前"
             hint="1〜50文字。ひらがな・カタカナ・漢字・英数字と「-」「_」が使えます"
             autoComplete="off"
-            error={
-              errors.name?.type === "server"
-                ? errors.name.message
-                : errors.name
-                  ? NAME_ERROR
-                  : undefined
-            }
+            error={fieldMessage(errors.name, NAME_ERROR)}
             {...register("name")}
+            disabled={loading}
           />
         )}
         {canEditDescription && (
           <TextAreaField
             label="説明"
             hint="500文字以内"
-            error={
-              errors.description?.type === "server"
-                ? errors.description.message
-                : errors.description
-                  ? DESCRIPTION_ERROR
-                  : undefined
-            }
+            error={fieldMessage(errors.description, DESCRIPTION_ERROR)}
             {...register("description")}
+            disabled={loading}
           />
         )}
         {stale && (
@@ -216,7 +241,7 @@ export function ChannelEditDialog({
           </Alert>
         )}
         <div className="flex gap-2">
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" disabled={busy || loading}>
             保存
           </Button>
           <Button

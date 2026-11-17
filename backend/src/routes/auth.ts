@@ -26,6 +26,7 @@ import { canViewAuditLogs } from "../services/audit-log.service";
 import {
   canManageAccounts,
   canManageClients,
+  canManageAnyChannel,
   canManageAnyDepartment,
   canManageDepartments,
   canReviewChannelRequests,
@@ -183,6 +184,16 @@ export function authRoutes(
         principal.userId,
         traceIdOf(c),
       );
+      const canEditChannels = await canManageAnyChannel(
+        c.env,
+        principal.userId,
+        "perm.channel.edit",
+      );
+      const canDeleteChannels = await canManageAnyChannel(
+        c.env,
+        principal.userId,
+        "perm.channel.delete",
+      );
       return c.json({
         user: {
           id: principal.userId,
@@ -202,6 +213,9 @@ export function authRoutes(
           ...(canReview ? ["perm.case.request.approve"] : []),
           // 監査ログの閲覧（#156：全体管理者だけ。管理メニュー・画面の表示用）
           ...(canViewAudit ? ["perm.audit_log.view"] : []),
+          // チャンネル管理（S-39）とアーカイブ（S-38）の入口（#143-b：全体管理者か、いずれかの部署のオーナー。表示用）
+          ...(canEditChannels ? ["perm.channel.edit"] : []),
+          ...(canDeleteChannels ? ["perm.channel.delete"] : []),
         ],
       });
     });

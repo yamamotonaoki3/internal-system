@@ -15,6 +15,11 @@
 //     409 は「この項目はすでに処理されています」を role=alert に出し、詳細を取り直す。閉じたらフォーカスを「⋯」に戻す。
 //   復元のダイアログ：features/channels の index.ts から ChannelRestoreDialog を公開する。props { channelId, channelName, version, onClose, onRestored? }。
 //     role=dialog（名前に「復元」を含む）、「復元」→ 再認証 → POST /api/channels/:id/restore { version }。409 は文を role=alert に出す。
+// #143-b で足した確認（計画 #143-b 8.2 の F9・F10・F11）：
+//   F9（#290）：「最新の内容を読み込む」の応答を待つ間は、名前・説明の欄と「保存」を無効にし、入力を失わない。応答の後は最新の内容を入れて有効に戻す。
+//     失敗したら入力は保ったまま有効に戻す（失敗の場合は pages/ChannelManagePage.test.tsx で確かめる。S-05 では詳細の API の失敗で画面そのものがエラーになるため）。
+//   F10（C-181 (9) の見直し）：アーカイブ・復元の成功で、channels に加えて unread・threads・notifications のキーも取り直す。名前・説明の変更では取り直さない。
+//   F11：S-05 の「⋯」（onSelect を渡さない既存の呼び出し）は、編集の読み直しに詳細の API を使い、管理者用の1件の API を呼ばない。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   fireEvent,
@@ -26,7 +31,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelsPage } from "./pages/ChannelsPage";
 import { SHELL_USER, respondShellUser } from "./test/app-shell-harness";
 import { TEST_PASSWORD } from "./test/auth-handlers";
@@ -717,5 +722,227 @@ describe("#143 a-AC-3 復元のダイアログ（S-39・S-38 が使う共通の�
     await user.click(within(dialog).getByRole("button", { name: "復元" }));
     await reauthenticate(user);
     expect((await screen.findByRole("alert")).textContent).toContain(ALREADY);
+  });
+});
+
+/** 詳細（GET /api/channels/:id）の応答の本文（respondWorld と同じ形） */
+function detailBody(fields: {
+  name: string;
+  description: string;
+  version: number;
+}) {
+  return {
+    id: ID,
+    roomId: ID,
+    name: fields.name,
+    description: fields.description,
+    visibility: "public",
+    departmentId: "01JTESTDEPT000000000000S01",
+    isCaseChannel: false,
+    joined: true,
+    canPost: true,
+    readOnly: false,
+    memberCount: 1,
+    members: [{ id: SHELL_USER.id, displayName: SHELL_USER.displayName }],
+    version: fields.version,
+    manage: ALL,
+  };
+}
+
+const versionConflict = () =>
+  HttpResponse.json(
+    {
+      code: "CONFLICT",
+      message: "ほかの人が先に変更しました。読み込み直してください",
+    },
+    { status: 409 },
+  );
+
+/** 版の 409 を起こして「最新の内容を読み込む」を出したダイアログを返す（説明に「追記」を足した状態） */
+async function staleDialog(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await openEdit(user);
+  await user.type(within(dialog).getByLabelText(/説明/), "追記");
+  await user.click(within(dialog).getByRole("button", { name: "保存" }));
+  await within(dialog).findByRole("button", { name: "最新の内容を読み込む" });
+  return dialog;
+}
+
+describe("#290（#143-b b-AC-4・F9）「最新の内容を読み込む」の応答を待つ間の入力", () => {
+  it("#290 AC-1（#143-b b-AC-4）: 応答を保留している間は、名前・説明の欄と「保存」が無効で、入力しても値が変わらない。応答の後は最新の内容が入り、有効に戻り、保存は新しい版で送る", async () => {
+    let patchCount = 0;
+    const world: World = respondWorld({
+      patch: () => {
+        patchCount += 1;
+        if (patchCount === 1) return versionConflict();
+        return HttpResponse.json({
+          id: ID,
+          name: "E2E_TEST_最新の名前",
+          description: "自分の説明",
+          version: 8,
+          updatedAt: "2026-11-17T00:00:00.000Z",
+        });
+      },
+    });
+    const { user } = renderDetail();
+    const dialog = await staleDialog(user);
+    let releaseLatest: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseLatest = resolve;
+    });
+    server.use(
+      http.get("/api/channels/:channelId", async () => {
+        await gate;
+        return HttpResponse.json(
+          detailBody({
+            name: "E2E_TEST_最新の名前",
+            description: "最新の説明",
+            version: 7,
+          }),
+        );
+      }),
+    );
+    const name = within(dialog).getByLabelText(/名前/) as HTMLInputElement;
+    const description = within(dialog).getByLabelText(
+      /説明/,
+    ) as HTMLTextAreaElement;
+    const save = within(dialog).getByRole("button", { name: "保存" });
+    await user.click(
+      within(dialog).getByRole("button", { name: "最新の内容を読み込む" }),
+    );
+    await waitFor(() => expect(description.disabled).toBe(true));
+    expect(name.disabled).toBe(true);
+    expect(save).toHaveProperty("disabled", true);
+    await user.type(description, "失われる入力");
+    expect(description.value).toBe("[E2E_TEST]説明追記");
+    releaseLatest();
+    await waitFor(() => expect(description.value).toBe("最新の説明"));
+    expect(name.value).toBe("E2E_TEST_最新の名前");
+    await waitFor(() => expect(description.disabled).toBe(false));
+    expect(name.disabled).toBe(false);
+    expect(save).toHaveProperty("disabled", false);
+    await user.clear(description);
+    await user.type(description, "自分の説明");
+    await user.click(save);
+    await waitFor(() => expect(world.patches).toHaveLength(2));
+    expect(world.patches[1]).toMatchObject({
+      version: 7,
+      description: "自分の説明",
+    });
+  });
+});
+
+describe("#143-b b-AC-5（F10。C-181 (9) の見直し）成功の後に取り直すキー", () => {
+  /** invalidateQueries に渡されたキーの先頭の部分 */
+  function invalidatedRoots(calls: readonly unknown[][]) {
+    return new Set(
+      calls.map(
+        (call) =>
+          ((call[0] as { queryKey?: readonly unknown[] } | undefined)
+            ?.queryKey ?? [])[0],
+      ),
+    );
+  }
+
+  it("#143-b b-AC-5（F10）: アーカイブの成功で、channels に加えて unread・threads・notifications を取り直す", async () => {
+    respondWorld();
+    const { user, client } = renderDetail();
+    const spy = vi.spyOn(client, "invalidateQueries");
+    const dialog = await openArchive(user);
+    // S-05 を開いたときの既読の送信も unread を取り直すため、操作を始めた後の呼び出しだけを数える
+    const start = spy.mock.calls.length;
+    await user.click(
+      within(dialog).getByRole("button", { name: "アーカイブ" }),
+    );
+    await reauthenticate(user);
+    await waitFor(() => expect(currentPath()).toBe("/channels"));
+    const roots = invalidatedRoots(spy.mock.calls.slice(start));
+    for (const root of ["channels", "unread", "threads", "notifications"])
+      expect(roots.has(root), root).toBe(true);
+  });
+
+  it("#143-b b-AC-5（F10）: 名前・説明の変更の成功では、channels だけを取り直し、unread・threads・notifications は取り直さない", async () => {
+    const world = respondWorld();
+    const { user, client } = renderDetail();
+    const spy = vi.spyOn(client, "invalidateQueries");
+    const dialog = await openEdit(user);
+    await user.type(within(dialog).getByLabelText(/説明/), "追記");
+    const start = spy.mock.calls.length;
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(world.patches).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /編集/ })).toBeNull(),
+    );
+    const roots = invalidatedRoots(spy.mock.calls.slice(start));
+    expect(roots.has("channels")).toBe(true);
+    for (const root of ["unread", "threads", "notifications"])
+      expect(roots.has(root), root).toBe(false);
+  });
+
+  it("#143-b b-AC-5（F10）: 復元の成功で、channels に加えて unread・threads・notifications を取り直す", async () => {
+    const world = respondWorld();
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const spy = vi.spyOn(client, "invalidateQueries");
+    const user = userEvent.setup();
+    const restored: string[] = [];
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <ReauthProvider>
+            <ChannelRestoreDialog
+              channelId={ID}
+              channelName={NAME}
+              version={4}
+              onClose={() => undefined}
+              onRestored={() => restored.push("restored")}
+            />
+          </ReauthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const dialog = await screen.findByRole("dialog", { name: /復元/ });
+    await user.click(within(dialog).getByRole("button", { name: "復元" }));
+    await reauthenticate(user);
+    await waitFor(() => expect(world.restores).toHaveLength(1));
+    await waitFor(() => expect(restored).toEqual(["restored"]));
+    const roots = invalidatedRoots(spy.mock.calls);
+    for (const root of ["channels", "unread", "threads", "notifications"])
+      expect(roots.has(root), root).toBe(true);
+  });
+});
+
+describe("#143-b F11 S-05 の「⋯」の動きが変わらない（回帰）", () => {
+  it("#143-b F11: S-05 の編集の「最新の内容を読み込む」は詳細の API を使い、管理者用の1件の API（/api/admin/channels/:id）を呼ばない。復元の項目は出ない", async () => {
+    let adminCalls = 0;
+    server.use(
+      http.get("/api/admin/channels/:channelId", () => {
+        adminCalls += 1;
+        return HttpResponse.json(
+          { code: "FORBIDDEN", message: "この操作を行う権限がありません" },
+          { status: 403 },
+        );
+      }),
+    );
+    const world = respondWorld({ patch: versionConflict });
+    const { user } = renderDetail();
+    const menu = await openMenu(user);
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent?.trim()),
+    ).not.toContain("復元");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    const dialog = await staleDialog(user);
+    const before = world.detailRequests;
+    await user.click(
+      within(dialog).getByRole("button", { name: "最新の内容を読み込む" }),
+    );
+    await waitFor(() => expect(world.detailRequests).toBeGreaterThan(before));
+    expect(adminCalls).toBe(0);
   });
 });

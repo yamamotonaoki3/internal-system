@@ -57,6 +57,18 @@ SELECT
   '01JTE2E0000000000000002196', password_hash, 0, 1
 FROM users WHERE login_id = 'e2euser_login_001';
 
+-- #143-b：誰もオーナーにしない一般社員（departments.spec.ts の1件目がオーナー交代で e2euser_dept_member をオーナーにするため、一般社員の確認はこの人で行う）
+INSERT INTO users (
+  id, login_id, login_id_normalized, display_name, legal_name,
+  email, email_normalized, department_id, password_hash, must_change_password, is_active
+)
+SELECT
+  '01JTE2E0000000000000008196', 'e2euser_dept_general', 'e2euser_dept_general',
+  'E2E部署一般', 'テスト本名部署一般',
+  'e2euser_dept_general@example.com', 'e2euser_dept_general@example.com',
+  '01JTE2E0000000000000002196', password_hash, 0, 1
+FROM users WHERE login_id = 'e2euser_login_001';
+
 INSERT INTO user_role_assignments (id, user_id, role_id, scope_type, department_id, assigned_at) VALUES
   ('01JTE2E0000000000000001196', '01JTE2E0000000000000000196', 'role_global_admin', 'company', NULL, '2026-11-09T00:00:00.000Z'),
   ('01JTE2E0000000000000007196', '01JTE2E0000000000000005196', 'role_owner', 'department', '01JTE2E0000000000000002196', '2026-11-09T00:00:00.000Z');

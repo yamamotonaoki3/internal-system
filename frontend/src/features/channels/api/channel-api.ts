@@ -170,3 +170,102 @@ export async function restoreChannel(
   );
   return restoredSchema.parse(response.data);
 }
+
+// #143-b：S-39（チャンネル管理）と S-38（アーカイブ）。管理者用の読み取り（EP-2-42・EP-2-43・EP-2-40）
+const adminDepartmentSchema = z
+  .object({ id: z.string().min(1), name: z.string(), isActive: z.boolean() })
+  .nullable();
+const personSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string(),
+});
+
+const adminChannelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  description: z.string(),
+  purpose: z.enum(["normal", "department", "announcement", "company_general"]),
+  visibility: z.enum(["public", "private"]),
+  department: adminDepartmentSchema,
+  state: z.enum(["active", "archived"]),
+  version: z.number().int(),
+  memberCount: z.number().int(),
+  archive: z
+    .object({
+      archivedBy: personSchema,
+      archivedAt: z.string(),
+      reason: z.string().nullable(),
+    })
+    .nullable(),
+  manage: z.object({
+    canRename: z.boolean(),
+    canEditDescription: z.boolean(),
+    canArchive: z.boolean(),
+    canRestore: z.boolean(),
+  }),
+});
+const adminChannelPageSchema = z.object({
+  items: z.array(adminChannelSchema),
+  nextCursor: z.string().nullable(),
+});
+
+const archivedChannelSchema = z.object({
+  type: z.literal("channel"),
+  id: z.string().min(1),
+  name: z.string(),
+  caseNumber: z.null(),
+  deletedBy: personSchema,
+  deletedAt: z.string(),
+  reason: z.string().nullable(),
+  version: z.number().int(),
+  department: adminDepartmentSchema,
+  canRestore: z.boolean(),
+});
+const archivedChannelPageSchema = z.object({
+  items: z.array(archivedChannelSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export type AdminChannel = z.infer<typeof adminChannelSchema>;
+export type AdminChannelPage = z.infer<typeof adminChannelPageSchema>;
+export type ArchivedChannel = z.infer<typeof archivedChannelSchema>;
+export type ArchivedChannelPage = z.infer<typeof archivedChannelPageSchema>;
+
+export type AdminChannelState = "all" | "active" | "archived";
+
+export type AdminChannelFilter = {
+  /** 名前の部分一致。空なら絞り込まない */
+  q?: string;
+  state: AdminChannelState;
+};
+
+/** S-39 の一覧（EP-2-42） */
+export async function fetchAdminChannels(
+  filter: AdminChannelFilter,
+  cursor?: string,
+): Promise<AdminChannelPage> {
+  const response = await apiClient.get("/admin/channels", {
+    params: { q: filter.q || undefined, state: filter.state, cursor },
+  });
+  return adminChannelPageSchema.parse(response.data);
+}
+
+/** S-39 の1件（EP-2-43。編集の「最新の内容を読み込む」。参加していない非公開も読める） */
+export async function fetchAdminChannel(
+  channelId: string,
+): Promise<AdminChannel> {
+  const response = await apiClient.get(
+    `/admin/channels/${encodeURIComponent(channelId)}`,
+  );
+  return adminChannelSchema.parse(response.data);
+}
+
+/** S-38 のアーカイブしたチャンネル（EP-2-40） */
+export async function fetchArchivedChannels(
+  cursor?: string,
+): Promise<ArchivedChannelPage> {
+  const response = await apiClient.get("/admin/deleted-items", {
+    params: { type: "channel", cursor },
+  });
+  return archivedChannelPageSchema.parse(response.data);
+}

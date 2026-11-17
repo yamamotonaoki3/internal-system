@@ -1,27 +1,58 @@
 // チャンネルの「⋯」メニュー（#143。C-131。S-05 のヘッダー、のちに S-39 の行でも使う）。
 // 出せる操作（manage）だけを項目にする。表示の制御だけで、管理してよいかはサーバーが毎回判定する。
 // キーボード：ボタンの Enter・Space で開き、↑↓で項目を移り、Esc で閉じてフォーカスをボタンに戻す。ダイアログを閉じたときもボタンに戻す。
+// S-39（#143-b）は onSelect を渡し、アーカイブ・復元のダイアログをページに持たせる（一覧の取り直しで行が消えても、完了の表示が出るように）。
+// onSelect がなければ（S-05）、これまでどおりメニューの中でダイアログを開く。
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import type { ChannelDetail } from "../api/channel-api";
 import { ChannelArchiveDialog } from "./ChannelArchiveDialog";
-import { ChannelEditDialog } from "./ChannelEditDialog";
+import { ChannelEditDialog, type LatestChannel } from "./ChannelEditDialog";
+import { ChannelRestoreDialog } from "./ChannelRestoreDialog";
 
-type OpenDialog = "edit" | "archive" | null;
+type OpenDialog = "edit" | "archive" | "restore" | null;
+
+/** ページへ知らせる操作（ダイアログをページが開く） */
+export type ChannelManageAction = "archive" | "restore";
 
 type MenuItem = { key: Exclude<OpenDialog, null>; label: string };
 
-export function ChannelManageMenu({
-  channel,
-  onArchived,
-}: {
-  channel: Pick<
-    ChannelDetail,
-    "id" | "name" | "description" | "version" | "manage"
-  >;
-  onArchived: () => void;
-}) {
+type ChannelManageMenuProps = {
+  channel: Pick<ChannelDetail, "id" | "name" | "description" | "version"> & {
+    manage: ChannelDetail["manage"] & { canRestore?: boolean };
+  };
+  /** 編集の「最新の内容を読み込む」の読み方（省略時はチャンネルの詳細） */
+  loadLatest?: () => Promise<LatestChannel>;
+} & (
+  | {
+      /** アーカイブ・復元のダイアログを開かず、選んだ操作をページへ知らせる */
+      onSelect: (action: ChannelManageAction) => void;
+      onArchived?: never;
+      onRestored?: never;
+    }
+  | { onSelect?: never; onArchived: () => void; onRestored?: () => void }
+);
+
+/** 出せる操作（manage）だけを項目にする */
+function menuItems(
+  manage: ChannelManageMenuProps["channel"]["manage"],
+): MenuItem[] {
+  return [
+    ...(manage.canRename || manage.canEditDescription
+      ? [{ key: "edit" as const, label: "名前・説明を編集" }]
+      : []),
+    ...(manage.canArchive
+      ? [{ key: "archive" as const, label: "アーカイブ" }]
+      : []),
+    ...(manage.canRestore === true
+      ? [{ key: "restore" as const, label: "復元" }]
+      : []),
+  ];
+}
+
+export function ChannelManageMenu(props: ChannelManageMenuProps) {
+  const { channel, loadLatest, onSelect } = props;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const menuId = useId();
@@ -31,13 +62,7 @@ export function ChannelManageMenu({
   // メニュー・ダイアログを閉じた後に、フォーカスを「⋯」へ戻す（閉じた後の描画で戻す）
   const returnFocusRef = useRef(false);
 
-  const { canRename, canEditDescription, canArchive } = channel.manage;
-  const items: MenuItem[] = [
-    ...(canRename || canEditDescription
-      ? [{ key: "edit" as const, label: "名前・説明を編集" }]
-      : []),
-    ...(canArchive ? [{ key: "archive" as const, label: "アーカイブ" }] : []),
-  ];
+  const items = menuItems(channel.manage);
 
   useEffect(() => {
     if (menuOpen)
@@ -108,6 +133,10 @@ export function ChannelManageMenu({
                 onClick={() => {
                   setMenuOpen(false);
                   setSaved(false);
+                  if (item.key !== "edit" && onSelect !== undefined) {
+                    onSelect(item.key);
+                    return;
+                  }
                   setDialog(item.key);
                 }}
               >
@@ -125,6 +154,7 @@ export function ChannelManageMenu({
       {dialog === "edit" && (
         <ChannelEditDialog
           channel={channel}
+          {...(loadLatest === undefined ? {} : { loadLatest })}
           onClose={closeDialog}
           onSaved={() => {
             setSaved(true);
@@ -132,13 +162,24 @@ export function ChannelManageMenu({
           }}
         />
       )}
-      {dialog === "archive" && (
+      {dialog === "archive" && props.onSelect === undefined && (
         <ChannelArchiveDialog
           channelId={channel.id}
           channelName={channel.name}
           version={channel.version}
           onClose={closeDialog}
-          onArchived={onArchived}
+          onArchived={props.onArchived}
+        />
+      )}
+      {dialog === "restore" && props.onSelect === undefined && (
+        <ChannelRestoreDialog
+          channelId={channel.id}
+          channelName={channel.name}
+          version={channel.version}
+          onClose={closeDialog}
+          {...(props.onRestored === undefined
+            ? {}
+            : { onRestored: props.onRestored })}
         />
       )}
     </div>
