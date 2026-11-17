@@ -12,7 +12,7 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | --- | --- |
 | 146-Aで作ったもの | 表3つ（`case_creation_requests`・`case_creation_request_departments`・`case_creation_request_candidates`。migration 0024）／申請・自分の申請・取り下げ・類似件名の確認のAPI4つ／件名・説明・納期の規則の定義元`shared/case-rules.ts`／通知の種類`case_request.submitted`／監査操作2つ／S-18（申請フォームと自分の申請）／メニュー「案件の申請」／説明欄の下書き／申請者の無効化・部署異動による自動取消（`account.repository.ts`） |
 | 146-Bで作ったもの | 表3つ（`cases`・`case_departments`・`case_number_sequences`。migration 0026）／審査一覧・承認・却下のAPI3つ（EP-5-03〜05）／審査者の判定（`canDecideCaseRequest`・`isCaseRequestReviewable`）／案件番号の採番と案件専用チャンネル・参加者の自動参加（承認の1回の`db.batch`）／通知の種類`case_request.approved`・`case_request.rejected`／監査操作2つ／S-29（案件承認）とメニュー「承認＞案件承認」／自分の申請（S-18）の承認済みの行に案件番号／類似件名の比較に案件を足したこと／チャンネル一覧から案件専用チャンネルを除いたこと／セッションの権限`perm.case.request.approve` |
-| 作らないもの | 申請の編集（取り下げて再申請する）、取り下げ・自動取消の通知、レート制限（X-8が未決定のため）、S-18の「キャンセル → 元の画面」・自動で参加する旨の案内・離れる前の確認（S-16がまだない、文言が未決定、#245）、案件の一覧・詳細（#147）、担当部署の付け替えの通知（#154）、案件の終了・再開・再編集（#150）、案件専用チャンネルでのやり取りと招待の409（#148・#135）、オーナー交代・全体管理者の任命による既存の案件への自動参加（C-133(4)・C-134(3)。#147か役割のIssue）、案件番号の検索（#155）、却下の理由のダイアログのチャンネル申請との共通化（後のIssue） |
+| 作らないもの | 申請の編集（取り下げて再申請する）、取り下げ・自動取消の通知、レート制限（X-8が未決定のため）、S-18の「キャンセル → 元の画面」・自動で参加する旨の案内・離れる前の確認（文言が未決定、#245。S-16は#147の147-Aでできた）、案件の一覧・詳細（#147。147-Aで一覧・概要・詳細の骨格を作った。[cases.md](cases.md)）、担当部署の付け替えの通知（#154）、案件の終了・再開・再編集（#150）、案件専用チャンネルでのやり取りと招待の409（#148・#135）、オーナー交代・全体管理者の任命による既存の案件への自動参加（C-133(4)・C-134(3)。#147か役割のIssue）、案件番号の検索（#155）、却下の理由のダイアログのチャンネル申請との共通化（後のIssue） |
 | 本Issueで確定した決定 | [C-178](../requirements/decision-register.md)（146-Aの分と、146-Bに引き継いだ決定）、[C-179](../requirements/decision-register.md)（146-Bで確定した決定） |
 
 ## ファイルと役割
@@ -69,8 +69,8 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | `frontend/src/pages/CaseRequestPage.tsx` | S-18の構成だけ。APIや状態は持たない |
 | `frontend/src/pages/CaseApprovalsPage.tsx`（146-B） | S-29の構成だけ（見出し「案件作成の承認」と`CaseRequestReviewList`）。APIや状態は持たない |
 | `frontend/src/App.tsx` | レイアウトルートの子に`/case-requests`を足した。146-Bで`/case-approvals`を足した（`CaseApprovalsRoute`。セッションに`perm.case.request.approve`がなければ「ページが見つかりません」。セッション確認中は拒否せず待つ。表示の制御で、認可はサーバーが申請ごとに行う） |
-| `frontend/src/features/app-shell/navigation.ts` | メニューに「案件の申請」を全員に出す項目として足した。146-Bで、管理のメニューの「承認」の下に「案件承認」（`/case-approvals`。`perm.case.request.approve`がある人だけ）を足した（[app-shell.md](app-shell.md)） |
-| `frontend/src/features/notifications/notification-views.ts` | `case_request.submitted`の文言と移動先を足した。146-Bで、`submitted`の移動先を`/case-approvals`に変え、`approved`・`rejected`の文言と移動先（どちらも`/case-requests`）を足した |
+| `frontend/src/features/app-shell/navigation.ts` | メニューに「案件の申請」を全員に出す項目として足した（#147で、案件一覧（S-16）の「案件」に置き換えた。申請は S-16 の「案件の作成を申請」から開く）。146-Bで、管理のメニューの「承認」の下に「案件承認」（`/case-approvals`。`perm.case.request.approve`がある人だけ）を足した（[app-shell.md](app-shell.md)） |
+| `frontend/src/features/notifications/notification-views.ts` | `case_request.submitted`の文言と移動先を足した。146-Bで、`submitted`の移動先を`/case-approvals`に変え、`approved`・`rejected`の文言と移動先（どちらも`/case-requests`）を足した。#147で、`approved`の移動先を案件一覧（`/cases`）に変えた（C-179(3)の約束） |
 | `frontend/src/features/drafts/draft-policy.ts`・`index.ts` | 下書きの`scope`として`caseRequestDraftScope`を足して公開した（[drafts.md](drafts.md)） |
 | `frontend/src/features/auth/api/auth-api.ts`（146-B） | セッションの権限の列挙に`perm.case.request.approve`を足した |
 
@@ -187,9 +187,9 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | --- | --- | --- |
 | S-18 案件の作成の申請（`/case-requests`） | `pages/CaseRequestPage.tsx`、`features/case-requests/components/CaseRequestForm.tsx`・`CandidatePicker.tsx` | 取引先（`/api/clients/candidates`）、件名（欄の近くに注意書き「件名は参加していない人にも見える場合があります。機密情報を書かないでください」）、説明、納期（日付の入力。下限は日本時間の今日）、担当部署（`/api/users/departments`。**checkboxのグループ**で1つ以上）、追加の候補（社員の検索から選ぶ）。欄の名前は「件名」。件名と取引先が入り、入力が止まって400ミリ秒たったら類似件名を確かめ、「似た案件があります」を出す（送信は止めない）。送信の後、`titleFormatted`が真なら「表記を整えて保存しました」を出す。所属がなく全体管理者でもない社員には「所属部署がないため申請できません」を出し、送信させない（サーバーも403。全体管理者かの判定はセッションの権限を使う表示の制御）。422の`fields`は該当の欄に、409・403は欄の外に出す。送信中は押せない |
 | 自分の申請 | `MyCaseRequestList.tsx`・`WithdrawDialog.tsx` | 状態（承認待ち・承認済み・却下・取り下げ済み・自動取消）・件名・取引先名（無効なら「（無効）」）・担当部署・納期・却下理由（文字列として出す。HTMLを解釈しない）。承認待ちの行に「取り下げ」（確認のダイアログを経る）。却下・取り下げ済み・自動取消の行に「修正して再申請」（フォームに元の値を入れ、`resubmitOf`を付ける。納期が過去なら欄にエラーを出す）。続きの読み込みは「**次のページ**」のボタン（既存の一覧と同じ）。読み込み中・エラー・0件・ありの4状態 |
-| 入口 | `App.tsx`、`features/app-shell/navigation.ts` | メニュー「案件の申請」（全員に出す。案件一覧のS-16が#147でできるまでの仮の入口） |
+| 入口 | `App.tsx`、`features/app-shell/navigation.ts` | メニュー「案件の申請」（全員に出す。案件一覧のS-16ができるまでの仮の入口だった）。**#147（147-A）で、メニューを「案件」（`/cases`。S-16）に置き換えた**。S-18 へは S-16 の「案件の作成を申請」から行く（[cases.md](cases.md)） |
 | S-29 案件作成の承認（`/case-approvals`。146-B） | `pages/CaseApprovalsPage.tsx`、`features/case-requests/components/CaseRequestReviewList.tsx`・`RejectReasonDialog.tsx` | 状態の絞り込み（承認待ち・承認済み・却下・取り下げ・自動取消。初期は承認待ち）。行は件名・状態・「似た案件があります」・取引先（無効なら「（無効）」）・担当部署・納期・申請者・候補・却下の理由（文字列として出す）。`canApprove`が真の行だけに「承認」「却下」を出す。承認は確認のダイアログで、追加の候補を足せる（申請の画面と同じ`CandidatePicker`。足す候補は申請の候補と重なってよく、重複は入れない）。却下は理由（前後の空白を除いて1〜200文字）のダイアログ。どちらも再認証を経ない（`useReauth`を使わない）。成功しても失敗しても確認を閉じ、失敗（409・403・422等）の文言を一覧の上に出して一覧を取り直す（409はサーバーの文言のまま）。続きは「次のページ」のボタン。読み込み中・エラー・0件・ありの4状態。メニューは「承認＞案件承認」（`perm.case.request.approve`がある人だけ）で、権限のない人が`/case-approvals`を開くと「ページが見つかりません」 |
-| 通知 | `features/notifications/notification-views.ts` | `case_request.submitted`の文言は「案件の作成の申請が届きました」。146-Bで足した`case_request.approved`は「案件の作成の申請が承認されました」、`case_request.rejected`は「案件の作成の申請が却下されました」で、移動先はどちらも自分の申請（`/case-requests`。案件の画面S-16ができたら、承認のほうを案件の画面に変える）。146-Bで、移動先を`/case-approvals`（S-29）に変えた |
+| 通知 | `features/notifications/notification-views.ts` | `case_request.submitted`の文言は「案件の作成の申請が届きました」。146-Bで足した`case_request.approved`は「案件の作成の申請が承認されました」、`case_request.rejected`は「案件の作成の申請が却下されました」で、移動先はどちらも自分の申請（`/case-requests`）だった。**#147で、承認のほうを案件の画面（`/cases`）に変えた**。146-Bで、移動先を`/case-approvals`（S-29）に変えた |
 
 - 取り直し（invalidate）：申請・取り下げの後は`caseRequestKeys.all`
 - 申請の画面は、説明欄だけ下書きを端末に保存する（screens S-18「下書き」・C-120・1-1 AC-4）。`features/drafts`の公開の入口から`useDraft(userId, caseRequestDraftScope())`を使い、マウントで復元し、入力のたびに保存する。**件名・取引先・担当部署・候補・納期は保存しない**（C-82・C-117）。送信が成功したら`discard`で消し、失敗したら残す。保存先が使えないとき（`unavailable`）も入力と送信はできる。再申請でフォームに値を入れたときは、元の申請の説明を入れ、それも下書きとして保存する。scopeは`caseRequestDraftScope`（`draft-policy.ts`）が決め、部屋・スレッドのscopeと重ならない
@@ -310,7 +310,7 @@ Serviceの`loadDecidable`と`approve`・`reject`が、この順に行う。決�
 
 ### 案件専用チャンネル
 
-承認のbatchの8で作る。一覧に出さない（`channel.repository.ts`の`list`が`purpose = 'case'`を除く）ため、参加者にもチャンネル一覧に出ない。名前（案件番号）は通常のチャンネルと衝突しない（`name_normalized`が`case:`で始まる）。参加者の追加・案件の画面・招待の409は#147・#148・#135。
+承認のbatchの8で作る。一覧に出さない（`channel.repository.ts`の`list`が`purpose = 'case'`を除く）ため、参加者にもチャンネル一覧に出ない。名前（案件番号）は通常のチャンネルと衝突しない（`name_normalized`が`case:`で始まる）。参加者の追加は#147の147-B、案件の画面（S-16・S-17の骨格）は#147の147-Aで作った（[cases.md](cases.md)）。やり取りは#148、招待の409は#135。
 
 ## 既知の差・未実施・未決定として記録するもの
 
@@ -321,8 +321,8 @@ Serviceの`loadDecidable`と`approve`・`reject`が、この順に行う。決�
 | 自動取消の申請者への通知 | 作らない（後の Issue） |
 | 担当部署の付け替えの通知（5-3 AC-9の C-143(3)） | #154 |
 | 本番のD1へのmigration 0024・0026の適用 | 未実施（利用者の承認が別途必要） |
-| 案件の終了・再開・再編集、案件専用チャンネルでのやり取り、オーナー交代・全体管理者の任命による既存の案件への自動参加 | #150・#148・#147か役割のIssue（上の「作らないもの」） |
-| 案件の画面（S-16）ができたときの通知の移動先 | 承認の通知（`case_request.approved`）の移動先を、案件の画面に変える（いまは自分の申請） |
+| 案件の終了・再開・再編集、案件専用チャンネルでのやり取り、オーナー交代・全体管理者の任命による既存の案件への自動参加 | #150・#148・#147（オーナー交代による自動参加と既存の案件の補完は147-C-2）か役割のIssue（上の「作らないもの」） |
+| 案件の画面（S-16）ができたときの通知の移動先 | **#147（147-A）で実施した**。承認の通知（`case_request.approved`）の移動先を`/cases`に変えた。自分の申請の承認済みの行の案件番号は、案件の詳細（`/cases/:caseId`）へのリンクにした（[cases.md](cases.md)） |
 | 却下の理由のダイアログ | チャンネルの作成申請のものと共通化していない（後のIssue） |
 | レート制限 | 入れていない（X-8が未決定） |
 | 本物のD1での採番の同時実行の確認 | #160（手元のD1での同時承認のテストは146-Bで書いた） |

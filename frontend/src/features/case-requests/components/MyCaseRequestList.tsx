@@ -2,6 +2,7 @@
 // 承認待ちの行にだけ「取り下げ」（確認のダイアログ → 送信）、却下・取り下げ済みの行にだけ「修正して再申請」を出す。
 // 却下の理由は文字列としてそのまま出す（HTML として解釈しない）。
 import { useState } from "react";
+import { Link } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import type { CaseRequestItem } from "../api/case-request-api";
@@ -52,9 +53,17 @@ export function MyCaseRequestList({ onResubmit }: Props) {
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-bold">{item.title}</span>
               <span className="text-sm">{STATUS_LABELS[item.status]}</span>
-              {item.caseNumber !== null && (
-                <span className="text-sm">案件番号：{item.caseNumber}</span>
-              )}
+              {item.caseNumber !== null &&
+                (item.caseId === null ? (
+                  <span className="text-sm">案件番号：{item.caseNumber}</span>
+                ) : (
+                  <Link
+                    to={`/cases/${item.caseId}`}
+                    className="text-sm text-primary underline"
+                  >
+                    案件番号：{item.caseNumber}
+                  </Link>
+                ))}
               {item.status === "pending" && (
                 <span className="ml-auto">
                   <Button

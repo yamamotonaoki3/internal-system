@@ -42,9 +42,10 @@ export const NOTIFICATION_VIEWS: Readonly<
     label: "案件の作成の申請が届きました",
     to: () => "/case-approvals",
   },
+  // 承認でできた案件は、案件一覧（S-16）で見る（C-179(3)）
   "case_request.approved": {
     label: "案件の作成の申請が承認されました",
-    to: () => "/case-requests",
+    to: () => "/cases",
   },
   "case_request.rejected": {
     label: "案件の作成の申請が却下されました",
