@@ -5,6 +5,7 @@ import { and, asc, eq, ne, sql, type SQL } from "drizzle-orm";
 import { departments, users } from "../../db/schema";
 import type { UserStatusKind } from "../../../shared/profile-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
+import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
 import { withDatabase, type Database } from "./database";
@@ -50,6 +51,8 @@ export type DirectoryRow = {
   extension: string | null;
   email: string;
   status: UserStatus;
+  /** 部署のオーナー・全体管理者の割り当てを持つか（退職処理の申請の対象にできるかの判定用。応答には出さない。#128） */
+  hasManagerRole: boolean;
 };
 
 export type StatusTarget = {
@@ -264,6 +267,11 @@ export function createProfileRepository(db: Database) {
           departmentName: departments.name,
           extension: users.extension,
           email: users.email,
+          hasManagerRole:
+            sql<boolean>`EXISTS (SELECT 1 FROM user_role_assignments r
+            WHERE r.user_id = ${users.id} AND r.role_id IN (${ROLE_IDS.globalAdmin}, ${ROLE_IDS.owner}))`.mapWith(
+              Boolean,
+            ),
           ...statusColumns,
         })
         .from(users)
@@ -287,6 +295,7 @@ export function createProfileRepository(db: Database) {
             returnAt: row.returnAt,
             message: row.message,
           },
+          hasManagerRole: row.hasManagerRole,
         })),
         nextCursor: page.nextCursor,
       };

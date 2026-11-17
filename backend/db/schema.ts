@@ -642,3 +642,50 @@ export const channelCreationRequests = sqliteTable(
     ),
   ],
 );
+
+// 退職処理の申請（#128）。部署のオーナーが全体管理者へ申請し、全体管理者の無効化で完了、却下・申請者の取り下げで終わる。
+// department_id は申請の時点の部署（その後に対象が異動しても変えない）。取り下げは申請者が決めるため decided_by＝申請者
+export const retirementRequests = sqliteTable(
+  "retirement_requests",
+  {
+    id: text("id").primaryKey(),
+    targetUserId: text("target_user_id")
+      .notNull()
+      .references(() => users.id),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => users.id),
+    departmentId: text("department_id")
+      .notNull()
+      .references(() => departments.id),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "withdrawn"],
+    })
+      .notNull()
+      .default("pending"),
+    decisionReason: text("decision_reason"),
+    decidedBy: text("decided_by").references(() => users.id),
+    decidedAt: text("decided_at"),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    check(
+      "retirement_requests_status_check",
+      sql`${t.status} in ('pending', 'approved', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      "retirement_requests_rejected_reason_check",
+      sql`${t.status} <> 'rejected' or ${t.decisionReason} is not null`,
+    ),
+    check(
+      "retirement_requests_decided_check",
+      sql`${t.status} = 'pending' or (${t.decidedAt} is not null and ${t.decidedBy} is not null)`,
+    ),
+    uniqueIndex("retirement_requests_pending_target_unique")
+      .on(t.targetUserId)
+      .where(sql`${t.status} = 'pending'`),
+    index("retirement_requests_requested_by_id_idx").on(t.requestedBy, t.id),
+    index("retirement_requests_status_id_idx").on(t.status, t.id),
+  ],
+);

@@ -27,6 +27,9 @@ export const AUDIT_ACTIONS = [
   "channel_request.approve",
   "channel_request.reject",
   "channel_request.withdraw",
+  "retirement_request.create",
+  "retirement_request.reject",
+  "retirement_request.withdraw",
   "message.delete",
 ] as const;
 

@@ -4394,6 +4394,366 @@
           }
         }
       }
+    },
+    "/api/retirement-requests": {
+      "post": {
+        "operationId": "createRetirementRequest",
+        "summary": "退職処理を申請する",
+        "description": "対象の今の部署のオーナー（perm.workspace.manage を対象の部署の範囲で）だけ。再認証が必要。判定の順は 404（対象がない）→ 403（対象が無効・所属なし・権限なし）→ 再認証 → 409。対象の所属・状態・ロールは変えない。有効な全体管理者へ retirement_request.submitted を通知する（申請者本人を除く）。応答に本名・メールを含めない。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetirementRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "作成した申請（申請中）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementRequestCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足・対象が無効または所属なし・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象の社員がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "対象が部署のオーナー（申請者自身を含む）・全体管理者、または申請中の申請がある（reason: department_owner・global_admin・duplicate_pending）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/retirement-requests/mine": {
+      "get": {
+        "operationId": "listMyRetirementRequests",
+        "summary": "自分の退職処理の申請の一覧",
+        "description": "申請者本人の申請を新しい順に返す。却下の理由を含む。本名・メールは含めない。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "自分の申請の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyRetirementRequestPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/retirement-requests/{requestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawRetirementRequest",
+        "summary": "退職処理の申請を取り下げる",
+        "description": "申請者本人だけが、申請中の申請を取り下げられる（再認証は不要。通知は送らない。今もその部署のオーナーであることは求めない）。他人の申請・存在しない申請は、存在を明かさず 404。処理済みは 409（reason: not_pending）。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取り下げた結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementRequestWithdrawn"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または本人の申請ではない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている（reason: not_pending）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/retirement-requests": {
+      "get": {
+        "operationId": "listRetirementRequestsForReview",
+        "summary": "退職処理の申請の一覧（全体管理者）",
+        "description": "全体管理者（perm.account.deactivate を会社の範囲で）だけ。新しい順。対象・申請者は表示名だけで、本名・メールを含めない。承認は専用の API を作らず、アカウントの無効化（POST /api/admin/accounts/{id}/deactivate）で申請を完了にする。",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "withdrawn"
+              ]
+            },
+            "description": "状態で絞り込む"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申請の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementRequestReviewPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/admin/retirement-requests/{requestId}/reject": {
+      "post": {
+        "operationId": "rejectRetirementRequest",
+        "summary": "退職処理の申請を却下する",
+        "description": "全体管理者（perm.account.deactivate を会社の範囲で）だけ。再認証が必要。判定の順は 403（申請の有無を明かさない）→ 再認証 → 404 → 409。理由は前後の空白を除いて 1〜200 文字（チャンネルの作成申請と同じ定義）。申請者へ retirement_request.rejected を通知する（決裁者が申請者本人なら送らない）。理由は監査に残さない。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetirementRequestReject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "却下した結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementRequestRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている（reason: not_pending）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6977,13 +7337,14 @@
             "properties": {
               "permissions": {
                 "type": "array",
-                "description": "現在の利用者が持つ管理権限（表示の制御用。認可はサーバー側で行う）。perm.channel.request.approve.owner は全体管理者かいずれかの部署のオーナー。それ以外は空配列",
+                "description": "現在の利用者が持つ管理権限（表示の制御用。認可はサーバー側で行う）。perm.channel.request.approve.owner は全体管理者かいずれかの部署のオーナー。perm.workspace.manage はいずれかの部署のオーナー（全体管理者でも、部署のオーナーに任命されていなければ含めない）。それ以外は空配列",
                 "items": {
                   "type": "string",
                   "enum": [
                     "perm.client.manage",
                     "perm.account.create",
                     "perm.workspace.create",
+                    "perm.workspace.manage",
                     "perm.channel.request.approve.owner"
                   ]
                 }
@@ -7229,7 +7590,8 @@
           "extension",
           "email",
           "status",
-          "canSetStatus"
+          "canSetStatus",
+          "canRequestRetirement"
         ],
         "additionalProperties": false,
         "description": "本名は含めない",
@@ -7258,6 +7620,10 @@
           "canSetStatus": {
             "type": "boolean",
             "description": "呼び出した人が、この社員のステータスを代理設定できるか（表示の制御。認可は PUT で再判定する）"
+          },
+          "canRequestRetirement": {
+            "type": "boolean",
+            "description": "呼び出した人が、この社員の退職処理を申請できるか（対象の部署のオーナーで、対象が自分・オーナー・全体管理者でない。申請中の申請があっても true。表示の制御。認可は申請の作成で再判定する）"
           }
         }
       },
@@ -7378,6 +7744,290 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "RetirementRequestCreate": {
+        "type": "object",
+        "required": [
+          "targetUserId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          }
+        }
+      },
+      "RetirementRequestCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "targetUserId",
+          "departmentId",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "targetUserId": {
+            "type": "string"
+          },
+          "departmentId": {
+            "type": "string",
+            "description": "申請の時点の対象の部署"
+          },
+          "status": {
+            "type": "string",
+            "const": "pending"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MyRetirementRequestItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "target",
+          "department",
+          "decisionReason",
+          "createdAt",
+          "decidedAt"
+        ],
+        "additionalProperties": false,
+        "description": "本名・メールは含めない",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "department": {
+            "$ref": "#/components/schemas/ProfileDepartment"
+          },
+          "decisionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "却下の理由（却下のときだけ）"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "MyRetirementRequestPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyRetirementRequestItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RetirementRequestReviewItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "target",
+          "department",
+          "decisionReason",
+          "createdAt",
+          "decidedAt",
+          "requester"
+        ],
+        "additionalProperties": false,
+        "description": "本名・メールは含めない",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "department": {
+            "$ref": "#/components/schemas/ProfileDepartment"
+          },
+          "decisionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "却下の理由（却下のときだけ）"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "requester": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "RetirementRequestReviewPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetirementRequestReviewItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RetirementRequestReject": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "前後の空白を除いて 1〜200 文字"
+          }
+        }
+      },
+      "RetirementRequestRejected": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "rejected"
+          }
+        }
+      },
+      "RetirementRequestWithdrawn": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "withdrawn"
           }
         }
       }

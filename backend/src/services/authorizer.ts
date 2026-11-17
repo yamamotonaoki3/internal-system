@@ -123,3 +123,26 @@ export function canReviewChannelRequests(
     return facts.isAdmin || facts.ownedDepartmentIds.length > 0;
   });
 }
+
+/**
+ * セッションの permissions 用：どこかの部署で perm.workspace.manage を持つか（＝いずれかの部署のオーナー。#128 の入口の表示）。
+ * 候補の部署は本人の部署範囲の割り当てから取り、判定は resolvePermissions で行う。表示の制御であり、認可ではない（拒否の監査は出さない）。
+ */
+export function canManageAnyDepartment(
+  env: Env,
+  userId: string,
+): Promise<boolean> {
+  return withRoleAssignments(env, async (repository) => {
+    const found = await repository.findByUserId(userId);
+    if (found === null) return false;
+    return found.assignments.some(
+      (assignment) =>
+        assignment.scopeType === "department" &&
+        assignment.departmentId !== null &&
+        resolvePermissions(found.user, found.assignments, {
+          type: "department",
+          departmentId: assignment.departmentId,
+        }).has("perm.workspace.manage"),
+    );
+  });
+}

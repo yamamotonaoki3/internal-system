@@ -20,6 +20,7 @@ import { DmPage } from "./pages/DmPage";
 import { DmsPage } from "./pages/DmsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MembersPage } from "./pages/MembersPage";
+import { MyRetirementRequestsPage } from "./pages/MyRetirementRequestsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
@@ -97,6 +98,10 @@ export function App() {
         <Route path="/dms/new" element={<DmNewPage />} />
         <Route path="/dms/:roomId" element={<DmPage />} />
         <Route path="/members" element={<MembersPage />} />
+        <Route
+          path="/retirement-requests/mine"
+          element={<MyRetirementRequestsPage />}
+        />
         <Route path="/threads" element={<ThreadsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

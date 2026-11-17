@@ -15,6 +15,8 @@ const memberSchema = z.object({
   email: z.string(),
   status: userStatusSchema,
   canSetStatus: z.boolean(),
+  // 退職処理の申請のボタンの出し分け（表示の制御。認可はサーバー。#128）
+  canRequestRetirement: z.boolean(),
 });
 const memberPageSchema = z.object({
   items: z.array(memberSchema),
