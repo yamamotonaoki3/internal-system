@@ -23,6 +23,7 @@ import {
   bindAttachments,
   translateAttachmentBindError,
 } from "./attachment.repository";
+import { activeChannelMember } from "./channel-member.sql";
 
 export type ReplyInsert = {
   id: string;
@@ -55,9 +56,9 @@ export async function insertReplyIfOrdered(
       AND (
         EXISTS (
           SELECT 1 FROM channels c
-          JOIN channel_members cm ON cm.channel_id = c.room_id AND cm.user_id = ${input.senderId}
           LEFT JOIN departments d ON d.id = c.department_id
           WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
+            AND ${activeChannelMember(sql`c.room_id`, input.senderId)}
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})

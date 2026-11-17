@@ -1,5 +1,5 @@
 // DAO：未読の対象の部屋（#237）。SQL の実行と、結果の形の検証だけを行う。
-// 対象 = 参加中（channel_members の行がある）かつ未アーカイブのチャンネルと、当事者の DM。公開チャンネルを未参加で読むだけでは対象外（1-1 AC-2・C-94）。
+// 対象 = 有効な参加者（channel_members の行があり、本人が有効）かつ未アーカイブのチャンネルと、当事者の DM。公開チャンネルを未参加で読むだけでは対象外（1-1 AC-2・C-94）。
 // 既読位置は LEFT JOIN で一緒に取る（利用者×部屋の主キーを引く）。チャンネルの参加の時刻（joined_at）は、未読の下限を作るために返す（DM は null）。
 // 索引：channel_members_user_id_idx・conversation_members_user_id_idx・channels の主キー・read_positions の主キー（EXPLAIN は docs/design/unread.md）。
 import { sql, type SQL } from "drizzle-orm";
@@ -32,6 +32,7 @@ export async function listUnreadTargetRows(
       SELECT cm.channel_id AS room_id, cm.joined_at AS joined_at
       FROM channel_members cm
       JOIN channels c ON c.room_id = cm.channel_id
+      JOIN users u ON u.id = cm.user_id AND u.is_active = 1
       WHERE cm.user_id = ${userId} AND c.deleted_at IS NULL
       UNION ALL
       SELECT conv.conversation_id AS room_id, NULL AS joined_at

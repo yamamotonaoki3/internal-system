@@ -15,6 +15,7 @@ import {
 } from "../../../shared/reaction-rules";
 import { messageReactions } from "../../db/schema";
 import type { Database } from "./database";
+import { activeChannelMember } from "./channel-member.sql";
 
 export type ReactionUser = {
   id: string;
@@ -49,9 +50,9 @@ export function reactable(messageId: string, userId: string): SQL {
       AND (
         EXISTS (
           SELECT 1 FROM channels c
-          JOIN channel_members cm ON cm.channel_id = c.room_id AND cm.user_id = ${userId}
           LEFT JOIN departments d ON d.id = c.department_id
           WHERE c.room_id = m.room_id AND c.deleted_at IS NULL
+            AND ${activeChannelMember(sql`c.room_id`, userId)}
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = m.room_id AND user_id = ${userId})

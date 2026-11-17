@@ -8,6 +8,7 @@ import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import type { ChannelPurpose } from "../../../shared/message-rules";
 import { auditLogInsert } from "./audit-log.repository";
+import { activeMembershipJoin } from "./channel-member.sql";
 import {
   channelInviteStatements,
   type ChannelInviteInput,
@@ -199,10 +200,7 @@ export function createChannelRepository(db: Database) {
         .leftJoin(departments, eq(departments.id, channels.departmentId))
         .leftJoin(
           channelMembers,
-          and(
-            eq(channelMembers.channelId, channels.roomId),
-            eq(channelMembers.userId, viewerId),
-          ),
+          activeMembershipJoin(channels.roomId, viewerId),
         )
         .where(
           and(
@@ -265,10 +263,7 @@ export function createChannelRepository(db: Database) {
         .leftJoin(departments, eq(departments.id, channels.departmentId))
         .leftJoin(
           channelMembers,
-          and(
-            eq(channelMembers.channelId, channels.roomId),
-            eq(channelMembers.userId, viewerId),
-          ),
+          activeMembershipJoin(channels.roomId, viewerId),
         )
         .where(eq(channels.roomId, roomId))
         .limit(1);
@@ -355,10 +350,7 @@ export function createChannelRepository(db: Database) {
         .from(channels)
         .leftJoin(
           channelMembers,
-          and(
-            eq(channelMembers.channelId, channels.roomId),
-            eq(channelMembers.userId, actorId),
-          ),
+          activeMembershipJoin(channels.roomId, actorId),
         )
         .where(eq(channels.roomId, roomId))
         .limit(1);

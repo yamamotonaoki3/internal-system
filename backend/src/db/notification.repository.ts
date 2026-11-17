@@ -29,6 +29,7 @@ import {
   createRoleAssignmentRepository,
   type RoleAssignmentRepository,
 } from "./role-assignment.repository";
+import { activeChannelMember } from "./channel-member.sql";
 
 /** 未読数の上限。これを超える分は数えない（画面は「99+」と表示する） */
 const UNREAD_COUNT_LIMIT = 100;
@@ -90,7 +91,7 @@ export function notificationInserts<K extends string = NotificationKind>(
 
 /**
  * 閲覧できる部屋の条件（部屋の内容を含む通知を、閲覧権限を失った部屋の分だけ除くため。3-1 AC-3）。
- * 未アーカイブで（公開、または自分が参加中）のチャンネル、または自分が当事者の DM。存在しない部屋は見えない。
+ * 未アーカイブで（公開、または自分が有効な参加者）のチャンネル、または自分が当事者の DM。存在しない部屋は見えない。
  * channel-rules の canViewChannel と同じ規則を SQL で書いたもの（二重定義）。全組の一致は notification.room-visibility.db.test.ts で固定している。
  */
 function viewableRoom(recipientId: string): SQL {
@@ -98,8 +99,7 @@ function viewableRoom(recipientId: string): SQL {
     select 1 from channels c
     where c.room_id = ${notifications.roomId}
       and c.deleted_at is null
-      and (c.visibility = 'public' or exists (
-        select 1 from channel_members cm where cm.channel_id = c.room_id and cm.user_id = ${recipientId})))
+      and (c.visibility = 'public' or ${activeChannelMember(sql`c.room_id`, recipientId)}))
     or exists (
       select 1 from conversation_members conv
       where conv.conversation_id = ${notifications.roomId} and conv.user_id = ${recipientId}))`;
