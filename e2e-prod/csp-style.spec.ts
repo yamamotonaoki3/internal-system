@@ -240,6 +240,16 @@ async function mockLoggedIn(page: Page): Promise<void> {
       body: JSON.stringify({ items: [], nextCursor: null }),
     }),
   );
+  // #147：サイドバーの「案件」の下が呼ぶ参加中の案件の一覧（?scope=joined&status=active）。空の一覧を返す
+  // （frontend/src/test/server.ts の既定の応答と同じ形：items と nextCursor）。概要・詳細（/api/cases/:caseId）には当てない
+  await page.route(/\/api\/cases(\?.*)?$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ items: [], nextCursor: null }),
+    }),
+  );
   // #124：ヘッダーの通知が呼ぶ未読数（0 件）。frontend/src/test/server.ts の既定の応答と同じ形
   await page.route("**/api/me/notifications/unread-count", (route) =>
     route.fulfill({

@@ -292,10 +292,14 @@ describe("#147 5-1 AC-2・AC-21 all の行の項目", () => {
   });
 
   it("#147 5-1 AC-21（Q6）: 担当部署が複数の案件では、どれか1つのオーナーなら管理の資格がある", async () => {
-    const page = await list({ actorId: w.ownerD.id }, "all", "closed");
-    const item = byId(page.items, 3);
-    expect(item.canManage).toBe(true);
-    expect(item.participantCount).toBe(1);
+    // 案件3の担当部署は deptS（1つ目）と deptD（2つ目）。どちらのオーナーも、参加せずに資格を持つ
+    for (const owner of [w.ownerS, w.ownerD]) {
+      const page = await list({ actorId: owner.id }, "all", "closed");
+      const item = byId(page.items, 3);
+      expect(item.isParticipant).toBe(false);
+      expect(item.canManage).toBe(true);
+      expect(item.participantCount).toBe(1);
+    }
   });
 
   it("#147 5-1 AC-21（Q6）: 全体管理者は、参加していなくても、すべての行に participantCount が入り canManage が true", async () => {

@@ -122,6 +122,10 @@ async function mockApi(page: Page): Promise<void> {
   await page.route(/\/api\/dms(\?.*)?$/, (route) =>
     json(route, { items: [], nextCursor: null }),
   );
+  // #147：サイドバーの「案件」の下が呼ぶ参加中の案件の一覧（?scope=joined&status=active）。空の一覧を返す
+  await page.route(/\/api\/cases(\?.*)?$/, (route) =>
+    json(route, { items: [], nextCursor: null }),
+  );
   await page.route(/\/api\/me\/unread(\?.*)?$/, (route) =>
     json(route, { items: [], nextCursor: null }),
   );
