@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from "./lib/audit-actions";
 import { adminAccountRoutes } from "./routes/accounts";
 import { adminAuditLogRoutes } from "./routes/audit-logs";
 import {
@@ -742,6 +743,40 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
       (spec as unknown as { components: object }).components,
     );
     expect(session + components).toContain("perm.audit_log.view");
+  });
+
+  it("#156 0-6 AC-3: 監査ログの操作・対象の種類の enum は、入力の検証の定義（AUDIT_ACTIONS・AUDIT_TARGET_TYPES）と集合として一致する", () => {
+    type Prop = { enum?: string[] };
+    const schemas = (
+      spec as unknown as {
+        components: {
+          schemas: Record<string, { properties?: Record<string, Prop> }>;
+        };
+      }
+    ).components.schemas;
+    const diff = (
+      actual: string[] | undefined,
+      expected: readonly string[],
+    ) => ({
+      足りない: expected.filter((v) => !(actual ?? []).includes(v)),
+      余分: (actual ?? []).filter((v) => !expected.includes(v)),
+    });
+    const none = { 足りない: [], 余分: [] };
+    expect(
+      diff(schemas.AuditLogSearch?.properties?.action?.enum, AUDIT_ACTIONS),
+      "AuditLogSearch.action",
+    ).toEqual(none);
+    expect(
+      diff(
+        schemas.AuditLogSearch?.properties?.targetType?.enum,
+        AUDIT_TARGET_TYPES,
+      ),
+      "AuditLogSearch.targetType",
+    ).toEqual(none);
+    expect(
+      diff(schemas.AuditLogItem?.properties?.action?.enum, AUDIT_ACTIONS),
+      "AuditLogItem.action",
+    ).toEqual(none);
   });
 
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
