@@ -130,7 +130,7 @@
 
 ### 無効化で変わるもの
 
-1つの`db.batch`で、次を確定する。順に、状態（`is_active`＝無効、`deactivated_at`、`department_id`＝NULL）、全チャンネルの参加の削除（全社連絡・部署の専用・個別。再有効化で戻さないため）、追加ロールの割り当ての削除（全体管理者・オーナーは前提で除外済み）、対象のセッションの失効（`revoked_at`）、監査`account.deactivate`（`detail`は元の部署ID`fromDepartmentId`。128-cで`retirementRequestId`を足した）。128-cで、監査の前に、対象への申請中の退職処理の申請を完了にする文と、申請者への通知を足した（「退職処理の申請と通知」の「無効化との連動」）。
+1つの`db.batch`で、次を確定する。順に、状態（`is_active`＝無効、`deactivated_at`、`department_id`＝NULL）、全チャンネルの参加の削除（全社連絡・部署の専用・個別。再有効化で戻さないため）、追加ロールの割り当ての削除（全体管理者・オーナーは前提で除外済み）、対象のセッションの失効（`revoked_at`）、監査`account.deactivate`（`detail`は元の部署ID`fromDepartmentId`。128-cで`retirementRequestId`、#146で`cancelledCaseRequestCount`を足した）。128-cで、監査の前に、対象への申請中の退職処理の申請を完了にする文と、申請者への通知を足した（「退職処理の申請と通知」の「無効化との連動」）。mainの取り込みの後の`deactivate`のbatchの順は、案件の作成申請の自動取消（`autoCancelCaseRequests`）、状態、全チャンネルの参加の削除、追加ロールの削除、セッションの失効、退職処理の申請の完了、申請者への通知、監査（#146・128-cの両方の項目を持つ）。
 
 **【Issue #146（146-A）で足した。元の記述は残す】** 同じbatchに、対象の審査中の案件の作成申請を自動取消にする文を足した（5-3 AC-8。C-177の統括の決定(8)の「無効化の分は146-Aで足す」）。`account.repository.ts`の`autoCancelCaseRequests`が、`case_creation_requests`の`status`を`auto_cancelled`にし、`version`を1上げ、`decided_by`は無効化を行った操作者、`decided_at`は無効化の時刻にする。申請ごとの監査・通知は作らず、監査`account.deactivate`の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ審査中の件数（`readPendingCaseRequests`）が、batchの時点でも同じことを、先頭の前提の確認（`caseRequestsUnchangedSql`）に含める。詳細は[case-requests.md](case-requests.md)。
 
@@ -320,7 +320,7 @@ batchの中身は、先頭の前提の確認の後に、申請の更新（作成
 
 - batchの前に、対象への申請中の申請（ID・申請者）を読む。読んだ申請が、batchの時点でも同じ（なかったなら、今もない）ことを、先頭の前提の条件に入れる
 - 申請中の申請があれば、同じbatchで、状態を`approved`、決裁者を無効化の操作者、決裁日時を操作の時刻にし、申請者へ`retirement_request.approved`を通知する。なければ、申請の更新も通知も行わない
-- 監査`account.deactivate`の`detail`に、`fromDepartmentId`に加えて`retirementRequestId`（完了にした申請のID。なければnull）を入れる
+- 監査`account.deactivate`の`detail`に、`fromDepartmentId`に加えて`retirementRequestId`（完了にした申請のID。なければnull）を入れる。mainの取り込みの後は、#146-Aの`cancelledCaseRequestCount`（取り消した案件の作成申請の件数）も同じ`detail`に入る
 - 異動（128-b）とオーナーの交代では、申請を残す。全体管理者が、残った申請を、無効化・却下で判断する（取り下げは申請者が行える）
 
 ### 存在の非開示
@@ -336,6 +336,8 @@ batchの中身は、先頭の前提の確認の後に、申請の更新（作成
 - S-20のリンク「自分の退職処理の申請」：セッションの`permissions`に`perm.workspace.manage`があるときだけ出す。押すと`/retirement-requests/mine`へ移る。この判定のために、セッション応答の`permissions`に、いずれかの部署のオーナーであるとき`perm.workspace.manage`を含める（`authorizer.ts`の`canManageAnyDepartment`。権限の一覧は増やさない。[auth-session.md](auth-session.md)）
 - 自分の申請の一覧（`MyRetirementRequestsPage`。`/retirement-requests/mine`）：対象・部署・状態・申請日時・操作の表。却下された申請には理由を文字列のまま出す（HTMLとして解釈しない）。申請中の行にだけ「取り下げ」（確認のダイアログ → 送信。再認証なし）
 - S-22（`AccountsPage`）：タブ「アカウント」と「退職処理の申請」。選んだタブはURLの`tab`に持つ（通知の移動先から開ける）。申請のタブは、申請中の申請を、対象・部署・申請者・申請日時で出し、行に「無効化」（128-aの`DeactivateDialog`を、表示名とIDだけの対象で開く）と「却下」（`RejectDialog`。理由を1〜200文字で入力し、再認証を挟んで送る）を出す。成功すると、一覧の上に「アカウントを無効化しました」「却下しました」を出し、次の操作を始めたら消す。ダイアログは一覧の取得の状態に左右されない
+- 一覧のキー：`api/query-keys.ts`の`mine`・`review`のキーに利用者のIDを含め、`hooks/useRetirementRequests.ts`がセッションの利用者のIDで作る。セッション切れの後、同じタブで別の利用者がログインしても、前の利用者の一覧がキャッシュから表示されないようにするため（コードレビューの指摘。C-177）。セッション以外のキャッシュを残す作り（0-2 AC-8）は変えていない。ほかの画面の同じ型の確認は Issue #284
+- 却下の理由のエラー：`RejectDialog`は、却下の理由の長さの確認（1〜200文字）の失敗と、サーバーが理由の欄を指して返した422のエラーを、入力欄（`useMutationError`の`fieldError`）に出す。欄の外の失敗は、ダイアログの中（`error`）に出す
 - 取り直し：申請・却下・取り下げの成功で、申請の一覧と社員一覧のキャッシュを取り直す。無効化の成功では、アカウントの一覧（128-aの`invalidateAfterLifecycle`）に加えて、申請の一覧も取り直す（無効化で申請が完了になるため）。自分の操作で自分の通知は増えないため、通知は取り直さない
 
 ### 同時の操作

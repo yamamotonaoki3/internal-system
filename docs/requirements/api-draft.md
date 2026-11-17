@@ -1702,7 +1702,7 @@ DM の画面（S-06）が、相手と投稿できるかを知るための API。
 | 取り下げ | `POST /api/retirement-requests/:requestId/withdraw`。本文なし。成功は `200`：`id`・`status`（`withdrawn`）。404（ない・自分の申請でない。同じ応答）→ 409（`reason：not_pending`）。再認証は求めない |
 | 全体管理者の一覧 | `GET /api/admin/retirement-requests`。`status`（任意）・`cursor`・`limit`。`perm.account.deactivate` を会社の範囲で持たなければ 403。`items` は自分の一覧に `requester` を足した形 |
 | 却下 | `POST /api/admin/retirement-requests/:requestId/reject`。本文は `reason`（前後の空白を除いて 1〜200 文字）。成功は `200`：`id`・`status`（`rejected`）。判定の順は 403（全体管理者でなければ、申請の有無にかかわらず同じ）→ 再認証（`403：REAUTH_REQUIRED`）→ 404 → 409（`reason：not_pending`） |
-| 承認 | 専用の API は作らない。`POST /api/admin/accounts/:id/deactivate`（128-a）で対象を無効化すると、申請中の申請が `approved` になり、申請者へ通知する。監査 `account.deactivate` の `detail` に `retirementRequestId` を残す |
+| 承認 | 専用の API は作らない。`POST /api/admin/accounts/:id/deactivate`（128-a）で対象を無効化すると、申請中の申請が `approved` になり、申請者へ通知する。監査 `account.deactivate` の `detail` に `retirementRequestId`（#146-A 以降は `cancelledCaseRequestCount` も）を残す |
 | 通知 | `retirement_request.submitted`（全体管理者へ）・`.approved`・`.rejected`（申請者へ）。取り下げは通知しない |
 | セッション | `GET /api/auth/session` の `permissions` に、いずれかの部署のオーナーであるとき `perm.workspace.manage` を含める（表示の制御だけ。権限の一覧は増やさない） |
 | 社員一覧 | `GET /api/users` の各行に、`canRequestRetirement`（真偽）を足した（S-20 のボタンの出し分け。表示の制御で、認可は作成の API） |
