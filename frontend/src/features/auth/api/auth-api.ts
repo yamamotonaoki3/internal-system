@@ -13,6 +13,7 @@ export type SessionInfo = {
     | "perm.channel.request.approve.owner"
     | "perm.workspace.manage"
     | "perm.case.request.approve"
+    | "perm.audit_log.view"
   )[];
 };
 
@@ -43,6 +44,7 @@ const sessionWithPermissionsSchema = sessionInfoSchema.extend({
       "perm.channel.request.approve.owner",
       "perm.workspace.manage",
       "perm.case.request.approve",
+      "perm.audit_log.view",
     ]),
   ),
 });

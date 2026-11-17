@@ -22,6 +22,7 @@ import {
   logout,
   type WithAuth,
 } from "../services/auth.service";
+import { canViewAuditLogs } from "../services/audit-log.service";
 import {
   canManageAccounts,
   canManageClients,
@@ -177,6 +178,11 @@ export function authRoutes(
         c.env,
         principal.userId,
       );
+      const canViewAudit = await canViewAuditLogs(
+        c.env,
+        principal.userId,
+        traceIdOf(c),
+      );
       return c.json({
         user: {
           id: principal.userId,
@@ -194,6 +200,8 @@ export function authRoutes(
           ...(ownsDepartment ? ["perm.workspace.manage"] : []),
           // 案件の作成申請の審査者（#146）も、チャンネルの作成申請と同じ判定（全体管理者か、いずれかの部署のオーナー）
           ...(canReview ? ["perm.case.request.approve"] : []),
+          // 監査ログの閲覧（#156：全体管理者だけ。管理メニュー・画面の表示用）
+          ...(canViewAudit ? ["perm.audit_log.view"] : []),
         ],
       });
     });

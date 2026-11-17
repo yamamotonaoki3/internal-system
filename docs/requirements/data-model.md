@@ -244,6 +244,7 @@ erDiagram
 - パスワードは現在のハッシュだけを`users.password_hash`に保持し、変更時は新しい値で置き換える。過去のハッシュを履歴として保持せず、定期削除処理も設けない（0-3 AC-11、C-34）
 - 再認証の失敗の回数は、`login_attempts`と同じ仕組みで数える（要件定義書の0-5 AC-4）。キーを分ける（ログイン用・再認証用）かは、実装の計画で決める
 - 監査ログ（`audit_logs`）の記録先は、ロールの編集・任命・全体管理者の引き継ぎも、既存の`audit_logs`を使う（`action`の値に操作の種類を足す）。変更前後（権限の増減など）を`detail`の概要に収めるか、別の列・テーブルを足すかは未決定（設計-5）
+- **Issue #156で足した索引（C-180。2026-11-17）**：`audit_logs`に、監査ログの絞り込みと並びに合う複合索引3つ（migration 0027）。`(actor_id, occurred_at, id)`・`(action, occurred_at, id)`・`(target_type, target_id, occurred_at, id)`。期間だけ・絞り込みなしは既存の`(occurred_at, id)`を使う。`result`は2値で選択性が低いため索引にしない。保持1年の削除の仕組み（C-74）は、まだ作っていない。設計は[audit-logs.md](../design/audit-logs.md)
 
 ### 3.2 部署とチャンネルの管理（機能2・7）
 

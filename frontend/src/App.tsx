@@ -2,6 +2,7 @@
 // ログイン後の画面は、レイアウトルート（RequireAuth → AppShell）の子に足す。/login・/setup は枠の外。
 import { Route, Routes } from "react-router";
 import { AppShell } from "./features/app-shell/AppShell";
+import { AuditLogsPage } from "./features/audit-logs";
 import { RequireAuth } from "./features/auth/components/RequireAuth";
 import { useSession } from "./features/auth/hooks/useSession";
 import { ReauthProvider } from "./features/auth/ReauthProvider";
@@ -69,6 +70,16 @@ function CaseApprovalsRoute() {
   return <CaseApprovalsPage />;
 }
 
+// 監査ログ（全体管理者のみ）。セッション確認中は拒否せず待つ。表示の制御であり、認可はサーバーが毎回行う
+function AuditLogsRoute() {
+  const session = useSession();
+  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isError) return null;
+  if (!session.data.permissions?.includes("perm.audit_log.view"))
+    return <NotFoundPage />;
+  return <AuditLogsPage />;
+}
+
 function AccountManageRoute({ page }: { page: "list" | "create" }) {
   const session = useSession();
   if (session.isPending) return <p role="status">確認中です</p>;
@@ -102,6 +113,7 @@ export function App() {
           path="/accounts/new"
           element={<AccountManageRoute page="create" />}
         />
+        <Route path="/audit-logs" element={<AuditLogsRoute />} />
         <Route path="/channels" element={<ChannelsPage />} />
         <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
         <Route path="/channel-requests" element={<ChannelRequestPage />} />

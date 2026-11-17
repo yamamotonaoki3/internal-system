@@ -14,6 +14,8 @@ export type WithSessions = <T>(
 ) => Promise<T>;
 
 export type SessionPrincipal = {
+  /** セッションの ID（トークンの SHA-256）。書き込みの条件（セッションが今も有効）に使うだけで、応答・ログには出さない */
+  sessionId: string;
   userId: string;
   displayName: string;
   loginId: string;
@@ -50,6 +52,7 @@ export async function resolveSession(
     }
   }
   return {
+    sessionId,
     userId: session.userId,
     displayName: session.displayName,
     loginId: session.loginId,

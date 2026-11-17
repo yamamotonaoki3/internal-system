@@ -235,7 +235,7 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | --- | --- |
 | `case_request.create` | 申請ID・取引先ID・部署数・候補数・再申請の元のID |
 | `case_request.withdraw` | 申請ID・部署数 |
-| `case_request.approve`（146-B） | 申請ID・案件ID・案件番号・チャンネルID・担当部署数・参加者数・自動参加の内訳（担当部署の有効なオーナーの数・有効な全体管理者の数）。案件番号と参加者数は同じbatchの中で決まるため、監査の行を入れた直後に、同じbatchの中で値を入れる |
+| `case_request.approve`（146-B） | 申請ID・案件ID・案件番号・チャンネルID・担当部署数・参加者数・自動参加の内訳（担当部署の有効なオーナーの数・有効な全体管理者の数）。案件番号と参加者数は同じbatchの中で決まるため、値が決まった後に、`auditLogInsertWithDetailSql`で1回の`INSERT…SELECT`として入れる（監査の行を書き換えない。0-6 AC-4。C-180による訂正） |
 | `case_request.reject`（146-B） | 申請ID・担当部署数（理由の本文は入れない） |
 | 自動取消 | 申請ごとには残さない。`account.deactivate`と異動の監査の`detail`の`cancelledCaseRequestCount`に件数を残す |
 
@@ -292,7 +292,7 @@ Serviceの`loadDecidable`と`approve`・`reject`が、この順に行う。決�
 | 9 | `cases`・`case_departments`：取引先のコード・日本時間のYYMMDD・4桁の連番から案件番号を組み立てる（`INSERT…SELECT`） | `cases.case_number`のUNIQUE違反は、同じ409「採番が競合しました。もう一度承認してください」 |
 | 10 | `channel_members`：申請者・候補・全担当部署の有効なオーナー・有効な全体管理者を、現在の割り当てから`INSERT…SELECT`で確定する（`UNION`で重複を除く。読んだ値を埋め込まない）。無効な社員は入れない。承認者であることを理由には入れない | 該当者がいなくても失敗にしない（申請者は必ず入る） |
 | 11 | 申請を`approved`にし、`case_id`・`decided_by`・`decided_at`を入れる | — |
-| 12 | 監査`case_request.approve`（「監査」の節）。直後に、同じbatchの中で案件番号と参加者数などの値を入れる | — |
+| 12 | 監査`case_request.approve`（「監査」の節）。案件・参加者・申請の更新の後に、同じbatchの中の値から`detail`を組み立て、`auditLogInsertWithDetailSql`で1回の`INSERT…SELECT`として入れる（行を入れてから書き換えない） | — |
 | 13 | 通知`case_request.approved`：申請者に送る。決裁者が申請者本人なら送らない（3-4 AC-3） | — |
 
 - 申請者・担当部署の数は、batchの前に1回読む（`readDecisionFacts`。申請の後に変わらない）。batchの後に、`cases`を`request_id`で読み直して応答する。0行のときは成功にせず、エラーにする
