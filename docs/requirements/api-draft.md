@@ -1521,7 +1521,7 @@
 | 社外の人（アカウントのない人）を招待する | UC-2-05 | APIなし | 全ロール不可（R-53） |
 | 案件専用チャンネルへの招待・申込・許可 | UC-2-05b | APIなし | 作らない（2-4 AC-4、2-5 AC-7） |
 | 部署のメンバーを一覧する | UC-2-06、S-13 | APIあり | EP-2-18 |
-| 退職処理を申請する | UC-2-06、S-13 | API候補あり・詳細未設計 | 退職申請APIのパス・入出力・承認画面はAPI設計で決める（C-37） |
+| 退職処理を申請する | UC-2-06、S-13 | API候補あり・詳細未設計 | 退職申請APIのパス・入出力・承認画面はAPI設計で決める（C-37）【C-177により追記（2026-11-17。Issue #128の128-c）：実装した。形は末尾の「2026-11-17 Issue #128（128-c）の実装」。画面はS-13ではなくS-20とS-22のタブ。元の記述は残す】 |
 | チャンネルの管理（上の名前・説明の変更と削除以外の細かい操作） | UC-2-06、S-13 | 未決定 | 要件 #2・2-6 AC-1 |
 | チャンネルの名前・説明を変更する | UC-2-09、S-05・S-13 | APIあり（案） | EP-2-36。名前を変更できるのは通常のチャンネルだけ。部署の専用・お知らせ専用・「全社連絡」は説明の変更のみ（C-123・C-124）。案件専用チャンネルの名前・説明は EP-5-20・R-82（案件の編集）に従う |
 | チャンネルをアーカイブする・復元する | UC-2-09、S-05・S-13・S-38 | APIあり（案） | EP-2-37・EP-2-38。どちらも再認証が必要 |
@@ -1690,3 +1690,19 @@ DM の画面（S-06）が、相手と投稿できるかを知るための API。
 | 異動で変わるもの | 所属、旧部署の専用チャンネル2つの参加の削除、新部署の専用チャンネル2つへの参加。全社連絡・個別のチャンネル・DM・ロール・セッションは変えない。監査 `account.transfer`（`detail` は `fromDepartmentId`・`toDepartmentId`・`roleIds`） |
 | 前提が崩れたとき | 128-a と同じ。何も書かず、状態を読み直して 403・404・409・422 のどれかを返す |
 | 範囲外 | 異動日の指定（予約）は #274 |
+
+## 2026-11-17 Issue #128（128-c）の実装（退職処理の申請）
+
+（決定記録 [C-177](decision-register.md)。設計書 [accounts.md](../design/accounts.md)。）「退職処理を申請する」（UC-2-06）には EP 番号が割り当てられていない。実装の形を、次の表に追記する。元の記述は残す。
+
+| 項目 | 実装した形（Issue #128 の 128-c） |
+| --- | --- |
+| 作成 | `POST /api/retirement-requests`。本文は `targetUserId`（必須。余剰項目は 422）。成功は `201`：`id`・`targetUserId`・`departmentId`・`status`（`pending`）・`createdAt`。判定の順は 404（対象がない）→ 403（対象が無効・所属なし・申請者の部署の社員でない、または `perm.workspace.manage` を対象の今の部署の範囲で持たない）→ 409（再認証は求めない。`reason`：`department_owner`・`global_admin`・`duplicate_pending`）。申請しただけでは、対象の所属・状態・ロールは変わらない |
+| 自分の申請の一覧 | `GET /api/retirement-requests/mine`。`cursor`・`limit`。`items`（`id`・`status`・`target`・`department`・`decisionReason`・`createdAt`・`decidedAt`）・`nextCursor`。本名・メールは含めない |
+| 取り下げ | `POST /api/retirement-requests/:requestId/withdraw`。本文なし。成功は `200`：`id`・`status`（`withdrawn`）。404（ない・自分の申請でない。同じ応答）→ 409（`reason：not_pending`）。再認証は求めない |
+| 全体管理者の一覧 | `GET /api/admin/retirement-requests`。`status`（任意）・`cursor`・`limit`。`perm.account.deactivate` を会社の範囲で持たなければ 403。`items` は自分の一覧に `requester` を足した形 |
+| 却下 | `POST /api/admin/retirement-requests/:requestId/reject`。本文は `reason`（前後の空白を除いて 1〜200 文字）。成功は `200`：`id`・`status`（`rejected`）。判定の順は 403（全体管理者でなければ、申請の有無にかかわらず同じ）→ 再認証（`403：REAUTH_REQUIRED`）→ 404 → 409（`reason：not_pending`） |
+| 承認 | 専用の API は作らない。`POST /api/admin/accounts/:id/deactivate`（128-a）で対象を無効化すると、申請中の申請が `approved` になり、申請者へ通知する。監査 `account.deactivate` の `detail` に `retirementRequestId` を残す |
+| 通知 | `retirement_request.submitted`（全体管理者へ）・`.approved`・`.rejected`（申請者へ）。取り下げは通知しない |
+| セッション | `GET /api/auth/session` の `permissions` に、いずれかの部署のオーナーであるとき `perm.workspace.manage` を含める（表示の制御だけ。権限の一覧は増やさない） |
+| 社員一覧 | `GET /api/users` の各行に、`canRequestRetirement`（真偽）を足した（S-20 のボタンの出し分け。表示の制御で、認可は作成の API） |
