@@ -381,8 +381,8 @@ describe("#146 重大2 宛先が読んだ後に変わったら、何も残らず
 });
 
 describe("#146 5-3 AC-6 再申請の元（resubmitOf）", () => {
-  it.each(["rejected", "withdrawn"] as const)(
-    "#146 5-3 AC-6: 本人の %s の申請を元にすると、元の ID を持つ別の申請になる（元は変わらない）",
+  it.each(["rejected", "withdrawn", "auto_cancelled"] as const)(
+    "#146 5-3 AC-6（auto_cancelled は統括の決定）: 本人の %s の申請を元にすると、元の ID を持つ別の申請になる（元は変わらない）",
     async (status) => {
       const original = await insertCaseRequest({
         clientId: w.clientA.id,
@@ -429,6 +429,46 @@ describe("#146 5-3 AC-6 再申請の元（resubmitOf）", () => {
       expect(await caseRequestSnapshot()).toEqual(before);
     },
   );
+});
+
+describe("#146 5-3 AC-6 再申請の元の判定（findOwnResubmittable）", () => {
+  const resubmittable = (requestId: string, requesterId = w.memberS1.id) =>
+    withCaseRequests(env, (repository) =>
+      repository.findOwnResubmittable({ requestId, requesterId }),
+    );
+  const seed = (
+    status:
+      "pending" | "approved" | "rejected" | "withdrawn" | "auto_cancelled",
+    requestedBy = w.memberS1.id,
+  ) =>
+    insertCaseRequest({
+      clientId: w.clientA.id,
+      title: `${TEST_TAG}再申請の元`,
+      requestedBy,
+      departmentIds: [w.deptS.id],
+      status,
+    });
+
+  it.each(["rejected", "withdrawn", "auto_cancelled"] as const)(
+    "#146 5-3 AC-6（auto_cancelled は統括の決定）: 本人の %s の申請は元として認める",
+    async (status) => {
+      expect(await resubmittable(await seed(status))).toBe(true);
+    },
+  );
+
+  it.each(["pending", "approved"] as const)(
+    "#146 5-3 AC-6: 本人の %s の申請は元として認めない",
+    async (status) => {
+      expect(await resubmittable(await seed(status))).toBe(false);
+    },
+  );
+
+  it("#146 5-3 AC-6: 他人の却下済みの申請と、存在しない申請は元として認めない", async () => {
+    expect(await resubmittable(await seed("rejected", w.memberS2.id))).toBe(
+      false,
+    );
+    expect(await resubmittable(MISSING)).toBe(false);
+  });
 });
 
 describe("#146 5-3 AC-14・C-141(3) 類似件名（hasSimilarTitle）", () => {

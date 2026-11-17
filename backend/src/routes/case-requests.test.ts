@@ -456,6 +456,20 @@ describe("#146 5-3 AC-6・C-141(2) 再申請と納期", () => {
     expect(body.resubmittedFrom).toBe(original);
   });
 
+  it("#146 5-3 AC-6・AC-8（統括の決定）: 本人の自動取消（auto_cancelled）の申請を元にしても 201 で、元の ID を持つ", async () => {
+    const original = await insertCaseRequest({
+      clientId: w.clientA.id,
+      title: `${TEST_TAG}自動取消の元`,
+      requestedBy: w.memberS1.id,
+      departmentIds: [w.deptS.id],
+      status: "auto_cancelled",
+      decidedBy: w.admin.id,
+    });
+    const res = await create(w.memberS1.token, { resubmitOf: original });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as Item).resubmittedFrom).toBe(original);
+  });
+
   it("#146 5-3 AC-6（存在の非開示）: 他人の申請・存在しない申請・審査中・承認済みを元にすると、同じ 422・同じ本文", async () => {
     const others = await insertCaseRequest({
       clientId: w.clientA.id,
@@ -644,6 +658,39 @@ describe("#146 5-3 AC-2（範囲）GET /api/case-requests/mine", () => {
     expect(all.map((item) => item.id)).toEqual([...mine].sort().reverse());
     const res = await get(`${BASE}/mine`, w.memberS1.token);
     expect(res.headers.get("Cache-Control") ?? "").toContain("no-store");
+  });
+
+  it("#146 自分の申請：申請ごとの担当部署・候補は、その申請のものだけで、ほかの申請のものと混ざらない", async () => {
+    const first = await createdId(w.memberS1.token, {
+      title: `${TEST_TAG}部署S`,
+      departmentIds: [w.deptS.id],
+      candidateIds: [w.memberD1.id],
+    });
+    const second = await createdId(w.memberS1.token, {
+      title: `${TEST_TAG}部署DH`,
+      departmentIds: [w.deptD.id, w.deptH.id],
+      candidateIds: [w.ownerH.id, w.memberS2.id],
+    });
+    const third = await createdId(w.memberS1.token, {
+      title: `${TEST_TAG}候補なし`,
+      departmentIds: [w.deptH.id],
+    });
+    const items = await mineAll(w.memberS1.token);
+    const of = (id: string) => items.find((item) => item.id === id);
+    expect(of(first)?.departments.map((d) => d.id)).toEqual([w.deptS.id]);
+    expect(of(first)?.candidates.map((c) => c.userId)).toEqual([w.memberD1.id]);
+    expect(
+      of(second)
+        ?.departments.map((d) => d.id)
+        .sort(),
+    ).toEqual([w.deptD.id, w.deptH.id].sort());
+    expect(
+      of(second)
+        ?.candidates.map((c) => c.userId)
+        .sort(),
+    ).toEqual([w.ownerH.id, w.memberS2.id].sort());
+    expect(of(third)?.departments.map((d) => d.id)).toEqual([w.deptH.id]);
+    expect(of(third)?.candidates).toEqual([]);
   });
 
   it.each(["limit=0", "limit=101", "cursor=broken"])(

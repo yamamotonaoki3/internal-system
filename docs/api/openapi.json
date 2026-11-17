@@ -7682,7 +7682,7 @@
           "resubmitOf": {
             "type": "string",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
-            "description": "再申請の元（本人の却下済み・取り下げ済みの申請）"
+            "description": "再申請の元（本人の却下済み・取り下げ済み・自動取消の申請）"
           }
         }
       },

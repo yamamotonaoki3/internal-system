@@ -26,6 +26,13 @@ import {
 export type CaseRequestStatus =
   "pending" | "approved" | "rejected" | "withdrawn" | "auto_cancelled";
 
+/** 再申請の元にできる状態（自動取消の本人は有効なままなので、出し直せる） */
+const RESUBMITTABLE_STATUSES = [
+  "rejected",
+  "withdrawn",
+  "auto_cancelled",
+] as const satisfies readonly CaseRequestStatus[];
+
 export type CaseRequestWriteReason =
   /** 取引先が存在しない・無効 */
   | "client_unavailable"
@@ -33,7 +40,7 @@ export type CaseRequestWriteReason =
   | "department_unavailable"
   /** 候補のどれかが存在しない・無効 */
   | "candidate_unavailable"
-  /** 再申請の元が、本人の却下済み・取り下げ済みの申請でない */
+  /** 再申請の元が、本人の却下済み・取り下げ済み・自動取消の申請でない */
   | "resubmit_unavailable"
   /** 申請者が無効、または所属がなく全体管理者でもない */
   | "requester_ineligible"
@@ -334,7 +341,7 @@ export function createCaseRequestRepository(db: Database) {
       return { ownerIds, adminIds };
     },
 
-    /** 再申請の元が、本人の却下済み・取り下げ済みの申請か（他人・存在しない・審査中・承認済みは区別しない） */
+    /** 再申請の元が、本人の却下済み・取り下げ済み・自動取消の申請か（他人・存在しない・審査中・承認済みは区別しない） */
     async findOwnResubmittable(input: {
       requestId: string;
       requesterId: string;
@@ -346,7 +353,7 @@ export function createCaseRequestRepository(db: Database) {
           and(
             eq(caseCreationRequests.id, input.requestId),
             eq(caseCreationRequests.requestedBy, input.requesterId),
-            inArray(caseCreationRequests.status, ["rejected", "withdrawn"]),
+            inArray(caseCreationRequests.status, [...RESUBMITTABLE_STATUSES]),
           ),
         )
         .limit(1);
@@ -382,7 +389,10 @@ export function createCaseRequestRepository(db: Database) {
             WHERE a.user_id = u.id AND a.role_id = ${ROLE_IDS.globalAdmin})))`;
       const resubmittable = sql`EXISTS (SELECT 1 FROM case_creation_requests r
         WHERE r.id = ${input.resubmitOf} AND r.requested_by = ${input.requesterId}
-          AND r.status IN ('rejected', 'withdrawn'))`;
+          AND r.status IN (${sql.join(
+            RESUBMITTABLE_STATUSES.map((status) => sql`${status}`),
+            sql`, `,
+          )}))`;
       const current = currentRecipientsSql(
         input.departmentIds,
         input.requesterId,

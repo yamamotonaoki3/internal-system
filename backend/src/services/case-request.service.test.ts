@@ -640,3 +640,49 @@ describe("#146（統括の決定）自分の申請・取り下げ・類似件名
     });
   });
 });
+
+describe("#146 存在の非開示と拒否の記録（ミューテーションの生き残りへの対応）", () => {
+  it("#146 5-3 AC-7: 本人の申請が見つからない 404 と、書き込みの not_found の 404 は、コード・文言が同じで、文言は空でない", async () => {
+    const missing = fakeRepository();
+    missing.findOwnForWithdraw.mockResolvedValue(null);
+    const first = await attempt(() =>
+      serviceOf(missing).withdraw(actor, REQUEST),
+    );
+    const gone = fakeRepository();
+    gone.withdraw.mockRejectedValue(new CaseRequestWriteError("not_found"));
+    const second = await attempt(() =>
+      serviceOf(gone).withdraw(actor, REQUEST),
+    );
+    const a = expectAppError(first.error, "NOT_FOUND");
+    const b = expectAppError(second.error, "NOT_FOUND");
+    expect(a.userMessage.length).toBeGreaterThan(0);
+    expect([b.code, b.userMessage, b.details]).toEqual([
+      a.code,
+      a.userMessage,
+      a.details,
+    ]);
+  });
+
+  it("#146 5-3 AC-1（logger）: 所属なしの拒否は、理由 no_department を監査に記録する", async () => {
+    const fake = fakeRepository();
+    fake.findUserDepartmentId.mockResolvedValue(null);
+    await attempt(() => serviceOf(fake).create(actor, input()));
+    const lines = auditLogLines(logLines).filter(
+      (line) => line.attributes?.result === "failure",
+    );
+    expect(lines[0]?.attributes).toMatchObject({ reason: "no_department" });
+  });
+
+  it("#146 5-3 AC-7（logger）: 本人の申請が見つからない取り下げは、理由 not_found を監査に記録する", async () => {
+    const fake = fakeRepository();
+    fake.findOwnForWithdraw.mockResolvedValue(null);
+    await attempt(() => serviceOf(fake).withdraw(actor, REQUEST));
+    const lines = auditLogLines(logLines).filter(
+      (line) => line.attributes?.result === "failure",
+    );
+    expect(lines[0]?.attributes).toMatchObject({
+      reason: "not_found",
+      target: REQUEST,
+    });
+  });
+});

@@ -66,7 +66,9 @@ export function MyCaseRequestList({ onResubmit }: Props) {
                   </Button>
                 </span>
               )}
-              {(item.status === "rejected" || item.status === "withdrawn") && (
+              {(item.status === "rejected" ||
+                item.status === "withdrawn" ||
+                item.status === "auto_cancelled") && (
                 <span className="ml-auto">
                   <Button variant="secondary" onClick={() => onResubmit(item)}>
                     修正して再申請

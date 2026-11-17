@@ -15,7 +15,7 @@
 //  - 「自分の申請」（見出し h2）：listitem ごとに件名・状態（承認待ち・承認済み・却下・取り下げ・自動取消）・取引先名（無効なら「（無効）」）・担当部署名・納期・却下理由（文字列として）
 //    読み込み中は「読み込み中」、0 件は「申請はまだありません」、失敗は role=alert。次のページがあればボタン「次のページ」
 //  - 承認待ちの行にだけ「取り下げ」を含むボタン → dialog「申請の取り下げ」→「取り下げる」で POST …/withdraw、「キャンセル」で送らない
-//  - 却下・取り下げの行に「修正して再申請」：フォームに元の値を入れ、送るときに resubmitOf を付ける。納期が過去なら納期の欄を aria-invalid にする
+//  - 却下・取り下げ・自動取消の行に「修正して再申請」：フォームに元の値を入れ、送るときに resubmitOf を付ける。納期が過去なら納期の欄を aria-invalid にする
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -489,7 +489,7 @@ describe("#146 S-18 自分の申請", () => {
     );
   });
 
-  it("#146 5-3 AC-8: 自動取消（auto_cancelled）の行は「自動取消」と表記し、「取り下げ」のボタンを出さない", async () => {
+  it("#146 5-3 AC-8・AC-6（統括の決定）: 自動取消（auto_cancelled）の行は「自動取消」と表記し、「修正して再申請」を出し、「取り下げ」のボタンは出さない", async () => {
     respondProfileDepartment(DEPT_SALES);
     respondChoices();
     respondMyCaseRequests([
@@ -505,6 +505,9 @@ describe("#146 S-18 自分の申請", () => {
     expect(
       within(row).queryByRole("button", { name: /^取り下げ|取り下げる/ }),
     ).toBeNull();
+    expect(
+      within(row).getByRole("button", { name: "修正して再申請" }),
+    ).toBeTruthy();
   });
 
   it("#146 security: 却下理由は HTML として解釈せず、文字列として出す", async () => {
