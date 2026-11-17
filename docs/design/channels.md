@@ -74,7 +74,7 @@
 
 ### 一覧（`GET /api/channels`）
 
-- 見せる範囲：アーカイブされていない、会社直属と全部署の公開チャンネル、および自分が参加している非公開チャンネル。参加していない非公開は出さない
+- 見せる範囲：アーカイブされていない、会社直属と全部署の公開チャンネル、および自分が参加している非公開チャンネル。参加していない非公開は出さない。**案件専用チャンネル（`purpose = 'case'`）は、参加者にも一覧に出さない**（Issue #146の146-B。5-1 AC-6。案件の画面から開く。条件は`channel.repository.ts`の`list`の`WHERE`に入れてある。[case-requests.md](case-requests.md)）
 - 各項目に、`departmentId`（会社直属は`null`）、`departmentName`（会社直属は`null`）、`joined`を含める。参加の有無は`channel_members`のLEFT JOINで求めるため、件数が増えてもSQLの数は増えない
 - 絞り込み：`departmentId`（存在しない部署は404）、`joined`（`true`／`false`）。並びは名前の比較キー・ルームIDの昇順で、`cursor.ts`のカーソル方式（`PAGE_LIMIT`。既定20、最大100）。壊れたカーソルは422
 
