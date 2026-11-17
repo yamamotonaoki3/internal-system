@@ -201,18 +201,77 @@ describe("#128（128-c）C-177（U-8）S-22 の「退職処理の申請」タブ
     );
   });
 
-  it("#128 C-177（U-1）: 理由が空（空白だけ）なら、ダイアログの中で知らせて送らない", async () => {
-    const calls = respondAdmin();
-    const { user } = renderApp("/accounts");
+  // 理由の入力欄の、アクセシブルな説明（aria-describedby が指す要素の文）を集める
+  function describedText(element: HTMLElement): string {
+    return (element.getAttribute("aria-describedby") ?? "")
+      .split(/\s+/)
+      .filter((id) => id !== "")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+  }
+
+  async function openRejectDialog(user: ReturnType<typeof renderApp>["user"]) {
     await openTab(user);
     await user.click(
       within(await requestRow()).getByRole("button", { name: /却下/ }),
     );
-    const dialog = await screen.findByRole("dialog", { name: /却下/ });
-    await user.type(within(dialog).getByLabelText("却下の理由"), "   ");
+    return screen.findByRole("dialog", { name: /却下/ });
+  }
+
+  it("#128 C-177（U-1）・レビュー1回目（軽微）: 理由が空（空白だけ）なら、理由の入力欄に結び付いたエラー（aria-invalid・aria-describedby）で知らせて送らない", async () => {
+    const calls = respondAdmin();
+    const { user } = renderApp("/accounts");
+    const dialog = await openRejectDialog(user);
+    const field = within(dialog).getByLabelText("却下の理由");
+    await user.type(field, "   ");
     await user.click(within(dialog).getByRole("button", { name: "却下する" }));
-    expect(await within(dialog).findByRole("alert")).toBeTruthy();
+    await waitFor(() =>
+      expect(field.getAttribute("aria-invalid")).toBe("true"),
+    );
+    expect(describedText(field)).toContain("1〜200文字で入力してください");
     expect(calls.rejects).toEqual([]);
+  });
+
+  it("#128 C-177（U-1）・レビュー1回目（軽微）: 理由が201文字なら、理由の入力欄に結び付いたエラーで知らせて送らない。入力し直して送れば、エラーは消える", async () => {
+    const calls = respondAdmin();
+    const { user } = renderApp("/accounts");
+    const dialog = await openRejectDialog(user);
+    const field = within(dialog).getByLabelText("却下の理由");
+    await user.click(field);
+    await user.paste("あ".repeat(201));
+    await user.click(within(dialog).getByRole("button", { name: "却下する" }));
+    await waitFor(() =>
+      expect(field.getAttribute("aria-invalid")).toBe("true"),
+    );
+    expect(describedText(field)).toContain("1〜200文字で入力してください");
+    expect(calls.rejects).toEqual([]);
+    await user.clear(field);
+    await user.type(field, TYPED_REASON);
+    await user.click(within(dialog).getByRole("button", { name: "却下する" }));
+    await waitFor(() =>
+      expect(calls.rejects).toEqual([{ id: REQ_ID, body: { reason: REASON } }]),
+    );
+  });
+
+  it("#128 C-177（U-1）・レビュー1回目（軽微）: サーバーが 422 fields: [reason] を返したら、同じ理由の入力欄に結び付いたエラーとして出し、ダイアログは閉じない", async () => {
+    const message = "却下の理由を入力し直してください";
+    respondAdmin({
+      reject: () =>
+        HttpResponse.json(
+          { code: "VALIDATION_ERROR", message, fields: ["reason"] },
+          { status: 422 },
+        ),
+    });
+    const { user } = renderApp("/accounts");
+    const dialog = await openRejectDialog(user);
+    const field = within(dialog).getByLabelText("却下の理由");
+    await user.type(field, TYPED_REASON);
+    await user.click(within(dialog).getByRole("button", { name: "却下する" }));
+    await waitFor(() =>
+      expect(field.getAttribute("aria-invalid")).toBe("true"),
+    );
+    expect(describedText(field)).toContain(message);
+    expect(screen.getByRole("dialog", { name: /却下/ })).toBeTruthy();
   });
 
   it("#128 C-177（U-1）: 再認証が切れていれば、「却下する」で再認証のダイアログを出し、パスワードを入れるまで送らない", async () => {

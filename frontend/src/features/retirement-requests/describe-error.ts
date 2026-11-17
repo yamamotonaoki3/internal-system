@@ -2,7 +2,7 @@
 import type { ApiError } from "../../services/api-client";
 import { NotSentError } from "../accounts";
 
-function isApiError(error: unknown): error is ApiError {
+export function isApiError(error: unknown): error is ApiError {
   return (
     typeof error === "object" &&
     error !== null &&

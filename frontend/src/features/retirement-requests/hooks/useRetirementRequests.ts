@@ -7,7 +7,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { sendWithReauth } from "../../accounts";
-import { useReauth } from "../../auth";
+import { useReauth, useSignedInUserId } from "../../auth";
 import { profileKeys } from "../../profile";
 import {
   createRetirementRequest,
@@ -26,9 +26,12 @@ async function invalidateAfterWrite(queryClient: QueryClient): Promise<void> {
   ]);
 }
 
+// 利用者の ID が確かめられる前は取得しない（キーに入れる ID がないため）
 export function useMyRetirementRequests() {
+  const userId = useSignedInUserId();
   return useInfiniteQuery({
-    queryKey: retirementRequestKeys.mine,
+    queryKey: retirementRequestKeys.mine(userId ?? ""),
+    enabled: userId !== undefined,
     queryFn: ({ pageParam }) => fetchMyRetirementRequests(pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
@@ -37,8 +40,10 @@ export function useMyRetirementRequests() {
 }
 
 export function useReviewRetirementRequests(status: RetirementRequestStatus) {
+  const userId = useSignedInUserId();
   return useInfiniteQuery({
-    queryKey: retirementRequestKeys.review(status),
+    queryKey: retirementRequestKeys.review(userId ?? "", status),
+    enabled: userId !== undefined,
     queryFn: ({ pageParam }) =>
       fetchReviewRetirementRequests(status, pageParam),
     initialPageParam: undefined as string | undefined,

@@ -4,7 +4,8 @@ import type { RetirementRequestStatus } from "./retirement-request-api";
 
 export const retirementRequestKeys = {
   all: ["retirement-requests"] as const,
-  mine: ["retirement-requests", "mine"] as const,
-  review: (status: RetirementRequestStatus) =>
-    ["retirement-requests", "review", status] as const,
+  // 利用者ごとに分ける（利用者の切り替えで、前の利用者の一覧を見せない）
+  mine: (userId: string) => ["retirement-requests", "mine", userId] as const,
+  review: (userId: string, status: RetirementRequestStatus) =>
+    ["retirement-requests", "review", userId, status] as const,
 };

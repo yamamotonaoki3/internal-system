@@ -19,7 +19,7 @@ export function RejectDialog({ request, onClose, onDone }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const reject = useRejectRetirementRequest();
   const [reason, setReason] = useState("");
-  const { error, setError, run } = useMutationError();
+  const { error, fieldError, setFieldError, run } = useMutationError();
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -30,11 +30,12 @@ export function RejectDialog({ request, onClose, onDone }: Props) {
     if (reject.isPending) return;
     const parsed = rejectReasonSchema.safeParse(reason);
     if (!parsed.success) {
-      setError("却下の理由を1〜200文字で入力してください");
+      setFieldError("却下の理由を1〜200文字で入力してください");
       return;
     }
-    const sent = await run(() =>
-      reject.mutateAsync({ id: request.id, reason: parsed.data }),
+    const sent = await run(
+      () => reject.mutateAsync({ id: request.id, reason: parsed.data }),
+      "reason",
     );
     if (sent) onDone();
   }
@@ -59,6 +60,7 @@ export function RejectDialog({ request, onClose, onDone }: Props) {
             label="却下の理由"
             hint="1〜200文字。申請した人に表示されます"
             value={reason}
+            error={fieldError}
             onChange={(event) => setReason(event.target.value)}
           />
           {error !== undefined && (
