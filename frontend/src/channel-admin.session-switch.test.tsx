@@ -5,7 +5,7 @@
 //   channelKeys.archived(userId) = ["channels", "archived", userId]。
 // 同じ QueryClient で利用者 A → B に切り替え、B の応答を保留している間にも A の行が出ないことを確かめる（固定の時間の待ちは使わない）。
 // データはすべて架空。
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authKeys } from "./features/auth";
@@ -22,7 +22,9 @@ import {
   deferred,
   respondAdminChannels,
   respondArchivedItems,
+  respondManageWrites,
 } from "./test/channel-admin-handlers";
+import { TEST_PASSWORD } from "./test/auth-handlers";
 import { server } from "./test/server";
 
 const USER_A = {
@@ -156,5 +158,176 @@ describe("#143-b F8: 利用者の切り替えと一覧のキー", () => {
     expect(rowWith(A_NAME)).toBeDefined();
     gate.release();
     await waitFor(() => expect(rowWith(B_NAME)).toBeDefined());
+  });
+});
+
+// #143-b コードレビュー1回目（重大1）：ページの中の状態（開いているダイアログの対象・完了の通知・絞り込みの入力）も、利用者の切り替えで作り直す
+// （方針：ページを利用者の ID を key にして描画する。ID が確かめられる前は描画しない）。B の応答を保留している間も、A のチャンネルの名前を画面のどこにも出さない。
+describe("#143-b レビュー1回目（重大1）: 利用者の切り替えとページの状態", () => {
+  function world(kind: "admin" | "archived") {
+    const gate = deferred();
+    const state = { user: USER_A };
+    server.use(
+      http.get("/api/auth/session", () =>
+        HttpResponse.json(sessionOf(state.user)),
+      ),
+    );
+    const calls =
+      kind === "admin"
+        ? respondAdminChannels(async () => {
+            if (state.user === USER_A)
+              return {
+                items: [adminChannel(1, { name: A_NAME })],
+                nextCursor: null,
+              };
+            await gate.promise;
+            return {
+              items: [adminChannel(2, { name: B_NAME })],
+              nextCursor: null,
+            };
+          })
+        : respondArchivedItems(async () => {
+            if (state.user === USER_A)
+              return {
+                items: [archivedItem(1, { name: A_NAME })],
+                nextCursor: null,
+              };
+            await gate.promise;
+            return {
+              items: [archivedItem(2, { name: B_NAME })],
+              nextCursor: null,
+            };
+          });
+    return { gate, state, calls };
+  }
+
+  /** 401 の処理と同じく、セッションのキャッシュだけを捨てて B にする。B の一覧の取得が始まるまで待つ */
+  async function switchToB(
+    client: ReturnType<typeof renderApp>["client"],
+    w: ReturnType<typeof world>,
+  ) {
+    const before = w.calls.length;
+    w.state.user = USER_B;
+    act(() => {
+      client.removeQueries({ queryKey: authKeys.session });
+      client.setQueryData(authKeys.session, sessionOf(USER_B));
+    });
+    await waitFor(() => expect(w.calls.length).toBeGreaterThan(before));
+  }
+
+  const showsA = () => document.body.textContent?.includes(A_NAME) ?? false;
+
+  type User = ReturnType<typeof renderApp>["user"];
+
+  async function reauthenticate(user: User) {
+    const reauth = await screen.findByRole("dialog", { name: "再認証" });
+    await user.type(within(reauth).getByLabelText("パスワード"), TEST_PASSWORD);
+    await user.click(within(reauth).getByRole("button", { name: "再認証" }));
+  }
+
+  async function rowA() {
+    await waitFor(() => expect(rowWith(A_NAME)).toBeDefined());
+    const row = rowWith(A_NAME);
+    if (row === undefined) throw new Error("行がありません");
+    return row;
+  }
+
+  async function openArchiveDialog(user: User) {
+    await user.click(
+      within(await rowA()).getByRole("button", { name: `${A_NAME}の操作` }),
+    );
+    const menu = await screen.findByRole("menu");
+    await user.click(
+      within(menu).getByRole("menuitem", { name: "アーカイブ" }),
+    );
+    return screen.findByRole("dialog", {
+      name: `チャンネル「${A_NAME}」をアーカイブしますか`,
+    });
+  }
+
+  async function openRestoreDialog(user: User) {
+    await user.click(
+      within(await rowA()).getByRole("button", { name: "復元" }),
+    );
+    return screen.findByRole("dialog", {
+      name: `チャンネル「${A_NAME}」を復元しますか`,
+    });
+  }
+
+  async function expectNoAAfterRelease(w: ReturnType<typeof world>) {
+    w.gate.release();
+    await waitFor(() => expect(rowWith(B_NAME)).toBeDefined());
+    expect(showsA()).toBe(false);
+  }
+
+  it("#143-b 重大1 (a): S-39 で A がアーカイブのダイアログを開いたまま B に切り替えると、ダイアログが消え、B の応答を待つ間も A の名前がどこにも出ない", async () => {
+    const w = world("admin");
+    const { client, user } = renderApp("/channel-management");
+    expect(await openArchiveDialog(user)).toBeTruthy();
+    await switchToB(client, w);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(showsA()).toBe(false);
+    await expectNoAAfterRelease(w);
+  });
+
+  it("#143-b 重大1 (b): S-39 で A の完了の通知が出ている状態で B に切り替えると、通知が消える", async () => {
+    const w = world("admin");
+    respondManageWrites();
+    const { client, user } = renderApp("/channel-management");
+    const dialog = await openArchiveDialog(user);
+    await user.click(
+      within(dialog).getByRole("button", { name: "アーカイブ" }),
+    );
+    await reauthenticate(user);
+    expect(
+      await screen.findByText(`チャンネル「${A_NAME}」をアーカイブしました`),
+    ).toBeTruthy();
+    await switchToB(client, w);
+    await waitFor(() => expect(showsA()).toBe(false));
+    await expectNoAAfterRelease(w);
+  });
+
+  it("#143-b 重大1 (c): S-38 で A の復元のダイアログを開いたまま B に切り替えると、ダイアログが消える", async () => {
+    const w = world("archived");
+    const { client, user } = renderApp("/archive");
+    expect(await openRestoreDialog(user)).toBeTruthy();
+    await switchToB(client, w);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(showsA()).toBe(false);
+    await expectNoAAfterRelease(w);
+  });
+
+  it("#143-b 重大1 (c): S-38 で A の復元の完了の通知が出ている状態で B に切り替えると、通知が消える", async () => {
+    const w = world("archived");
+    respondManageWrites();
+    const { client, user } = renderApp("/archive");
+    const dialog = await openRestoreDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "復元" }));
+    await reauthenticate(user);
+    expect(
+      await screen.findByText(`チャンネル「${A_NAME}」を復元しました`),
+    ).toBeTruthy();
+    await switchToB(client, w);
+    await waitFor(() => expect(showsA()).toBe(false));
+    await expectNoAAfterRelease(w);
+  });
+
+  it("#143-b 重大1 (d): S-39 の絞り込みの入力（検索語・状態）は、切り替えで初期の状態に戻る", async () => {
+    const w = world("admin");
+    const { client, user } = renderApp("/channel-management");
+    await rowA();
+    await user.type(screen.getByLabelText("名前で検索"), "Aの検索語");
+    await user.selectOptions(screen.getByLabelText("状態"), "使用中");
+    await switchToB(client, w);
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("名前で検索") as HTMLInputElement).value,
+      ).toBe(""),
+    );
+    const state = screen.getByLabelText("状態");
+    if (!(state instanceof HTMLSelectElement))
+      throw new Error("状態の欄が select ではありません");
+    expect(state.selectedOptions[0]?.textContent).toBe("すべて");
+    w.gate.release();
   });
 });
