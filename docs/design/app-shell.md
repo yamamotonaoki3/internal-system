@@ -127,6 +127,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | --- | --- |
 | 確定（実装した） | 4つのまとまり（承認・アカウント・部署・マスタ・記録）／まとまりごとに開閉できる／権限のある項目だけを出す／項目が0個のまとまりは見出しごと出さない／一般メンバーには「管理」自体を出さない |
 | 確定（Issue #131で実装した） | 「承認」のまとまりに「チャンネル承認」（`/channel-approvals`）を足した。`requires`は`perm.channel.request.approve.owner`で、全体管理者と、いずれかの部署のオーナーに出す（`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが申請ごとに行う）。`navigation.ts`の`adminNavGroups`の`approval`の`items`に1件足しただけで、`AdminMenu`の出し分けの仕組みは変えていない。設計は[channel-requests.md](channel-requests.md) |
+| 確定（Issue #156で実装した） | 「マスタ・ログ」のまとまり（`navigation.ts`の`master-log`）に「監査ログ」（`/audit-logs`）を足した。`requires`は`perm.audit_log.view`で、全体管理者だけに出す（`GET /api/auth/session`の`permissions`が根拠。表示の制御であり、認可はサーバーが毎回行う）。まとまりの名前は、コードのまま「マスタ・ログ」（`screens.md`の「マスタ・記録」との違いは、利用者に確認中）。設計は[audit-logs.md](audit-logs.md) |
 | 確定（Issue #196で実装した） | 「部署」のまとまりに「部署管理」（`/departments`。`perm.workspace.create`がある人にだけ出す）を足した。メニューの項目はS-24（一覧）の1つで、S-08（作成）は一覧の「部署を作成」から開く（下の未決定「1項目にまとめるか」は、この実装を暫定として残す）。設計は[department-management.md](department-management.md) |
 | 確定（後続が実装） | 開閉状態を社員ごとに保存する（サイドバーのセクションの開閉と同じ仕組み）／各まとまりに入る項目（承認はS-11（Issue #131で実装済み）・S-29・S-37、アカウントはS-22・S-23・S-28、部署のS-13、マスタ・記録はS-36・S-25） |
 | 未決定（決まるまで推測で作らない） | S-24とS-08を管理メニュー内で1項目にまとめるか／アーカイブの位置の細部／第2段階の画面（S-30・S-31）の置き場／全体管理者が任命された部署の扱い／サイドバーのセクションの折りたたみの細部 |
