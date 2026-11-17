@@ -462,8 +462,28 @@ describe("#156 0-6 AC-2: toAuditLogItem（行の整形）", () => {
     );
   });
 
+  it("#156 0-6 AC-2: アカウント登録以外の操作の失敗は、対象の社員を出し、failureCategory・affectedCount は出さない（detail にあっても）", () => {
+    const item = toAuditLogItem({
+      ...baseRow,
+      action: "account.deactivate",
+      result: "failure",
+      detail: JSON.stringify({ failureCategory: "x", affectedCount: 1 }),
+    });
+    expect(item.target).toMatchObject({ label: "testuser_156s_対象" });
+    expect(item).not.toHaveProperty("failureCategory");
+    expect(item).not.toHaveProperty("affectedCount");
+  });
+
   it("#156 0-6 AC-2: detail が null・壊れた JSON・配列・文字列でも、例外にせず、決めた項目なしで整形する", () => {
-    for (const detail of [null, "{broken", "[1,2]", '"text"', "123"]) {
+    for (const detail of [
+      null,
+      "{broken",
+      "[1,2]",
+      '"text"',
+      "123",
+      "null",
+      "true",
+    ]) {
       const item = toAuditLogItem({ ...baseRow, detail });
       expect(Object.keys(item).sort()).toEqual(
         ["action", "actor", "id", "occurredAt", "result", "target"].sort(),

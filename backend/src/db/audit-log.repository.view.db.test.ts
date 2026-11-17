@@ -328,6 +328,13 @@ describe("#156 0-6 AC-6: 読み直し用の事実 findViewerFacts（D1）", () =
     expect(result.isUserActive).toBe(false);
   });
 
+  it("#156 0-6 AC-6: 利用者の行がない（存在しない ID）なら、isUserActive は false（有効なら true）", async () => {
+    expect((await facts("01JTEST156VNOUSER0000000000")).isUserActive).toBe(
+      false,
+    );
+    expect((await facts()).isUserActive).toBe(true);
+  });
+
   it("#156 0-6 AC-6: 全体管理者のロールがない・会社の範囲でない利用者は、isGlobalAdmin が false", async () => {
     await env.DB.prepare("DELETE FROM user_role_assignments WHERE user_id = ?")
       .bind(viewer)

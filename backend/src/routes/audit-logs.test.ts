@@ -253,8 +253,20 @@ describe("#156 0-6 AC-3: 入力の検証（HTTP。全体管理者）", () => {
     ["件数が上限（100）を超える", { limit: 101 }, ["limit"]],
     ["件数が数でない", { limit: "abc" }, ["limit"]],
     ["壊れたカーソル", { cursor: "broken!!" }, ["cursor"]],
-    ["対象の種類だけ", { targetType: "user" }, null],
-    ["対象の ID だけ", { targetId: "01JTEST156RTTGT00000000001" }, null],
+    ["月が0（to）", { to: "2026-00-10" }, ["to"]],
+    ["月が13（from）", { from: "2026-13-01" }, ["from"]],
+    ["平年の2月29日（from）", { from: "2100-02-29" }, ["from"]],
+    ["30日までの月の31日（to）", { to: "2026-04-31" }, ["to"]],
+    ["年が100未満の日付（from）", { from: "0050-01-01" }, ["from"]],
+    ["前に余分な文字（from）", { from: "x2026-11-17" }, ["from"]],
+    ["後ろに余分な文字（to）", { to: "2026-11-17x" }, ["to"]],
+    ["前後に余分な文字（from）", { from: " 2026-11-17 " }, ["from"]],
+    ["対象の種類だけ", { targetType: "user" }, ["targetId"]],
+    [
+      "対象の ID だけ",
+      { targetId: "01JTEST156RTTGT00000000001" },
+      ["targetType"],
+    ],
     ["余分な項目", { unknown: 1 }, null],
   ])(
     "#156 0-6 AC-3: %sは 422 VALIDATION_ERROR で、閲覧の記録を残さない",
@@ -278,6 +290,7 @@ describe("#156 0-6 AC-3: 入力の検証（HTTP。全体管理者）", () => {
       { action: "audit_log.view" },
       { result: "failure" },
       { targetType: "source", targetId: "01JTEST156RTTGT00000000001" },
+      { from: "2000-02-29", to: "2024-02-29" },
     ])
       expect(
         (await search(admin.token, body)).status,

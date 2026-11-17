@@ -78,7 +78,12 @@ test("#156 0-6 AC-1〜AC-6: 全体管理者がメニューから開き、操作�
 
   // ---- 操作した人で絞り込む（行の「この人で絞り込む」）→ 29件（20 + さらに読み込む で 9）----
   await first.getByRole("button", { name: /この人で絞り込む/ }).click();
-  await expect(page.getByText(`操作した人：${ACTOR_DISPLAY}`)).toBeVisible();
+  // 表の各行のセルにも表示名があるため、絞り込みのフォームの中の「操作した人：○○」の表示だけを、全文一致で探す
+  await expect(
+    page
+      .getByRole("form", { name: "絞り込み" })
+      .getByText(`操作した人：${ACTOR_DISPLAY}`, { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "絞り込む", exact: true }).click();
   await expect(dataRows(page)).toHaveCount(20);
   await page.getByRole("button", { name: "さらに読み込む" }).click();
