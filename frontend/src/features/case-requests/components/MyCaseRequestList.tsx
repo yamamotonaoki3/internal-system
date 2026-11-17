@@ -52,6 +52,9 @@ export function MyCaseRequestList({ onResubmit }: Props) {
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-bold">{item.title}</span>
               <span className="text-sm">{STATUS_LABELS[item.status]}</span>
+              {item.caseNumber !== null && (
+                <span className="text-sm">案件番号：{item.caseNumber}</span>
+              )}
               {item.status === "pending" && (
                 <span className="ml-auto">
                   <Button

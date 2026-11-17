@@ -192,6 +192,8 @@ export function authRoutes(
           ...(canReview ? ["perm.channel.request.approve.owner"] : []),
           // いずれかの部署のオーナー（#128：自分の退職処理の申請への入口の表示）
           ...(ownsDepartment ? ["perm.workspace.manage"] : []),
+          // 案件の作成申請の審査者（#146）も、チャンネルの作成申請と同じ判定（全体管理者か、いずれかの部署のオーナー）
+          ...(canReview ? ["perm.case.request.approve"] : []),
         ],
       });
     });

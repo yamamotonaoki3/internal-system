@@ -781,3 +781,83 @@ export const retirementRequests = sqliteTable(
     index("retirement_requests_status_id_idx").on(t.status, t.id),
   ],
 );
+
+// 案件（#146 の 146-B）。承認の batch で、申請から作る。number_client_id は発行時の取引先（案件番号の英字の元）、client_id は現在の取引先。
+// request_id は申請の case_id と同じく外部キーにしない（将来の物理削除を止めないため）。アーカイブの列は #150 以降で足す
+export const cases = sqliteTable(
+  "cases",
+  {
+    id: text("id").primaryKey(),
+    caseNumber: text("case_number").notNull().unique(),
+    numberClientId: text("number_client_id")
+      .notNull()
+      .references(() => clients.id),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id),
+    channelId: text("channel_id")
+      .notNull()
+      .unique()
+      .references(() => channels.roomId),
+    requestId: text("request_id").notNull().unique(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    dueDate: text("due_date"),
+    status: text("status", { enum: ["active", "closed"] })
+      .notNull()
+      .default("active"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    approvedBy: text("approved_by")
+      .notNull()
+      .references(() => users.id),
+    version: integer("version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(nowUtc),
+    updatedAt: text("updated_at").notNull().default(nowUtc),
+  },
+  (t) => [
+    check(
+      "cases_case_number_check",
+      // D1 は GLOB のパターンの長さに上限があるため、英字・日付・連番の部分ごとに確かめる
+      sql`length(${t.caseNumber}) = 15 and substr(${t.caseNumber}, 1, 3) glob '[A-Z][A-Z][A-Z]' and substr(${t.caseNumber}, 4, 1) = '-' and substr(${t.caseNumber}, 5, 6) glob '[0-9][0-9][0-9][0-9][0-9][0-9]' and substr(${t.caseNumber}, 11, 1) = '-' and substr(${t.caseNumber}, 12, 4) glob '[0-9][0-9][0-9][0-9]'`,
+    ),
+    check("cases_status_check", sql`${t.status} in ('active', 'closed')`),
+    index("cases_client_id_title_idx").on(t.clientId, t.title),
+  ],
+);
+
+export const caseDepartments = sqliteTable(
+  "case_departments",
+  {
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id),
+    departmentId: text("department_id")
+      .notNull()
+      .references(() => departments.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.caseId, t.departmentId] }),
+    index("case_departments_department_id_idx").on(t.departmentId),
+  ],
+);
+
+// 案件番号の連番（取引先ごと・日本時間の西暦の年ごと）。案件を消しても戻さない（C-117）
+export const caseNumberSequences = sqliteTable(
+  "case_number_sequences",
+  {
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id),
+    year: integer("year").notNull(),
+    lastNumber: integer("last_number").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clientId, t.year] }),
+    check(
+      "case_number_sequences_last_number_check",
+      sql`${t.lastNumber} between 1 and 9999`,
+    ),
+  ],
+);

@@ -4396,6 +4396,84 @@
       }
     },
     "/api/case-requests": {
+      "get": {
+        "operationId": "listReviewableCaseRequests",
+        "summary": "案件の作成申請の審査一覧を新しい順に取得する（EP-5-03）",
+        "description": "審査者（全体管理者か、いずれかの部署のオーナー）だけ。全体管理者は全部、オーナーは担当部署のどれかが自分の部署の申請。ID の降順のカーソル方式。",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "withdrawn",
+                "auto_cancelled"
+              ]
+            },
+            "description": "状態で絞り込む"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "審査一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestReviewPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者でない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
       "post": {
         "operationId": "createCaseRequest",
         "summary": "案件の作成を申請する（EP-5-01）",
@@ -4992,6 +5070,172 @@
           },
           "409": {
             "description": "すでに処理されている（reason: not_pending）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/{requestId}/approve": {
+      "post": {
+        "operationId": "approveCaseRequest",
+        "summary": "案件の作成申請を承認する（EP-5-04）",
+        "description": "案件・案件専用チャンネル（非公開・名前は案件番号）を作り、申請者・候補・全担当部署の有効なオーナー・有効な全体管理者を参加させる。再認証は不要（C-81）。申請者へ通知する（決裁者が申請者なら送らない）。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseRequestApprove"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "承認の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestApproved"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者でない・全体管理者でないオーナーの自分の申請・決裁の時点で資格がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または審査の範囲外（同じ本文）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている・担当部署／取引先／候補が無効・案件番号が上限・採番の競合",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/case-requests/{requestId}/reject": {
+      "post": {
+        "operationId": "rejectCaseRequest",
+        "summary": "案件の作成申請を却下する（EP-5-05）",
+        "description": "理由を付けて却下する。担当部署・取引先・候補が無効でも却下できる。再認証は不要（C-81）。申請者へ通知する（決裁者が申請者なら送らない）。",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseRequestReject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "却下の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRequestRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "審査者でない・全体管理者でないオーナーの自分の申請・決裁の時点で資格がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "申請がない、または審査の範囲外（同じ本文）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに処理されている",
             "content": {
               "application/json": {
                 "schema": {
@@ -8065,6 +8309,7 @@
           "status",
           "rejectReason",
           "caseId",
+          "caseNumber",
           "resubmittedFrom",
           "createdAt",
           "decidedAt"
@@ -8176,6 +8421,13 @@
               "null"
             ]
           },
+          "caseNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "承認済みなら案件番号（英大文字3文字-YYMMDD-4桁）、それ以外は null（146-B）"
+          },
           "resubmittedFrom": {
             "type": [
               "string",
@@ -8237,6 +8489,272 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CaseRequestReviewItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "dueDate",
+          "client",
+          "departments",
+          "candidates",
+          "status",
+          "rejectReason",
+          "caseId",
+          "resubmittedFrom",
+          "createdAt",
+          "decidedAt",
+          "requesterId",
+          "requesterDisplayName",
+          "hasSimilarTitle",
+          "canApprove"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "code",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "申請の後に無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "userId",
+                "displayName",
+                "isActive"
+              ],
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean",
+                  "description": "申請の後に無効になった候補は false"
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "withdrawn",
+              "auto_cancelled"
+            ],
+            "description": "審査中・承認済み・却下・取り下げ・自動取消（申請者の無効化による）"
+          },
+          "rejectReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resubmittedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "requesterId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "requesterDisplayName": {
+            "type": "string"
+          },
+          "hasSimilarTitle": {
+            "type": "boolean",
+            "description": "自分自身を除き、同じ取引先の審査中の申請か案件（進行中・終了）に、件名が完全一致するものがあるか"
+          },
+          "canApprove": {
+            "type": "boolean",
+            "description": "審査中で、決裁できる（全体管理者、または自分の申請でない担当部署のオーナー）ときだけ true"
+          }
+        }
+      },
+      "CaseRequestReviewPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseRequestReviewItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CaseRequestApprove": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "additionalCandidateIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "description": "承認者が足す候補（重複不可・件数の上限なし）"
+          }
+        }
+      },
+      "CaseRequestApproved": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status",
+          "caseId",
+          "caseNumber",
+          "roomId"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "approved"
+          },
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "caseNumber": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}-[0-9]{6}-[0-9]{4}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "案件専用チャンネル（非公開）の部屋 ID"
+          }
+        }
+      },
+      "CaseRequestReject": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "前後の空白を除いて 1〜200 文字"
+          }
+        }
+      },
+      "CaseRequestRejected": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "rejected"
           }
         }
       },

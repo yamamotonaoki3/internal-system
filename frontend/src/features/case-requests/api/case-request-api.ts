@@ -1,16 +1,16 @@
-// API 層：案件の作成申請（申請・自分の申請・取り下げ・類似件名の確認）と、申請の欄の候補（取引先・部署・社員）の通信はここに書く。
+// API 層：案件の作成申請（申請・自分の申請・取り下げ・類似件名の確認・審査一覧・承認・却下）と、申請の欄の候補（取引先・部署・社員）の通信はここに書く。
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
 
-const STATUSES = [
+export const CASE_REQUEST_STATUSES = [
   "pending",
   "approved",
   "rejected",
   "withdrawn",
   "auto_cancelled",
 ] as const;
-const statusSchema = z.enum(STATUSES);
+const statusSchema = z.enum(CASE_REQUEST_STATUSES);
 
 const itemSchema = z.object({
   id: z.string().min(1),
@@ -36,6 +36,7 @@ const itemSchema = z.object({
   status: statusSchema,
   rejectReason: z.string().nullable(),
   caseId: z.string().nullable(),
+  caseNumber: z.string().nullable(),
   resubmittedFrom: z.string().nullable(),
   createdAt: z.string(),
   decidedAt: z.string().nullable(),
@@ -43,6 +44,35 @@ const itemSchema = z.object({
 const pageSchema = z.object({
   items: z.array(itemSchema),
   nextCursor: z.string().nullable(),
+});
+// 審査一覧の項目：自分の申請の項目（案件番号を除く）に、申請者・候補の有効・類似件名・決裁できるかを足したもの
+const reviewItemSchema = itemSchema.omit({ caseNumber: true }).extend({
+  candidates: z.array(
+    z.object({
+      userId: z.string().min(1),
+      displayName: z.string(),
+      isActive: z.boolean(),
+    }),
+  ),
+  requesterId: z.string().min(1),
+  requesterDisplayName: z.string(),
+  hasSimilarTitle: z.boolean(),
+  canApprove: z.boolean(),
+});
+const reviewPageSchema = z.object({
+  items: z.array(reviewItemSchema),
+  nextCursor: z.string().nullable(),
+});
+const approvedSchema = z.object({
+  requestId: z.string().min(1),
+  status: z.literal("approved"),
+  caseId: z.string().min(1),
+  caseNumber: z.string(),
+  roomId: z.string().min(1),
+});
+const rejectedSchema = z.object({
+  requestId: z.string().min(1),
+  status: z.literal("rejected"),
 });
 const createdSchema = itemSchema.extend({
   titleFormatted: z.boolean(),
@@ -71,6 +101,8 @@ const userPageSchema = z.object({
 export type CaseRequestStatus = z.infer<typeof statusSchema>;
 export type CaseRequestItem = z.infer<typeof itemSchema>;
 export type CaseRequestPage = z.infer<typeof pageSchema>;
+export type CaseRequestReviewItem = z.infer<typeof reviewItemSchema>;
+export type CaseRequestReviewPage = z.infer<typeof reviewPageSchema>;
 export type CreatedCaseRequest = z.infer<typeof createdSchema>;
 export type Choice = z.infer<typeof choiceSchema>;
 export type CandidateUser = { id: string; displayName: string };
@@ -106,6 +138,35 @@ export async function withdrawCaseRequest(requestId: string) {
     `/case-requests/${encodeURIComponent(requestId)}/withdraw`,
   );
   return withdrawnSchema.parse(response.data);
+}
+
+export async function fetchReviewCaseRequests(
+  status: CaseRequestStatus,
+  cursor?: string,
+): Promise<CaseRequestReviewPage> {
+  const response = await apiClient.get("/case-requests", {
+    params: { status, cursor },
+  });
+  return reviewPageSchema.parse(response.data);
+}
+
+export async function approveCaseRequest(
+  requestId: string,
+  additionalCandidateIds: string[],
+) {
+  const response = await apiClient.post(
+    `/case-requests/${encodeURIComponent(requestId)}/approve`,
+    { additionalCandidateIds },
+  );
+  return approvedSchema.parse(response.data);
+}
+
+export async function rejectCaseRequest(requestId: string, reason: string) {
+  const response = await apiClient.post(
+    `/case-requests/${encodeURIComponent(requestId)}/reject`,
+    { reason },
+  );
+  return rejectedSchema.parse(response.data);
 }
 
 export async function checkSimilarTitle(input: {

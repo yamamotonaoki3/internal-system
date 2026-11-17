@@ -27,6 +27,8 @@ export type CaseRequestItem = {
   status: CaseRequestStatus;
   rejectReason: string | null;
   caseId: string | null;
+  /** 146-B：承認済みなら案件番号、それ以外は null */
+  caseNumber: string | null;
   resubmittedFrom: string | null;
   createdAt: string;
   decidedAt: string | null;
@@ -89,6 +91,7 @@ export function caseRequestItem(
     status: "pending",
     rejectReason: null,
     caseId: null,
+    caseNumber: null,
     resubmittedFrom: null,
     createdAt: NOW,
     decidedAt: null,
