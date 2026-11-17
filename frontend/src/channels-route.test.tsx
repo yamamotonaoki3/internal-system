@@ -135,6 +135,13 @@ describe("#200 AC-2 /channels/:channelId", () => {
           departmentId: null,
           joined: true,
           isCaseChannel: false,
+          // #143：詳細の応答に version・manage（必須）が加わった
+          version: 1,
+          manage: {
+            canRename: false,
+            canEditDescription: false,
+            canArchive: false,
+          },
           // #201：詳細の応答に canPost が加わった
           canPost: true,
           // #134：詳細の応答に readOnly（部署が無効）が加わった

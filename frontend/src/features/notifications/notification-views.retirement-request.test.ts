@@ -14,6 +14,8 @@ const item = (kind: string) => ({
   targetId: REQUEST_ID,
   createdAt: "2026-11-17T00:00:00.000Z",
   readAt: null,
+  reason: null,
+  roomArchived: false,
 });
 
 describe("#128 3-4 AC-1・AC-2 退職処理の申請の通知の文言と移動先", () => {

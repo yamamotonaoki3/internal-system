@@ -57,6 +57,13 @@ function respondDetail() {
         visibility: "public",
         departmentId: null,
         isCaseChannel: false,
+        // #143：詳細の応答に version・manage（必須）が加わった
+        version: 1,
+        manage: {
+          canRename: false,
+          canEditDescription: false,
+          canArchive: false,
+        },
         readOnly: false,
         joined: true,
         canPost: true,

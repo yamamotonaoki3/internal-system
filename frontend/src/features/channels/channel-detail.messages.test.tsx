@@ -33,6 +33,13 @@ function respondDetail(body: Record<string, unknown>) {
         visibility: "public",
         departmentId: null,
         isCaseChannel: false,
+        // #143：詳細の応答に version・manage（必須）が加わった
+        version: 1,
+        manage: {
+          canRename: false,
+          canEditDescription: false,
+          canArchive: false,
+        },
         // #134：詳細の応答に readOnly（部署が無効）が加わった
         readOnly: false,
         ...body,

@@ -31,6 +31,9 @@ const KINDS = {
   "retirement_request.rejected": { containsRoomContent: false },
   "case_request.approved": { containsRoomContent: false },
   "case_request.rejected": { containsRoomContent: false },
+  // チャンネルのアーカイブ・復元（#143）：権限を失っても残す（3-4 AC-5）。target_id はその回のアーカイブの記録
+  "channel.archived": { containsRoomContent: false },
+  "channel.restored": { containsRoomContent: false },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;
