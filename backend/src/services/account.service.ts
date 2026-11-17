@@ -1,7 +1,7 @@
 // Service：アカウントの個別発行と管理者用の一覧。HTTP（Hono）も DB のライブラリも知らない。
 // 処理の順序：認可（全体管理者だけ）→ 部署の確認（422）→ 初期パスワードと本名の保護 → 保存 → 重複は 409。
 // 初期パスワードは、ハッシュにしたものだけを保存する。平文は呼び出し元への戻り値にだけ入れ、ログ・監査・エラーには入れない。
-// 無効化・再有効化（#128）の判定の順：404 → 403 → 422 → 再認証 → 409。書き込みの前提が崩れたら、同じ判定を読み直して理由を決める。
+// 無効化・再有効化・部署異動（#128）の判定の順：404 → 403 → 422 → 再認証 → 409。書き込みの前提が崩れたら、同じ判定を読み直して理由を決める。
 import {
   AccountConflictError,
   AccountStateChangedError,
@@ -36,6 +36,20 @@ export type AccountReactivated = {
 
 type LifecycleConflictReason =
   "already_inactive" | "global_admin" | "department_owner" | "already_active";
+
+type TransferConflictReason = "inactive" | "department_owner";
+
+const TRANSFER_CONFLICT_MESSAGES: Record<TransferConflictReason, string> = {
+  inactive: "無効な社員は異動できません",
+  department_owner:
+    "この社員は部署のオーナーです。先にオーナーを交代してください",
+};
+
+function transferConflict(reason: TransferConflictReason): AppError {
+  return new AppError("CONFLICT", TRANSFER_CONFLICT_MESSAGES[reason], {
+    reason,
+  });
+}
 
 const LIFECYCLE_CONFLICT_MESSAGES: Record<LifecycleConflictReason, string> = {
   already_inactive: "このアカウントはすでに無効です",
@@ -174,6 +188,38 @@ export function createAccountService(
     if (target.isActive) throw lifecycleConflict("already_active");
   }
 
+  /** 異動の判定（最初と、前提が崩れた後の読み直しで同じものを使う）。異動元の部署を返す */
+  async function decideTransfer(
+    actor: AccountLifecycleActor,
+    targetId: string,
+    toDepartmentId: string,
+  ): Promise<string> {
+    const target = await repository.findTransferState(targetId);
+    if (target === null) {
+      throw new AppError("NOT_FOUND", "アカウントが見つかりません");
+    }
+    await authorizeFor(actor, "perm.employee.info.edit");
+    const department = await repository.findActiveDepartment(toDepartmentId);
+    if (department === null) {
+      throw new AppError("VALIDATION_ERROR", "入力内容を確かめてください", {
+        fields: ["departmentId"],
+      });
+    }
+    if (target.departmentId === toDepartmentId) {
+      throw new AppError("VALIDATION_ERROR", "今と同じ部署には異動できません", {
+        fields: ["departmentId"],
+      });
+    }
+    assertRecentReauth(actor.reauthenticatedAt);
+    if (!target.isActive || target.departmentId === null) {
+      throw transferConflict("inactive");
+    }
+    if (target.ownedDepartmentIds.includes(target.departmentId)) {
+      throw transferConflict("department_owner");
+    }
+    return target.departmentId;
+  }
+
   return {
     /** 管理者かどうかだけを確かめる（入力の検証より前に、Controller が呼ぶ） */
     authorize,
@@ -295,6 +341,24 @@ export function createAccountService(
         }),
       );
       return { id: targetId, initialPassword };
+    },
+    async transfer(
+      actor: AccountLifecycleActor,
+      targetId: string,
+      input: { departmentId: string },
+    ): Promise<void> {
+      const decide = () => decideTransfer(actor, targetId, input.departmentId);
+      const fromDepartmentId = await decide();
+      await writeWithRecheck(decide, () =>
+        repository.transfer({
+          targetId,
+          fromDepartmentId,
+          toDepartmentId: input.departmentId,
+          actorId: actor.userId,
+          now: new Date().toISOString(),
+          traceId: actor.traceId,
+        }),
+      );
     },
   };
 }
