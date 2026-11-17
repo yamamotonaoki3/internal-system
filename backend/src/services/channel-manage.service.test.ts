@@ -760,3 +760,64 @@ describe("#143 同時の操作：書き込みの後の読み直し（名前・�
     expect(fake.update).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("#143 ミューテーションの生き残り（案件専用・種類の 409 の使い分け）", () => {
+  it("#143 a-AC-4（D-2）: 案件専用チャンネルへの名前の変更・アーカイブ・復元は、それぞれ 409 で、宛先も読まず書き込みも呼ばない", async () => {
+    const updated = fakeRepository({ rows: [row({ purpose: "case" })] });
+    expectAppError(
+      (await doUpdate(updated, fakeAuthorizer(true), { name: "改名" })).error,
+      "CONFLICT",
+    );
+    const archived = fakeRepository({ rows: [row({ purpose: "case" })] });
+    expectAppError(
+      (await doArchive(archived, fakeAuthorizer(true))).error,
+      "CONFLICT",
+    );
+    const restored = fakeRepository({
+      rows: [archivedRow({ purpose: "case" })],
+    });
+    expectAppError(
+      (await doRestore(restored, fakeAuthorizer(true))).error,
+      "CONFLICT",
+    );
+    for (const fake of [updated, archived, restored]) {
+      expect(fake.update).not.toHaveBeenCalled();
+      expect(fake.archive).not.toHaveBeenCalled();
+      expect(fake.restore).not.toHaveBeenCalled();
+      expect(fake.listNotifyRecipients).not.toHaveBeenCalled();
+    }
+  });
+
+  it("#143 a-AC-2・a-AC-3: 種類による 409 の文言は、アーカイブと復元で使い分け、どちらも「すでに処理」の文言ではない", async () => {
+    const archive = await doArchive(
+      fakeRepository({ rows: [row({ purpose: "department" })] }),
+      fakeAuthorizer(true),
+    );
+    const restore = await doRestore(
+      fakeRepository({ rows: [archivedRow({ purpose: "department" })] }),
+      fakeAuthorizer(true),
+    );
+    const a = expectAppError(archive.error, "CONFLICT").userMessage;
+    const r = expectAppError(restore.error, "CONFLICT").userMessage;
+    expect(a).not.toBe(r);
+    expect([a, r]).not.toContain(MESSAGES.alreadyProcessed);
+    expect(a).toContain("アーカイブ");
+    expect(r).toContain("復元");
+  });
+
+  it("#143 a-AC-1: 名前を送らない説明だけの変更では、書き込みに name を渡さない（説明だけのときも同様に name のみ）", async () => {
+    const descOnly = fakeRepository({ rows: [row()] });
+    await doUpdate(descOnly, fakeAuthorizer(true), { description: "説明" });
+    const input = descOnly.update.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(input).not.toHaveProperty("name");
+    expect(input.description).toBe("説明");
+    const nameOnly = fakeRepository({ rows: [row()] });
+    await doUpdate(nameOnly, fakeAuthorizer(true), { name: "名前" });
+    const input2 = nameOnly.update.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(input2).not.toHaveProperty("description");
+    expect(input2.name).toBe("名前");
+  });
+});

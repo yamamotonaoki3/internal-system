@@ -1003,3 +1003,98 @@ describe("#143 重大3（コードレビュー1回目）既読の API が返す�
     expect(await json(other)).toEqual(await json(missing));
   });
 });
+
+describe("#143 ミューテーションの生き残り（詳細の manage の全組・未指定の項目）", () => {
+  const NONE = {
+    canRename: false,
+    canEditDescription: false,
+    canArchive: false,
+  };
+  const ALL = { canRename: true, canEditDescription: true, canArchive: true };
+  const DESCRIPTION_ONLY = {
+    canRename: false,
+    canEditDescription: true,
+    canArchive: false,
+  };
+
+  it.each([
+    ["全体管理者", "admin", "dedicated", DESCRIPTION_ONLY],
+    ["他部署のオーナー", "ownerB", "dedicated", NONE],
+    ["一般の参加者", "member", "dedicated", NONE],
+    ["自部署のオーナー", "ownerA", "announcement", DESCRIPTION_ONLY],
+    ["全体管理者", "admin", "announcement", DESCRIPTION_ONLY],
+    ["一般の参加者", "member", "announcement", NONE],
+    ["自部署のオーナー", "ownerA", "companyGeneral", NONE],
+    ["一般の社員", "member", "companyGeneral", NONE],
+    ["全体管理者（参加中）", "admin", "case", NONE],
+    ["自部署のオーナー（参加中）", "ownerA", "case", NONE],
+    ["参加していない一般の社員", "member2", "publicNotJoined", NONE],
+    ["参加していない自部署のオーナー", "ownerA", "publicNotJoined", ALL],
+    ["全体管理者", "admin", "companyDirect", ALL],
+    ["自部署のオーナー", "ownerA", "companyDirect", NONE],
+  ] as const)(
+    "#143 a-AC-6（計画 1章）: %s（%s）が %s の詳細を開くと、manage は計画の表のとおり",
+    async (_label, who, target, expected) => {
+      const users = { ownerA, member, member2, ownerB, admin } as const;
+      const room =
+        target === "dedicated"
+          ? deptA.dedicatedChannelId
+          : target === "announcement"
+            ? deptA.announcementChannelId
+            : target === "companyGeneral"
+              ? COMPANY_GENERAL_ROOM_ID
+              : target === "case"
+                ? await insertManagedChannel("管理詳細案件", {
+                    departmentId: deptA.id,
+                    purpose: "case",
+                    visibility: "private",
+                    members: [admin.userId, ownerA.userId],
+                  })
+                : target === "publicNotJoined"
+                  ? await insertManagedChannel("管理詳細未参加", {
+                      departmentId: deptA.id,
+                      members: [member.userId],
+                    })
+                  : await insertManagedChannel("管理詳細会社直属", {
+                      departmentId: null,
+                      members: [admin.userId],
+                    });
+      const response = await detail(room, users[who].token);
+      expect(response.status).toBe(200);
+      expect((await json(response)).manage).toEqual(expected);
+    },
+  );
+
+  it("#143 a-AC-1: 名前だけの PATCH では説明が、説明だけの PATCH では名前が変わらない。監査の fields は変えた項目だけ", async () => {
+    const room = await channelA("未指定の項目");
+    await patch(
+      room,
+      { version: await channelVersion(room), description: "元の説明" },
+      ownerA.token,
+    );
+    const renamed = await patch(
+      room,
+      { version: await channelVersion(room), name: "管理名前だけ" },
+      ownerA.token,
+    );
+    expect(renamed.status).toBe(200);
+    expect(await managedChannelRow(room)).toMatchObject({
+      name: "管理名前だけ",
+      description: "元の説明",
+    });
+    const described = await patch(
+      room,
+      { version: await channelVersion(room), description: "新しい説明" },
+      ownerA.token,
+    );
+    expect(described.status).toBe(200);
+    expect(await managedChannelRow(room)).toMatchObject({
+      name: "管理名前だけ",
+      description: "新しい説明",
+    });
+    const fields = (await manageAudits(room, "channel.update")).map(
+      (row) => (JSON.parse(row.detail ?? "{}") as { fields: string }).fields,
+    );
+    expect(fields).toEqual(["description", "name", "description"]);
+  });
+});

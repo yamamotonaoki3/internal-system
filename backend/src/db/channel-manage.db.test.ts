@@ -865,3 +865,86 @@ describe("#143 重大2（コードレビュー1回目）宛先が多いチャン
     expect(await manageSnapshot(room)).toEqual(before);
   });
 });
+
+describe("#143 ミューテーションの生き残り（未指定の項目・宛先0人・エラーの変換）", () => {
+  afterEach(async () => {
+    await env.DB.exec("DROP TRIGGER IF EXISTS unit_fail_channel_update");
+  });
+
+  it("#143 a-AC-1: 名前だけを変えると、説明は変わらず、監査の detail は name だけ", async () => {
+    const room = await channelA("名前だけ");
+    await env.DB.prepare(
+      "UPDATE channels SET description = ? WHERE room_id = ?",
+    )
+      .bind(`${TEST_TAG}元の説明`, room)
+      .run();
+    await update(room, ownerA, { name: `${TEST_TAG}管理DB名前だけ後` });
+    expect(await managedChannelRow(room)).toMatchObject({
+      name: `${TEST_TAG}管理DB名前だけ後`,
+      description: `${TEST_TAG}元の説明`,
+    });
+    expect(
+      JSON.parse(
+        (await manageAudits(room, "channel.update"))[0]?.detail ?? "null",
+      ),
+    ).toEqual({ fields: "name" });
+  });
+
+  it("#143 a-AC-5（D-5）: 参加者が操作した本人だけなら、復元も通知0件で成功する", async () => {
+    const room = await channelA("復元の本人だけ", [ownerA]);
+    const eventId = await markArchived(room, ownerA);
+    expect(
+      await restore(room, ownerA, { eventId, recipientIds: [] }),
+    ).not.toBeNull();
+    expect(await archiveNotifications(room)).toEqual([]);
+    expect((await managedChannelRow(room))?.deleted_at).toBeNull();
+  });
+
+  it("#143 a-AC-3: 存在しないチャンネルの復元は null で、記録・監査・通知を残さない", async () => {
+    const missing = testId("NOROOM");
+    expect(
+      await withChannels(env, (r) =>
+        r.restore({
+          roomId: missing,
+          actorId: admin,
+          version: 1,
+          eventId: testId("ARCV"),
+          recipientIds: [],
+          traceId: manageTraceId(),
+        }),
+      ),
+    ).toBeNull();
+    expect(await manageAudits(missing)).toEqual([]);
+    expect(await archiveNotifications(missing)).toEqual([]);
+  });
+
+  it.each(["update", "archive", "restore"] as const)(
+    "#143 error-api: %s で、一意索引・前提の確認以外の DB のエラーは変換せずにそのまま伝わり、何も残らない",
+    async (operation) => {
+      const room = await channelA(`未知のエラー${operation}`);
+      const eventId =
+        operation === "restore" ? await markArchived(room, ownerA) : "";
+      const before = await manageSnapshot(room);
+      await env.DB.exec(
+        "CREATE TRIGGER unit_fail_channel_update BEFORE UPDATE OF deleted_at, description ON channels BEGIN SELECT RAISE(ABORT, 'unit test failure'); END",
+      );
+      const recipients = sorted([member, member2]);
+      const run =
+        operation === "update"
+          ? update(room, ownerA, { description: `${TEST_TAG}未知` })
+          : operation === "archive"
+            ? archive(room, ownerA, { recipientIds: recipients })
+            : restore(room, ownerA, { eventId, recipientIds: recipients });
+      const error = await run.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(ChannelManageConflictError);
+      expect(error).not.toBeInstanceOf(ChannelNameTakenError);
+      expect(String((error as Error).message)).toContain("unit test failure");
+      await env.DB.exec("DROP TRIGGER IF EXISTS unit_fail_channel_update");
+      expect(await manageSnapshot(room)).toEqual(before);
+    },
+  );
+});
