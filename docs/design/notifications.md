@@ -19,7 +19,7 @@
 | 3-4 AC-1・2（申請の提出・審査結果） | 宛先を呼び出し側が渡す作成部品を、業務の`db.batch`に入れられる形で提供。本人宛てだけの一覧 | #131（チャンネル作成申請）・#146（案件作成申請）・#128（無効化・異動・退職処理の申請。**退職処理の申請は128-cで満たした**）・#153（再開申請） |
 | 3-4 AC-3（関係しない社員に送らない・メールなし） | 一覧・未読数・既読はすべて「本人宛て」の条件を通る。メール送信の仕組みは作らない | 各Issueが宛先の選定をテストする |
 | 3-4 AC-4（お知らせの依頼・緊急削除・取消・直接削除） | 種類の定義元と画面の対応表に1件ずつ足せる作り | #142（理由の列もここで足す） |
-| 3-4 AC-5（アーカイブ・復元） | 通知を消さずに残す。種類ごとに部屋の可視性による除外を外せる作り | #143・#151 |
+| 3-4 AC-5（アーカイブ・復元） | 通知を消さずに残す。種類ごとに部屋の可視性による除外を外せる作り（**チャンネルの分は#143の143-aで満たした**。下の「チャンネルのアーカイブ・復元の通知」。案件の分は#151） | #143・#151 |
 | 3-1 AC-3（参考） | `room_id`列と、読み取りの条件を1関数に集めた【Issue #237で、部屋の閲覧条件を足した】 | #133（#237で実装） |
 | 3-2・3-3（参考） | 同上 | #139・#150 |
 
@@ -71,7 +71,7 @@
 1. `perm.notification.own`（全ロール可）を会社範囲で認可。宛先は常にセッションの利用者
 2. クエリは`limit`（既定は`PAGE_LIMIT.default`）と`cursor`。壊れたカーソル・範囲外の`limit`は422
 3. `listForRecipient`が、`visibleToRecipient`を通した行を、`created_at`・`id`の降順（新しい順）で`limit+1`件読む。続きは`cursor.ts`の`afterCursor`で取り（OFFSETは使わない）、`toPage`が`nextCursor`を作る
-4. 応答は`items`（`id`・`kind`・`roomId`・`messageId`・`targetId`・`createdAt`・`readAt`）と`nextCursor`。文言や本文は含まない
+4. 応答は`items`（`id`・`kind`・`roomId`・`messageId`・`targetId`・`createdAt`・`readAt`）と`nextCursor`。文言や本文は含まない【Issue #143で、各行に`reason`・`roomArchived`を足した。下の「チャンネルのアーカイブ・復元の通知」。元の記述は残す】
 
 ### 未読数（GET /api/me/notifications/unread-count）
 
@@ -95,6 +95,18 @@
 - 公開チャンネルは抜けても閲覧できるため、部屋の内容を含む通知は残る。未読の対象は参加者だけ（C-94）、通知を消すのは閲覧権限を失ったとき（3-1 AC-3）、という違いがある
 - `containsRoomContent`が偽の種類（アーカイブ・復元）は、権限を失っても残る
 
+### チャンネルのアーカイブ・復元の通知（Issue #143の143-a。3-4 AC-5・C-124・C-181）
+
+- **種類**：`channel.archived`・`channel.restored`（`shared/notification-kinds.ts`。どちらも`containsRoomContent: false`なので、権限を失っても残る）。宛先は、そのチャンネルの有効な参加者のうち、操作した本人を除く全員（D-5）。`room_id`はチャンネル、`target_id`はその回のアーカイブの記録（`channel_archive_events.id`）。作成は`channel-manage.sql.ts`で、アーカイブ・復元の業務のUPDATEと同じ`db.batch`。詳細は[channels.md](channels.md)
+- **理由の持ち方**：`notifications`に`reason`列は足さない（全列を並べる既存の`INSERT ... SELECT`が列数の不一致で失敗するため）。アーカイブ1回ごとの記録の`reason`を、通知の`target_id`から引く。再アーカイブして理由を変えても、古い通知はその回の理由のまま。申し送りの4（理由の列）は、この方式で満たした
+- **`notificationInserts`の`onlyWhen`**：任意の引数。指定すると、その条件が成り立つときだけ作る`INSERT ... SELECT`にする（ID・列の並びは今と同じ）。指定しない既存の呼び出しは変わらない
+- **一覧の応答の追加項目**（EP-3-04。必須の項目。C-181 (3)）：`reason`（`channel.archived`の行だけその回の理由。理由なし・ほかの種類は`null`）と`roomArchived`（真偽）。`roomArchived`は、部屋の内容を含まない種類（`channel_request.approved`・`channel.archived`・`channel.restored`）の行だけ、`room_id`のチャンネルが今アーカイブ中かで決まり、ほかの種類は常に偽
+- **作り方（Serviceの層で足す。C-181 (4)）**：Repositoryの一覧（`listForRecipient`）の項目は変えない。`createNotificationService().listWithArchiveStates`が、一覧の結果の通知IDを`createNotificationRepository().archiveStatesFor`に渡し、各行に`reason`・`roomArchived`を足す。`archiveStatesFor`は本人宛ての条件だけを当てる（一覧の後に部屋が見えなくなっても、返した行の事実を欠かさないため）。**IDは1つのJSONの値で渡し、`json_each`で展開する**。1ページ分（最大100件）のIDを`IN`に並べると、他の条件の値と合わせてD1の1文で束縛できる値の数の上限を超えて失敗したため。読めない行があれば、成功に見せかけず例外にする。routeの`GET /api/me/notifications`が`listWithArchiveStates`を呼ぶ
+- **見せてよい人**：一覧は本人宛ての行だけを返す（`visibleToRecipient`）ので、理由・アーカイブ中かを知るのは、そのチャンネルについて通知を受けた本人（アーカイブの時の参加者・申請者）だけ。チャンネルのAPI（詳細・メッセージ）は今までどおり、存在しない・見えない・アーカイブ済みを区別せず同じ404で、そこからは漏らさない
+- **過去の通知を開いたときの動き**（3-4 AC-5）：`NotificationList.tsx`は、`channel.archived`の行、または`roomArchived`が真の行を、文言の後に「（アーカイブされました）」を付けたボタンにする。押すと（未読なら）既読にして、**チャンネルへ移らず**、その場に「このチャンネルはアーカイブされました」を出す。復元の通知は、今アーカイブ中でなければ（`roomArchived`が偽）チャンネルへ移る。物理削除で行が消えたチャンネルは`roomArchived`が偽になり、移動先で「見つかりません」になる（物理削除の後の表示は定めがなく、143-cで扱う）
+- **文言**（`notification-views.ts`。D-5）：`channel.archived`は「参加しているチャンネルがアーカイブされました」、理由があれば「（理由：…）」を後ろに付ける（対応表の`suffix`。テキストとして出し、HTMLとして解釈しない）、移動先なし。`channel.restored`は「参加しているチャンネルが復元されました」、移動先はチャンネル
+- **部屋の内容を含む通知（指名・招待）**：アーカイブ中は、今の`viewableRoom`で一覧・未読数から除く。復元されれば再び出る（D-R1）。3-4 AC-5の「過去の通知は残り、開くと『アーカイブされました』」は、部屋の内容を含まない通知についての定めと読む
+
 ## 画面
 
 | 画面 | ファイル | 内容 |
@@ -116,8 +128,8 @@
 1. `shared/notification-kinds.ts`の`KINDS`に種類を1件足す。**`containsRoomContent`を必ず決める**（メッセージなど部屋の内容を含むなら`true`。アーカイブ・復元のように、権限を失っても残したいものは`false`）
 2. `frontend/src/features/notifications/notification-views.ts`の`NOTIFICATION_VIEWS`に、同じ種類の文言（`label`）と移動先（`to`）を1件足す。移動先の無い種類は`null`を返す
 3. 業務のServiceで、`notificationInserts`の戻り値を業務の`db.batch`に入れる。宛先の選定（承認権限者・申請者・操作した本人を除く等）は、このIssueで決めてテストする
-4. 理由の文（C-120・C-124）を持たせる種類は、**使うIssueがnullableの`reason`列を足す**（`ALTER TABLE … ADD COLUMN`で済む。drizzle-kitが作り直しを生成したらADR-0024の手順）。今は使う機能がないので足していない
-5. アーカイブ・復元の通知（#143・#151）は`containsRoomContent: false`にする。「アーカイブされました」の表示は、そのIssueが対応表と移動先で作る
+4. 理由の文（C-120・C-124）を持たせる種類は、**使うIssueがnullableの`reason`列を足す**（`ALTER TABLE … ADD COLUMN`で済む。drizzle-kitが作り直しを生成したらADR-0024の手順）。今は使う機能がないので足していない【Issue #143では、列を足さず、アーカイブの記録の表（`channel_archive_events`）を`target_id`から引く方式にした。理由は下の「チャンネルのアーカイブ・復元の通知」。#142は列を足すか、同じ方式にするかを、その時に選ぶ】
+5. アーカイブ・復元の通知（#143・#151）は`containsRoomContent: false`にする。「アーカイブされました」の表示は、そのIssueが対応表と移動先で作る（チャンネルの分は#143で作った）
 6. #133は、`visibleToRecipient`に部屋の閲覧権限の条件を足す（`containsRoomContent`が真の種類にだけ）【Issue #237で足した。後続の種類は`containsRoomContent: true`を付けるだけで、この条件に従う】
 7. 種類の文字列を、定義元以外に書かない（型で守る）。DBの`kind`にCHECKは付いていない
 
@@ -152,7 +164,7 @@
 
 | 操作 | 契約 |
 | --- | --- |
-| 一覧（EP-3-04） | `GET /api/me/notifications`。クエリは`limit`・`cursor`。200で`items`と`nextCursor`。401／422 |
+| 一覧（EP-3-04） | `GET /api/me/notifications`。クエリは`limit`・`cursor`。200で`items`と`nextCursor`。401／422。【#143で、`items`の各行に必須の`reason`（`null`可）・`roomArchived`を足した】 |
 | 未読数（EP-3-05） | `GET /api/me/notifications/unread-count`。200で`count`（最大100）。401 |
 | 1件既読（EP-3-06） | `POST /api/me/notifications/{notificationId}/read`。204（既読済みも204）。401／403（`FORBIDDEN_ORIGIN`）／404（存在しない・他人宛て・ULIDでない）／429 |
 | すべて既読（EP-3-07） | `POST /api/me/notifications/read-all`。204。401／403（`FORBIDDEN_ORIGIN`）／429 |
@@ -164,6 +176,9 @@
 | 処理 | 入力 | 出力 |
 | --- | --- | --- |
 | `notificationInserts(db, recipientIds, input)` | 宛先の利用者IDの一覧、`kind`・`roomId?`・`messageId?`・`targetId?` | 通知を作る文の配列（実行しない。重複した宛先は1件、0人は空） |
+| `notificationInserts(db, recipientIds, input, { onlyWhen? })`（#143） | 上に加えて、任意のSQL条件`onlyWhen` | 指定すると、条件が成り立つときだけ作る`INSERT ... SELECT`の配列。指定しなければ上と同じ |
+| `createNotificationService().listWithArchiveStates`（#143） | 操作者、`limit`・`cursor?` | `list`の各行に`reason`・`roomArchived`を足したページ。読めない行があれば例外 |
+| `createNotificationRepository().archiveStatesFor`（#143） | 利用者ID、通知IDの配列（JSONの1つの値で束縛） | 通知IDごとの`reason`・`roomArchived`のMap。本人宛ての行だけ |
 | `visibleToRecipient(recipientId, definitions?)` | 宛先の利用者ID、種類の定義（既定は定義元） | 読み取りのSQL条件 |
 | `createNotificationRepository().listForRecipient` | 利用者ID、`limit`・`cursor?` | `items`と`nextCursor` |
 | `.countUnread` | 利用者ID | 未読数（最大100） |
@@ -179,6 +194,7 @@
 - DB結合：`backend/src/db/notification.repository.db.test.ts`（業務の更新と同じ`db.batch`での原子性、宛先の絞り込み・重複・0人、四つの経路が同じ条件を通ること、`containsRoomContent`の種類にだけ部屋の条件が当たること、定義0件で本人宛てがすべて見えること、既読にしても行が残ること。**#237で、閲覧できなくなった部屋（非公開で参加を外れた・アーカイブ・他人のDM）の通知が四つの経路から除かれ、権限が戻れば再び見えること**も確かめる。SQLの閲覧条件と`canViewChannel`の全組の一致は`notification.room-visibility.db.test.ts`）
 - Service・route：`backend/src/services/notification.service.test.ts`、`backend/src/routes/notifications.test.ts`（他人宛てが出ない・404・新しい順とカーソル・`limit`の境界・100件の打ち切り・401／403）。API仕様との契約：`backend/src/openapi.test.ts`
 - テスト部品：`backend/test/notification-fixtures.ts`（任意の種類の文字列で通知の行を作る）、`frontend/src/test/notification-handlers.ts`（MSW）。`frontend/src/test/server.ts`に、未読数0件の既定の応答を足した（枠を描画する全テストで、ヘッダーの未読数の通信が未処理にならないため）
+- #143で足したテスト：`backend/src/lib/notification-kinds.channel-archive.test.ts`、`backend/src/db/channel-manage.db.test.ts`（通知の宛先・`onlyWhen`・理由と`roomArchived`・既存の通知の回帰）、`backend/src/routes/notifications.test.ts`、`frontend/src/features/notifications/notification-views.channel-archive.test.ts`・`notifications.channel-archive.test.tsx`
 - フロントエンド：`frontend/src/features/notifications/notifications.test.tsx`、`notification-views.test.ts`
 - 期待を変えた既存テスト：`frontend/src/features/app-shell/MobileNav.test.tsx`の3点（下部メニューにリンクが増えたため。リンクの件数を1→2に、順を「ホーム」「通知」に、テスト名とコメントを「ホーム・通知のリンクと『自分』のボタンだけ」に変えた。確かめる意図（動かない仮項目を置かない）は同じ。既定の方針9）
 - E2E：`e2e/notifications.spec.ts`。シードは`e2e/seeds/notifications.sql`と`notifications-cleanup.sql`（[e2e.md](../testing/e2e.md)）
@@ -189,10 +205,10 @@
 | --- | --- |
 | 本番のD1へのmigration 0014の適用 | 未実施（利用者の承認が別途必要） |
 | 通知の種類・種類ごとの文言と移動先 | #124の時点は0件。**#131でチャンネル作成申請の3種類を足した**（[channel-requests.md](channel-requests.md)）。**#146（146-Aで`case_request.submitted`、146-Bで`case_request.approved`・`case_request.rejected`）を足した**（[case-requests.md](case-requests.md)）。**#128（128-c）で退職処理の申請の3種類を足した**（[accounts.md](accounts.md)）。残りは後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
-| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした**。**#146（146-A）で案件作成申請のAC-1（申請が届いたとき）を、146-BでAC-2・AC-3（承認・却下の通知。申請者だけに届き、自己承認では送らない）を満たした**。**#128（128-c）で退職処理の申請のAC-1〜3を満たした** |
+| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした**。**#146（146-A）で案件作成申請のAC-1（申請が届いたとき）を、146-BでAC-2・AC-3（承認・却下の通知。申請者だけに届き、自己承認では送らない）を満たした**。**#128（128-c）で退職処理の申請のAC-1〜3を満たした**。**#143（143-a）でチャンネルのアーカイブ・復元のAC-5を満たした**（宛先は操作した本人を除く有効な参加者。文言は「参加しているチャンネルがアーカイブされました（理由：…）」「…復元されました」） |
 | 部屋の閲覧権限による除外（3-1 AC-3） | **Issue #237で`visibleToRecipient`に足した**（今の種類には該当がなく、本番のSQLは変わらない。[unread.md](unread.md)） |
 | スマホ幅でのベルのアイコン化 | 後続（今は文字のまま） |
-| 理由の列（C-120・C-124） | 使うIssueが足す |
+| 理由の列（C-120・C-124） | チャンネルのアーカイブの理由は#143で、列を足さずに記録の表から引く形で満たした。#142（直接削除の理由）は、その時に決める |
 | 通知の作成・既読のレート制限 | 入れていない（X-8が未決定） |
 
 ## 関係するIssue・ADR
