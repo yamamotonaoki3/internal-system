@@ -10,6 +10,7 @@ import { AccountCreatePage } from "./pages/AccountCreatePage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ChannelApprovalsPage } from "./pages/ChannelApprovalsPage";
 import { ChannelDetailPage } from "./pages/ChannelDetailPage";
+import { CaseApprovalsPage } from "./pages/CaseApprovalsPage";
 import { CaseRequestPage } from "./pages/CaseRequestPage";
 import { ChannelRequestPage } from "./pages/ChannelRequestPage";
 import { ChannelsPage } from "./pages/ChannelsPage";
@@ -57,6 +58,16 @@ function ChannelApprovalsRoute() {
   return <ChannelApprovalsPage />;
 }
 
+// 案件作成の承認（S-29。全体管理者かいずれかの部署のオーナー）。セッション確認中は拒否せず待つ。表示の制御であり、認可はサーバーが申請ごとに行う
+function CaseApprovalsRoute() {
+  const session = useSession();
+  if (session.isPending) return <p role="status">確認中です</p>;
+  if (session.isError) return null;
+  if (!session.data.permissions?.includes("perm.case.request.approve"))
+    return <NotFoundPage />;
+  return <CaseApprovalsPage />;
+}
+
 function AccountManageRoute({ page }: { page: "list" | "create" }) {
   const session = useSession();
   if (session.isPending) return <p role="status">確認中です</p>;
@@ -95,6 +106,7 @@ export function App() {
         <Route path="/channel-requests" element={<ChannelRequestPage />} />
         <Route path="/case-requests" element={<CaseRequestPage />} />
         <Route path="/channel-approvals" element={<ChannelApprovalsRoute />} />
+        <Route path="/case-approvals" element={<CaseApprovalsRoute />} />
         <Route path="/dms" element={<DmsPage />} />
         <Route path="/dms/new" element={<DmNewPage />} />
         <Route path="/dms/:roomId" element={<DmPage />} />

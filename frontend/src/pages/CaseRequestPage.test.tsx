@@ -545,6 +545,27 @@ describe("#146 S-18 自分の申請", () => {
   });
 });
 
+describe("#146 5-1 AC-18 自分の申請の案件番号（146-B）", () => {
+  it("#146 5-1 AC-18: 承認済みの行には案件番号を出し、承認待ちの行には出さない", async () => {
+    respondProfileDepartment(DEPT_SALES);
+    respondChoices();
+    respondMyCaseRequests([
+      caseRequestItem("A2", {
+        title: "[UNIT_TEST]承認済みの案件",
+        status: "approved",
+        caseId: "01JTESTCASEREQCASE0000002",
+        caseNumber: "QZA-261117-0007",
+      }),
+      caseRequestItem("P2", { title: "[UNIT_TEST]審査中の案件" }),
+    ]);
+    renderCaseRequestScreen(<CaseRequestPage />);
+    const approved = await findRow("[UNIT_TEST]承認済みの案件");
+    expect(approved.textContent).toContain("QZA-261117-0007");
+    const waiting = await findRow("[UNIT_TEST]審査中の案件");
+    expect(waiting.textContent).not.toMatch(/[A-Z]{3}-\d{6}-\d{4}/);
+  });
+});
+
 describe("#146 5-3 AC-7 取り下げ", () => {
   const withdrawButton = (row: HTMLElement) =>
     within(row).queryByRole("button", { name: /取り下げ/ });

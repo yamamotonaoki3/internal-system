@@ -185,6 +185,8 @@ export function authRoutes(
           ...(canManageAccount ? ["perm.account.create"] : []),
           ...(canManageDepartment ? ["perm.workspace.create"] : []),
           ...(canReview ? ["perm.channel.request.approve.owner"] : []),
+          // 案件の作成申請の審査者（#146）も、チャンネルの作成申請と同じ判定（全体管理者か、いずれかの部署のオーナー）
+          ...(canReview ? ["perm.case.request.approve"] : []),
         ],
       });
     });

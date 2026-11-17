@@ -313,6 +313,36 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
+  it("#146 5-3 AC-3〜AC-6（EP-5-03〜EP-5-05。146-B）: 審査一覧・承認・却下の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "GET /api/case-requests": ["200", "401", "403", "422"],
+      "POST /api/case-requests/{requestId}/approve": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/case-requests/{requestId}/reject": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
   it("#136 AC-1・AC-3（C-168(2)・(4)・(5)・(7)）: DM の開始・一覧・詳細と、メッセージの DM の枝の応答コードが書かれている", () => {
     const expected: Record<string, string[]> = {
       "POST /api/dms": ["200", "401", "403", "404", "422"],

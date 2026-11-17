@@ -194,6 +194,8 @@ describe("#146 5-3 AC-1・C-132 POST /api/case-requests：申請できる人と�
         "status",
         "rejectReason",
         "caseId",
+        // 146-B：承認済みなら案件番号、それ以外は null（統括の決定）
+        "caseNumber",
         "resubmittedFrom",
         "createdAt",
         "decidedAt",
@@ -216,6 +218,7 @@ describe("#146 5-3 AC-1・C-132 POST /api/case-requests：申請できる人と�
       status: "pending",
       rejectReason: null,
       caseId: null,
+      caseNumber: null,
       resubmittedFrom: null,
       createdAt: CASEREQ_NOW,
       decidedAt: null,

@@ -23,8 +23,10 @@ const KINDS = {
   "message.mentioned": { containsRoomContent: true },
   // チャンネルへの招待（#135）：招待された人がのちにチャンネルを見られなくなれば、一覧・未読数から除く
   "channel.invited": { containsRoomContent: true },
-  // 案件の作成申請（#146）：部屋の内容を含まない
+  // 案件の作成申請（#146）：3 種類とも部屋の内容を含まない
   "case_request.submitted": { containsRoomContent: false },
+  "case_request.approved": { containsRoomContent: false },
+  "case_request.rejected": { containsRoomContent: false },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;
