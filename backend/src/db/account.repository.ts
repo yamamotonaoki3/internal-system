@@ -447,7 +447,8 @@ export function createAccountRepository(db: Database) {
      * 全社連絡・個別のチャンネル・DM・ロール・セッションには触れない。前提が崩れていたら AccountStateChangedError で、何も残さない。
      */
     async transfer(input: AccountTransferInput): Promise<void> {
-      // 監査の detail（AC-16 の権限）に使う、対象の割り当ての役割。ロールは異動で変えない
+      // 監査の detail（AC-16 の権限）に使う、対象の割り当ての役割。auditLogInsert は detail を JS で文字列にするため、batch の外で読む。
+      // 異動はロールを変えないので、ずれるのは別の操作が同時にロールを変えた場合だけ。監査の値は判定の時点のもの
       const roleRows = await db
         .selectDistinct({ roleId: userRoleAssignments.roleId })
         .from(userRoleAssignments)
@@ -490,7 +491,7 @@ export function createAccountRepository(db: Database) {
             detail: {
               fromDepartmentId: input.fromDepartmentId,
               toDepartmentId: input.toDepartmentId,
-              // AuditDetail は入れ子（配列）を許さないため、区切りの文字列にする（統括に確認中）
+              // 監査の detail は入れ子にしない決まり（C-177）のため、昇順の役割IDを「,」で区切った文字列にする
               roleIds: roleRows.map((r) => r.roleId).join(","),
             },
           }),

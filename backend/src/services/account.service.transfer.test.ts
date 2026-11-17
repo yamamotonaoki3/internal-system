@@ -428,3 +428,89 @@ describe("#128 AC-16 部署異動の書き込みの前提が崩れた後の読�
     expect(repository.findActiveDepartment).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("#128 AC-16 異動の 409 inactive の条件（Service。ミューテーションの生き残りへの対応）", () => {
+  it.each<[string, TransferState]>([
+    [
+      "無効な社員（所属が残っている）",
+      { ...memberInA, isActive: false, departmentId: DEPT_A },
+    ],
+    [
+      "有効だが所属がない社員（AC-8 では起きない不整合）",
+      { ...memberInA, isActive: true, departmentId: null },
+    ],
+  ])(
+    "#128 AC-16: %sは 409 inactive で、書き込みに進まない",
+    async (_label, state) => {
+      const repository = fakeRepository({ states: [state] });
+      const service = createAccountService(repository, rolesOf([ADMIN]));
+      await expect(
+        service.transfer(actor(), TARGET_ID, toB),
+      ).rejects.toMatchObject({
+        code: "CONFLICT",
+        status: 409,
+        details: { reason: "inactive" },
+      });
+      expect(repository.transfer).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#128 AC-16: 有効で所属がある社員は、書き込みに進む", async () => {
+    const repository = fakeRepository({
+      states: [{ ...memberInA, isActive: true, departmentId: DEPT_A }],
+    });
+    const service = createAccountService(repository, rolesOf([ADMIN]));
+    await expect(
+      service.transfer(actor(), TARGET_ID, toB),
+    ).resolves.toBeUndefined();
+    expect(repository.transfer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#128 AC-16・AC-18 異動のエラーの文（Service）", () => {
+  const messageOf = async (
+    repository: ReturnType<typeof fakeRepository>,
+    body = toB,
+  ) => {
+    const service = createAccountService(repository, rolesOf([ADMIN]));
+    const error = (await service
+      .transfer(actor(), TARGET_ID, body)
+      .catch((e: unknown) => e)) as { message?: unknown };
+    return String(error.message ?? "");
+  };
+
+  it("#128 AC-16・AC-18: 409 の inactive と department_owner の文は空でなく互いに違い、department_owner は「オーナー」「交代」を含む", async () => {
+    const inactiveMessage = await messageOf(
+      fakeRepository({ states: [inactive] }),
+    );
+    const ownerMessage = await messageOf(
+      fakeRepository({
+        states: [{ ...memberInA, ownedDepartmentIds: [DEPT_A] }],
+      }),
+    );
+    expect(inactiveMessage).not.toBe("");
+    expect(ownerMessage).not.toBe("");
+    expect(ownerMessage).not.toBe(inactiveMessage);
+    expect(ownerMessage).toContain("オーナー");
+    expect(ownerMessage).toContain("交代");
+  });
+
+  it("#128 AC-16: 422 の「今と同じ部署」の文は空でなく、部署がない・無効の文と違う", async () => {
+    const sameMessage = await messageOf(
+      fakeRepository({
+        departments: [{ id: DEPT_A, name: "[UNIT_TEST]128部署A" }],
+      }),
+      { departmentId: DEPT_A },
+    );
+    const missingMessage = await messageOf(
+      fakeRepository({ departments: [null] }),
+    );
+    expect(sameMessage).not.toBe("");
+    expect(missingMessage).not.toBe("");
+    expect(sameMessage).not.toBe(missingMessage);
+  });
+
+  it("#128 AC-16: 404 の文は空でない", async () => {
+    expect(await messageOf(fakeRepository({ states: [null] }))).not.toBe("");
+  });
+});

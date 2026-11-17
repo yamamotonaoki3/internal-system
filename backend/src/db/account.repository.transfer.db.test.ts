@@ -197,6 +197,19 @@ describe("#128 異動の対象の事実の読み取り（findTransferState）", 
   });
 });
 
+describe("#128 異動の対象の事実の読み取り：部署のないオーナーの割り当て", () => {
+  // user_role_assignments_scope_check は scope_type と department_id の組だけを制約するため、
+  // role_owner の会社範囲（department_id が NULL）の行も作れる。それを ownedDepartmentIds に混ぜない
+  it("#128 AC-18: オーナーの割り当ての department_id が NULL の行があっても、ownedDepartmentIds に null を含めない", async () => {
+    await insertAssignment(target, ROLE_IDS.owner, "company", null);
+    await makeOwner(target, deptC.id);
+    const state = await withAccounts(env, (repository) =>
+      repository.findTransferState(target),
+    );
+    expect(state?.ownedDepartmentIds).toEqual([deptC.id]);
+  });
+});
+
 describe("#128 部署異動（Repository・D1）", () => {
   it("#128 AC-16: 所属が新しい部署に変わり、監査 account.transfer が1件で、操作者・対象・前後の部署・権限（役割ID）だけを持つ", async () => {
     await transfer();
