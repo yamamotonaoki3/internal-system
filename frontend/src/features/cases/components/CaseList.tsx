@@ -1,9 +1,10 @@
 // S-16 の案件の一覧。「自分が参加する案件／すべての案件」と「進行中／終了した案件」を切り替える。
 // 読み込み中・エラー・0件・ありの4つの状態を出し分け、続きは「次のページ」で読む。
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
+import { RadioGroup } from "../../../components/RadioGroup";
 import {
   CASE_LIST_SCOPES,
   CASE_STATUSES,
@@ -14,64 +15,20 @@ import { describeError } from "../describe-error";
 import { useCases } from "../hooks/useCases";
 import { CaseSummaryFacts } from "./CaseSummaryFacts";
 
-const SCOPE_LABELS: Readonly<Record<CaseListScope, string>> = {
-  joined: "自分が参加する案件",
-  all: "すべての案件",
-};
-const STATUS_FILTER_LABELS: Readonly<Record<CaseStatus, string>> = {
-  active: "進行中",
-  closed: "終了した案件",
-};
+const SCOPE_OPTIONS = CASE_LIST_SCOPES.map((value) => ({
+  value,
+  label: value === "joined" ? "自分が参加する案件" : "すべての案件",
+}));
+const STATUS_OPTIONS = CASE_STATUSES.map((value) => ({
+  value,
+  label: value === "active" ? "進行中" : "終了した案件",
+}));
 
 function emptyText(scope: CaseListScope, status: CaseStatus): string {
   if (status === "closed") return "終了した案件はありません";
   return scope === "joined"
     ? "参加している案件はありません"
     : "案件はありません";
-}
-
-type RadioGroupProps<T extends string> = {
-  label: string;
-  options: readonly T[];
-  labels: Readonly<Record<T, string>>;
-  value: T;
-  onChange: (value: T) => void;
-};
-
-function RadioGroup<T extends string>({
-  label,
-  options,
-  labels,
-  value,
-  onChange,
-}: RadioGroupProps<T>) {
-  const labelId = useId();
-  const name = useId();
-  return (
-    <div role="radiogroup" aria-labelledby={labelId} className="mb-3">
-      <p id={labelId} className="mb-1 text-sm font-bold">
-        {label}
-      </p>
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {options.map((option) => (
-          <label
-            key={option}
-            className="flex min-h-11 items-center gap-2 md:min-h-10"
-          >
-            <input
-              type="radio"
-              name={name}
-              value={option}
-              checked={value === option}
-              onChange={() => onChange(option)}
-              className="size-5"
-            />
-            {labels[option]}
-          </label>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export function CaseList() {
@@ -121,15 +78,13 @@ export function CaseList() {
     <>
       <RadioGroup
         label="表示する案件"
-        options={CASE_LIST_SCOPES}
-        labels={SCOPE_LABELS}
+        options={SCOPE_OPTIONS}
         value={scope}
         onChange={setScope}
       />
       <RadioGroup
         label="状態"
-        options={CASE_STATUSES}
-        labels={STATUS_FILTER_LABELS}
+        options={STATUS_OPTIONS}
         value={status}
         onChange={setStatus}
       />

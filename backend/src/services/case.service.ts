@@ -9,14 +9,13 @@ import {
   type CaseListScope,
   type CaseRepository,
   type CaseStatus,
-  type CaseViewer,
 } from "../db/case.repository";
 import type { RoleAssignmentRepository } from "../db/role-assignment.repository";
 import { AppError } from "../lib/app-error";
 import type { CursorPayload } from "../lib/cursor";
 import { createLogger } from "../lib/logger/logger";
 import type { Permission } from "../lib/permissions";
-import { createAppAuthorizer, reviewerFactsOf } from "./authorizer";
+import { createAppAuthorizer } from "./authorizer";
 
 // 一覧の範囲と状態（route が入力の形に使う。routes は db を直接参照しない）
 export { CASE_LIST_SCOPES, CASE_STATUSES } from "../db/case.repository";
@@ -54,16 +53,6 @@ export function createCaseService(
     );
   }
 
-  /** 管理の資格の元を、割り当ての読み込み1回で導く（無効な操作者は何も持たない） */
-  async function viewerOf(actor: CaseActor): Promise<CaseViewer> {
-    const facts = reviewerFactsOf(await roles.findByUserId(actor.userId));
-    return {
-      actorId: actor.userId,
-      isGlobalAdmin: facts.isAdmin,
-      ownedDepartmentIds: facts.ownedDepartmentIds,
-    };
-  }
-
   function deny(
     actor: CaseActor,
     action: "case.summary.view" | "case.view",
@@ -81,7 +70,7 @@ export function createCaseService(
     caseId: string,
   ) {
     const summary = await repository.findSummary({
-      ...(await viewerOf(actor)),
+      actorId: actor.userId,
       caseId,
     });
     if (summary === null)
@@ -106,7 +95,7 @@ export function createCaseService(
       },
     ) {
       await authorize(actor, "perm.case.summary.view");
-      return repository.list({ ...(await viewerOf(actor)), ...options });
+      return repository.list({ actorId: actor.userId, ...options });
     },
 
     async summary(actor: CaseActor, caseId: string) {
@@ -125,15 +114,26 @@ export function createCaseService(
           new AppError("FORBIDDEN", PARTICIPANTS_ONLY_MESSAGE),
         );
       await authorize(actor, "perm.case.view");
-      const extras = await repository.findDetailExtras(caseId);
-      // 概要を読んだ後に消えた（物理削除は #151）ときは、存在しない案件と同じ 404 にする
-      if (extras === null)
+      // 認可の後に無効化・参加の解除が確定した場合に備え、詳細の読み取りそのものが有効な参加者かを確かめる
+      const extras = await repository.findDetailExtras({
+        caseId,
+        actorId: actor.userId,
+      });
+      if (extras === "not_found")
         deny(
           actor,
           "case.view",
           caseId,
           "not_found",
           new AppError("NOT_FOUND", NOT_FOUND_MESSAGE),
+        );
+      if (extras === "not_visible")
+        deny(
+          actor,
+          "case.view",
+          caseId,
+          "not_participant",
+          new AppError("FORBIDDEN", PARTICIPANTS_ONLY_MESSAGE),
         );
       return { ...summary, ...extras };
     },

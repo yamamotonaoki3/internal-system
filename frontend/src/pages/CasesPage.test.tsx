@@ -107,6 +107,26 @@ describe("#147 S-16 切り替えと送るクエリ", () => {
   );
 });
 
+describe("#147 コードレビュー1回目（軽微。ADR-0015）：切り替えのキーボード操作", () => {
+  it("#147 S-16: 「自分が参加する案件」にフォーカスして右矢印を押すと「すべての案件」が選ばれ、scope=all を取る", async () => {
+    const { queries } = respondCases({
+      lists: {
+        "joined:active": [caseSummary(1)],
+        "all:active": [outsiderSummary(2)],
+      },
+    });
+    const { user } = renderPage();
+    await findCard(caseTitle(1));
+    radio("自分が参加する案件").focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() =>
+      expect((radio("すべての案件") as HTMLInputElement).checked).toBe(true),
+    );
+    await findCard(caseTitle(2));
+    expect(queries.at(-1)?.get("scope")).toBe("all");
+  });
+});
+
 describe("#147 S-16 4つの状態と0件の文言", () => {
   it("#147 S-16: 読み込み中は「読み込み中です」を出す", async () => {
     server.use(

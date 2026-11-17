@@ -1,6 +1,8 @@
 // Repository：案件の一覧・概要・詳細（#147 の 147-A）。読み取りだけ。DB へのアクセスはこの層に閉じ込める。
 // 見える範囲は SQL で絞る（joined は「有効な参加者」の案件だけ）。説明・チャンネル ID・参加者は詳細の読み込みでだけ返す。
-// 担当部署・参加者数は、そのページの案件 ID（チャンネル ID）を json_each の1つの値で渡して、まとめて読む（N+1 にしない。
+// 資格（有効な参加者・管理の資格）は、先に読んだ材料に頼らず、中身（参加者数・説明・参加者）を読む SQL そのものの条件にする。
+// 先に確かめてから別に読むと、その間に無効化・交代が確定した要求に中身が返るため（コードレビュー1回目）。
+// 担当部署は、そのページの案件 ID を json_each の1つの値で渡して、まとめて読む（N+1 にしない。
 // D1 の束縛する値の数の上限に、件数が掛からないようにする）。
 import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import {
@@ -11,8 +13,8 @@ import {
   departments,
   users,
 } from "../../db/schema";
-import { canManageCase } from "../lib/case-access-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
+import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { activeChannelMember } from "./channel-member.sql";
 import { withDatabase, type Database } from "./database";
@@ -25,16 +27,6 @@ export const CASE_LIST_SCOPES = ["joined", "all"] as const;
 export const CASE_STATUSES = ["active", "closed"] as const;
 export type CaseListScope = (typeof CASE_LIST_SCOPES)[number];
 export type CaseStatus = (typeof CASE_STATUSES)[number];
-
-/**
- * 操作者の管理の資格の元（Service が割り当てを1回読んで渡す）。
- * 無効な操作者は、Service の時点で全体管理者でもオーナーでもない扱いにしてある（reviewerFactsOf）
- */
-export type CaseViewer = {
-  actorId: string;
-  isGlobalAdmin: boolean;
-  ownedDepartmentIds: readonly string[];
-};
 
 /** 一覧・概要の項目。説明・参加者・チャンネル ID は持たない */
 export type CaseSummary = {
@@ -69,38 +61,56 @@ export type CaseDetailExtras = {
 
 const jsonIds = (ids: readonly string[]) => JSON.stringify(ids);
 
+/**
+ * 管理の資格＝有効な全体管理者、または、その案件の担当部署のどれかの有効なオーナー。
+ * 先に読んだ割り当てに頼ると、交代・無効化の後の要求に参加者数が返るため、読み取りの SQL の中で決める
+ */
+function canManageSql(actorId: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM users mu WHERE mu.id = ${actorId} AND mu.is_active = 1 AND (
+    EXISTS (SELECT 1 FROM user_role_assignments ga
+      WHERE ga.user_id = mu.id AND ga.role_id = ${ROLE_IDS.globalAdmin} AND ga.scope_type = 'company')
+    OR EXISTS (SELECT 1 FROM user_role_assignments oa
+      JOIN case_departments ocd ON ocd.department_id = oa.department_id
+      WHERE oa.user_id = mu.id AND oa.role_id = ${ROLE_IDS.owner} AND oa.scope_type = 'department'
+        AND ocd.case_id = ${cases.id})))`;
+}
+
 function cursorFor(row: { id: string }) {
   if (!isUlid(row.id)) throw new Error("案件IDが不正です");
   return { v: row.id, id: row.id };
 }
 
 export function createCaseRepository(db: Database) {
-  const selectRows = (actorId: string) =>
-    db
+  /** 案件の行と、同じ文の中で決めた資格・参加者数 */
+  const selectRows = (actorId: string) => {
+    const isParticipant = activeChannelMember(sql`${cases.channelId}`, actorId);
+    const canManage = canManageSql(actorId);
+    return db
       .select({
         id: cases.id,
         caseNumber: cases.caseNumber,
         title: cases.title,
         status: cases.status,
         dueDate: cases.dueDate,
-        channelId: cases.channelId,
         clientId: clients.id,
         clientName: clients.name,
         clientIsActive: clients.isActive,
-        isParticipant: sql<number>`CASE WHEN ${activeChannelMember(sql`${cases.channelId}`, actorId)} THEN 1 ELSE 0 END`,
+        isParticipant: sql<number>`CASE WHEN ${isParticipant} THEN 1 ELSE 0 END`,
+        canManage: sql<number>`CASE WHEN ${canManage} THEN 1 ELSE 0 END`,
+        participantCount: sql<
+          number | null
+        >`CASE WHEN ${isParticipant} OR ${canManage} THEN (SELECT COUNT(*) FROM channel_members pc WHERE pc.channel_id = ${cases.channelId}) ELSE NULL END`,
       })
       .from(cases)
       .innerJoin(clients, eq(clients.id, cases.clientId));
+  };
 
   type Row = Awaited<
     ReturnType<ReturnType<typeof selectRows>["where"]>
   >[number];
 
-  /** 行に担当部署・管理の資格・参加者数を付ける（読み込みはページ全体で2回まで） */
-  async function toSummaries(
-    rows: Row[],
-    viewer: CaseViewer,
-  ): Promise<CaseSummary[]> {
+  /** 行に担当部署を付ける（ページ全体で1回の読み込み） */
+  async function toSummaries(rows: Row[]): Promise<CaseSummary[]> {
     if (rows.length === 0) return [];
     const departmentRows = await db
       .select({
@@ -115,69 +125,35 @@ export function createCaseRepository(db: Database) {
         sql`${caseDepartments.caseId} IN (SELECT value FROM json_each(${jsonIds(rows.map((row) => row.id))}))`,
       )
       .orderBy(asc(departments.name), asc(departments.id));
-    const shaped = rows.map((row) => {
-      const caseDepartmentRows = departmentRows
+    return rows.map((row) => ({
+      id: row.id,
+      caseNumber: row.caseNumber,
+      title: row.title,
+      status: row.status,
+      client: {
+        id: row.clientId,
+        name: row.clientName,
+        isActive: row.clientIsActive,
+      },
+      departments: departmentRows
         .filter((d) => d.caseId === row.id)
-        .map(({ id, name, isActive }) => ({ id, name, isActive }));
-      const isParticipant = row.isParticipant === 1;
-      const canManage = canManageCase({
-        isActive: true,
-        isGlobalAdmin: viewer.isGlobalAdmin,
-        ownedDepartmentIds: viewer.ownedDepartmentIds,
-        caseDepartmentIds: caseDepartmentRows.map((d) => d.id),
-      });
-      return { row, departments: caseDepartmentRows, isParticipant, canManage };
-    });
-    // 参加者数は、参加者か管理の資格のある人の行だけ数える
-    const countedRoomIds = shaped
-      .filter((s) => s.isParticipant || s.canManage)
-      .map((s) => s.row.channelId);
-    const counts =
-      countedRoomIds.length === 0
-        ? []
-        : await db
-            .select({
-              channelId: channelMembers.channelId,
-              n: sql<number>`COUNT(*)`,
-            })
-            .from(channelMembers)
-            .where(
-              sql`${channelMembers.channelId} IN (SELECT value FROM json_each(${jsonIds(countedRoomIds)}))`,
-            )
-            .groupBy(channelMembers.channelId);
-    return shaped.map(({ row, departments: caseDepartmentRows, ...access }) => {
-      const counted = countedRoomIds.includes(row.channelId);
-      return {
-        id: row.id,
-        caseNumber: row.caseNumber,
-        title: row.title,
-        status: row.status,
-        client: {
-          id: row.clientId,
-          name: row.clientName,
-          isActive: row.clientIsActive,
-        },
-        departments: caseDepartmentRows,
-        dueDate: row.dueDate,
-        isParticipant: access.isParticipant,
-        canManage: access.canManage,
-        participantCount: counted
-          ? (counts.find((c) => c.channelId === row.channelId)?.n ?? 0)
-          : null,
-      };
-    });
+        .map(({ id, name, isActive }) => ({ id, name, isActive })),
+      dueDate: row.dueDate,
+      isParticipant: row.isParticipant === 1,
+      canManage: row.canManage === 1,
+      participantCount: row.participantCount,
+    }));
   }
 
   return {
     /** 一覧：案件 ID の降順。joined は有効な参加者の案件だけ */
-    async list(
-      input: CaseViewer & {
-        scope: CaseListScope;
-        status: CaseStatus;
-        limit: number;
-        cursor?: CursorPayload;
-      },
-    ): Promise<{ items: CaseSummary[]; nextCursor: string | null }> {
+    async list(input: {
+      actorId: string;
+      scope: CaseListScope;
+      status: CaseStatus;
+      limit: number;
+      cursor?: CursorPayload;
+    }): Promise<{ items: CaseSummary[]; nextCursor: string | null }> {
       const conditions: SQL[] = [eq(cases.status, input.status)];
       if (input.scope === "joined")
         conditions.push(
@@ -193,51 +169,68 @@ export function createCaseRepository(db: Database) {
         .limit(input.limit + 1);
       const page = toPage(rows, input.limit, cursorFor);
       return {
-        items: await toSummaries(page.items, input),
+        items: await toSummaries(page.items),
         nextCursor: page.nextCursor,
       };
     },
 
     /** 概要を1件読む（存在しなければ null） */
-    async findSummary(
-      input: CaseViewer & { caseId: string },
-    ): Promise<CaseSummary | null> {
+    async findSummary(input: {
+      actorId: string;
+      caseId: string;
+    }): Promise<CaseSummary | null> {
       const rows = await selectRows(input.actorId)
         .where(eq(cases.id, input.caseId))
         .limit(1);
-      const [item] = await toSummaries(rows, input);
+      const [item] = await toSummaries(rows);
       return item ?? null;
     },
 
     /**
-     * 詳細だけの項目を読む。呼び出し元が、操作者が有効な参加者であることを確かめてから呼ぶ。
+     * 詳細だけの項目を読む。資格の確認と中身の読み取りを1つの batch（同じ時点）で行う：
+     * 案件の行は「有効な参加者か」の判定と一緒に読み、参加者の一覧の文にも同じ条件を入れる。資格がなければ中身を捨てる。
      * 参加者は参加した日時の順（同じなら利用者 ID の順）。退職者（無効）の行も残す（C-142(1)）。本名・メールは読まない
      */
-    async findDetailExtras(caseId: string): Promise<CaseDetailExtras | null> {
-      const [found] = await db
-        .select({
-          description: cases.description,
-          channelId: cases.channelId,
-          createdBy: cases.createdBy,
-        })
-        .from(cases)
-        .where(eq(cases.id, caseId))
-        .limit(1);
-      if (found === undefined) return null;
-      const participantRows = await db
-        .select({
-          userId: users.id,
-          displayName: users.displayName,
-          departmentName: departments.name,
-          isActive: users.isActive,
-        })
-        .from(channelMembers)
-        .innerJoin(users, eq(users.id, channelMembers.userId))
-        .leftJoin(departments, eq(departments.id, users.departmentId))
-        .where(eq(channelMembers.channelId, found.channelId))
-        .orderBy(asc(channelMembers.joinedAt), asc(channelMembers.userId));
+    async findDetailExtras(input: {
+      caseId: string;
+      actorId: string;
+    }): Promise<CaseDetailExtras | "not_visible" | "not_found"> {
+      const visible = activeChannelMember(
+        sql`${cases.channelId}`,
+        input.actorId,
+      );
+      const [caseRows, participantRows] = await db.batch([
+        db
+          .select({
+            description: cases.description,
+            channelId: cases.channelId,
+            createdBy: cases.createdBy,
+            visible: sql<number>`CASE WHEN ${visible} THEN 1 ELSE 0 END`,
+          })
+          .from(cases)
+          .where(eq(cases.id, input.caseId))
+          .limit(1),
+        db
+          .select({
+            userId: users.id,
+            displayName: users.displayName,
+            departmentName: departments.name,
+            isActive: users.isActive,
+          })
+          .from(channelMembers)
+          .innerJoin(cases, eq(cases.channelId, channelMembers.channelId))
+          .innerJoin(users, eq(users.id, channelMembers.userId))
+          .leftJoin(departments, eq(departments.id, users.departmentId))
+          .where(and(eq(cases.id, input.caseId), visible))
+          .orderBy(asc(channelMembers.joinedAt), asc(channelMembers.userId)),
+      ]);
+      const [found] = caseRows;
+      if (found === undefined) return "not_found";
+      if (found.visible !== 1) return "not_visible";
       return {
-        ...found,
+        description: found.description,
+        channelId: found.channelId,
+        createdBy: found.createdBy,
         participants: participantRows.map((p) => ({
           ...p,
           isCreator: p.userId === found.createdBy,

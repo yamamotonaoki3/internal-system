@@ -4,9 +4,13 @@
 // 判定の順・応答の形（JSON）・詳細の 403 は結合テスト（routes/cases.test.ts）で確かめ、ここでは重ねない。
 // 契約（実装前の仮置き。計画 147-A の API・管理の資格。実装の担当へ）：
 //   withCases(env, (repository) => …)（backend/src/db/case.repository.ts）
-//   repository.list({ actorId, isGlobalAdmin, ownedDepartmentIds, scope: "joined" | "all", status: "active" | "closed", limit, cursor?: CursorPayload })
+//   repository.list({ actorId, scope: "joined" | "all", status: "active" | "closed", limit, cursor?: CursorPayload })
 //     : Promise<{ items: CaseListItem[]; nextCursor: string | null }>
-//     isGlobalAdmin・ownedDepartmentIds は、Service が操作者のロールの割り当てを1回読んで渡す（有効な全体管理者か、オーナーである部署の ID）。
+//     コードレビュー1回目（重大2）：管理の資格（有効な全体管理者か、案件の担当部署のどれかの有効なオーナー）は、Service が先に読んだ材料に頼らず、
+//     件数を読む SQL の中で、その時点の割り当て・有効性から決める。そのため引数は操作者の ID だけ（isGlobalAdmin・ownedDepartmentIds を渡さない）。
+//   repository.findSummary({ actorId, caseId }): CaseListItem | null（同じ判定）
+//   repository.findDetailExtras({ caseId, actorId }): 詳細の項目 | "not_visible" | "not_found"（コードレビュー1回目（重大1）。
+//     有効な参加者であることを、詳細を読む SQL の条件に入れる。案件がなければ not_found、あるが見られなければ not_visible）
 //   CaseListItem のキーは、ちょうど id・caseNumber・title・status・client{id,name,isActive}・departments[{id,name,isActive}]・dueDate・
 //     isParticipant・canManage・participantCount（説明・参加者・チャンネル ID は持たない）。
 //   isParticipant は「有効な参加者」（activeChannelMember）。participantCount は参加者か管理の資格のある人の行だけ数で、ほかは null。
@@ -21,9 +25,13 @@ import {
   seedCase,
 } from "../../test/case-fixtures";
 import {
+  removeGlobalAdmin,
+  removeOwner,
+  setUserActive,
   setupCaseWorld,
   type CaseWorld,
 } from "../../test/case-request-fixtures";
+import { makeOwner } from "../../test/department-fixtures";
 import { decodeCursor } from "../lib/cursor";
 import { withCases } from "./case.repository";
 
@@ -31,11 +39,7 @@ let w: CaseWorld;
 
 type Scope = "joined" | "all";
 type Status = "active" | "closed";
-type Viewer = {
-  actorId: string;
-  isGlobalAdmin?: boolean;
-  ownedDepartmentIds?: string[];
-};
+type Viewer = { actorId: string };
 
 type ListItem = {
   id: string;
@@ -72,8 +76,6 @@ const list = (
   withCases(env, (repository) =>
     repository.list({
       actorId: viewer.actorId,
-      isGlobalAdmin: viewer.isGlobalAdmin ?? false,
-      ownedDepartmentIds: viewer.ownedDepartmentIds ?? [],
       scope,
       status,
       limit: options.limit ?? 20,
@@ -277,11 +279,7 @@ describe("#147 5-1 AC-2・AC-21 all の行の項目", () => {
   });
 
   it("#147 5-1 AC-21（Q6）: 担当部署のオーナーは、参加していなくても、担当の案件だけ participantCount が入り canManage が true", async () => {
-    const page = await list(
-      { actorId: w.ownerS.id, ownedDepartmentIds: [w.deptS.id] },
-      "all",
-      "active",
-    );
+    const page = await list({ actorId: w.ownerS.id }, "all", "active");
     const own = byId(page.items, 1);
     expect(own.isParticipant).toBe(false);
     expect(own.canManage).toBe(true);
@@ -294,22 +292,14 @@ describe("#147 5-1 AC-2・AC-21 all の行の項目", () => {
   });
 
   it("#147 5-1 AC-21（Q6）: 担当部署が複数の案件では、どれか1つのオーナーなら管理の資格がある", async () => {
-    const page = await list(
-      { actorId: w.ownerD.id, ownedDepartmentIds: [w.deptD.id] },
-      "all",
-      "closed",
-    );
+    const page = await list({ actorId: w.ownerD.id }, "all", "closed");
     const item = byId(page.items, 3);
     expect(item.canManage).toBe(true);
     expect(item.participantCount).toBe(1);
   });
 
   it("#147 5-1 AC-21（Q6）: 全体管理者は、参加していなくても、すべての行に participantCount が入り canManage が true", async () => {
-    const page = await list(
-      { actorId: w.admin.id, isGlobalAdmin: true },
-      "all",
-      "active",
-    );
+    const page = await list({ actorId: w.admin.id }, "all", "active");
     expect(page.items.length).toBe(5);
     for (const item of page.items) {
       expect(item.isParticipant).toBe(false);
@@ -339,5 +329,146 @@ describe("#147 5-1 AC-2・AC-21 all の行の項目", () => {
     expect(item.departments).toEqual([
       { id: w.deptD.id, name: w.deptD.name, isActive: false },
     ]);
+  });
+});
+
+const summaryOf = (actorId: string, n: number) =>
+  withCases(env, (repository) =>
+    repository.findSummary({ actorId, caseId: caseIdOf(n) }),
+  ) as Promise<ListItem | null>;
+
+const detailOf = (actorId: string, caseId: string) =>
+  withCases(env, (repository) =>
+    repository.findDetailExtras({ caseId, actorId }),
+  ) as Promise<
+    | {
+        description: string;
+        channelId: string;
+        participants: { userId: string }[];
+      }
+    | "not_visible"
+    | "not_found"
+  >;
+
+describe("#147 コードレビュー1回目（重大2）：管理の資格は、読み取りの時点の割り当て・有効性で決める", () => {
+  it("#147 5-1 AC-21: 担当部署のオーナーでなくなった（交代した）人は、一覧（all）・概要で participantCount が null、canManage が false", async () => {
+    // 交代の前は資格がある（空振りしないこと）
+    expect((await summaryOf(w.ownerS.id, 1))?.participantCount).toBe(3);
+    await removeOwner(w.ownerS.id, w.deptS.id);
+    const page = await list({ actorId: w.ownerS.id }, "all", "active");
+    const item = byId(page.items, 1);
+    expect(item.canManage).toBe(false);
+    expect(item.participantCount).toBeNull();
+    expect(await summaryOf(w.ownerS.id, 1)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+  });
+
+  it("#147 5-1 AC-21: 無効になった担当部署のオーナー（割り当ては残る）は、participantCount が null、canManage が false", async () => {
+    await setUserActive(w.ownerS.id, false);
+    const item = byId(
+      (await list({ actorId: w.ownerS.id }, "all", "active")).items,
+      1,
+    );
+    expect(item).toMatchObject({ canManage: false, participantCount: null });
+    expect(await summaryOf(w.ownerS.id, 1)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+  });
+
+  it("#147 5-1 AC-21: 全体管理者の割り当てを失った人は、すべての行で participantCount が null、canManage が false", async () => {
+    expect((await summaryOf(w.admin.id, 2))?.canManage).toBe(true);
+    await removeGlobalAdmin(w.admin.id);
+    const page = await list({ actorId: w.admin.id }, "all", "active");
+    expect(page.items.length).toBe(5);
+    for (const item of page.items) {
+      expect(item.canManage).toBe(false);
+      expect(item.participantCount).toBeNull();
+    }
+    expect(await summaryOf(w.admin.id, 2)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+  });
+
+  it("#147 5-1 AC-21: 無効になった全体管理者は、participantCount が null、canManage が false", async () => {
+    await setUserActive(w.admin.id, false);
+    expect(await summaryOf(w.admin.id, 2)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+  });
+
+  it("#147 5-1 AC-21（退行なし）: オーナーの交代の後は、新しいオーナーは件数と canManage が真、前のオーナーは null・偽になる", async () => {
+    expect(await summaryOf(w.memberS2.id, 1)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+    // 部署のオーナーは1人だけのため、前のオーナーを外してから入れる（交代の形）
+    await removeOwner(w.ownerS.id, w.deptS.id);
+    await makeOwner(w.memberS2.id, w.deptS.id);
+    expect(await summaryOf(w.memberS2.id, 1)).toMatchObject({
+      canManage: true,
+      participantCount: 3,
+    });
+    expect(await summaryOf(w.ownerS.id, 1)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+  });
+
+  it("#147 5-1 AC-21（旧 canManageCase の観点）: 担当部署のない案件では、オーナーには資格がなく、有効な全体管理者には資格がある", async () => {
+    await seedCase({
+      n: 7,
+      clientId: w.clientA.id,
+      code: "QZA",
+      title: "[UNIT_TEST]147A担当部署のない案件",
+      createdBy: w.memberS1.id,
+      departmentIds: [],
+      members: [{ userId: w.memberS1.id, joinedAt: joinedAt(1) }],
+    });
+    expect(await summaryOf(w.ownerS.id, 7)).toMatchObject({
+      canManage: false,
+      participantCount: null,
+    });
+    expect(await summaryOf(w.admin.id, 7)).toMatchObject({
+      canManage: true,
+      participantCount: 1,
+    });
+  });
+
+  it("#147 5-1 AC-2: 存在しない案件の概要は null", async () => {
+    expect(await summaryOf(w.memberS1.id, 99)).toBeNull();
+  });
+});
+
+describe("#147 コードレビュー1回目（重大1）：詳細の読み取りに「有効な参加者」の条件を入れる", () => {
+  it("#147 5-1 AC-2: 有効な参加者には、説明・チャンネルの ID・参加者（退職者を含む）を返す", async () => {
+    const result = await detailOf(w.memberS1.id, caseIdOf(1));
+    if (typeof result === "string") throw new Error(result);
+    expect(result.description).toBe("[UNIT_TEST]147Aの非公開の説明");
+    expect(result.participants.map((p) => p.userId)).toEqual([
+      w.memberS1.id,
+      w.memberD1.id,
+      w.inactive.id,
+    ]);
+  });
+
+  it("#147 C-142(1)・5-1 AC-14: 参加の行があっても無効な人には not_visible を返し、中身を返さない", async () => {
+    expect(await detailOf(w.inactive.id, caseIdOf(1))).toBe("not_visible");
+    // 読み取りの直前に無効になった参加者も同じ
+    await setUserActive(w.memberS1.id, false);
+    expect(await detailOf(w.memberS1.id, caseIdOf(1))).toBe("not_visible");
+  });
+
+  it("#147 5-1 AC-2・AC-14: 参加していない人（全体管理者・担当部署のオーナーを含む）には not_visible", async () => {
+    for (const actorId of [w.memberS2.id, w.admin.id, w.ownerS.id])
+      expect(await detailOf(actorId, caseIdOf(1))).toBe("not_visible");
+  });
+
+  it("#147 判定の順: 存在しない案件は not_found（not_visible と区別する）", async () => {
+    expect(await detailOf(w.memberS1.id, caseIdOf(99))).toBe("not_found");
   });
 });

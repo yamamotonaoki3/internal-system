@@ -5353,7 +5353,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -5417,7 +5417,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -9082,7 +9082,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "caseNumber": {
             "type": "string",
@@ -9109,7 +9109,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "name": {
                 "type": "string"
@@ -9132,7 +9132,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "name": {
                   "type": "string"
@@ -9210,7 +9210,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "caseNumber": {
             "type": "string",
@@ -9237,7 +9237,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "name": {
                 "type": "string"
@@ -9260,7 +9260,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "name": {
                   "type": "string"
@@ -9299,11 +9299,11 @@
           },
           "channelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "createdBy": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "作成者の利用者 ID"
           },
           "participants": {
@@ -9321,7 +9321,7 @@
               "properties": {
                 "userId": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "displayName": {
                   "type": "string"
