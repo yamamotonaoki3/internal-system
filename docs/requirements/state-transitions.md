@@ -101,7 +101,7 @@ stateDiagram-v2
 | 進行中 | `cases.status = active`、申請は `approved` | 参加者だけが内容の閲覧・投稿・返信・添付取得・全文検索、参加者の追加削除、TODOの追加・編集・削除・完了・取り消し、案件の終了をできる（決定）。非参加者はオーナー・全体管理者も内容の閲覧・操作は不可。案件の概要は全員に検索・一覧で表示する（決定。Q-38） |
 | 終了 | `cases.status = closed`（保存値は案） | 参加者はメッセージ・TODO・進捗・参加者・専用チャンネルを読み取り専用で閲覧・検索し、再開できる（決定）。投稿・編集・TODO変更・参加者の追加削除は不可。メッセージの削除・添付も不可（導いた内容）。非参加者には内容は見えないが、案件の概要は検索・一覧に表示する（決定。Q-38） |
 | 却下後 | 値・理由の列なし | 案件作成の却下は決定済み（C-04）。理由は必須・前後空白を除いて1〜200文字で、履歴に残し、修正後は元を参照する別申請として再申請する（C-91、5-3 AC-6）。保存値・列・通知は未決定（設計-6）。`rejected` を案件の確定値として追加しない |
-| 取り下げ済み・自動取消（申請の状態） | `case_creation_requests.status = withdrawn`・`auto_cancelled` | **【#146（146-A）で実装した（2026-11-17。元の記述は残す）】** 申請の状態は5つ（`pending`・`approved`・`rejected`・`withdrawn`・`auto_cancelled`）。`withdrawn`は申請者本人が審査中の申請を取り下げたもの（`decided_by`は本人）。`auto_cancelled`は申請者の無効化・異動による自動取消（5-3 AC-8。`decided_by`は操作した全体管理者、`decided_at`は無効化・異動の時刻。決定はC-178）。どちらも履歴として残り、承認はできない。再申請の元にできるのは`rejected`・`withdrawn`だけ（実装の現状）。`approved`・`rejected`は146-Bで使う。設計は[case-requests.md](../design/case-requests.md) |
+| 取り下げ済み・自動取消（申請の状態） | `case_creation_requests.status = withdrawn`・`auto_cancelled` | **【#146（146-A）で実装した（2026-11-17。元の記述は残す）】** 申請の状態は5つ（`pending`・`approved`・`rejected`・`withdrawn`・`auto_cancelled`）。`withdrawn`は申請者本人が審査中の申請を取り下げたもの（`decided_by`は本人）。`auto_cancelled`は申請者の無効化・異動による自動取消（5-3 AC-8。`decided_by`は操作した全体管理者、`decided_at`は無効化・異動の時刻。決定はC-178）。どちらも履歴として残り、承認はできない。再申請の元にできるのは`rejected`・`withdrawn`・`auto_cancelled`（C-178。統括の決定）。`approved`・`rejected`は146-Bで使う。設計は[case-requests.md](../design/case-requests.md) |
 
 | 遷移・操作 | 条件 | 人（ロール） | 記録するもの |
 | --- | --- | --- | --- |
