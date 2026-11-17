@@ -176,6 +176,13 @@
       "when": 1794894955870,
       "tag": "0024_add_case_creation_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794907608961,
+      "tag": "0025_add_retirement_requests",
+      "breakpoints": true
     }
   ]
 }

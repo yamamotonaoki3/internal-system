@@ -6,6 +6,7 @@ import {
   caseCreationRequests,
   channelMembers,
   departments,
+  retirementRequests,
   sessions,
   userRoleAssignments,
   users,
@@ -15,6 +16,7 @@ import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
 import { withDatabase, type Database } from "./database";
+import { notificationInserts } from "./notification.repository";
 import {
   createRoleAssignmentRepository,
   type RoleAssignmentRepository,
@@ -381,8 +383,26 @@ export function createAccountRepository(db: Database) {
       const target = rows[0];
       if (target === undefined) throw new AccountStateChangedError();
       const fromDepartmentId = target.departmentId;
+      // 対象への申請中の退職処理の申請（あれば完了にし、申請者へ知らせる。#128）。監査の detail と通知の宛先に使うため batch の外で読み、
+      // 読んだ申請が batch の時点でも同じ（なかったなら、今もない）ことを前提の条件に含める
+      const pendingRows = await db
+        .select({
+          id: retirementRequests.id,
+          requestedBy: retirementRequests.requestedBy,
+        })
+        .from(retirementRequests)
+        .where(
+          and(
+            eq(retirementRequests.targetUserId, input.targetId),
+            eq(retirementRequests.status, "pending"),
+          ),
+        )
+        .limit(1);
+      const pending = pendingRows[0] ?? null;
       const caseRequests = await readPendingCaseRequests(db, input.targetId);
       const condition = sql`${input.actorId} <> ${input.targetId}
+        AND (SELECT q.id FROM retirement_requests q
+          WHERE q.target_user_id = ${input.targetId} AND q.status = 'pending') IS ${pending?.id ?? null}
         AND EXISTS (SELECT 1 FROM users t
           WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id IS ${fromDepartmentId})
         AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
@@ -416,6 +436,29 @@ export function createAccountRepository(db: Database) {
                 isNull(sessions.revokedAt),
               ),
             ),
+          // 申請を通さない直接の無効化でも、申請中の申請は完了にする（異動・オーナーの交代では残す）
+          db
+            .update(retirementRequests)
+            .set({
+              status: "approved",
+              decidedBy: input.actorId,
+              decidedAt: input.now,
+              updatedAt: input.now,
+            })
+            .where(
+              and(
+                eq(retirementRequests.targetUserId, input.targetId),
+                eq(retirementRequests.status, "pending"),
+              ),
+            ),
+          ...notificationInserts(
+            db,
+            pending === null ? [] : [pending.requestedBy],
+            {
+              kind: "retirement_request.approved",
+              targetId: pending?.id ?? null,
+            },
+          ),
           auditLogInsert(db, {
             actorId: input.actorId,
             action: "account.deactivate",
@@ -425,6 +468,7 @@ export function createAccountRepository(db: Database) {
             traceId: input.traceId,
             detail: {
               fromDepartmentId,
+              retirementRequestId: pending?.id ?? null,
               cancelledCaseRequestCount: cancelledCountOf(caseRequests),
             },
           }),

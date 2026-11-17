@@ -21,6 +21,10 @@ import { meRoutes } from "./routes/me";
 import { messageItemRoutes, messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
+import {
+  adminRetirementRequestRoutes,
+  retirementRequestRoutes,
+} from "./routes/retirement-requests";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { threadReadPositionRoutes } from "./routes/thread-read-positions";
@@ -61,6 +65,12 @@ const app = createApp({
     { path: "/api/me/notifications", app: notificationRoutes() },
     // #131：チャンネルの作成申請・自分の申請・審査一覧・承認・却下・取り下げ。index.ts と同じパスに組み込む
     { path: "/api/channel-requests", app: channelRequestRoutes() },
+    // #128：退職処理の申請・自分の申請・取り下げ・全体管理者の一覧・却下。index.ts と同じパスに組み込む
+    { path: "/api/retirement-requests", app: retirementRequestRoutes() },
+    {
+      path: "/api/admin/retirement-requests",
+      app: adminRetirementRequestRoutes(),
+    },
     // #136：DM の開始・一覧・詳細。index.ts と同じパスに組み込む
     { path: "/api/dms", app: dmRoutes() },
     // #134：メッセージの編集・削除（EP-1-03・EP-1-04）。index.ts と同じパスに組み込む
@@ -302,6 +312,44 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         "409",
       ],
       "GET /api/case-requests/similar-title": ["200", "401", "422"],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#128 0-1 AC-20・C-177（U-1）: 退職処理の申請・自分の申請・取り下げ・全体管理者の一覧・却下の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/retirement-requests": [
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "GET /api/retirement-requests/mine": ["200", "401", "422"],
+      "POST /api/retirement-requests/{requestId}/withdraw": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+      ],
+      "GET /api/admin/retirement-requests": ["200", "401", "403", "422"],
+      "POST /api/admin/retirement-requests/{requestId}/reject": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
     };
     for (const [name, codes] of Object.entries(expected)) {
       const operation = operations.find((entry) => entry.name === name);

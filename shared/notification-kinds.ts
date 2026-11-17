@@ -25,6 +25,10 @@ const KINDS = {
   "channel.invited": { containsRoomContent: true },
   // 案件の作成申請（#146）：部屋の内容を含まない
   "case_request.submitted": { containsRoomContent: false },
+  // 退職処理の申請（#128）：3 種類とも部屋の内容を含まない。取り下げは通知しない
+  "retirement_request.submitted": { containsRoomContent: false },
+  "retirement_request.approved": { containsRoomContent: false },
+  "retirement_request.rejected": { containsRoomContent: false },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;

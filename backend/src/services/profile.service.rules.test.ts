@@ -6,7 +6,11 @@
 //  - 「1年」は暦の1年（翌年の同じ月日。2/29 は翌年の 3/1）
 // データは架空（テスト太郎・テスト花子・[UNIT_TEST]）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OwnProfile, ProfileRepository } from "../db/profile.repository";
+import type {
+  DirectoryRow,
+  OwnProfile,
+  ProfileRepository,
+} from "../db/profile.repository";
 import type {
   RoleAssignmentRepository,
   UserWithAssignments,
@@ -221,6 +225,67 @@ describe("#130 認可：操作ごとの権限名と範囲", () => {
       now: () => NOW,
     }).listDirectory(actor, { limit: 20 });
     expect(member.items.map((item) => item.canSetStatus)).toEqual([false]);
+  });
+});
+
+describe("#128（128-c）C-177（U-8）一覧の canRequestRetirement（表示の制御）", () => {
+  // 自分の行は、部署のオーナー・全体管理者の割り当てを持たない（hasManagerRole が偽）ものとして渡しても、偽にする（自分自身は対象にできない）
+  const row = (
+    id: string,
+    hasManagerRole: boolean,
+    departmentId = DEPT_ID,
+  ): DirectoryRow => ({
+    id,
+    displayName: "テスト花子",
+    department: { id: departmentId, name: "[UNIT_TEST]部署" },
+    extension: null,
+    email: "testuser_prof_row@example.com",
+    status: { kind: "available", returnAt: null, message: null },
+    hasManagerRole,
+  });
+  const OTHER_DEPT_ID = "01JTESTPR0FSVCDEPT00000002";
+  const SELF_ID = actor.userId;
+  const MEMBER_ID = TARGET_ID;
+  const MANAGER_ID = "01JTESTPR0FSVCMANAGER0000001";
+  const OUTSIDE_ID = "01JTESTPR0FSVCOUTSIDE0000001";
+  const ownerRoles: RoleAssignmentRepository = {
+    findByUserId: vi.fn(async (): Promise<UserWithAssignments> => ({
+      user: { isActive: true },
+      assignments: [
+        {
+          roleId: ROLE_IDS.owner,
+          scopeType: "department",
+          departmentId: DEPT_ID,
+        },
+      ],
+    })),
+  };
+
+  it("#128 C-177（U-8）: 部署のオーナーには、自部署の一般の社員の行だけ true。自分の行（hasManagerRole が偽でも）・オーナー・全体管理者の行・ほかの部署の行は false", async () => {
+    const profiles = fakeProfiles({
+      listDirectory: vi.fn(
+        async (): Promise<{ items: DirectoryRow[]; nextCursor: null }> => ({
+          items: [
+            row(SELF_ID, false),
+            row(MEMBER_ID, false),
+            row(MANAGER_ID, true),
+            row(OUTSIDE_ID, false, OTHER_DEPT_ID),
+          ],
+          nextCursor: null,
+        }),
+      ),
+    });
+    const page = await createProfileService(profiles, ownerRoles, {
+      now: () => NOW,
+    }).listDirectory(actor, { limit: 20 });
+    expect(
+      page.items.map((item) => [item.id, item.canRequestRetirement]),
+    ).toEqual([
+      [SELF_ID, false],
+      [MEMBER_ID, true],
+      [MANAGER_ID, false],
+      [OUTSIDE_ID, false],
+    ]);
   });
 });
 

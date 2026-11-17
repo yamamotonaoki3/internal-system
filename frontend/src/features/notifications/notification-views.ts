@@ -41,6 +41,19 @@ export const NOTIFICATION_VIEWS: Readonly<
     label: "案件の作成の申請が届きました",
     to: () => "/case-requests",
   },
+  // 退職処理の申請（#128）。通知の行に対象の社員の名前を保存しないため、固定の文にする
+  "retirement_request.submitted": {
+    label: "退職処理の申請が届きました",
+    to: () => "/accounts?tab=retirement-requests",
+  },
+  "retirement_request.approved": {
+    label: "退職処理の申請が完了しました",
+    to: () => "/retirement-requests/mine",
+  },
+  "retirement_request.rejected": {
+    label: "退職処理の申請が却下されました",
+    to: () => "/retirement-requests/mine",
+  },
 };
 
 const GENERIC_LABEL = "通知";

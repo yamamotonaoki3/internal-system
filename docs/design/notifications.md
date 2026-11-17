@@ -8,7 +8,7 @@
 
 | 区分 | 内容 |
 | --- | --- |
-| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**#124の時点で種類は0件**。**#131でチャンネル申請の3種類、#139で`message.mentioned`（`containsRoomContent: true`）を追加した。#135で`channel.invited`（`containsRoomContent: true`。固定の文言「チャンネルに追加されました」）を追加した。#146（146-A）で`case_request.submitted`（`containsRoomContent: false`。宛先は担当部署の有効なオーナー。いなければ全体管理者。文言は「案件の作成の申請が届きました」。[case-requests.md](case-requests.md)）を追加した**。宛先・文言・移動先は[channel-requests.md](channel-requests.md)）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
+| このIssueで作ったもの | `notifications`テーブルと索引（migration 0014）／通知の種類の定義元（`shared/notification-kinds.ts`。**#124の時点で種類は0件**。**#131でチャンネル申請の3種類、#139で`message.mentioned`（`containsRoomContent: true`）を追加した。#135で`channel.invited`（`containsRoomContent: true`。固定の文言「チャンネルに追加されました」）を追加した。#146（146-A）で`case_request.submitted`（`containsRoomContent: false`。宛先は担当部署の有効なオーナー。いなければ全体管理者。文言は「案件の作成の申請が届きました」。[case-requests.md](case-requests.md)）を追加した。#128（128-c）で退職処理の申請の3種類（`retirement_request.submitted`・`.approved`・`.rejected`。`containsRoomContent: false`。固定の文言。宛先・移動先は[accounts.md](accounts.md)）を追加した**。宛先・文言・移動先は[channel-requests.md](channel-requests.md)）／作成の部品`notificationInserts`／一覧・未読数・1件既読・すべて既読のAPI（EP-3-04〜07）／S-14／ヘッダーの`NotificationBell`／下部メニューの「通知」 |
 | 作らないもの | 種類ごとの文言・移動先、理由の列、メール送信、他人宛ての通知を取るAPI（R-57）、「最後のID以降」を取るAPI、作成・既読の監査、スマホ幅のベルのアイコン化 |
 | 後続のIssueが足すもの | 下の「後続のIssueへの申し送り」 |
 
@@ -16,7 +16,7 @@
 
 | 要件 | 土台として満たした部分 | 満たすIssue |
 | --- | --- | --- |
-| 3-4 AC-1・2（申請の提出・審査結果） | 宛先を呼び出し側が渡す作成部品を、業務の`db.batch`に入れられる形で提供。本人宛てだけの一覧 | #131（チャンネル作成申請）・#146（案件作成申請）・#128（無効化・異動・退職処理の申請）・#153（再開申請） |
+| 3-4 AC-1・2（申請の提出・審査結果） | 宛先を呼び出し側が渡す作成部品を、業務の`db.batch`に入れられる形で提供。本人宛てだけの一覧 | #131（チャンネル作成申請）・#146（案件作成申請）・#128（無効化・異動・退職処理の申請。**退職処理の申請は128-cで満たした**）・#153（再開申請） |
 | 3-4 AC-3（関係しない社員に送らない・メールなし） | 一覧・未読数・既読はすべて「本人宛て」の条件を通る。メール送信の仕組みは作らない | 各Issueが宛先の選定をテストする |
 | 3-4 AC-4（お知らせの依頼・緊急削除・取消・直接削除） | 種類の定義元と画面の対応表に1件ずつ足せる作り | #142（理由の列もここで足す） |
 | 3-4 AC-5（アーカイブ・復元） | 通知を消さずに残す。種類ごとに部屋の可視性による除外を外せる作り | #143・#151 |
@@ -29,7 +29,7 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`は、#124の時点では空で、#131で3種類（`channel_request.*`。いずれも`containsRoomContent: false`）を足した。後続のIssueはここに1件足す。#139でmessage.mentioned（containsRoomContent: true）を追加。#135でchannel.invited（containsRoomContent: true）を追加（宛先は招待された人。作成は`channel-invite.sql.ts`で、[channels.md](channels.md)） |
+| `shared/notification-kinds.ts` | 通知の種類の**定義元**。`NOTIFICATION_KIND_DEFINITIONS`（種類ごとの属性。属性は`containsRoomContent`＝部屋の内容を含むか）、`NotificationKind`型、`isNotificationKind`、`roomContentKinds`。内部の`KINDS`は、#124の時点では空で、#131で3種類（`channel_request.*`。いずれも`containsRoomContent: false`）を足した。後続のIssueはここに1件足す。#139でmessage.mentioned（containsRoomContent: true）を追加。#135でchannel.invited（containsRoomContent: true）を追加（宛先は招待された人。作成は`channel-invite.sql.ts`で、[channels.md](channels.md)）。#128（128-c）で`retirement_request.submitted`（宛先は全体管理者）・`retirement_request.approved`・`retirement_request.rejected`（宛先は申請者）を追加（いずれも`containsRoomContent: false`。作成は`retirement-request.repository.ts`と、無効化のbatchの`account.repository.ts`。[accounts.md](accounts.md)） |
 | `backend/db/schema.ts` | `notifications`を追加した。列は`id`・`user_id`（`users.id`を参照）・`kind`・`room_id`・`message_id`・`target_id`・`created_at`・`read_at`。索引は`(user_id, created_at, id)`（一覧）と、`read_at is null`の行だけの`(user_id)`部分索引（未読数） |
 | `backend/db/migrations/0014_add_notifications.sql`、`meta/0014_snapshot.json`、`meta/_journal.json` | 新規テーブルと索引のmigration。`drizzle-kit generate --name add_notifications`で生成し、手で書き換えていない（新規テーブルなので作り直しは起きない） |
 | `backend/db/seeds/cleanup.sql` | `notifications`の削除を足した。`user_id`の外部キーのため、利用者より先に消す |
@@ -188,8 +188,8 @@
 | 項目 | 状態 |
 | --- | --- |
 | 本番のD1へのmigration 0014の適用 | 未実施（利用者の承認が別途必要） |
-| 通知の種類・種類ごとの文言と移動先 | #124の時点は0件。**#131でチャンネル作成申請の3種類を足した**（[channel-requests.md](channel-requests.md)）。**#146（146-Aで`case_request.submitted`）を足した**（[case-requests.md](case-requests.md)。承認・却下の通知は146-B）。残りは後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
-| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした**。**#146（146-A）で案件作成申請のAC-1（申請が届いたとき）を満たした。AC-2・AC-3の承認・却下の通知は146-B** |
+| 通知の種類・種類ごとの文言と移動先 | #124の時点は0件。**#131でチャンネル作成申請の3種類を足した**（[channel-requests.md](channel-requests.md)）。**#146（146-Aで`case_request.submitted`）を足した**（[case-requests.md](case-requests.md)。承認・却下の通知は146-B）。**#128（128-c）で退職処理の申請の3種類を足した**（[accounts.md](accounts.md)）。残りは後続のIssueが足す。3-4 AC-4・5の文言は要件で未決定 |
+| 3-4 AC-1〜5の本体 | #131・#146・#128・#153・#142・#143・#151（上の分担表）。**#131でチャンネル作成申請のAC-1〜3を満たした**。**#146（146-A）で案件作成申請のAC-1（申請が届いたとき）を満たした。AC-2・AC-3の承認・却下の通知は146-B**。**#128（128-c）で退職処理の申請のAC-1〜3を満たした** |
 | 部屋の閲覧権限による除外（3-1 AC-3） | **Issue #237で`visibleToRecipient`に足した**（今の種類には該当がなく、本番のSQLは変わらない。[unread.md](unread.md)） |
 | スマホ幅でのベルのアイコン化 | 後続（今は文字のまま） |
 | 理由の列（C-120・C-124） | 使うIssueが足す |

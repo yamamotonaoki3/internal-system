@@ -177,16 +177,29 @@ export function createProfileService(
     ) {
       await authorize(actor, "perm.employee.view", { type: "company" });
       const page = await profiles.listDirectory(options);
+      const departmentIds = page.items.map((item) => item.department.id);
       const canSet = await canForDepartments(
         roles,
         actor.userId,
         "perm.status.proxy.set",
-        page.items.map((item) => item.department.id),
+        departmentIds,
+      );
+      // 退職処理の申請のボタンの出し分け（表示の制御。認可は申請の作成で Service が行う。#128）：
+      // 対象の部署で perm.workspace.manage を持ち、対象が自分・オーナー・全体管理者でない行だけ
+      const canManage = await canForDepartments(
+        roles,
+        actor.userId,
+        "perm.workspace.manage",
+        departmentIds,
       );
       return {
-        items: page.items.map((item) => ({
+        items: page.items.map(({ hasManagerRole, ...item }) => ({
           ...item,
           canSetStatus: canSet.get(item.department.id) === true,
+          canRequestRetirement:
+            canManage.get(item.department.id) === true &&
+            item.id !== actor.userId &&
+            hasManagerRole === false,
         })),
         nextCursor: page.nextCursor,
       };

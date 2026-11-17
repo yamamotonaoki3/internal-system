@@ -23,6 +23,10 @@ import { meRoutes } from "./routes/me";
 import { messageItemRoutes, messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { readPositionRoutes } from "./routes/read-positions";
+import {
+  adminRetirementRequestRoutes,
+  retirementRequestRoutes,
+} from "./routes/retirement-requests";
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { threadReadPositionRoutes } from "./routes/thread-read-positions";
@@ -51,6 +55,11 @@ export const app = createApp({
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/case-requests", app: caseRequestRoutes() },
+    { path: "/api/retirement-requests", app: retirementRequestRoutes() },
+    {
+      path: "/api/admin/retirement-requests",
+      app: adminRetirementRequestRoutes(),
+    },
     { path: "/api/channels", app: channelRoutes() },
     { path: "/api/dms", app: dmRoutes() },
     { path: "/api/rooms", app: messageRoutes() },

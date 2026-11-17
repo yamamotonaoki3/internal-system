@@ -33,6 +33,8 @@ export type Member = {
   email: string;
   status: Status;
   canSetStatus: boolean;
+  /** #128（128-c）退職処理の申請のボタンの出し分け（表示の制御。認可はサーバー） */
+  canRequestRetirement: boolean;
 };
 
 export function member(n: number, overrides: Partial<Member> = {}): Member {
@@ -46,6 +48,7 @@ export function member(n: number, overrides: Partial<Member> = {}): Member {
     email: `testuser_${suffix}@example.com`,
     status: { kind: "available", returnAt: null, message: null },
     canSetStatus: false,
+    canRequestRetirement: false,
     ...overrides,
   };
 }
@@ -83,6 +86,7 @@ const toDirectoryItem = (m: Member) => ({
   email: m.email,
   status: m.status,
   canSetStatus: m.canSetStatus,
+  canRequestRetirement: m.canRequestRetirement,
 });
 
 /** 自分（SHELL_USER）を members に含めたいときは、id を SHELL_USER.id にした Member を渡す */

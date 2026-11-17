@@ -11,6 +11,7 @@ export type SessionInfo = {
     | "perm.account.create"
     | "perm.workspace.create"
     | "perm.channel.request.approve.owner"
+    | "perm.workspace.manage"
   )[];
 };
 
@@ -39,6 +40,7 @@ const sessionWithPermissionsSchema = sessionInfoSchema.extend({
       "perm.account.create",
       "perm.workspace.create",
       "perm.channel.request.approve.owner",
+      "perm.workspace.manage",
     ]),
   ),
 });

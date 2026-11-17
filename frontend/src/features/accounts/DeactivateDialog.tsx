@@ -7,7 +7,8 @@ import { describeLifecycleError } from "./lifecycle-errors";
 import { useDeactivateAccount } from "./useAccountLifecycle";
 
 type Props = {
-  account: AccountListItem;
+  // 表示名と ID だけを使う（退職処理の申請のタブからも、申請の対象で開く）
+  account: Pick<AccountListItem, "id" | "displayName">;
   onClose: () => void;
   /** 成功したとき（ダイアログを閉じ、一覧に完了のメッセージを出す） */
   onDone: () => void;
