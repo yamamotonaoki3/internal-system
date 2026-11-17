@@ -155,3 +155,81 @@ describe("#143-b b-AC-1・b-AC-2: canManageAnyChannel（セッションの permi
     );
   }
 });
+
+// #143-b ミューテーションの生き残り（authorizer.ts の canInAnyScope）への追加。割り当ての読み込みは代役にし、範囲の作り方を確かめる。
+describe("#143-b b-AC-3: canInAnyScope の範囲の作り方（代役の割り当て）", () => {
+  type Row = {
+    roleId: string;
+    scopeType: "company" | "department";
+    departmentId: string | null;
+  };
+  const DEPT = "01JTESTANYSCOPEDEPT0000001";
+  const fake = (assignments: Row[], isActive = true) => ({
+    findByUserId: async () => ({ user: { isActive }, assignments }),
+  });
+
+  it("#143-b b-AC-3: 会社の範囲で持つ人は、部署の範囲でだけ効く権限（perm.workspace.manage）でも真（会社の範囲 { type: company } で判定する）", async () => {
+    expect(
+      await canInAnyScope(
+        fake([
+          {
+            roleId: ROLE_IDS.globalAdmin,
+            scopeType: "company",
+            departmentId: null,
+          },
+        ]),
+        "01JTESTANYSCOPEUSER0000001",
+        "perm.workspace.manage",
+      ),
+    ).toBe(true);
+  });
+
+  it("#143-b b-AC-3: 部署の範囲の割り当てでも、その権限を持たないロール（一般のメンバー）は偽", async () => {
+    expect(
+      await canInAnyScope(
+        fake([
+          {
+            roleId: ROLE_IDS.member,
+            scopeType: "department",
+            departmentId: DEPT,
+          },
+        ]),
+        "01JTESTANYSCOPEUSER0000001",
+        "perm.channel.edit",
+      ),
+    ).toBe(false);
+  });
+
+  it("#143-b b-AC-3: 部署の範囲なのに部署の ID がない割り当て（DB の制約 user_role_assignments_scope_check で作れない形）は、オーナーのロールでも数えない", async () => {
+    expect(
+      await canInAnyScope(
+        fake([
+          {
+            roleId: ROLE_IDS.owner,
+            scopeType: "department",
+            departmentId: null,
+          },
+        ]),
+        "01JTESTANYSCOPEUSER0000001",
+        "perm.channel.edit",
+      ),
+    ).toBe(false);
+  });
+
+  it("#143-b b-AC-3: 部署の範囲で部署の ID がない行は、DB の制約で入れられない", async () => {
+    const userId = await insertUser(
+      "testuser_143bany_nulldept",
+      await insertDepartment("143b権限の制約部署"),
+    );
+    const error = await insertAssignment(
+      userId,
+      ROLE_IDS.owner,
+      "department",
+      null,
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+  });
+});

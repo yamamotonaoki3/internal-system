@@ -439,3 +439,111 @@ describe("#143-b b-AC-1・b-AC-2 応答の形と manage（S4）", () => {
     });
   });
 });
+
+// #143-b ミューテーションの生き残り（channel-admin.service.ts）への追加
+describe("#143-b b-AC-1・b-AC-2: 資格の読み直しは0件のときだけ", () => {
+  it("#143-b b-AC-1: 一覧が1件以上なら、資格を読み直さない（割り当てを読まない）", async () => {
+    const { service, assignments } = build(
+      fakeRepository({ list: { items: [row()], nextCursor: null } }),
+      [MEMBER],
+    );
+    await service.list(ACTOR, { state: "all", limit: 20 });
+    expect(assignments.findByUserId).not.toHaveBeenCalled();
+  });
+
+  it("#143-b b-AC-2: アーカイブの一覧が1件以上なら、資格を読み直さない", async () => {
+    const { service, assignments } = build(
+      fakeRepository({
+        archived: { items: [archivedRow()], nextCursor: null },
+      }),
+      [MEMBER],
+    );
+    await service.listArchived(ACTOR, { limit: 20 });
+    expect(assignments.findByUserId).not.toHaveBeenCalled();
+  });
+
+  it("#143-b b-AC-1・b-AC-2: 0件なら1回だけ読み直す", async () => {
+    const one = build(fakeRepository({}), [OWNER]);
+    await one.service.list(ACTOR, { state: "all", limit: 20 });
+    expect(one.assignments.findByUserId).toHaveBeenCalledTimes(1);
+    const two = build(fakeRepository({}), [OWNER]);
+    await two.service.listArchived(ACTOR, { limit: 20 });
+    expect(two.assignments.findByUserId).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#143-b b-AC-1: 部署とアーカイブした人の整形（非開示）", () => {
+  it.each([
+    [
+      "会社直属（3つとも null）",
+      { departmentId: null, departmentName: null, departmentIsActive: null },
+    ],
+    ["部署の名前が読めない", { departmentName: null }],
+    ["部署の有効性が読めない", { departmentIsActive: null }],
+    ["部署の ID がない", { departmentId: null }],
+  ] as const)(
+    "#143-b b-AC-1: %s なら department は null（読めない部署の一部を出さない）",
+    async (_label, overrides) => {
+      const { service } = build(fakeRepository({ found: row(overrides) }), [
+        ADMIN,
+      ]);
+      expect((await service.get(ACTOR, ROOM)).department).toBeNull();
+    },
+  );
+
+  it("#143-b b-AC-1（D-3）: 無効な部署は isActive=false のまま名前を出す", async () => {
+    const { service } = build(
+      fakeRepository({ found: row({ departmentIsActive: false }) }),
+      [ADMIN],
+    );
+    expect((await service.get(ACTOR, ROOM)).department).toEqual({
+      id: DEPT,
+      name: "[UNIT_TEST]部署",
+      isActive: false,
+    });
+  });
+
+  it.each([
+    ["アーカイブした人の ID がない", { deletedBy: null }],
+    ["アーカイブした人の表示名がない", { deletedByName: null }],
+  ] as const)(
+    "#143-b b-AC-1・b-AC-2: %s アーカイブ済みの行は、成功に見せかけず失敗にする（1件・アーカイブの一覧）",
+    async (_label, overrides) => {
+      const broken = archivedRow(overrides);
+      const one = build(fakeRepository({ found: broken }), [ADMIN]);
+      await expect(one.service.get(ACTOR, ROOM)).rejects.toThrow();
+      const many = build(
+        fakeRepository({ archived: { items: [broken], nextCursor: null } }),
+        [ADMIN],
+      );
+      await expect(
+        many.service.listArchived(ACTOR, { limit: 20 }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("#143-b b-AC-2: 退職者（無効）がアーカイブした行も、表示名（本名ではない）をそのまま出す", async () => {
+    const { service } = build(
+      fakeRepository({
+        archived: {
+          items: [archivedRow({ deletedByName: "testuser_143b_retired" })],
+          nextCursor: null,
+        },
+      }),
+      [ADMIN],
+    );
+    const page = await service.listArchived(ACTOR, { limit: 20 });
+    expect(page.items[0]?.deletedBy).toEqual({
+      id: ARCHIVER,
+      displayName: "testuser_143b_retired",
+    });
+  });
+
+  it("#143-b b-AC-2: アーカイブの一覧にアーカイブされていない行が来たら、失敗にする", async () => {
+    const { service } = build(
+      fakeRepository({ archived: { items: [row()], nextCursor: null } }),
+      [ADMIN],
+    );
+    await expect(service.listArchived(ACTOR, { limit: 20 })).rejects.toThrow();
+  });
+});
