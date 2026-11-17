@@ -14,6 +14,8 @@ describe("#146 3-4 AC-1 通知の文言と移動先", () => {
         targetId: "01JTESTCASEREQNOTIF000001",
         createdAt: "2026-11-17T03:00:00.000Z",
         readAt: null,
+        reason: null,
+        roomArchived: false,
       }),
     ).toEqual({
       label: "案件の作成の申請が届きました",
@@ -36,6 +38,8 @@ describe("#146 3-4 AC-1 通知の文言と移動先", () => {
           targetId: "01JTESTCASEREQNOTIF000002",
           createdAt: "2026-11-17T03:00:00.000Z",
           readAt: null,
+          reason: null,
+          roomArchived: false,
         }),
       ).toEqual({ label, to: "/case-requests" });
     },

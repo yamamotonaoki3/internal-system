@@ -16,6 +16,9 @@ export type TestNotification = {
   targetId: string | null;
   createdAt: string;
   readAt: string | null;
+  // #143：通知の一覧の応答に reason・roomArchived（必須）が加わった
+  reason: string | null;
+  roomArchived: boolean;
 };
 
 /** n 番目の通知。ID は n の昇順（辞書順＝時刻順）。respondNotifications には新しい順（大きい n が先）で渡す */
@@ -31,6 +34,8 @@ export function notification(
     targetId: `01JTESTTARGET${String(n).padStart(13, "0")}`,
     createdAt: new Date(Date.UTC(2026, 10, 1, 0, n)).toISOString(),
     readAt: null,
+    reason: null,
+    roomArchived: false,
     ...overrides,
   };
 }

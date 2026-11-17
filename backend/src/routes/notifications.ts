@@ -21,7 +21,7 @@ export function notificationRoutes() {
       const actor = actorOf(c);
       const { limit, cursor } = c.req.valid("query");
       const page = await withNotificationService(c.env, (service) =>
-        service.list(
+        service.listWithArchiveStates(
           actor,
           cursor === undefined ? { limit } : { limit, cursor },
         ),

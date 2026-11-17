@@ -14,6 +14,8 @@ const item = (roomId: string | null) => ({
   targetId: null,
   createdAt: "2026-11-16T00:00:00.000Z",
   readAt: null,
+  reason: null,
+  roomArchived: false,
 });
 
 describe("#135 決定 Q4 招待の通知の文言と移動先", () => {

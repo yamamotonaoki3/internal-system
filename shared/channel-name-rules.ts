@@ -53,3 +53,17 @@ export const rejectReasonSchema = z
   .trim()
   .min(1)
   .refine((value) => value.length <= REJECT_REASON_MAX_LENGTH);
+
+/** 名前の変更が、ほかのチャンネル（アーカイブ済みを含む）の名前と重なったときの文（#143）。画面は、この文の 409 を名前の欄に出す */
+export const CHANNEL_NAME_TAKEN_MESSAGE = "同じ名前のチャンネルがあります";
+
+/** アーカイブの理由の最大文字数（2-6 AC-6・V-48） */
+export const ARCHIVE_REASON_MAX_LENGTH = 500;
+
+/** アーカイブの理由（任意）。前後の空白を除き、空なら理由なし（null）。1〜500 文字 */
+export const archiveReasonSchema = z
+  .string()
+  .trim()
+  .refine((value) => value.length <= ARCHIVE_REASON_MAX_LENGTH)
+  .transform((value) => (value === "" ? null : value))
+  .optional();

@@ -172,6 +172,8 @@ describe("#124 AC-1（3-4 AC-3・R-57）一覧：本人宛てだけが、新し�
         "kind",
         "messageId",
         "readAt",
+        "reason",
+        "roomArchived",
         "roomId",
         "targetId",
       ].sort(),

@@ -10,6 +10,10 @@ const notificationItemSchema = z.object({
   targetId: z.string().nullable(),
   createdAt: z.string(),
   readAt: z.string().nullable(),
+  // channel.archived の行だけ、その回のアーカイブの理由（#143）
+  reason: z.string().nullable(),
+  // チャンネルについての通知で、そのチャンネルが今アーカイブ中か（#143）
+  roomArchived: z.boolean(),
 });
 const notificationPageSchema = z.object({
   items: z.array(notificationItemSchema),

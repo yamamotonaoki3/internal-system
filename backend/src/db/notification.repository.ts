@@ -6,6 +6,7 @@ import {
   and,
   desc,
   eq,
+  inArray,
   isNotNull,
   isNull,
   notInArray,
@@ -40,6 +41,21 @@ export type NotificationInput<K extends string = NotificationKind> = {
   targetId?: string | null;
 };
 
+/** 通知の行ごとの、アーカイブに関わる表示の事実（#143・3-4 AC-5） */
+export type NotificationArchiveState = {
+  /** channel.archived の行だけ、その回のアーカイブの理由（なければ null）。ほかの種類は null */
+  reason: string | null;
+  /** 部屋の内容を含まない、チャンネルについての種類の行だけ、そのチャンネルが今アーカイブ中か。ほかの種類は false */
+  roomArchived: boolean;
+};
+
+// roomArchived を計算する種類（部屋の内容を含まず、チャンネルを移動先にするもの）
+const ROOM_ARCHIVED_KINDS = [
+  "channel_request.approved",
+  "channel.archived",
+  "channel.restored",
+] as const satisfies readonly NotificationKind[];
+
 export type NotificationItem = {
   id: string;
   kind: string;
@@ -54,22 +70,31 @@ export type NotificationItem = {
  * 宛先ごとに 1 件ずつ通知を作る文を返す（実行しない）。宛先の重複は 1 件にまとめ、0 人なら空配列。
  * 「操作した本人を除く」などの宛先の絞り込みは、呼び出し側の責務（渡された宛先にだけ作る）。
  * kind の型引数の既定値は定義元の種類：本番のコードは、定義にない種類を渡せない。
+ * onlyWhen を渡すと、その条件が成り立つときだけ作る（業務の更新と同じ条件で、確定の時点の状態に合わせるため）。
  */
 export function notificationInserts<K extends string = NotificationKind>(
   db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
   recipientIds: readonly string[],
   input: NotificationInput<K>,
+  deps: { onlyWhen?: SQL } = {},
 ) {
-  return [...new Set(recipientIds)].map((userId) =>
-    db.insert(notifications).values({
+  return [...new Set(recipientIds)].map((userId) => {
+    const row = {
       id: newUlid(),
       userId,
       kind: input.kind,
       roomId: input.roomId ?? null,
       messageId: input.messageId ?? null,
       targetId: input.targetId ?? null,
-    }),
-  );
+    };
+    if (deps.onlyWhen === undefined)
+      return db.insert(notifications).values(row);
+    // 列は notifications の定義の順（id, user_id, kind, room_id, message_id, target_id, created_at, read_at）
+    return db.insert(notifications).select(sql`
+      SELECT ${row.id}, ${row.userId}, ${row.kind}, ${row.roomId}, ${row.messageId}, ${row.targetId},
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL
+      WHERE ${deps.onlyWhen}`);
+  });
 }
 
 /**
@@ -161,6 +186,48 @@ export function createNotificationRepository(
         if (!isUlid(row.id)) throw new Error("通知IDが不正です");
         return { v: row.createdAt, id: row.id };
       });
+    },
+
+    /**
+     * 本人宛ての通知のうち、渡した ID の行の reason・roomArchived を返す（#143）。ID は一覧（visibleToRecipient を通したもの）から渡す。
+     * ここでは本人宛ての条件だけを当てる：一覧の後に部屋が見えなくなっても、一覧で返した行の事実を欠かさないため。
+     * 理由はその通知が指すアーカイブの記録（target_id）から読むため、再アーカイブしても古い通知は古い理由のまま
+     */
+    async archiveStatesFor(
+      recipientId: string,
+      notificationIds: readonly string[],
+    ): Promise<Map<string, NotificationArchiveState>> {
+      if (notificationIds.length === 0) return new Map();
+      const rows = await db
+        .select({
+          id: notifications.id,
+          reason: sql<
+            string | null
+          >`CASE WHEN ${notifications.kind} = 'channel.archived'
+            THEN (SELECT e.reason FROM channel_archive_events e
+              WHERE e.id = ${notifications.targetId} AND e.channel_id = ${notifications.roomId})
+            END`,
+          roomArchived:
+            sql<boolean>`${inArray(notifications.kind, [...ROOM_ARCHIVED_KINDS])}
+            AND EXISTS (SELECT 1 FROM channels c
+              WHERE c.room_id = ${notifications.roomId} AND c.deleted_at IS NOT NULL)`.mapWith(
+              Boolean,
+            ),
+        })
+        .from(notifications)
+        .where(
+          and(
+            // ID は JSON の1つの値で渡す（D1 の1文あたりの値の数の上限を、一覧の件数で超えないため）
+            sql`${notifications.id} IN (SELECT value FROM json_each(${JSON.stringify(notificationIds)}))`,
+            eq(notifications.userId, recipientId),
+          ),
+        );
+      return new Map(
+        rows.map((row) => [
+          row.id,
+          { reason: row.reason, roomArchived: row.roomArchived },
+        ]),
+      );
     },
 
     /** 本人の未読数。UNREAD_COUNT_LIMIT で打ち切る */

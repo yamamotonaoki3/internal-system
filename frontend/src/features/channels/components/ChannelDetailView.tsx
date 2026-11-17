@@ -1,5 +1,7 @@
 // チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。参加中で読み取り専用でなければ、招待（S-12）を開ける。
+// 管理できる人には、ヘッダーの「⋯」から名前・説明の編集とアーカイブを出す（#143）。アーカイブしたら、チャンネルの一覧へ移る。
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { useSession } from "../../auth";
@@ -12,6 +14,10 @@ import { describeError, isApiError } from "../describe-error";
 import { useChannelDetail } from "../hooks/useChannelDetail";
 import { useJoinChannel } from "../hooks/useJoinChannel";
 import { ChannelInviteDialog } from "./ChannelInviteDialog";
+import { ChannelManageMenu } from "./ChannelManageMenu";
+
+/** アーカイブの後に移る一覧へ渡す、完了の表示の印（pages/ChannelsPage.tsx が読む） */
+export const CHANNEL_ARCHIVED_STATE = { channelArchived: true } as const;
 
 export function ChannelDetailView({ channelId }: { channelId: string }) {
   const channel = useChannelDetail(channelId);
@@ -20,6 +26,7 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
   const selfId = session.data?.user.id;
   const read = useMarkRoomRead(channelId);
   const thread = useThreadParam();
+  const navigate = useNavigate();
 
   if (channel.isPending) return <p role="status">読み込み中です</p>;
   if (channel.isError) {
@@ -37,7 +44,15 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
   return (
     <ThreadLayout roomId={data.roomId}>
       <section className="mx-auto w-full min-w-0 max-w-3xl flex-1 rounded-lg bg-surface p-4 md:p-6">
-        <h1 className="mb-2 text-2xl font-bold">{data.name}</h1>
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <h1 className="text-2xl font-bold">{data.name}</h1>
+          <ChannelManageMenu
+            channel={data}
+            onArchived={() =>
+              void navigate("/channels", { state: CHANNEL_ARCHIVED_STATE })
+            }
+          />
+        </div>
         <p className="mb-4 text-sm text-text-muted">
           {data.visibility === "private"
             ? "非公開のチャンネル"

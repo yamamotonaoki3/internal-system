@@ -244,6 +244,43 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
+  it("#143 a-AC-1〜a-AC-3: チャンネルの名前・説明の変更（EP-2-36）・アーカイブ（EP-2-37）・復元（EP-2-38）の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "PATCH /api/channels/{channelId}": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/channels/{channelId}/delete": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/channels/{channelId}/restore": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
   it("#201 AC-1・AC-2・AC-3: メッセージの一覧・投稿の契約が書かれている", () => {
     const expected: Record<string, string[]> = {
       "GET /api/rooms/{roomId}/messages": ["200", "401", "404", "422"],
