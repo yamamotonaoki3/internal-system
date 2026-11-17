@@ -33,6 +33,24 @@ export const AUDIT_ACTIONS = [
   "retirement_request.reject",
   "retirement_request.withdraw",
   "message.delete",
+  "audit_log.view",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+// 監査ログの対象の種類（target_type）の一覧。画面の絞り込み・検索の入力の検証の定義元。
+// 各書き込みの targetType の型をこの一覧に絞ることは、いまはしない（最小の変更）。
+export const AUDIT_TARGET_TYPES = [
+  "user",
+  "department",
+  "client",
+  "channel",
+  "channel_request",
+  "case_request",
+  "retirement_request",
+  "message",
+  "source",
+  "audit_log",
+] as const;
+
+export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];

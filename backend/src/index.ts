@@ -12,6 +12,7 @@ import {
   replyAttachmentRoutes,
   roomAttachmentRoutes,
 } from "./routes/attachments";
+import { adminAuditLogRoutes } from "./routes/audit-logs";
 import { authRoutes } from "./routes/auth";
 import { caseRequestRoutes } from "./routes/case-requests";
 import { channelRequestRoutes } from "./routes/channel-requests";
@@ -53,6 +54,7 @@ export const app = createApp({
     { path: "/api/admin/departments", app: adminDepartmentRoutes() },
     { path: "/api/departments", app: departmentRoutes() },
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
+    { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/case-requests", app: caseRequestRoutes() },
     { path: "/api/retirement-requests", app: retirementRequestRoutes() },

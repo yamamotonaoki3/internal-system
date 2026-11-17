@@ -5005,6 +5005,59 @@
           }
         }
       }
+    },
+    "/api/admin/audit-logs/search": {
+      "post": {
+        "operationId": "searchAuditLogs",
+        "summary": "監査ログを絞り込んで1ページ分取得する（閲覧の記録を同時に残す）",
+        "description": "全体管理者（perm.audit_log.view）だけ。認可を入力の検証より先に行う。POST にするのは、取得のたびに閲覧の記録（audit_log.view）を同じ操作で残すため（ページ送りのたびに1件）。新しい順（日時の降順、同じ日時は id の降順）のカーソル方式。期間は日本時間（JST）の日付で、from はその日の0時以降、to はその日の終わりまで。detail の原文・trace_id・本名・メール・ログイン ID は返さない。変更・削除・書き出しの API はない。試行制限（429）は設けない。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditLogSearch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "新しい順の1ページ。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足（全体管理者以外）または送信元不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7588,7 +7641,7 @@
             "properties": {
               "permissions": {
                 "type": "array",
-                "description": "現在の利用者が持つ管理権限（表示の制御用。認可はサーバー側で行う）。perm.channel.request.approve.owner は全体管理者かいずれかの部署のオーナー。perm.workspace.manage はいずれかの部署のオーナー（全体管理者でも、部署のオーナーに任命されていなければ含めない）。それ以外は空配列",
+                "description": "現在の利用者が持つ管理権限（表示の制御用。認可はサーバー側で行う）。perm.channel.request.approve.owner は全体管理者かいずれかの部署のオーナー。perm.workspace.manage はいずれかの部署のオーナー（全体管理者でも、部署のオーナーに任命されていなければ含めない）。それ以外は空配列。perm.audit_log.view は全体管理者だけ（監査ログの閲覧。管理メニュー・画面の表示用）",
                 "items": {
                   "type": "string",
                   "enum": [
@@ -7596,7 +7649,8 @@
                     "perm.account.create",
                     "perm.workspace.create",
                     "perm.workspace.manage",
-                    "perm.channel.request.approve.owner"
+                    "perm.channel.request.approve.owner",
+                    "perm.audit_log.view"
                   ]
                 }
               }
@@ -8554,6 +8608,289 @@
           "status": {
             "type": "string",
             "const": "withdrawn"
+          }
+        }
+      },
+      "AuditLogSearch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "開始日（日本時間の日付 YYYY-MM-DD。暦にない日付は422）。その日の0時（JST）以降"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "終了日（日本時間の日付 YYYY-MM-DD）。その日の終わりまで。from より前なら422（fields: to）"
+          },
+          "actorId": {
+            "type": "string",
+            "description": "操作者の社員ID（ULID）"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "setup.initial_admin.create",
+              "setup.rate_limited",
+              "auth.login",
+              "auth.logout",
+              "auth.password_change",
+              "auth.reauthenticate",
+              "auth.rate_limited",
+              "client.create",
+              "client.rename",
+              "client.deactivate",
+              "department.create",
+              "department.rename",
+              "department.owner_change",
+              "department.channel_backfill",
+              "account.create",
+              "account.deactivate",
+              "account.reactivate",
+              "account.transfer",
+              "channel.join",
+              "channel.invite",
+              "channel.company_general_backfill",
+              "status.proxy_set",
+              "profile.display_name_change",
+              "channel_request.create",
+              "channel_request.approve",
+              "channel_request.reject",
+              "channel_request.withdraw",
+              "case_request.create",
+              "case_request.withdraw",
+              "retirement_request.create",
+              "retirement_request.reject",
+              "retirement_request.withdraw",
+              "message.delete",
+              "audit_log.view"
+            ],
+            "description": "操作の種類"
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "user",
+              "department",
+              "client",
+              "channel",
+              "channel_request",
+              "case_request",
+              "retirement_request",
+              "message",
+              "source",
+              "audit_log"
+            ],
+            "description": "対象の種類。targetId と組で指定する（片方だけは422）"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "対象のID（ULID）"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "次ページのカーソル"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      },
+      "AuditLogItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "occurredAt",
+          "action",
+          "result",
+          "actor",
+          "target"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string",
+            "description": "発生の日時（UTC の ISO 8601。ミリ秒つき）"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "setup.initial_admin.create",
+              "setup.rate_limited",
+              "auth.login",
+              "auth.logout",
+              "auth.password_change",
+              "auth.reauthenticate",
+              "auth.rate_limited",
+              "client.create",
+              "client.rename",
+              "client.deactivate",
+              "department.create",
+              "department.rename",
+              "department.owner_change",
+              "department.channel_backfill",
+              "account.create",
+              "account.deactivate",
+              "account.reactivate",
+              "account.transfer",
+              "channel.join",
+              "channel.invite",
+              "channel.company_general_backfill",
+              "status.proxy_set",
+              "profile.display_name_change",
+              "channel_request.create",
+              "channel_request.approve",
+              "channel_request.reject",
+              "channel_request.withdraw",
+              "case_request.create",
+              "case_request.withdraw",
+              "retirement_request.create",
+              "retirement_request.reject",
+              "retirement_request.withdraw",
+              "message.delete",
+              "audit_log.view"
+            ]
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure"
+            ]
+          },
+          "actor": {
+            "description": "操作した人。不明（ログイン失敗など）は null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "displayName",
+                  "isActive"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "表示名。社員の行がなければ null（本名は返さない）"
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            ]
+          },
+          "target": {
+            "description": "対象。対象のIDがない・アカウント登録の失敗の行は null（対象の社員を示さない）",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "id",
+                  "label",
+                  "isActive"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "department",
+                      "client",
+                      "channel",
+                      "channel_request",
+                      "case_request",
+                      "retirement_request",
+                      "message",
+                      "source",
+                      "audit_log"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "社員の表示名・部署名・取引先名・チャンネル名。行がない・名前を解決しない種類（メッセージなど）は null"
+                  },
+                  "isActive": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "対象が社員のときだけ。それ以外・行がなければ null"
+                  }
+                }
+              }
+            ]
+          },
+          "failureCategory": {
+            "type": "string",
+            "description": "アカウント登録の失敗のときだけ。エラーの分類"
+          },
+          "affectedCount": {
+            "type": "integer",
+            "description": "アカウント登録の失敗のときだけ。対象の件数"
+          },
+          "reason": {
+            "type": "string",
+            "description": "理由の分類（あるときだけ）"
+          }
+        }
+      },
+      "AuditLogPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLogItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

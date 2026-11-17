@@ -39,6 +39,15 @@ export const auditLogs = sqliteTable(
   },
   (t) => [
     index("audit_logs_occurred_at_id_idx").on(t.occurredAt, t.id),
+    // 閲覧（#156）の絞り込みと「新しい順」に合わせる索引。result は2値で選択性が低いので索引にしない
+    index("audit_logs_actor_occurred_idx").on(t.actorId, t.occurredAt, t.id),
+    index("audit_logs_action_occurred_idx").on(t.action, t.occurredAt, t.id),
+    index("audit_logs_target_occurred_idx").on(
+      t.targetType,
+      t.targetId,
+      t.occurredAt,
+      t.id,
+    ),
     check(
       "audit_logs_result_check",
       sql`${t.result} in ('success', 'failure')`,

@@ -88,6 +88,12 @@ export const adminNavGroups: AdminNavGroup[] = [
         to: "/clients",
         requires: "perm.client.manage",
       },
+      {
+        id: "audit-logs",
+        label: "監査ログ",
+        to: "/audit-logs",
+        requires: "perm.audit_log.view",
+      },
     ],
   },
 ];

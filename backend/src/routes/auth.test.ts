@@ -806,14 +806,19 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     expect(response.status).toBe(200);
     // #196 AC-4（S-12で承認）：部署管理（作成・改名・一覧）の権限 perm.workspace.create が加わる
     // #131（利用者決定 D）：チャンネル作成の承認（管理メニュー「承認」）の perm.channel.request.approve.owner が加わる
-    expect(await response.json()).toMatchObject({
-      permissions: [
+    // #156（0-6 AC-1）：監査ログの閲覧の権限 perm.audit_log.view が加わる（並びは問わず、権限の組が完全に一致することを確かめる）
+    const { permissions } = (await response.json()) as {
+      permissions: string[];
+    };
+    expect([...permissions].sort()).toEqual(
+      [
         "perm.client.manage",
         "perm.account.create",
         "perm.workspace.create",
         "perm.channel.request.approve.owner",
-      ],
-    });
+        "perm.audit_log.view",
+      ].sort(),
+    );
   });
 
   it("#192 AC-1・AC-6: 一般社員のsessionは管理権限を返さない", async () => {
@@ -841,6 +846,53 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     expect(permissions).not.toContain("perm.client.manage");
     expect(permissions).not.toContain("perm.account.create");
     expect(permissions).not.toContain("perm.workspace.create");
+    expect(permissions).not.toContain("perm.audit_log.view");
+  });
+});
+
+// #156（0-6 AC-1）：監査ログ（S-25）の管理メニュー・画面の表示用に、全体管理者のセッションへ perm.audit_log.view を返す。
+// 表示の制御であり、認可はサーバー（API の全体管理者のミドルウェアと Service）が毎回行う。
+describe("#156 AC-1: セッションの監査ログの閲覧の権限", () => {
+  const sessionPermissions = async (user: string) => {
+    const session = await insertSession(user, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: session.token });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { permissions: string[] }).permissions;
+  };
+
+  it("#156 0-6 AC-1: 全体管理者のセッションは perm.audit_log.view を返す", async () => {
+    await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
+    expect(await sessionPermissions(userId)).toContain("perm.audit_log.view");
+  });
+
+  it("#156 0-6 AC-1: 部署のオーナーのセッションは perm.audit_log.view を返さない", async () => {
+    const department = await insertDepartment("監査ログ権限テスト部署");
+    const owner = await insertUser("testuser_156_session_owner", department);
+    await insertAssignment(owner, ROLE_IDS.owner, "department", department);
+    expect(await sessionPermissions(owner)).not.toContain(
+      "perm.audit_log.view",
+    );
+  });
+
+  it("#156 0-6 AC-1: 一般社員のセッションは perm.audit_log.view を返さない", async () => {
+    expect(await sessionPermissions(userId)).not.toContain(
+      "perm.audit_log.view",
+    );
+  });
+
+  it("#156 0-6 AC-1: 全体管理者の割り当ての範囲が会社でない利用者には、perm.audit_log.view を返さない", async () => {
+    const department = await insertDepartment("監査ログ範囲テスト部署");
+    await insertAssignment(
+      userId,
+      ROLE_IDS.globalAdmin,
+      "department",
+      department,
+    );
+    expect(await sessionPermissions(userId)).not.toContain(
+      "perm.audit_log.view",
+    );
   });
 });
 

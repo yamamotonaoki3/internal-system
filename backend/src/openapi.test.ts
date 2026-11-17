@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { adminAccountRoutes } from "./routes/accounts";
+import { adminAuditLogRoutes } from "./routes/audit-logs";
 import {
   attachmentRoutes,
   replyAttachmentRoutes,
@@ -83,6 +84,8 @@ const app = createApp({
     { path: "/api/attachments", app: attachmentRoutes() },
     // #146：案件の作成申請・自分の申請・取り下げ・類似件名の確認。index.ts と同じパスに組み込む
     { path: "/api/case-requests", app: caseRequestRoutes() },
+    // #156：監査ログの閲覧（EP-0-19）。index.ts と同じパスに組み込む
+    { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
   ],
 });
 
@@ -550,6 +553,66 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     ).ChannelDetail;
     expect(detail?.required).toContain("readOnly");
     expect(detail?.properties?.readOnly?.type).toBe("boolean");
+  });
+
+  it("#156 0-6 AC-1・AC-3（EP-0-19）: 監査ログの検索の応答コードが書かれている（200・401・403・422。429 は作らない）", () => {
+    const operation = operations.find(
+      (entry) => entry.name === "POST /api/admin/audit-logs/search",
+    );
+    expect(operation).toBeDefined();
+    const codes = Object.keys(operation?.operation.responses ?? {});
+    for (const code of ["200", "401", "403", "422"])
+      expect(codes).toContain(code);
+    expect(codes).not.toContain("429");
+  });
+
+  it("#156 0-6 AC-4（R-16）: 監査ログの変更・削除・書き出しの操作は、仕様書にも実際のルートにもない（検索の POST だけ）", () => {
+    const auditOperations = (names: string[]) =>
+      names.filter((name) => name.includes("/api/admin/audit-logs"));
+    expect(auditOperations(operations.map((o) => o.name))).toEqual([
+      "POST /api/admin/audit-logs/search",
+    ]);
+    expect(auditOperations(actual)).toEqual([
+      "POST /api/admin/audit-logs/search",
+    ]);
+  });
+
+  it("#156 0-6 AC-5: 監査ログの一覧の項目（AuditLogItem）は、detail・trace_id・本名・メール・ログイン ID の項目を持たない", () => {
+    const schemas = (
+      spec as unknown as {
+        components: { schemas: Record<string, { properties?: object }> };
+      }
+    ).components.schemas;
+    const item = schemas.AuditLogItem;
+    expect(item).toBeDefined();
+    const names = Object.keys(item?.properties ?? {});
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "id",
+        "occurredAt",
+        "action",
+        "result",
+        "actor",
+        "target",
+      ]),
+    );
+    for (const forbidden of [
+      "detail",
+      "traceId",
+      "trace_id",
+      "legalName",
+      "email",
+      "loginId",
+    ])
+      expect(names).not.toContain(forbidden);
+  });
+
+  it("#156 0-6 AC-1: セッションの応答の権限（permissions）に perm.audit_log.view が書かれている", () => {
+    const session = JSON.stringify(spec.paths["/api/auth/session"]);
+    const components = JSON.stringify(
+      (spec as unknown as { components: object }).components,
+    );
+    expect(session + components).toContain("perm.audit_log.view");
   });
 
   it("実際のルートと、同じ操作が書かれている（足りない・余分がない）", () => {
