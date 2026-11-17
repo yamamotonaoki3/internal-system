@@ -5535,6 +5535,235 @@
           }
         }
       }
+    },
+    "/api/admin/channels": {
+      "get": {
+        "operationId": "listAdminChannels",
+        "summary": "チャンネル管理の一覧（S-39。EP-2-42）",
+        "description": "全体管理者か、いずれかの部署のオーナー（perm.channel.edit）。全体管理者は案件専用以外のすべて、部署のオーナーは自部署の案件専用以外のすべて（参加していない非公開を含む）。範囲はその時点の割り当てで決まる。会社直属は全体管理者だけ。名前の比較キーの昇順。件数（total）とメッセージの中身は返さない。",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 55
+            },
+            "description": "名前の部分一致（前後の空白を除いて 1〜55 文字。大文字・小文字、全角・半角の英数字を区別しない）"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "active",
+                "archived"
+              ],
+              "default": "all"
+            },
+            "description": "状態で絞り込む（all：すべて、active：使用中、archived：アーカイブ中）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "チャンネルの一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminChannelPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "全体管理者でも、いずれかの部署のオーナーでもない（対象・入力によらず同じ。入力の検証より先に判定する）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/admin/channels/{channelId}": {
+      "get": {
+        "operationId": "getAdminChannel",
+        "summary": "チャンネル管理の1件（S-39 の編集の読み直し。EP-2-43）",
+        "description": "一覧と同じ権限と範囲。範囲外・存在しない・案件専用は、区別せず同じ 404（存在を開示しない）。",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "チャンネル。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminChannel"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "全体管理者でも、いずれかの部署のオーナーでもない（対象・入力によらず同じ。入力の検証より先に判定する）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "チャンネルが見つかりません（範囲外・存在しない・案件専用で同じ）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/admin/deleted-items": {
+      "get": {
+        "operationId": "listDeletedItems",
+        "summary": "アーカイブしたものの一覧（S-38。EP-2-40）",
+        "description": "全体管理者か、いずれかの部署のオーナー（perm.channel.delete）。全体管理者は案件専用以外のすべて、部署のオーナーは自部署の案件専用以外のすべて（参加していない非公開を含む）。範囲はその時点の割り当てで決まる。会社直属は全体管理者だけ。アーカイブした日時の新しい順。いまはチャンネルだけ（案件は #151）。",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "channel"
+              ]
+            },
+            "description": "種類（いまは channel だけ）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "アーカイブしたものの一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivedItemPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "全体管理者でも、いずれかの部署のオーナーでもない（対象・入力によらず同じ。入力の検証より先に判定する）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9834,6 +10063,307 @@
           },
           "canArchive": {
             "type": "boolean"
+          }
+        }
+      },
+      "AdminChannel": {
+        "type": "object",
+        "description": "チャンネル管理の行（#143-b）。行が返ること＝管理できる人であるため、manage は種類と状態だけで決まる",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "purpose",
+          "visibility",
+          "department",
+          "state",
+          "version",
+          "memberCount",
+          "archive",
+          "manage"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "department",
+              "announcement",
+              "company_general"
+            ],
+            "description": "通常・部署の専用・お知らせ専用・全社連絡（案件専用は返さない）"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "department": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "name",
+                  "isActive"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "部署が無効でも、そのチャンネルは出す"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "部署。会社直属は null"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "書き込みの API に送る版"
+          },
+          "memberCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "有効な社員の参加者の数"
+          },
+          "archive": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "archivedBy",
+                  "archivedAt",
+                  "reason"
+                ],
+                "properties": {
+                  "archivedBy": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "displayName"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "archivedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "アーカイブ中なら、アーカイブした人・日時・理由。使用中は null"
+          },
+          "manage": {
+            "type": "object",
+            "required": [
+              "canRename",
+              "canEditDescription",
+              "canArchive",
+              "canRestore"
+            ],
+            "properties": {
+              "canRename": {
+                "type": "boolean"
+              },
+              "canEditDescription": {
+                "type": "boolean"
+              },
+              "canArchive": {
+                "type": "boolean"
+              },
+              "canRestore": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "AdminChannelPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminChannel"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArchivedItem": {
+        "type": "object",
+        "description": "アーカイブしたものの行（#143-b。いまはチャンネルだけ）",
+        "required": [
+          "type",
+          "id",
+          "name",
+          "caseNumber",
+          "deletedBy",
+          "deletedAt",
+          "reason",
+          "version",
+          "department",
+          "canRestore"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "channel"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "caseNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "案件のときだけ値（#151）。チャンネルは null"
+          },
+          "deletedBy": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "department": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "name",
+                  "isActive"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "部署が無効でも、そのチャンネルは出す"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "部署。会社直属は null"
+          },
+          "canRestore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ArchivedItemPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArchivedItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

@@ -808,6 +808,7 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
     // #131（利用者決定 D）：チャンネル作成の承認（管理メニュー「承認」）の perm.channel.request.approve.owner が加わる
     // #146（146-B）：案件作成の承認（管理メニュー「承認＞案件承認」）の perm.case.request.approve が加わる
     // #156（0-6 AC-1）：監査ログの閲覧の権限 perm.audit_log.view が加わる（並びは問わず、権限の組が完全に一致することを確かめる）
+    // #143-b：チャンネル管理（S-39）の perm.channel.edit と、アーカイブ（S-38）の perm.channel.delete が加わる
     const { permissions } = (await response.json()) as {
       permissions: string[];
     };
@@ -819,6 +820,9 @@ describe("#192 AC-1・AC-6: セッションの取引先管理権限", () => {
         "perm.channel.request.approve.owner",
         "perm.case.request.approve",
         "perm.audit_log.view",
+        // #143-b（S-39・S-38 の入口の表示）：チャンネル管理の perm.channel.edit と、アーカイブの perm.channel.delete が加わる
+        "perm.channel.edit",
+        "perm.channel.delete",
       ].sort(),
     );
   });
@@ -910,15 +914,19 @@ describe("#131 AC-7: セッションのチャンネル作成の承認の権限",
     return ((await response.json()) as { permissions: string[] }).permissions;
   };
 
-  it("#131 AC-7・#128 C-177・#146 5-3 AC-3: 部署のオーナーのセッションは perm.channel.request.approve.owner・perm.workspace.manage・perm.case.request.approve を返す（オーナーの権限はこの3つだけ）", async () => {
+  it("#131 AC-7・#128 C-177・#146 5-3 AC-3: 部署のオーナーのセッションは perm.channel.request.approve.owner・perm.workspace.manage・perm.case.request.approve を返す。#143-b b-AC-1・b-AC-2：perm.channel.edit・perm.channel.delete も返す（オーナーの権限はこの5つだけ）", async () => {
     const department = await insertDepartment("チャンネル承認テスト部署");
     const owner = await insertUser("testuser_chreq_session_owner", department);
     await insertAssignment(owner, ROLE_IDS.owner, "department", department);
-    expect([...(await sessionPermissions(owner))].sort()).toEqual([
-      "perm.case.request.approve",
-      "perm.channel.request.approve.owner",
-      "perm.workspace.manage",
-    ]);
+    expect([...(await sessionPermissions(owner))].sort()).toEqual(
+      [
+        "perm.case.request.approve",
+        "perm.channel.delete",
+        "perm.channel.edit",
+        "perm.channel.request.approve.owner",
+        "perm.workspace.manage",
+      ].sort(),
+    );
   });
 
   // #128（128-c）C-177：「自分の退職処理の申請」への入口の表示の制御。いずれかの部署のオーナーにだけ返す
@@ -984,5 +992,55 @@ describe("#146 5-3 AC-3: セッションの案件作成の承認の権限", () =
     expect(await sessionPermissions(userId)).not.toContain(
       "perm.case.request.approve",
     );
+  });
+});
+
+// #143-b b-AC-1〜b-AC-3（R5）：S-39（チャンネル管理）・S-38（アーカイブ）の入口の表示用に、全体管理者か、いずれかの部署のオーナーの
+// セッションへ perm.channel.edit・perm.channel.delete を返す。表示の制御であり、認可は API（/api/admin/channels・/api/admin/deleted-items）が毎回行う。
+describe("#143-b b-AC-3: セッションのチャンネル管理・アーカイブの権限", () => {
+  const sessionPermissions = async (user: string) => {
+    const session = await insertSession(user, {
+      createdAt: new Date().toISOString(),
+    });
+    const response = await getSession({ cookie: session.token });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { permissions: string[] }).permissions;
+  };
+  const CHANNEL_PERMISSIONS = ["perm.channel.edit", "perm.channel.delete"];
+
+  it("#143-b b-AC-1・b-AC-2: 全体管理者（任命された部署がなくても）のセッションは perm.channel.edit・perm.channel.delete を返す", async () => {
+    await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
+    expect(await sessionPermissions(userId)).toEqual(
+      expect.arrayContaining(CHANNEL_PERMISSIONS),
+    );
+  });
+
+  it("#143-b b-AC-1・b-AC-2: 所属しない部署のオーナーに任命された社員のセッションも、両方を返す", async () => {
+    const own = await insertDepartment("チャンネル管理権限の所属部署");
+    const other = await insertDepartment("チャンネル管理権限の担当部署");
+    const owner = await insertUser("testuser_143b_session_owner", own);
+    await insertAssignment(owner, ROLE_IDS.owner, "department", other);
+    expect(await sessionPermissions(owner)).toEqual(
+      expect.arrayContaining(CHANNEL_PERMISSIONS),
+    );
+  });
+
+  it("#143-b b-AC-3: 一般社員のセッションは、どちらも返さない", async () => {
+    const permissions = await sessionPermissions(userId);
+    for (const permission of CHANNEL_PERMISSIONS)
+      expect(permissions).not.toContain(permission);
+  });
+
+  it("#143-b b-AC-3: 全体管理者の割り当ての範囲が会社でない利用者には、どちらも返さない", async () => {
+    const department = await insertDepartment("チャンネル管理範囲テスト部署");
+    await insertAssignment(
+      userId,
+      ROLE_IDS.globalAdmin,
+      "department",
+      department,
+    );
+    const permissions = await sessionPermissions(userId);
+    for (const permission of CHANNEL_PERMISSIONS)
+      expect(permissions).not.toContain(permission);
   });
 });

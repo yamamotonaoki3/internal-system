@@ -1,7 +1,11 @@
 // チャンネルの管理（#143）：名前・説明の変更、アーカイブ・復元。アーカイブ・復元は再認証（S-26）を挟む。
 // 成功したら、一覧・サイドバー・詳細を取り直す（channels の all）。取り直しが終わるまで送信中のままにして、二重に送らせない。
+// アーカイブ・復元は、未読・スレッド・通知も取り直す（#143-b。復元したチャンネルが再読み込みなしでサイドバー・未読に戻る）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useReauth } from "../../auth";
+import { notificationKeys } from "../../notifications";
+import { threadKeys } from "../../threads";
+import { unreadKeys } from "../../unread";
 import {
   archiveChannel,
   fetchChannel,
@@ -26,6 +30,13 @@ function isDetailOf(queryKey: readonly unknown[], channelId: string): boolean {
     detail.every((part, index) => queryKey[index] === part)
   );
 }
+
+/** アーカイブ・復元で、チャンネルとともに中身が変わる、ほかの機能のキー */
+const ROOM_EFFECT_KEYS = [
+  unreadKeys.all,
+  threadKeys.all,
+  notificationKeys.all,
+] as const;
 
 type WithReauth = ReturnType<typeof useReauth>["withReauth"];
 
@@ -66,10 +77,15 @@ export function useArchiveChannel(channelId: string) {
       ),
     // アーカイブしたチャンネルの詳細は取り直さない（もう見られず 404 になる。画面は一覧へ移る）
     onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: channelKeys.all,
-        predicate: (query) => !isDetailOf(query.queryKey, channelId),
-      }),
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: channelKeys.all,
+          predicate: (query) => !isDetailOf(query.queryKey, channelId),
+        }),
+        ...ROOM_EFFECT_KEYS.map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      ]),
   });
 }
 
@@ -82,7 +98,11 @@ export function useRestoreChannel(channelId: string) {
         restoreChannel(channelId, { version }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: channelKeys.all }),
+      Promise.all(
+        [channelKeys.all, ...ROOM_EFFECT_KEYS].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      ),
   });
 }
 

@@ -3,3 +3,4 @@ export { ThreadLayout } from "./components/ThreadLayout";
 export { ThreadList } from "./components/ThreadList";
 export { ThreadPane } from "./components/ThreadPane";
 export { useThreadParam } from "./hooks/useThreadParam";
+export { threadKeys } from "./api/query-keys";

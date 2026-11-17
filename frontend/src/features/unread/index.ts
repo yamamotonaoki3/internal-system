@@ -6,3 +6,4 @@ export { useMarkRoomRead } from "./hooks/useMarkRoomRead";
 export { useUnreadCounts } from "./hooks/useUnreadCounts";
 export { useReadPositionSender } from "./hooks/useReadPositionSender";
 export { pollIntervalUnlessDenied } from "./polling";
+export { unreadKeys } from "./api/query-keys";

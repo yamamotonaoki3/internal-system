@@ -6,6 +6,16 @@ import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from "./lib/audit-actions";
 import { adminAccountRoutes } from "./routes/accounts";
+import {
+  ADMIN_CHANNEL_PURPOSES,
+  ADMIN_CHANNEL_STATES,
+  CHANNEL_VISIBILITIES,
+  adminChannelRoutes,
+} from "./routes/admin-channels";
+import {
+  DELETED_ITEM_TYPES,
+  adminDeletedItemRoutes,
+} from "./routes/admin-deleted-items";
 import { adminAuditLogRoutes } from "./routes/audit-logs";
 import {
   attachmentRoutes,
@@ -87,6 +97,9 @@ const app = createApp({
     { path: "/api/case-requests", app: caseRequestRoutes() },
     // #156：監査ログの閲覧（EP-0-19）。index.ts と同じパスに組み込む
     { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
+    // #143-b：チャンネル管理（EP-2-42・EP-2-43）とアーカイブの一覧（EP-2-40）。index.ts と同じパスに組み込む
+    { path: "/api/admin/channels", app: adminChannelRoutes() },
+    { path: "/api/admin/deleted-items", app: adminDeletedItemRoutes() },
   ],
 });
 
@@ -1078,5 +1091,169 @@ describe("API の仕様書：リアクション（#138）", () => {
     expect(schemas.AttachmentItem?.required).toEqual(
       expect.arrayContaining(["id", "name", "kind", "contentType", "size"]),
     );
+  });
+});
+
+// #143-b b-AC-1・b-AC-2（O1。計画 #143-b 5.1）: チャンネル管理の一覧・1件（EP-2-42・EP-2-43）と、アーカイブの一覧（EP-2-40）の契約。
+// 実装が前提とする約束（実装前。報告に明記）：routes/admin-channels.ts は adminChannelRoutes と、入力・応答の enum の定義
+// ADMIN_CHANNEL_STATES（all・active・archived）・ADMIN_CHANNEL_PURPOSES（normal・department・announcement・company_general）・
+// CHANNEL_VISIBILITIES（public・private）を公開する。routes/admin-deleted-items.ts は adminDeletedItemRoutes と DELETED_ITEM_TYPES（channel）を公開する。
+describe("API の仕様書：チャンネル管理・アーカイブの一覧（#143-b）", () => {
+  type Schema = {
+    $ref?: string;
+    type?: string | string[];
+    enum?: string[];
+    pattern?: string;
+    minLength?: number;
+    maxLength?: number;
+    required?: string[];
+    properties?: Record<string, Schema>;
+    items?: Schema;
+    oneOf?: Schema[];
+    anyOf?: Schema[];
+    allOf?: Schema[];
+  };
+  type Parameter = { $ref?: string; name: string; in: string; schema?: Schema };
+  type Op = { parameters?: Parameter[]; responses: Record<string, unknown> };
+  const doc = spec as unknown as {
+    paths: Record<string, Record<string, Op>>;
+    components: Record<string, Record<string, unknown>>;
+  };
+  const ULID = "^[0-7][0-9A-HJKMNP-TV-Z]{25}$";
+
+  function resolve<T>(value: T): T {
+    const ref = (value as { $ref?: string } | undefined)?.$ref;
+    if (ref === undefined) return value;
+    const [, , group, name] = ref.split("/");
+    return resolve(doc.components[group ?? ""]?.[name ?? ""] as T);
+  }
+  const op = (path: string) => doc.paths[path]?.get;
+  const param = (path: string, name: string) =>
+    (op(path)?.parameters ?? [])
+      .map((entry) => resolve(entry))
+      .find((entry) => entry.name === name);
+  const schema = (name: string) =>
+    resolve(doc.components.schemas?.[name] as Schema | undefined);
+  /** null 可の書き方（oneOf・anyOf・type の配列）を外して、中の定義を返す */
+  function nonNull(value: Schema | undefined): Schema | undefined {
+    const resolved = resolve(value);
+    const alternatives = resolved?.oneOf ?? resolved?.anyOf;
+    if (alternatives !== undefined)
+      return nonNull(
+        alternatives.find((entry) => resolve(entry).type !== "null"),
+      );
+    return resolved;
+  }
+  const sameSet = (
+    actual: readonly string[] | undefined,
+    expected: readonly string[],
+  ) => expect([...(actual ?? [])].sort()).toEqual([...expected].sort());
+
+  it("#143-b b-AC-1・b-AC-2（O1）: 3つの操作と応答コードが書かれている（403 は管理者でないとき、404 は1件だけ）", () => {
+    const expected: Record<string, string[]> = {
+      "/api/admin/channels": ["200", "401", "403", "422"],
+      "/api/admin/channels/{channelId}": ["200", "401", "403", "404", "422"],
+      "/api/admin/deleted-items": ["200", "401", "403", "422"],
+    };
+    for (const [path, codes] of Object.entries(expected)) {
+      const operation = op(path);
+      expect(operation, path).toBeDefined();
+      for (const code of codes)
+        expect(Object.keys(operation?.responses ?? {}), path).toContain(code);
+    }
+    expect(
+      Object.keys(op("/api/admin/channels")?.responses ?? {}),
+    ).not.toContain("404");
+  });
+
+  it("#143-b b-AC-1（O1）: channelId の pattern は shared/ulid-rules.ts と同じ形", () => {
+    expect(
+      param("/api/admin/channels/{channelId}", "channelId")?.schema?.pattern,
+    ).toBe(ULID);
+  });
+
+  it("#143-b b-AC-1（O1）: 一覧のクエリは q（1〜55 文字）・state・limit・cursor。state の enum は実装の定義と、計画の集合の両方と一致する", () => {
+    const q = resolve(param("/api/admin/channels", "q")?.schema);
+    expect(q?.maxLength).toBe(55);
+    expect(q?.minLength).toBe(1);
+    const state = resolve(param("/api/admin/channels", "state")?.schema);
+    sameSet(state?.enum, ADMIN_CHANNEL_STATES);
+    sameSet(state?.enum, ["all", "active", "archived"]);
+    expect(param("/api/admin/channels", "limit")).toBeDefined();
+    expect(param("/api/admin/channels", "cursor")).toBeDefined();
+  });
+
+  it("#143-b b-AC-2（O1）: アーカイブの一覧の type の enum は実装の定義と一致し、いまは channel だけ（case は #151）", () => {
+    const type = resolve(param("/api/admin/deleted-items", "type")?.schema);
+    sameSet(type?.enum, DELETED_ITEM_TYPES);
+    sameSet(type?.enum, ["channel"]);
+  });
+
+  it("#143-b b-AC-1（O1）: AdminChannel は計画 5.1 の項目をすべて必須にし、id は ULID の形、purpose・visibility・state の enum は実装の定義と一致する", () => {
+    const item = schema("AdminChannel");
+    expect(item).toBeDefined();
+    const keys = [
+      "id",
+      "name",
+      "description",
+      "purpose",
+      "visibility",
+      "department",
+      "state",
+      "version",
+      "memberCount",
+      "archive",
+      "manage",
+    ];
+    const properties = item?.properties ?? {};
+    const enumOf = (key: string) => resolve(properties[key])?.enum;
+    sameSet(item?.required, keys);
+    sameSet(Object.keys(properties), keys);
+    expect(resolve(properties.id)?.pattern).toBe(ULID);
+    sameSet(enumOf("purpose"), ADMIN_CHANNEL_PURPOSES);
+    sameSet(enumOf("purpose"), [
+      "normal",
+      "department",
+      "announcement",
+      "company_general",
+    ]);
+    sameSet(enumOf("visibility"), CHANNEL_VISIBILITIES);
+    sameSet(enumOf("visibility"), ["public", "private"]);
+    sameSet(enumOf("state"), ["active", "archived"]);
+    sameSet(Object.keys(nonNull(properties.manage)?.properties ?? {}), [
+      "canRename",
+      "canEditDescription",
+      "canArchive",
+      "canRestore",
+    ]);
+  });
+
+  it("#143-b b-AC-1（O1）: 一覧の応答 AdminChannelPage は items と nextCursor だけで、件数（total）を持たない", () => {
+    const page = schema("AdminChannelPage");
+    sameSet(Object.keys(page?.properties ?? {}), ["items", "nextCursor"]);
+  });
+
+  it("#143-b b-AC-2（O1）: ArchivedItem は EP-2-40 の項目と version・department・canRestore を持ち、id は ULID の形。ArchivedItemPage は items と nextCursor だけ", () => {
+    const item = schema("ArchivedItem");
+    const keys = [
+      "type",
+      "id",
+      "name",
+      "caseNumber",
+      "deletedBy",
+      "deletedAt",
+      "reason",
+      "version",
+      "department",
+      "canRestore",
+    ];
+    sameSet(item?.required, keys);
+    sameSet(Object.keys(item?.properties ?? {}), keys);
+    expect(resolve(item?.properties?.id)?.pattern).toBe(ULID);
+    sameSet(resolve(item?.properties?.type)?.enum, DELETED_ITEM_TYPES);
+    sameSet(Object.keys(schema("ArchivedItemPage")?.properties ?? {}), [
+      "items",
+      "nextCursor",
+    ]);
   });
 });
