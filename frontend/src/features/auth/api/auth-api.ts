@@ -14,6 +14,8 @@ export type SessionInfo = {
     | "perm.workspace.manage"
     | "perm.case.request.approve"
     | "perm.audit_log.view"
+    | "perm.channel.edit"
+    | "perm.channel.delete"
   )[];
 };
 
@@ -45,6 +47,8 @@ const sessionWithPermissionsSchema = sessionInfoSchema.extend({
       "perm.workspace.manage",
       "perm.case.request.approve",
       "perm.audit_log.view",
+      "perm.channel.edit",
+      "perm.channel.delete",
     ]),
   ),
 });

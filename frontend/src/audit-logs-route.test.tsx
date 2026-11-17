@@ -99,7 +99,7 @@ describe("#156 0-6 AC-1: /audit-logs の直接アクセス", () => {
 });
 
 describe("#156 0-6 AC-1: 管理メニューからの入口", () => {
-  it("#156 0-6 AC-1: 全体管理者のサイドバーには「管理＞マスタ・ログ＞監査ログ」のリンクが出る", async () => {
+  it("#156 0-6 AC-1: 全体管理者のサイドバーには「管理＞マスタ・記録＞監査ログ」のリンクが出る", async () => {
     respondAuditSession([AUDIT_PERMISSION]);
     renderApp("/");
     expect((await screen.findAllByText("管理")).length).toBeGreaterThan(0);

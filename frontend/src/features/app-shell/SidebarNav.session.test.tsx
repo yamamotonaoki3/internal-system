@@ -38,7 +38,7 @@ describe("#192 AC-1・AC-7: 管理メニューとsession権限", () => {
       </QueryClientProvider>,
     );
     await screen.findByText("管理");
-    fireEvent.click(screen.getByText("マスタ・ログ"));
+    fireEvent.click(screen.getByText("マスタ・記録"));
     expect(
       screen.getByRole("link", { name: "取引先管理" }).getAttribute("href"),
     ).toBe("/clients");

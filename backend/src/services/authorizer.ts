@@ -146,3 +146,36 @@ export function canManageAnyDepartment(
     );
   });
 }
+
+/**
+ * どこかの範囲で権限を持つか（#143-b）：会社の範囲か、本人の部署範囲の割り当ての部署のいずれかで resolvePermissions が持つ。
+ * 存在しない・無効な利用者は false。読み込みの失敗は呼び出し元へ伝える。
+ */
+export async function canInAnyScope(
+  repository: RoleAssignmentRepository,
+  userId: string,
+  permission: Permission,
+): Promise<boolean> {
+  const found = await repository.findByUserId(userId);
+  if (found === null) return false;
+  const has = (scope: Parameters<typeof resolvePermissions>[2]) =>
+    resolvePermissions(found.user, found.assignments, scope).has(permission);
+  if (has({ type: "company" })) return true;
+  return found.assignments.some(
+    (assignment) =>
+      assignment.scopeType === "department" &&
+      assignment.departmentId !== null &&
+      has({ type: "department", departmentId: assignment.departmentId }),
+  );
+}
+
+/** セッションの permissions 用（#143-b）：S-39・S-38 の入口を出すか。表示の制御であり、認可ではない（拒否の監査は出さない） */
+export function canManageAnyChannel(
+  env: Env,
+  userId: string,
+  permission: Permission,
+): Promise<boolean> {
+  return withRoleAssignments(env, (repository) =>
+    canInAnyScope(repository, userId, permission),
+  );
+}

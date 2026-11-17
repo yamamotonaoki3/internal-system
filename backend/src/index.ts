@@ -7,6 +7,8 @@ import { withSampleUsers } from "./db/sample-user.repository";
 import { withSessions } from "./db/session.repository";
 import { withSetup } from "./db/setup.repository";
 import { adminAccountRoutes } from "./routes/accounts";
+import { adminChannelRoutes } from "./routes/admin-channels";
+import { adminDeletedItemRoutes } from "./routes/admin-deleted-items";
 import {
   attachmentRoutes,
   replyAttachmentRoutes,
@@ -56,6 +58,8 @@ export const app = createApp({
     { path: "/api/departments", app: departmentRoutes() },
     { path: "/api/admin/accounts", app: adminAccountRoutes() },
     { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
+    { path: "/api/admin/channels", app: adminChannelRoutes() },
+    { path: "/api/admin/deleted-items", app: adminDeletedItemRoutes() },
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/case-requests", app: caseRequestRoutes() },
     { path: "/api/cases", app: caseRoutes() },

@@ -1,4 +1,4 @@
-// #156 0-6 AC-1（S-25）：管理メニューの「マスタ・ログ」のまとまりに「監査ログ」（/audit-logs）を置き、perm.audit_log.view（全体管理者のセッションだけに付く）を持つ人だけに出す。
+// #156 0-6 AC-1（S-25）：管理メニューの「マスタ・記録」のまとまりに「監査ログ」（/audit-logs）を置き、perm.audit_log.view（全体管理者のセッションだけに付く）を持つ人だけに出す。
 // 表示の制御であり、認可はサーバーが行う。既存の navigation.test.ts・AdminMenu.test.tsx は変更せず、#156 の確認だけをこのファイルに置く。
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -8,8 +8,8 @@ import { adminNavGroups, visibleAdminGroups } from "./navigation";
 
 const PERMISSION = "perm.audit_log.view";
 
-describe("#156 0-6 AC-1: 管理メニュー「マスタ・ログ＞監査ログ」", () => {
-  it("#156 0-6 AC-1: perm.audit_log.view があると、マスタ・ログのまとまりに「監査ログ」（/audit-logs）が出る", () => {
+describe("#156 0-6 AC-1: 管理メニュー「マスタ・記録＞監査ログ」", () => {
+  it("#156 0-6 AC-1: perm.audit_log.view があると、マスタ・記録のまとまりに「監査ログ」（/audit-logs）が出る", () => {
     const groups = visibleAdminGroups(adminNavGroups, new Set([PERMISSION]));
     expect(groups.map((group) => group.id)).toEqual(["master-log"]);
     expect(groups[0]?.items).toEqual([

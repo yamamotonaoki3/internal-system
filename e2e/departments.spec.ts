@@ -108,7 +108,8 @@ test("#196 AC-1・AC-2・AC-3・AC-4: 全体管理者は再認証して部署を
 test("#196 AC-4（2-1 AC-4・7-1 AC-3）: 一般社員には部署管理のメニューが出ず、直接URLでも画面を出さない", async ({
   page,
 }) => {
-  await login(page, "e2euser_dept_member");
+  // 1件目のテストがオーナー交代で e2euser_dept_member をオーナーにするため、誰もオーナーにしない一般社員で確かめる
+  await login(page, "e2euser_dept_general");
   // 閉じた <details> の中のリンクは getByRole では数えられないため、DOM 上の有無で確かめる
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("ホーム");
   await expect(page.locator('a[href="/departments"]')).toHaveCount(0);
@@ -117,6 +118,9 @@ test("#196 AC-4（2-1 AC-4・7-1 AC-3）: 一般社員には部署管理のメ�
       .getByRole("navigation", { name: "メインメニュー" })
       .locator("summary", { hasText: /^部署$/ }),
   ).toHaveCount(0);
+  // #143-b：一般社員には、チャンネル管理（S-39）とアーカイブ（S-38）の入口も出ない
+  await expect(page.locator('a[href="/channel-management"]')).toHaveCount(0);
+  await expect(page.locator('a[href="/archive"]')).toHaveCount(0);
   await page.goto("/departments");
   await expect(
     page.getByRole("heading", { name: "ページが見つかりません" }),

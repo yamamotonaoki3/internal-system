@@ -11,3 +11,16 @@ export { JoinedChannelsSection } from "./components/JoinedChannelsSection";
 export { ChannelArchiveDialog } from "./components/ChannelArchiveDialog";
 export { ChannelManageMenu } from "./components/ChannelManageMenu";
 export { ChannelRestoreDialog } from "./components/ChannelRestoreDialog";
+// #143-b：S-39（チャンネル管理）・S-38（アーカイブ）
+export type {
+  AdminChannel,
+  AdminChannelFilter,
+  AdminChannelState,
+  ArchivedChannel,
+} from "./api/channel-api";
+export { AdminChannelTable } from "./components/AdminChannelTable";
+export { ArchivedChannelTable } from "./components/ArchivedChannelTable";
+export type { ChannelManageAction } from "./components/ChannelManageMenu";
+export { describeError, isApiError } from "./describe-error";
+export { useAdminChannels } from "./hooks/useAdminChannels";
+export { useArchivedChannels } from "./hooks/useArchivedChannels";

@@ -7,7 +7,7 @@ import { CaseSidebarSection } from "../cases";
 import { useSession } from "../auth/hooks/useSession";
 import { AdminMenu } from "./AdminMenu";
 import { NAV_LINK_CLASSES } from "./nav-link-classes";
-import { adminNavGroups, primaryNavItems } from "./navigation";
+import { adminNavGroups, archiveNavItem, primaryNavItems } from "./navigation";
 
 function navLinkClassName({ isActive }: { isActive: boolean }) {
   return isActive ? NAV_LINK_CLASSES.active : NAV_LINK_CLASSES.idle;
@@ -51,6 +51,16 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         permissions={permissions}
         onNavigate={onNavigate}
       />
+      {permissions.has(archiveNavItem.requires) && (
+        <NavLink
+          to={archiveNavItem.to}
+          end
+          onClick={onNavigate}
+          className={navLinkClassName}
+        >
+          {archiveNavItem.label}
+        </NavLink>
+      )}
     </div>
   );
 }

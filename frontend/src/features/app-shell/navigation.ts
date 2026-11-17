@@ -83,11 +83,18 @@ export const adminNavGroups: AdminNavGroup[] = [
         to: "/departments",
         requires: "perm.workspace.create",
       },
+      // チャンネル管理（S-39。#143-b）。全体管理者かいずれかの部署のオーナー
+      {
+        id: "channel-management",
+        label: "チャンネル管理",
+        to: "/channel-management",
+        requires: "perm.channel.edit",
+      },
     ],
   },
   {
     id: "master-log",
-    label: "マスタ・ログ",
+    label: "マスタ・記録",
     items: [
       {
         id: "clients",
@@ -104,6 +111,14 @@ export const adminNavGroups: AdminNavGroup[] = [
     ],
   },
 ];
+
+// アーカイブ（S-38。#143-b）。管理メニューの外に、独立して置く（C-124）。全体管理者かいずれかの部署のオーナー
+export const archiveNavItem: AdminNavItem = {
+  id: "archive",
+  label: "アーカイブ",
+  to: "/archive",
+  requires: "perm.channel.delete",
+};
 
 /** 持っている権限の項目だけを残し、項目が0件のまとまりは除く。定義は書き換えない */
 export function visibleAdminGroups(
