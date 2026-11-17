@@ -178,7 +178,7 @@ describe("#130 AC-3（7-3 AC-1・AC-2）GET /api/users 社員一覧", () => {
     expect(ids).not.toContain(noDeptActive);
   });
 
-  it("#130 AC-3（7-3 AC-2）: 項目は id・表示名・部署・内線・メール・ステータス・canSetStatus だけ（キーの集合を照合。本名を含まない）", async () => {
+  it("#130 AC-3（7-3 AC-2）・#128 C-177（U-8）: 項目は id・表示名・部署・内線・メール・ステータス・canSetStatus・canRequestRetirement だけ（キーの集合を照合。本名を含まない）", async () => {
     const res = await get(`/api/users?departmentId=${deptA}`, memberToken);
     expect(res.status).toBe(200);
     const page = (await res.json()) as DirectoryPage;
@@ -187,6 +187,7 @@ describe("#130 AC-3（7-3 AC-1・AC-2）GET /api/users 社員一覧", () => {
     for (const item of page.items) {
       expect(Object.keys(item).sort()).toEqual(
         [
+          "canRequestRetirement",
           "canSetStatus",
           "department",
           "displayName",
@@ -221,6 +222,8 @@ describe("#130 AC-3（7-3 AC-1・AC-2）GET /api/users 社員一覧", () => {
       email: "testuser_prof_a1@example.com",
       status: { kind: "away", returnAt: iso(HOUR), message: "テスト外出" },
       canSetStatus: false,
+      // #128（128-c）一般社員の視点では申請できない
+      canRequestRetirement: false,
     });
     expect(items.find((item) => item.id === memberA2)?.status).toEqual({
       kind: "available",

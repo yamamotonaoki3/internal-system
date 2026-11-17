@@ -25,6 +25,7 @@ import {
 import {
   canManageAccounts,
   canManageClients,
+  canManageAnyDepartment,
   canManageDepartments,
   canReviewChannelRequests,
 } from "../services/authorizer";
@@ -172,6 +173,10 @@ export function authRoutes(
         traceIdOf(c),
       );
       const canReview = await canReviewChannelRequests(c.env, principal.userId);
+      const ownsDepartment = await canManageAnyDepartment(
+        c.env,
+        principal.userId,
+      );
       return c.json({
         user: {
           id: principal.userId,
@@ -185,6 +190,8 @@ export function authRoutes(
           ...(canManageAccount ? ["perm.account.create"] : []),
           ...(canManageDepartment ? ["perm.workspace.create"] : []),
           ...(canReview ? ["perm.channel.request.approve.owner"] : []),
+          // いずれかの部署のオーナー（#128：自分の退職処理の申請への入口の表示）
+          ...(ownsDepartment ? ["perm.workspace.manage"] : []),
           // 案件の作成申請の審査者（#146）も、チャンネルの作成申請と同じ判定（全体管理者か、いずれかの部署のオーナー）
           ...(canReview ? ["perm.case.request.approve"] : []),
         ],

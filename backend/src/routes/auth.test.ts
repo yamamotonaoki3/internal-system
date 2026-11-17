@@ -858,14 +858,29 @@ describe("#131 AC-7: セッションのチャンネル作成の承認の権限",
     return ((await response.json()) as { permissions: string[] }).permissions;
   };
 
-  it("#131 AC-7・#146 5-3 AC-3: 部署のオーナーのセッションは perm.channel.request.approve.owner と perm.case.request.approve を返す（オーナーの権限はこれだけ）", async () => {
+  it("#131 AC-7・#128 C-177・#146 5-3 AC-3: 部署のオーナーのセッションは perm.channel.request.approve.owner・perm.workspace.manage・perm.case.request.approve を返す（オーナーの権限はこの3つだけ）", async () => {
     const department = await insertDepartment("チャンネル承認テスト部署");
     const owner = await insertUser("testuser_chreq_session_owner", department);
     await insertAssignment(owner, ROLE_IDS.owner, "department", department);
-    expect(await sessionPermissions(owner)).toEqual([
-      "perm.channel.request.approve.owner",
+    expect([...(await sessionPermissions(owner))].sort()).toEqual([
       "perm.case.request.approve",
+      "perm.channel.request.approve.owner",
+      "perm.workspace.manage",
     ]);
+  });
+
+  // #128（128-c）C-177：「自分の退職処理の申請」への入口の表示の制御。いずれかの部署のオーナーにだけ返す
+  it("#128 C-177: 部署のオーナーに任命されていない全体管理者のセッションは perm.workspace.manage を返さない", async () => {
+    await insertAssignment(userId, ROLE_IDS.globalAdmin, "company", null);
+    expect(await sessionPermissions(userId)).not.toContain(
+      "perm.workspace.manage",
+    );
+  });
+
+  it("#128 C-177: 一般社員のセッションは perm.workspace.manage を返さない", async () => {
+    expect(await sessionPermissions(userId)).not.toContain(
+      "perm.workspace.manage",
+    );
   });
 
   it("#131 AC-10: 全体管理者（任命された部署がなくても）のセッションは perm.channel.request.approve.owner を返す", async () => {
