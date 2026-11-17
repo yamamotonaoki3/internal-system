@@ -235,7 +235,8 @@ export function createChannelRepository(db: Database) {
     // 確認から書き込みまでの間にアーカイブ・非公開化された場合に備え、どちらも「今も公開で未アーカイブ」を条件にする。
     // 参加の行が作られず既存の行もないときは null を返す（呼び出し側が 404 にする）
     async join(input: ChannelJoinInput): Promise<string | null> {
-      const joinable = sql`EXISTS (SELECT 1 FROM channels WHERE room_id = ${input.roomId} AND deleted_at IS NULL AND visibility = 'public')`;
+      // 本人が有効であることも条件にする（無効化と同時の参加で、無効な社員の参加の行を作らない）
+      const joinable = sql`EXISTS (SELECT 1 FROM channels WHERE room_id = ${input.roomId} AND deleted_at IS NULL AND visibility = 'public') AND EXISTS (SELECT 1 FROM users WHERE id = ${input.userId} AND is_active = 1)`;
       await db.batch([
         auditLogInsert(
           db,

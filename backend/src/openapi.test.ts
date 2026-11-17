@@ -168,6 +168,35 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
+  it("#128 AC-9・AC-14: アカウントの無効化・再有効化の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "POST /api/admin/accounts/{id}/deactivate": [
+        "204",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/admin/accounts/{id}/reactivate": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
   it("#200 AC-2・AC-3: チャンネルの一覧・詳細・参加の契約が書かれている", () => {
     const expected: Record<string, string[]> = {
       "GET /api/channels": ["200", "401", "404", "422"],

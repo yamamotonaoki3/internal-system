@@ -233,9 +233,11 @@ export function createChannelService(
         userId: actor.userId,
         traceId: actor.traceId,
       });
-      // 確認の後にアーカイブ・非公開化されたときは、参加の行が作られない
-      if (joinedAt === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
-      return { channelId: roomId, roomId, joinedAt };
+      if (joinedAt !== null) return { channelId: roomId, roomId, joinedAt };
+      // 確認の後に本人が無効化されたときは 401、アーカイブ・非公開化されたときは 404（参加の行は作られない）
+      if (!(await repository.isUserActive(actor.userId)))
+        throw new AppError("UNAUTHENTICATED", "ログインしてください");
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     },
     async invite(
       actor: ChannelInviteActor,
