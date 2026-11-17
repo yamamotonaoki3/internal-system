@@ -5331,6 +5331,225 @@
         }
       }
     },
+    "/api/cases": {
+      "get": {
+        "operationId": "listCases",
+        "summary": "案件の一覧を取得する（EP-5-06）",
+        "description": "scope・status は必須（既定なし）。joined は有効な参加者の案件だけ、all はすべての案件。案件 ID の降順のカーソル方式。説明・参加者・チャンネル ID は返さない。participantCount は、有効な参加者か管理の資格のある人（有効な全体管理者か、担当部署のどれかのオーナー）の行だけ数を入れ、ほかは null。",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "joined",
+                "all"
+              ]
+            },
+            "description": "joined：自分が参加する案件、all：すべての案件"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "description": "active：進行中、closed：終了した案件"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "件数。既定は 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "案件の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}": {
+      "get": {
+        "operationId": "getCaseSummary",
+        "summary": "案件の概要を取得する（EP-5-07）",
+        "description": "全員が見られる。項目は一覧と同じ（説明・参加者・チャンネル ID は返さない）。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "案件の概要。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/detail": {
+      "get": {
+        "operationId": "getCaseDetail",
+        "summary": "案件の詳細を取得する（EP-5-08）",
+        "description": "有効な参加者だけが見られる。全体管理者・担当部署のオーナーでも、参加していなければ 403。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "案件の詳細。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/admin/audit-logs/search": {
       "post": {
         "operationId": "searchAuditLogs",
@@ -9327,6 +9546,284 @@
           },
           "formattedTitle": {
             "type": "string"
+          }
+        }
+      },
+      "CaseSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "caseNumber",
+          "title",
+          "status",
+          "client",
+          "departments",
+          "dueDate",
+          "isParticipant",
+          "canManage",
+          "participantCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "caseNumber": {
+            "type": "string",
+            "description": "案件番号（英大文字3文字-YYMMDD-4桁）"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed"
+            ],
+            "description": "進行中・終了"
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "納期（YYYY-MM-DD）。なければ null"
+          },
+          "isParticipant": {
+            "type": "boolean",
+            "description": "操作者が有効な参加者か"
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "操作者に管理の資格があるか（有効な全体管理者か、担当部署のどれかのオーナー）"
+          },
+          "participantCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "参加の行の数（退職者を含む）。有効な参加者か管理の資格のある人だけ。ほかは null"
+          }
+        }
+      },
+      "CasePage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CaseDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "caseNumber",
+          "title",
+          "status",
+          "client",
+          "departments",
+          "dueDate",
+          "isParticipant",
+          "canManage",
+          "participantCount",
+          "description",
+          "channelId",
+          "createdBy",
+          "participants"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "caseNumber": {
+            "type": "string",
+            "description": "案件番号（英大文字3文字-YYMMDD-4桁）"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed"
+            ],
+            "description": "進行中・終了"
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "納期（YYYY-MM-DD）。なければ null"
+          },
+          "isParticipant": {
+            "type": "boolean",
+            "description": "操作者が有効な参加者か"
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "操作者に管理の資格があるか（有効な全体管理者か、担当部署のどれかのオーナー）"
+          },
+          "participantCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "参加の行の数（退職者を含む）。有効な参加者か管理の資格のある人だけ。ほかは null"
+          },
+          "description": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "createdBy": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "作成者の利用者 ID"
+          },
+          "participants": {
+            "type": "array",
+            "description": "参加した日時の順（同じなら利用者 ID の順）。退職者（無効）も isActive: false で残る。本名・メールは返さない",
+            "items": {
+              "type": "object",
+              "required": [
+                "userId",
+                "displayName",
+                "departmentName",
+                "isActive",
+                "isCreator"
+              ],
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "departmentName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "isActive": {
+                  "type": "boolean"
+                },
+                "isCreator": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       },

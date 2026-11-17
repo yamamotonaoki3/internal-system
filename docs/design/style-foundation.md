@@ -37,6 +37,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | `frontend/src/components/SelectField.tsx` | ラベル・ヒント・エラーつきの選択欄（`select`）。`TextField`と同じ見た目で、`className`は受け取らない（Issue #199） |
 | `frontend/src/components/SecretField.tsx` | 秘密の値（トークン・パスワード）の入力欄。表示・非表示のボタンつき |
 | `frontend/src/components/Alert.tsx` | 通知（`tone`：error・info・warning） |
+| `frontend/src/components/RadioGroup.tsx` | ラジオのグループ（Issue #147で追加。`label`・`options`・`value`・`onChange`・`disabled`。`className`は受け取らない）。使用箇所は[cases.md](cases.md) |
 | `frontend/src/components/PageLayout.tsx` | 画面の枠（`main`＋`h1`。`width`：narrow・default） |
 | `frontend/src/components/FieldMessages.tsx` | 入力欄の下のヒント・エラーと、`aria-describedby` 用のid（`useFieldIds`）。`TextField`・`SelectField`・`SecretField` が共用する**内部用**の部品で、画面からは使わない |
 | `vite.config.ts` | `@tailwindcss/vite` のプラグインを登録している |
@@ -165,7 +166,7 @@ Tailwindは、素のHTML要素のブラウザ標準の見た目をリセット�
 
 | 内容 | 場所 |
 | --- | --- |
-| 共通部品の単体テスト | `frontend/src/components/*.test.tsx`（`Button`・`TextField`・`SelectField`・`SecretField`・`Alert`・`PageLayout`） |
+| 共通部品の単体テスト | `frontend/src/components/*.test.tsx`（`Button`・`TextField`・`SelectField`・`SecretField`・`Alert`・`PageLayout`・`RadioGroup`） |
 | 色のコントラスト比 | `frontend/src/styles/tokens.test.ts` |
 | 表示・アクセシビリティのE2E（開発サーバー） | `e2e/style-foundation.spec.ts` |
 | 本番形のE2E（CSP下で外部CSSだけが使われること） | `e2e-prod/csp-style.spec.ts`（`npm run test:e2e:prod`）。#121で、ログイン後の画面（アバターメニュー・ドロワーを開いた状態を含む）の確認を足した |

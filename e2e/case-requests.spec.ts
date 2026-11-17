@@ -1,5 +1,5 @@
 // #146（146-A）5-3 AC-1・AC-6・AC-7・AC-10・AC-14、画面 S-18：案件の作成の申請の主な流れを、画面からバックエンドまで通して確かめる。
-// 流れ：メニュー「案件の申請」→ 似た件名を入れると警告が見え、そのまま申請できる → 自分の申請に出る → 取り下げる → 修正して再申請する。
+// 流れ：メニュー「案件」→ S-16 の「案件の作成を申請」（#147 で入口を置き換え）→ 似た件名を入れると警告が見え、そのまま申請できる → 自分の申請に出る → 取り下げる → 修正して再申請する。
 // データを変える操作の後は、再読み込みせずに、関係する表示（自分の申請の行の状態）が変わることを確かめる。
 // 判定の順・応答の形・下書き・入力の検査は、下の層（Service・結合・画面の部品のテスト）で確かめ、ここでは重ねない。
 // 前提：e2e/seeds/case-requests.sql（[E2E_TEST]部署146・そのオーナー e2euser_casereq_owner・一般社員 e2euser_casereq_member・取引先 テスト商事 [E2E_TEST]・
@@ -65,7 +65,13 @@ test("#146 5-3 AC-1・AC-6・AC-7・AC-10・AC-14: メンバーが似た件名�
   await login(page, "e2euser_casereq_member");
 
   const nav = page.getByRole("navigation", { name: "メインメニュー" });
-  await nav.getByRole("link", { name: "案件の申請", exact: true }).click();
+  // #147：メニューの入口は「案件」（S-16）に置き換わった（既定の方針9）。S-16 の「案件の作成を申請」から S-18 を開く
+  await nav.getByRole("link", { name: "案件", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases$/);
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "案件の作成を申請", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/case-requests$/);
   const main = page.getByRole("main");
   await expect(

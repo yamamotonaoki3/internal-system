@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
+import { ULID_PATTERN } from "../../shared/ulid-rules";
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from "./lib/audit-actions";
 import { adminAccountRoutes } from "./routes/accounts";
 import {
@@ -24,6 +25,7 @@ import {
 } from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
 import { caseRequestRoutes } from "./routes/case-requests";
+import { caseRoutes } from "./routes/cases";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
@@ -95,6 +97,8 @@ const app = createApp({
     { path: "/api/attachments", app: attachmentRoutes() },
     // #146：案件の作成申請・自分の申請・取り下げ・類似件名の確認。index.ts と同じパスに組み込む
     { path: "/api/case-requests", app: caseRequestRoutes() },
+    // #147：案件の一覧・概要・詳細（EP-5-06〜08）。index.ts と同じパスに組み込む
+    { path: "/api/cases", app: caseRoutes() },
     // #156：監査ログの閲覧（EP-0-19）。index.ts と同じパスに組み込む
     { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
     // #143-b：チャンネル管理（EP-2-42・EP-2-43）とアーカイブの一覧（EP-2-40）。index.ts と同じパスに組み込む
@@ -460,6 +464,98 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
           name,
         ).toContain(code);
     }
+  });
+  it("#147 5-1 AC-2・AC-4・AC-14（EP-5-06〜EP-5-08。147-A）: 案件の一覧・概要・詳細の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "GET /api/cases": ["200", "401", "403", "422"],
+      "GET /api/cases/{caseId}": ["200", "401", "403", "404", "422"],
+      "GET /api/cases/{caseId}/detail": ["200", "401", "403", "404", "422"],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#147 コードレビュー1回目（軽微）: 案件の経路（EP-5-06〜08）の ULID の pattern は、shared/ulid-rules.ts の ULID_PATTERN と同じ判定になる（全体は #289）", () => {
+    // Crockford Base32 の文字クラスを使う pattern を、案件の経路と案件のスキーマから再帰的に集める（場所は JSON のパスで示す）。
+    // API 仕様の全体（既存の経路を含む）の直しと番人は、ほかの PR との衝突を避けるため #289 で行う
+    const found: { path: string; pattern: string }[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${path}[${i}]`));
+        return;
+      }
+      if (node === null || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (
+          key === "pattern" &&
+          typeof value === "string" &&
+          value.includes("0-9A-HJKMNP-TV-Z")
+        )
+          found.push({ path, pattern: value });
+        else walk(value, `${path}/${key}`);
+      }
+    };
+    // この PR で足した案件の経路だけを対象にする（全体は #289）。パスとクエリのパラメータ（cursor は対象外）と、案件の応答のスキーマ
+    const casePaths = [
+      "/api/cases",
+      "/api/cases/{caseId}",
+      "/api/cases/{caseId}/detail",
+    ];
+    const paths = spec.paths as Record<string, Record<string, unknown>>;
+    for (const name of casePaths)
+      for (const [method, operation] of Object.entries(paths[name] ?? {})) {
+        const parameters =
+          (operation as { parameters?: { name: string; in: string }[] })
+            .parameters ?? [];
+        parameters.forEach((parameter, i) => {
+          if (
+            (parameter.in === "path" || parameter.in === "query") &&
+            parameter.name !== "cursor"
+          )
+            walk(parameter, `/paths/${name}/${method}/parameters[${i}]`);
+        });
+      }
+    const schemas = spec.components.schemas as Record<string, unknown>;
+    for (const name of ["CaseSummary", "CasePage", "CaseDetail"]) {
+      expect(schemas[name], name).toBeDefined();
+      walk(schemas[name], `/components/schemas/${name}`);
+    }
+    expect(found.length).toBeGreaterThan(0);
+    const valid = [
+      "01JTESTCASE147A00000000001",
+      "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
+      "00000000000000000000000000",
+    ];
+    const invalid = [
+      "81JTESTCASE147A00000000001",
+      "91JTESTCASE147A00000000001",
+      "A1JTESTCASE147A00000000001",
+      "01JTESTCASE147A0000000001",
+      "01JTESTCASE147A0000000000I",
+      "01JTESTCASE147A0000000000L",
+      "01JTESTCASE147A0000000000O",
+      "01JTESTCASE147A0000000000U",
+    ];
+    // 見本自体が ULID_PATTERN の判定どおりであること（見本の書き間違いを防ぐ）
+    for (const sample of valid)
+      expect(ULID_PATTERN.test(sample), sample).toBe(true);
+    for (const sample of invalid)
+      expect(ULID_PATTERN.test(sample), sample).toBe(false);
+    const mismatched = found.filter(({ pattern }) => {
+      const re = new RegExp(pattern);
+      return [...valid, ...invalid].some(
+        (sample) => re.test(sample) !== ULID_PATTERN.test(sample),
+      );
+    });
+    expect(mismatched.map(({ path, pattern }) => `${path} ${pattern}`)).toEqual(
+      [],
+    );
   });
   it("#136 AC-1・AC-3（C-168(2)・(4)・(5)・(7)）: DM の開始・一覧・詳細と、メッセージの DM の枝の応答コードが書かれている", () => {
     const expected: Record<string, string[]> = {

@@ -130,7 +130,13 @@ test("#146 5-3 AC-3・S-29: メンバーのメニューには「案件承認」�
   const forbidden = await page.request.get("/api/case-requests");
   expect(forbidden.status()).toBe(403);
 
-  await nav.getByRole("link", { name: "案件の申請", exact: true }).click();
+  // #147：メニューの入口は「案件」（S-16）に置き換わった（既定の方針9）。S-16 の「案件の作成を申請」から自分の申請（S-18）を開く
+  await nav.getByRole("link", { name: "案件", exact: true }).click();
+  await expect(page).toHaveURL(/\/cases$/);
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "案件の作成を申請", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/case-requests$/);
   await expect(cardOf(page, APPROVE_TITLE)).toContainText("承認済み");
   // 5-1 AC-18：申請者の自分の申請に案件番号が出る（取引先コード QKF・日本時間の承認日・連番）
