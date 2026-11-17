@@ -1,6 +1,6 @@
 // Repository：アカウントの個別発行と管理者用の一覧（DB へのアクセスはこの層に閉じ込める）。
 // 利用者の追加と監査ログは、同じ db.batch で確定する（片方が失敗したら、どちらも残さない）。
-// 無効化・再有効化（#128）は、batch の先頭の assertStatement で前提を確かめ、崩れていれば NOT NULL 違反で batch 全体を取り消す（#196 の方式）。
+// 無効化・再有効化・部署異動（#128）は、batch の先頭の assertStatement で前提を確かめ、崩れていれば NOT NULL 違反で batch 全体を取り消す（#196 の方式）。
 import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import {
   channelMembers,
@@ -85,7 +85,7 @@ export class CompanyGeneralChannelMissingError extends Error {
 // 全社連絡の確認の文（users の挿入の直後）が崩れたときに NOT NULL 違反になる列
 const COMPANY_GENERAL_ASSERT_COLUMN = "users.display_name";
 
-/** 無効化・再有効化の前提（対象・操作者・部署の状態）が、判定の後に崩れていたときに投げる。何も残らない */
+/** 無効化・再有効化・異動の前提（対象・操作者・部署の状態）が、判定の後に崩れていたときに投げる。何も残らない */
 export class AccountStateChangedError extends Error {
   constructor(options?: { cause?: unknown }) {
     super(
@@ -96,7 +96,7 @@ export class AccountStateChangedError extends Error {
   }
 }
 
-// 無効化・再有効化の前提の確認の文（assertStatement）が崩れたときに NOT NULL 違反になる列
+// 無効化・再有効化・異動の前提の確認の文（assertStatement）が崩れたときに NOT NULL 違反になる列
 const ACCOUNT_STATE_ASSERT_COLUMN = "users.login_id";
 
 export type AccountState = {
@@ -118,6 +118,24 @@ export type AccountReactivateInput = {
   departmentId: string;
   /** ハッシュにした一時パスワード */
   passwordHash: string;
+  actorId: string;
+  now: string;
+  traceId: string;
+};
+
+/** 異動の判定に使う、対象の事実。ownedDepartmentIds はオーナーの割り当ての部署 */
+export type AccountTransferState = {
+  id: string;
+  isActive: boolean;
+  departmentId: string | null;
+  ownedDepartmentIds: string[];
+};
+
+export type AccountTransferInput = {
+  targetId: string;
+  /** 判定で読んだ今の所属。batch の時点でも同じことを前提にする */
+  fromDepartmentId: string;
+  toDepartmentId: string;
   actorId: string;
   now: string;
   traceId: string;
@@ -386,6 +404,96 @@ export function createAccountRepository(db: Database) {
             result: "success",
             traceId: input.traceId,
             detail: { departmentId: input.departmentId },
+          }),
+        ]);
+      } catch (error) {
+        throw translateError(error);
+      }
+    },
+    /** 異動の判定に使う、対象の事実。ない社員は null */
+    async findTransferState(id: string): Promise<AccountTransferState | null> {
+      const rows = await db
+        .select({
+          id: users.id,
+          isActive: users.isActive,
+          departmentId: users.departmentId,
+        })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      const row = rows[0];
+      if (row === undefined) return null;
+      const owned = await db
+        .select({ departmentId: userRoleAssignments.departmentId })
+        .from(userRoleAssignments)
+        .where(
+          and(
+            eq(userRoleAssignments.userId, id),
+            eq(userRoleAssignments.roleId, ROLE_IDS.owner),
+          ),
+        )
+        .orderBy(asc(userRoleAssignments.departmentId));
+      return {
+        id: row.id,
+        isActive: row.isActive,
+        departmentId: row.departmentId,
+        ownedDepartmentIds: owned.flatMap((r) =>
+          r.departmentId === null ? [] : [r.departmentId],
+        ),
+      };
+    },
+    /**
+     * 部署異動：所属・旧部署の専用チャンネル2つの参加の削除・新部署の専用チャンネル2つへの参加・監査1件を1つの batch で確定する。
+     * 全社連絡・個別のチャンネル・DM・ロール・セッションには触れない。前提が崩れていたら AccountStateChangedError で、何も残さない。
+     */
+    async transfer(input: AccountTransferInput): Promise<void> {
+      // 監査の detail（AC-16 の権限）に使う、対象の割り当ての役割。auditLogInsert は detail を JS で文字列にするため、batch の外で読む。
+      // 異動はロールを変えないので、ずれるのは別の操作が同時にロールを変えた場合だけ。監査の値は判定の時点のもの
+      const roleRows = await db
+        .selectDistinct({ roleId: userRoleAssignments.roleId })
+        .from(userRoleAssignments)
+        .where(eq(userRoleAssignments.userId, input.targetId))
+        .orderBy(asc(userRoleAssignments.roleId));
+      const condition = sql`${input.fromDepartmentId} <> ${input.toDepartmentId}
+        AND EXISTS (SELECT 1 FROM users t
+          WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id = ${input.fromDepartmentId})
+        AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
+          WHERE r.user_id = ${input.targetId} AND r.role_id = ${ROLE_IDS.owner} AND r.department_id = ${input.fromDepartmentId})
+        AND EXISTS (SELECT 1 FROM departments d WHERE d.id = ${input.toDepartmentId} AND d.is_active = 1)
+        AND ${actorIsGlobalAdmin(input.actorId)}`;
+      try {
+        await db.batch([
+          assertStatement(db, input, condition),
+          db
+            .update(users)
+            .set({ departmentId: input.toDepartmentId })
+            .where(eq(users.id, input.targetId)),
+          db.delete(channelMembers).where(
+            and(
+              eq(channelMembers.userId, input.targetId),
+              sql`${channelMembers.channelId} IN (SELECT c.room_id FROM channels c
+                WHERE c.department_id = ${input.fromDepartmentId} AND c.purpose IN ('department', 'announcement'))`,
+            ),
+          ),
+          db.insert(channelMembers).select(sql`
+            SELECT c.room_id, ${input.targetId}, ${input.now} FROM channels c
+            WHERE c.deleted_at IS NULL
+              AND c.department_id = ${input.toDepartmentId} AND c.purpose IN ('department', 'announcement')
+              AND NOT EXISTS (SELECT 1 FROM channel_members m
+                WHERE m.channel_id = c.room_id AND m.user_id = ${input.targetId})`),
+          auditLogInsert(db, {
+            actorId: input.actorId,
+            action: "account.transfer",
+            targetType: "user",
+            targetId: input.targetId,
+            result: "success",
+            traceId: input.traceId,
+            detail: {
+              fromDepartmentId: input.fromDepartmentId,
+              toDepartmentId: input.toDepartmentId,
+              // 監査の detail は入れ子にしない決まり（C-177）のため、昇順の役割IDを「,」で区切った文字列にする
+              roleIds: roleRows.map((r) => r.roleId).join(","),
+            },
           }),
         ]);
       } catch (error) {

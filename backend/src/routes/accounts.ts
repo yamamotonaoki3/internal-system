@@ -46,6 +46,10 @@ const reactivateSchema = z
   .object({ departmentId: z.string().refine(isUlid) })
   .strict();
 
+const transferSchema = z
+  .object({ departmentId: z.string().refine(isUlid) })
+  .strict();
+
 function actorOf(c: Context<{ Bindings: Env }>): AccountLifecycleActor {
   const principal = c.get("principal");
   if (principal === null) {
@@ -137,5 +141,14 @@ export function adminAccountRoutes() {
           );
         },
       )
+      .post("/:id/transfer", validate("json", transferSchema), async (c) => {
+        const actor = actorOf(c);
+        const targetId = c.req.param("id");
+        const { departmentId } = c.req.valid("json");
+        await withAccountService(c.env, (service) =>
+          service.transfer(actor, targetId, { departmentId }),
+        );
+        return c.body(null, 204);
+      })
   );
 }

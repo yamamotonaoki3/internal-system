@@ -168,7 +168,7 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         ).toContain(code);
     }
   });
-  it("#128 AC-9・AC-14: アカウントの無効化・再有効化の契約が書かれている", () => {
+  it("#128 AC-9・AC-14: アカウントの無効化・再有効化・部署異動の契約が書かれている", () => {
     const expected: Record<string, string[]> = {
       "POST /api/admin/accounts/{id}/deactivate": [
         "204",
@@ -180,6 +180,14 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
       ],
       "POST /api/admin/accounts/{id}/reactivate": [
         "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+      ],
+      "POST /api/admin/accounts/{id}/transfer": [
+        "204",
         "401",
         "403",
         "404",

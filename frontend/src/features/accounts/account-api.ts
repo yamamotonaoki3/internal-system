@@ -96,3 +96,13 @@ export async function reactivateAccount(
   );
   return reactivatedSchema.parse(response.data);
 }
+
+export async function transferAccount(
+  id: string,
+  input: { departmentId: string },
+): Promise<void> {
+  await apiClient.post(
+    `/admin/accounts/${encodeURIComponent(id)}/transfer`,
+    input,
+  );
+}

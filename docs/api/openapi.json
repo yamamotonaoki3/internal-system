@@ -660,6 +660,75 @@
         }
       }
     },
+    "/api/admin/accounts/{id}/transfer": {
+      "post": {
+        "operationId": "transferAccount",
+        "summary": "社員を別の部署へ異動する（即時）",
+        "description": "全体管理者（perm.employee.info.edit）だけ。再認証が必要。判定の順は 404 → 403 → 422（異動先の部署がない・無効、今と同じ部署）→ 再認証 → 409。所属を変え、旧部署の専用チャンネル2つから外し、新部署の専用チャンネル2つに参加させる。全社連絡・個別のチャンネル・DM・ロール・セッションは変えない。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountTransfer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "異動した（本文なし）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限不足・送信元不正、または再認証が必要（REAUTH_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "アカウントがない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "対象が無効・今の部署のオーナー（reason: inactive・department_owner）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/admin/clients": {
       "get": {
         "operationId": "listAdminClients",
@@ -6008,6 +6077,20 @@
         "initialPassword": {
           "type": "string",
           "description": "一時パスワード。この応答でだけ返す。保存・ログ出力をしない"
+        }
+      }
+    },
+    "AccountTransfer": {
+      "type": "object",
+      "required": [
+        "departmentId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "departmentId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "異動先の部署（有効で、今と違う部署）"
         }
       }
     },
