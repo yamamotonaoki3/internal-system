@@ -179,7 +179,7 @@
 | 区分 | 内容 |
 | --- | --- |
 | 143-aで作ったもの | 名前・説明の変更（EP-2-36）、アーカイブ（EP-2-37）、復元（EP-2-38）／新しい表`channel_archive_events`（migration 0028）／通知の2種類（`channel.archived`・`channel.restored`）と、通知の一覧への`reason`・`roomArchived`（[notifications.md](notifications.md)）／チャンネルの詳細への`version`・`manage`／監査の3操作／S-05の「⋯」メニュー・編集・アーカイブ・復元の3つのダイアログ（復元は部品と画面のテストだけ。入口は143-b） |
-| 後の子に回したもの | S-39・S-38・サイドバーの「アーカイブ」・セッションの`permissions`（143-b）、物理削除（143-c）。検索からアーカイブ済みを除くこと（#155）、案件専用チャンネルの連動（#151）、整理スペース・共通フォルダ（2-7・2-8）は範囲外 |
+| 後の子に回したもの | S-39・S-38・サイドバーの「アーカイブ」・セッションの`permissions`（**143-bで実装した**。下の「チャンネルの管理（143-b）」）、物理削除（143-c）。検索からアーカイブ済みを除くこと（#155）、案件専用チャンネルの連動（#151）、整理スペース・共通フォルダ（2-7・2-8）は範囲外 |
 
 ### ファイルと役割
 
@@ -305,10 +305,10 @@
 
 - `ChannelDetailView`のヘッダーに`ChannelManageMenu`を置く。詳細の`manage`のどれかが真のときだけ出し、「（チャンネル名）の操作」という名前のボタンで開く。キーボードで開閉でき、矢印キーで項目を移り、Escで閉じてフォーカスをボタンに戻す。S-39と共有する部品として`features/channels/index.ts`から公開する。表示の制御で、認可はサーバー
 - メニューの項目は共通の`Button`（`role="menuitem"`）で作る
-- メニューの項目：「名前・説明を編集」（`canRename`か`canEditDescription`）、「アーカイブ」（`canArchive`）。アーカイブ済みのチャンネルはS-05で開けない（404）ので、復元はS-05に出さない（入口は143-b）
+- メニューの項目：「名前・説明を編集」（`canRename`か`canEditDescription`）、「アーカイブ」（`canArchive`）。アーカイブ済みのチャンネルはS-05で開けない（404）ので、復元はS-05に出さない（復元の入口は**143-bで、S-39・S-38に作った**）
 - **編集のダイアログ**：名前（`canRename`が真のときだけ）・説明。画面の検査は`shared/`の規則（サーバーの検査は省略しない）。422の`fields`は該当の欄、名前の重複の409は`CHANNEL_NAME_TAKEN_MESSAGE`の文で見分けて名前の欄に出す。入力を変えて閉じるときは、離れる前の確認（`features/leave-guard`）。再認証なし。成功で閉じ、ヘッダーに「チャンネルの名前・説明を変更しました」を出し、`channelKeys.all`を取り直す。**送る版は、ダイアログを開いた時点のもの**を保持する（背景の再取得で`channel.version`が進んでも変えない。進んだ版で古い入力を送ると、ほかの人の変更を上書きするため）。**名前の重複以外の409**（版の不一致）の後は、入力を保ったまま保存を止め、「最新の内容を読み込んでから、もう一度編集してください」と「最新の内容を読み込む」ボタンを出す。押すと`useLoadLatestChannel`が詳細を取り直し、名前・説明・版を入れ替える（読み込みに失敗したら欄の外に文を出す）。**既知の差**：名前の重複以外の409は、すべて「ほかの人の変更と重なった」として扱う（この画面からは通常起きない、種類による409も同じ表示になる）（C-181 (10)）
-- **アーカイブのダイアログ**：理由（任意。500文字まで。残りの文字数を表示）→「アーカイブ」→ 再認証（S-26。`useReauth`）→ 送信。**送る版は、ダイアログを開いた時点のもの**（復元のダイアログも同じ）。409はAPIの文を出し、詳細を取り直す。**成功したら、そのチャンネルの詳細は取り直さず**（もう見られず404になるため）、`/channels`へ移って「アーカイブしました」を出す（`pages/ChannelsPage.tsx`が`CHANNEL_ARCHIVED_STATE`の印を読む）。取り直すのは`channelKeys`の詳細以外のキーだけ。未読・スレッド・通知は、定期の取り直しで反映する（機能をまたぐ公開が要るため、後の子で見直す。C-181 (9)）
-- **復元のダイアログ**：確認 →「復元」→ 再認証 → 送信。143-aでは部品と画面のテストだけで、143-bのS-39・S-38が使う
+- **アーカイブのダイアログ**：理由（任意。500文字まで。残りの文字数を表示）→「アーカイブ」→ 再認証（S-26。`useReauth`）→ 送信。**送る版は、ダイアログを開いた時点のもの**（復元のダイアログも同じ）。409はAPIの文を出し、詳細を取り直す。**成功したら、そのチャンネルの詳細は取り直さず**（もう見られず404になるため）、`/channels`へ移って「アーカイブしました」を出す（`pages/ChannelsPage.tsx`が`CHANNEL_ARCHIVED_STATE`の印を読む）。取り直すのは`channelKeys`の詳細以外のキーだけ。未読・スレッド・通知は、定期の取り直しで反映する（機能をまたぐ公開が要るため、後の子で見直す。C-181 (9)）【**143-bで見直した**：アーカイブ・復元の成功の後に、未読・スレッド・通知のキーも取り直す。C-183。下の「キャッシュ」】
+- **復元のダイアログ**：確認 →「復元」→ 再認証 → 送信。143-aでは部品と画面のテストだけで、入口は143-bで作った（S-39の行の「⋯」とS-38の「復元」。下の「画面（S-39・S-38）」）
 - 再認証が中止・失敗したときは要求を送らず、決まった文を出す（`ReauthNotCompletedError`）。再認証の有効期間切れ（REAUTH_REQUIRED）も決まった文にする
 - 画面の文言（テストに定めがなかったため、実装のとおり。契約は`frontend/src/channel-manage.test.tsx`）：
 
@@ -347,6 +347,169 @@
 - フロントエンド：`frontend/src/channel-manage.test.tsx`（メニュー・ダイアログ・アーカイブ後の一覧。ページを描画するため、機能のフォルダーでなく`frontend/src/`に置く。`pages`を参照するテストを機能のフォルダーに置くと層の依存の決まりに違反する）、`frontend/src/features/notifications/notification-views.channel-archive.test.ts`・`notifications.channel-archive.test.tsx`、既存の詳細のテスト（`channel-detail.*.test.tsx`）のMSWの応答に`version`・`manage`を足した
 - E2E：`e2e/channel-archive.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/channel-archive.sql`、後始末は`channel-archive-cleanup.sql`
 
+## チャンネルの管理（Issue #143の2つ目・143-b。EP-2-40・42・43・S-39・S-38。C-183）
+
+管理者が、管理できるチャンネルを一覧し（S-39）、アーカイブしたチャンネルを一覧して復元する（S-38）入口を作る。書き込みは143-aのAPIをそのまま使う（この子では書き込みのbatchを作らない）。コードは書き写さず、ファイル名・関数名で指す。migrationは足していない（新しい列・表・索引なし）。
+
+### 範囲（143-b）
+
+| 区分 | 内容 |
+| --- | --- |
+| 作ったもの | 管理者用の読み取りAPI 3本（一覧EP-2-42、1件EP-2-43、アーカイブしたものの一覧EP-2-40の`type=channel`）／セッションの`permissions`に`perm.channel.edit`・`perm.channel.delete`／S-39（チャンネル管理）・S-38（アーカイブ）の画面と入口（管理メニュー「部署」の「チャンネル管理」、サイドバーの独立した「アーカイブ」）／管理メニューのまとまりの名前を「マスタ・記録」に直した／編集のダイアログの#290の直し／アーカイブ・復元の後に取り直すキーの追加（C-181 (9)の見直し） |
+| 後の子に回したもの | 物理削除（EP-2-39・S-38の「物理削除」。143-c）。S-38の「アーカイブした案件」の見出し・案件の行・`type=case`（#151）。案件専用チャンネルをS-39に出すか（2-6 AC-5①で未決定。いまは行がなく、出さない）。S-39のCSV・一括操作・並び替えの切り替え。閲覧の記録（要件に定めがない）。`channels.deleted_at`の索引（デモの規模では不要。件数が増えたらmigrationで足す） |
+
+### ファイルと役割（143-b）
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/db/channel-admin.repository.ts`（新規） | `createChannelAdminRepository`・`withChannelAdmin`。`listManageable`（S-39の一覧）・`findManageable`（1件）・`listArchived`（S-38）。**見える範囲を、行を読むSQLのWHEREで決める**（下の「見える範囲」） |
+| `backend/src/services/channel-admin.service.ts`（新規） | `createChannelAdminService`・`withChannelAdminService`。`assertCanOpen`（入口の認可）・`list`・`get`・`listArchived`。行を応答の形に変え、`manage`・`canRestore`は143-aの`channelManageActions`から作る。0件のときの資格の読み直し |
+| `backend/src/routes/admin-channels.ts`（新規） | `/api/admin/channels`の`GET /`・`GET /:channelId`。先頭のミドルウェア`requireChannelAdmin`が、入力の検証より先に`assertCanOpen`を呼ぶ。`state`・用途・公開／非公開の定義を持つ（OpenAPIの番人が突き合わせる） |
+| `backend/src/routes/admin-deleted-items.ts`（新規） | `/api/admin/deleted-items`の`GET /`。`admin-channels.ts`のミドルウェアを`perm.channel.delete`で使う。`type`はいまは`channel`だけ |
+| `backend/src/index.ts` | 上の2つのルートの登録 |
+| `backend/src/services/authorizer.ts` | `canInAnyScope`（会社の範囲か、本人の部署範囲の割り当てのいずれかの部署で、`resolvePermissions`が権限を持つか。無効・存在しない利用者は偽）と、セッション用の`canManageAnyChannel` |
+| `backend/src/routes/auth.ts` | セッションの`permissions`に`perm.channel.edit`・`perm.channel.delete`を足した（下の「入口とルートのガード」） |
+| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3操作（`listAdminChannels`・`getAdminChannel`・`listDeletedItems`）と、`state`・`type`・用途・公開／非公開のenumの番人 |
+| `frontend/src/features/channels/api/channel-api.ts` | `fetchAdminChannels`・`fetchAdminChannel`・`fetchArchivedChannels`と、応答をzodで検査するスキーマ、型`AdminChannel`・`ArchivedChannel`・`AdminChannelFilter` |
+| `frontend/src/features/channels/api/query-keys.ts` | `channelKeys`に`admin(利用者のID, 絞り込み)`・`archived(利用者のID)`を足した（`channelKeys.all`の下） |
+| `frontend/src/features/channels/hooks/useAdminChannels.ts`・`useArchivedChannels.ts`（新規） | 無限スクロール形の取得（`useInfiniteQuery`）。利用者のIDをキーに入れ、IDが確かめられる前は取得しない |
+| `frontend/src/features/channels/hooks/useManageChannel.ts` | アーカイブ・復元の成功で、未読・スレッド・通知のキーも取り直す |
+| `frontend/src/features/channels/components/AdminChannelTable.tsx`・`ArchivedChannelTable.tsx`（新規） | S-39・S-38の表（パソコン）とカード（狭い画面）。枠の`ResponsiveTable`とセルの部品は`AdminChannelTable.tsx`に置き、2つの表で共用する |
+| `frontend/src/features/channels/components/ChannelManageMenu.tsx` | `manage`に任意の`canRestore`を受け、真なら「復元」の項目を出す。任意の`onSelect`（渡されたら、アーカイブ・復元のダイアログを開かずページへ知らせる）・`onRestored`・`loadLatest`を足した。S-05の呼び出しは変えていない |
+| `frontend/src/features/channels/components/ChannelEditDialog.tsx` | 任意の`loadLatest`（最新の内容の読み方）。#290の直し（読み込み中は入力欄と保存を無効にする） |
+| `frontend/src/features/channels/labels.ts`（新規） | S-39・S-38の表示の文字（種類・公開／非公開・状態・部署の表示）と、日本時間の日時の書式`formatJstDateTime` |
+| `frontend/src/features/channels/index.ts`、`unread/index.ts`・`threads/index.ts`・`notifications/index.ts` | 新しいフック・表・型の公開。各機能のキー（`unreadKeys`・`threadKeys`・`notificationKeys`）の公開（機能の`index.ts`から参照する決まり） |
+| `frontend/src/pages/ChannelManagePage.tsx`・`ArchivePage.tsx`（新規） | S-39・S-38。ダイアログと対象はページの状態に持つ（下の「画面」） |
+| `frontend/src/App.tsx` | `/channel-management`・`/archive`と、権限がなければ見つからない表示にするガード`ChannelAdminRoute` |
+| `frontend/src/features/app-shell/navigation.ts`・`SidebarNav.tsx` | 管理メニュー「部署」に「チャンネル管理」、独立した項目`archiveNavItem`（「アーカイブ」）、まとまり`master-log`の表示名を「マスタ・記録」に直した（`id`は変えていない） |
+| `frontend/src/features/auth/api/auth-api.ts` | セッションの`permissions`の型と検査に、2つの権限IDを足した |
+
+### API（143-b）
+
+すべて読み取り（GET）。`Cache-Control: no-store`を付ける。書き込み・監査の記録・通知はしない。詳細な形はOpenAPIが正。
+
+| 操作 | 入力 | 出力・エラー |
+| --- | --- | --- |
+| 一覧（EP-2-42）`GET /api/admin/channels` | `q`（任意。前後の空白を除いて1〜55文字。上限はお知らせ専用の名前の最長に合わせた）、`state`（`all`〔既定〕・`active`・`archived`）、`limit`・`cursor`。余分なクエリは422（`strict`） | `items`と`nextCursor`。各行は`id`・`name`・`description`・`purpose`（案件専用は返さない）・`visibility`・`department`（`id`・`name`・`isActive`、会社直属は`null`）・`state`・`version`・`memberCount`・`archive`（アーカイブ中なら`archivedBy`・`archivedAt`・`reason`、使用中は`null`）・`manage`（`canRename`・`canEditDescription`・`canArchive`・`canRestore`）。**件数（total）は返さない**。メッセージの中身・参加者の一覧は返さない。401／403／422 |
+| 1件（EP-2-43）`GET /api/admin/channels/{channelId}` | `channelId`（ULID） | 一覧の1行と同じ形。編集のダイアログの「最新の内容を読み込む」が使う（参加していない非公開は、詳細EP-2-06では404になるため）。401／403／404／422 |
+| アーカイブしたチャンネル（EP-2-40）`GET /api/admin/deleted-items` | `type`（任意。いまは`channel`だけ。`case`は422）、`limit`・`cursor` | `items`（`type`・`id`・`name`・`caseNumber`〔常に`null`。案件は#151〕・`deletedBy`・`deletedAt`・`reason`・`version`・`department`・`canRestore`）と`nextCursor`。アーカイブした日時の新しい順。401／403／422 |
+
+- `memberCount`は有効な社員の参加者だけを数える。`reason`は、開いているアーカイブの記録（`channel_archive_events`の`restored_at`が空の行）から読み、復元済みの古い記録の理由は出ない。`archivedBy`・`archivedAt`は`channels.deleted_by`・`deleted_at`
+- `manage`・`canRestore`は、種類と状態だけで決まる`channelManageActions`の値（行が出ること＝その人が管理できる、という前提。範囲はSQLで決まる）。部署の専用・お知らせ専用・全社連絡は説明の編集だけ、アーカイブ中の通常のチャンネルは復元だけ
+
+### 判定の順（Service・route。この順を変えない）
+
+1. 認証（`app.ts`の既定の拒否）→ 401
+2. **入口の認可（ミドルウェア。入力の検証より先）**：`assertCanOpen`が、`canInAnyScope`で、会社の範囲か、本人の部署範囲のいずれかの部署で権限（S-39は`perm.channel.edit`、S-38は`perm.channel.delete`）を持つかを見る。持たなければ`authorize`（会社の範囲）を呼んで403（拒否は`authorize`が運用ログに記録する）。壊れたクエリでも、存在しないIDでも、管理者でない人には同じ403（入力の規則も対象の有無も教えない）
+3. 入力の形（`validate`）→ 422（`fields`）
+4. 取得（行の範囲はSQLの条件で決まる）
+5. **0件のときだけ、資格を読み直す**（`recheck`）：失っていれば403（成功に見せかけた空の一覧を返さない）。資格があれば、一覧は空の200、1件は404
+
+### 見える範囲（行を読むSQLの条件で決める）
+
+- 行の範囲は、**取得の後に取り除かず、行を読むSQLのWHEREに入れる**。条件は143-aの`channelManagerSql`をそのまま使う（操作者が**その時点で**有効で、全体管理者〔会社の範囲〕かチャンネルの部署のオーナー。会社直属は全体管理者だけ）。権限の規則を3つ目に書かない。先に読んだ材料（入口の認可で読んだ割り当て）は、行の範囲に使わない。案件専用は常に除く。部署の有効性は見ない（D-3。無効な部署のチャンネルも出し、画面で「（無効）」を添える）
+- 一覧・1件・アーカイブの一覧は、同じ`select`（`channel-admin.repository.ts`）に、条件と並びを渡して作る。列名が重なる（`name`・`is_active`）ため、すべて別名を付ける
+- **D1の1文あたりの値の数の上限（100）**：束縛する値は、操作者のID・ロールのID・検索語・カーソル・件数で、行・部署・参加者の数によらず一定。オーナーの部署の集合をServiceから渡さず、SQLの副問い合わせで割り当てを読む。全体管理者が100を超える部署のオーナーを兼ねても失敗しない
+- **存在の非開示**：
+
+| 経路 | 対策 |
+| --- | --- |
+| 403と404の違い | 403は「どの範囲でも管理者でない」ときだけで、対象を読む前に決まる。管理者には、対象によらず200か404 |
+| 1件の404 | 存在しない・案件専用・範囲外（他部署・会社直属・参加していない非公開を含む）で、同じ文「チャンネルが見つかりません」・同じ形 |
+| 件数 | `total`を返さない。次のページがあるかは、`limit+1`件読んで範囲内の行だけで判定する |
+| ページ送り | カーソルは並びの値とIDの位置だけで、範囲の条件は毎回WHEREに入る。改ざんしたカーソル（範囲外の行の名前・ID）でも、返るのは範囲内の行だけ。`nextCursor`は返した行からだけ作る |
+| 検索 | 範囲の条件とANDで組む。範囲外の名前に一致しても行は出ない |
+| 読み取りの記録 | 監査・通知を書かない（閲覧の記録は0-6の監査ログだけ）。403の拒否は運用ログ。業務の404は記録しない |
+
+### 名前の部分一致（`nameMatches`）
+
+- **`LIKE`・`GLOB`を使わず、`instr(c.name_normalized, 検索語) > 0`で比べる**。D1のLIKE・GLOBはパターンの長さに上限（50バイト前後）があり、55文字の日本語の検索語（約165バイト）で失敗するため（`profile.repository.ts`と同じ理由）。`instr`はパターンを解釈しないので、`%`・`_`・`\`はエスケープせず、そのまま文字として比べる
+- **検索語は2つの形を作り、どちらかに一致すれば出す**：変換前の検索語（`channelNameKey(q)`＝前後の空白を除いて小文字にしただけ）と、全角の英数字を半角にした検索語（`channelNameKey(formatChannelName(q))`）。同じなら1つで比べる。理由：`name_normalized`の作り方が経路で違う。通常のチャンネル（申請・名前の変更）は、整形した名前を`name`に入れ、そのキーを`name_normalized`にする。部署から自動で作る専用・お知らせ専用は、部署名をそのまま`name`に入れてキーを作るため、**全角の英数字が残る**。どちらも`name_normalized = channelNameKey(name)`なので、**画面に表示された名前の一部は、変換前の検索語で必ず一致する**。整形後の検索語は、半角に整形済みの通常のチャンネルを、全角で入力して探せるようにするため（計画レビュー1回目の指摘。保存の形・一意性の規則は変えない）
+- 大文字・小文字は、SQLの`lower()`を使わず、両側をJSの`toLowerCase`でそろえる（保存側は`channelNameKey`で済んでいる。SQLiteの`lower()`はASCIIしか変えず、全角の英字をJSと同じにできない）
+
+### 並びとカーソル
+
+- S-39：名前の比較キー（`name_normalized`）の昇順、同じなら`room_id`の昇順。カーソルは（名前の比較キー, `room_id`）。`name_normalized`は一意（アーカイブ済みを含む）なので、順序が決まる
+- S-38：アーカイブした日時（`deleted_at`）の新しい順、同じなら`room_id`の降順。カーソルは（`deleted_at`, `room_id`）。`deleted_at`の索引はない（上の「後の子に回したもの」）
+- カーソルの形・`limit`の既定と上限は`lib/cursor.ts`（ADR-0006）。ページ送りの間に名前・状態が変わった行は、重複・欠落しうる（その行だけ。取り直しで正しくなる。許容）
+
+### 入口とルートのガード
+
+| 立場 | S-39 チャンネル管理（`/channel-management`） | S-38 アーカイブ（`/archive`） |
+| --- | --- | --- |
+| 全体管理者・部署のオーナー | 管理メニュー「部署」のまとまりの「チャンネル管理」 | サイドバーの下の方の独立した「アーカイブ」（管理メニューの外。ドロワーにも出る） |
+| 一般メンバー | 出ない。URLを直接開くと「ページが見つかりません」。APIは403 | 同左 |
+
+- セッションの`permissions`に、`perm.channel.edit`（S-39の入口）・`perm.channel.delete`（S-38の入口）を足した。どちらも`canManageAnyChannel`（中で`canInAnyScope`）で、全体管理者かいずれかの部署のオーナーに載る。**表示の制御であり、認可ではない**（拒否の監査は出さない）。認可は3つのAPIが毎回行う
+- 表示用の判定（`canInAnyScope`＝`resolvePermissions`）と、行の範囲のSQL（`channelManagerSql`）は別の書き方の**二重定義**。前者は「入口を出すか・403にするか」だけに使い、行の範囲は後者だけで決める。食い違っても行は漏れない（最悪で、入口が出て空の一覧か403）
+- `App.tsx`の`ChannelAdminRoute`：セッション確認中は「確認中です」、権限がなければ`NotFoundPage`
+- 管理メニューのまとまりの名前を、`screens.md`（S-01・C-118）のとおり「マスタ・記録」に直した（C-183。`navigation.ts`の`master-log`の表示名。`id`・監査ログ・取引先管理の項目は変えていない）
+
+### 画面（S-39・S-38）
+
+- **S-39**（`pages/ChannelManagePage.tsx`）：見出し「チャンネル管理」。絞り込みは「名前で検索」と「状態」（すべて〔初期値〕・使用中・アーカイブ中）で、**「検索」を押したときに確定する**（入力のたびには取得しない）。サーバーの422（`fields`に`q`）は名前の欄のエラーにする。列は名前・種類（「通常」「部署の専用」「お知らせ専用」「全社連絡」。文字の印）・公開／非公開・部署（無効なら「（無効）」、会社直属は「会社直属」）・状態（「使用中」「アーカイブ中」）・参加者数・操作（「⋯」）。名前はリンクにしない（参加していない非公開・アーカイブ中は開けないため）。メッセージの中身は出さない。物理削除の項目は置かない
+- **S-38**（`pages/ArchivePage.tsx`）：見出し「アーカイブ」、小見出し「アーカイブしたチャンネル」。絞り込みなし。列は名前・部署・アーカイブした人・日時（日本時間の`YYYY-MM-DD HH:mm`）・理由（なければ「（なし）」）・操作（`canRestore`のときだけ「復元」）。物理削除のボタンは置かない
+- **ダイアログをページの状態に持つ理由**：一覧の取り直しで操作した行が先に外れると、行の中にあるダイアログの`mutate`に渡した完了の通知（`onSuccess`）が呼ばれず、完了の表示が出ない（例：「使用中」で絞り込んでアーカイブすると、取り直しで行が消える。計画レビュー1回目の指摘）。そこで、アーカイブ・復元のダイアログと対象（ID・名前・版）をページの状態に持ち、表の外に描画する。行の「⋯」は`onSelect`で選んだ操作をページへ知らせるだけにする（S-05は`onSelect`を渡さないので、メニューの中でダイアログを開き、アーカイブ後は一覧へ移る143-aの動きのまま）。編集のダイアログは、メニューの中で開く（完了の文はメニューの下に出る）
+- **完了の表示**：アーカイブ・復元の成功で、ページの上に「チャンネル「（名前）」をアーカイブしました」「チャンネル「（名前）」を復元しました」を出す（ページの状態に持つ）。チャンネルの詳細へは移らない。完了せずに閉じたとき（409・404の後を含む）は、一覧を取り直す
+- **409・404**：ダイアログに143-aの文（`describeManageError`）を出す
+- **編集の「最新の内容を読み込む」**：S-39では、管理者用の1件（EP-2-43）で読み直す（`AdminChannelTable`が`ChannelManageMenu`の`loadLatest`に渡す）。S-05は詳細（EP-2-06）のまま
+- **4つの状態**：読み込み中「読み込み中です」／エラー（`describeError`の文と「再読み込み」）／データなし（S-39「該当するチャンネルはありません」、S-38「アーカイブしたチャンネルはありません」）／データあり。「さらに読み込む」で次のページ
+- **#290の直し**：編集のダイアログで、「最新の内容を読み込む」の応答を待つ間は、名前・説明の欄と「保存」を無効にする（応答で入力が上書きされて失われないように）。応答の後に最新の内容を入れて有効に戻し、フォーカスを名前の欄（名前を変えられないときは説明の欄）へ戻す。失敗したら入力は保ったまま有効に戻る
+- 画面の文言（テストに定めがなかった文は、実装のとおり。C-181 (8)と同じ扱い）：
+
+| 場所 | 文言 |
+| --- | --- |
+| S-39の見出し・欄・ボタン | 「チャンネル管理」、欄「名前で検索」「状態」、ボタン「検索」。状態の選択肢「すべて」「使用中」「アーカイブ中」。名前の誤り「名前は1〜55文字で入力してください」 |
+| S-39の列 | 「名前」「種類」「公開／非公開」「部署」「状態」「参加者数」「操作」 |
+| S-38の見出し・列 | 「アーカイブ」、小見出し「アーカイブしたチャンネル」、列「名前」「部署」「アーカイブした人」「日時」「理由」「操作」、ボタン「復元」、理由なし「（なし）」 |
+| メニューの項目（S-39・S-38で増えたもの） | 「復元」（アーカイブ中のチャンネル） |
+| 完了 | 「チャンネル「（名前）」をアーカイブしました」「チャンネル「（名前）」を復元しました」 |
+| 状態 | 「読み込み中です」「該当するチャンネルはありません」「アーカイブしたチャンネルはありません」「再読み込み」「さらに読み込む」 |
+
+### キャッシュ（フロントエンド）
+
+- 一覧のキーは`["channels","admin",利用者のID,絞り込み]`と`["channels","archived",利用者のID]`。**利用者のIDをキーに入れ**、IDが確かめられる前は取得しない。S-39の絞り込みを変えたときの前のデータ（`placeholderData`）は、**前のキーの利用者のIDが同じときだけ**残す（利用者が替わったとき、前の利用者の一覧を一度も描画しない。`useReviewCaseRequests`と同じ形）。既存の`channelKeys`の`list`・`detail`には利用者のIDを足していない（既存の設計の変更になるため）
+- **C-181 (9)の見直し（C-183）**：`useArchiveChannel`・`useRestoreChannel`の成功で、`channelKeys.all`（アーカイブは対象の詳細を除く。既存）に加えて、`unreadKeys.all`・`threadKeys.all`・`notificationKeys.all`を取り直す。復元したチャンネルが、再読み込みなしでサイドバー・未読・スレッド・通知に戻る。名前・説明の変更は、既存のまま`channelKeys.all`だけ。各機能の`index.ts`でキーを公開し、機能の境界の検査（`npm run deps:check`）で循環のないことを確かめる
+- 管理の操作（143-aのフック）は`channelKeys.all`を取り直すので、S-39・S-38の一覧も一緒に取り直される
+
+### 同時の操作（143-b）
+
+| 競合 | 結果 |
+| --- | --- |
+| 一覧を読んだ後に、ほかの人が編集・アーカイブ・復元した | 画面の操作は143-aのAPIが版の不一致で409。ダイアログに文を出し、閉じたら一覧を取り直す |
+| 取得と同時に、オーナーの割り当てが外れた・無効化された | 行を読むSQLの条件で、その時点で範囲外の行は出ない。0件なら読み直して403 |
+| 部署の異動・オーナーの交代と同時 | その時点の割り当てで範囲が決まる |
+| S-38で2人が同時に復元 | 後の要求は143-aのAPIが409「この項目はすでに処理されています」 |
+
+### 既知の差（143-b）
+
+- 種類の一覧（通常・部署の専用・お知らせ専用・全社連絡）は、バックエンドの`channel-admin.repository.ts`（行の検査の`ADMIN_CHANNEL_ROW_PURPOSES`）と`admin-channels.ts`（`ADMIN_CHANNEL_PURPOSES`。OpenAPIの番人が突き合わせる）に別々に書いている。フロントエンドも`channel-api.ts`のスキーマと`labels.ts`に持つ（役割が違うため共通化していない）。コードの重複が残っている箇所で、後の整理の候補
+- 日本時間の日時の書式`formatJstDateTime`（`YYYY-MM-DD HH:mm`）は`features/channels/labels.ts`に持った。監査ログの画面は、別に`AuditLogsPage.tsx`の`formatJst`（秒まで）を持っており、共通の関数にはまとめていない
+- S-39の表の枠（`ResponsiveTable`）は、S-39・S-38で共用するが、監査ログの画面（`AuditLogsPage.tsx`）の表とは共通化していない
+- 閲覧するセッションの有効性までは、一覧のSQLに入れていない（認証の時点で確かめ済み。読み取りだけで記録を書かないため、監査ログの閲覧〔C-180〕ほど厳密にしていない）。求められたら`viewerStillAllowed`と同じ形で足す
+- `/api/auth/session`の応答に必須の項目は足していない（`permissions`の値が増えただけ）ので、本番形のE2Eの応答の見本は変えていない
+
+### 主な入出力（143-b）
+
+| 処理 | 入力 | 出力 |
+| --- | --- | --- |
+| `createChannelAdminService().assertCanOpen` | 操作者、権限（`perm.channel.edit`か`perm.channel.delete`） | なし。持たなければ403（`authorize`が拒否を記録する） |
+| `.list` | 操作者、`q?`・`state`・`limit`・`cursor?` | `AdminChannel`のページ（`items`・`nextCursor`）。0件で資格を失っていれば403 |
+| `.get` | 操作者、ルームID | `AdminChannel`。範囲外・存在しない・案件専用は404（資格を失っていれば403） |
+| `.listArchived` | 操作者、`limit`・`cursor?` | `ArchivedItem`のページ |
+| `createChannelAdminRepository().listManageable`・`findManageable`・`listArchived` | 操作者のID、条件・ルームID | 行（`AdminChannelRow`）のページ／1行か`null` |
+| `canInAnyScope(repository, userId, permission)` | 利用者のID、権限 | 真偽（会社の範囲か、いずれかの部署の範囲で持つか） |
+| `canManageAnyChannel(env, userId, permission)` | 同上 | 真偽（セッションの`permissions`用） |
+
+### 143-bのテストの場所
+
+- DB結合：`backend/src/db/channel-admin.repository.db.test.ts`（見える範囲の全組、その時点の資格、状態、名前の検索〔部署から作った全角・大文字の名前、`%`・`_`・`\`、55文字の日本語、範囲外〕、並びとカーソル〔101件超・改ざん〕、100を超える部署、`memberCount`、アーカイブの一覧、1件）
+- Service：`backend/src/services/channel-admin.service.test.ts`（`assertCanOpen`、0件の読み直し、1件の404、`manage`・`canRestore`）、`backend/src/services/authorizer.any-scope.test.ts`（`canInAnyScope`・`canManageAnyChannel`）
+- route：`backend/src/routes/admin-channels.test.ts`・`admin-deleted-items.test.ts`（認可が検証より先、同じ403・404、422、応答の形、`no-store`、401）、`backend/src/routes/auth.test.ts`（セッションの`permissions`）、`backend/src/openapi.test.ts`（3操作・enumの番人）
+- フロントエンド（ページを描画するため`frontend/src/pages/`か`frontend/src/`の直下に置く）：`frontend/src/pages/ChannelManagePage.test.tsx`・`ArchivePage.test.tsx`（表示・絞り込み・メニュー・完了の表示・4つの状態）、`frontend/src/channel-admin.session-switch.test.tsx`（利用者の切り替え）、`frontend/src/channel-admin-routes.test.tsx`（ガード）、`frontend/src/channel-manage.test.tsx`（#290、メニューの復元の項目・`loadLatest`、キャッシュの取り直し、S-05の回帰）、`frontend/src/features/app-shell/navigation.channel-management.test.tsx`（入口）。MSWの部品は`frontend/src/test/channel-admin-handlers.ts`
+- 既存のテストの変更：まとまりの名前（`audit-logs-route.test.tsx`・`navigation.audit-logs.test.tsx`・`SidebarNav.session.test.tsx`・`e2e/audit-logs.spec.ts`）、セッションの`permissions`の完全一致（`auth.test.ts`）
+- E2E：`e2e/channel-management.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/channel-management.sql`、後始末は`channel-management-cleanup.sql`
+
 ## API契約
 
 詳細な形はOpenAPI（`docs/api/openapi.json`）と[api-draft.md](../requirements/api-draft.md)のEP-2-04〜06に従う。
@@ -357,6 +520,7 @@
 | 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`canPost`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。**#201で`canPost`を足した**（既存の項目は変えていない）。401／404【Issue #134で、`readOnly`（チャンネルの部署が無効で読み取り専用。部署のない会社直属は偽）を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別。元の記述は残す】 |
 | 詳細への追記（#143） | 詳細（EP-2-06）の応答に、必須の項目として`version`（管理の操作が送る版）と`manage`（`canRename`・`canEditDescription`・`canArchive`。表示用）を足した（C-181 (3)）。既存の項目は変えていない |
 | 変更・アーカイブ・復元（EP-2-36〜38。#143） | `PATCH /api/channels/{channelId}`（本文`version`必須、`name?`・`description?`は少なくとも1つ）→ 200で`id`・`name`・`description`・`version`・`updatedAt`。`POST …/delete`（本文`version`・`reason?`）→ 200で`id`・`version`・`deletedAt`。`POST …/restore`（本文`version`）→ 200で`id`・`version`・`restoredAt`。401／403（FORBIDDEN・REAUTH_REQUIRED（delete・restore）・Origin）／404／409／422。判定の順は上の「チャンネルの管理」 |
+| 管理者用の一覧・1件・アーカイブした一覧（EP-2-42・43・40。#143の143-b） | `GET /api/admin/channels`（`q`・`state`・`limit`・`cursor`）、`GET /api/admin/channels/{channelId}`、`GET /api/admin/deleted-items`（`type=channel`・`limit`・`cursor`）。401／403（どの範囲でも管理者でない）／404（1件。範囲外・存在しない・案件専用で同じ）／422。形は上の「API（143-b）」 |
 | 参加（EP-2-05） | `POST /api/channels/{channelId}/join`。200で`channelId`・`roomId`・`joinedAt`。参加済みでも200（べき等）。401／403（Origin）／404 |
 | 招待（EP-2-12。#135） | `POST /api/channels/{channelId}/invitations`。本文は`userId`だけ。201で`channelId`・`userId`・`joinedAt`（要件の案の`invitationId`・`status`は返さない。C-175）。401／403（FORBIDDEN・REAUTH_REQUIRED・Origin）／404／409／422。判定の順は上の「チャンネルへの招待」 |
 
@@ -408,4 +572,5 @@
 - [ADR-0022](../adr/0022-company-general-channel-seed-migration-exception.md)：全社連絡を補う手作成migrationの例外
 - Issue #135（親 #132 の残りを含む。2-4 AC-2・AC-3、2-5 AC-1〜7。招待）：決定記録C-175
 - Issue #143（チャンネルの管理とアーカイブ。最初の子・143-a。PR #287）：決定記録C-181。要件：2-6 AC-1・4・5・6、3-4 AC-5、EP-2-36〜38、S-05。ADR-0024（列の追加で作り直しが生成されたとき。今回は新しい表のため該当しない）
+- Issue #143の143-b（S-39・S-38・入口の権限。#290を含む）：決定記録C-183。要件：2-6 AC-5①⑥・AC-6・AC-8、EP-2-40・42・43、S-38・S-39。ADR-0006（カーソル）・ADR-0020（セッションの応答を変えたため、E2Eは全件）
 - 要件：2-1 AC-16・17、0-1 AC-15、2-3 AC-1・2、S-09。決定記録C-94・C-95・C-163
