@@ -1,4 +1,4 @@
-// アカウントの無効化（hook）と、無効化・再有効化の後に取り直すキャッシュ。
+// アカウントの無効化・部署異動（hook）と、無効化・再有効化・異動の後に取り直すキャッシュ。
 // 再有効化は一時パスワードを返すため hook にせず、ダイアログの onSubmit で直接送る（project-rules #199）。
 import {
   useMutation,
@@ -8,7 +8,7 @@ import {
 import { useReauth } from "../auth";
 import { channelKeys } from "../channels";
 import { profileKeys } from "../profile";
-import { deactivateAccount } from "./account-api";
+import { deactivateAccount, transferAccount } from "./account-api";
 import { sendWithReauth } from "./lifecycle-errors";
 import { accountKeys } from "./query-keys";
 
@@ -30,6 +30,18 @@ export function useDeactivateAccount() {
     mutationFn: (id: string) =>
       sendWithReauth(withReauth, "アカウントの無効化", () =>
         deactivateAccount(id),
+      ),
+    onSuccess: () => invalidateAfterLifecycle(queryClient),
+  });
+}
+
+export function useTransferAccount() {
+  const queryClient = useQueryClient();
+  const { withReauth } = useReauth();
+  return useMutation({
+    mutationFn: (input: { id: string; departmentId: string }) =>
+      sendWithReauth(withReauth, "部署の異動", () =>
+        transferAccount(input.id, { departmentId: input.departmentId }),
       ),
     onSuccess: () => invalidateAfterLifecycle(queryClient),
   });

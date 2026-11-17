@@ -1,5 +1,5 @@
 // S-22 の一覧。ユーザーIDの順にカーソルで続きを取得する。本名は取得しない（サーバーが返さない）。
-// 行の操作：有効な行に「無効化」（自分の行を除く。表示の制御で、認可はサーバー）、無効な行に「再有効化」。
+// 行の操作：有効な行に「異動」と「無効化」（無効化は自分の行を除く。表示の制御で、認可はサーバー）、無効な行に「再有効化」。
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Alert } from "../../components/Alert";
@@ -9,6 +9,7 @@ import { fetchAdminAccounts, type AccountListItem } from "./account-api";
 import { DeactivateDialog } from "./DeactivateDialog";
 import { accountKeys } from "./query-keys";
 import { ReactivateDialog } from "./ReactivateDialog";
+import { TransferDialog } from "./TransferDialog";
 
 const COLUMNS = [
   "社員ID",
@@ -22,7 +23,7 @@ const COLUMNS = [
 ] as const;
 
 type Operation = {
-  kind: "deactivate" | "reactivate";
+  kind: "deactivate" | "reactivate" | "transfer";
   account: AccountListItem;
 };
 
@@ -83,16 +84,26 @@ export function AccountsList() {
                   <td className="p-2">{account.active ? "有効" : "無効"}</td>
                   <td className="p-2">
                     {account.active ? (
-                      account.id !== signedInUserId && (
+                      <div className="flex gap-2">
                         <Button
-                          variant="danger"
+                          variant="secondary"
                           onClick={() =>
-                            setOperation({ kind: "deactivate", account })
+                            setOperation({ kind: "transfer", account })
                           }
                         >
-                          無効化
+                          異動
                         </Button>
-                      )
+                        {account.id !== signedInUserId && (
+                          <Button
+                            variant="danger"
+                            onClick={() =>
+                              setOperation({ kind: "deactivate", account })
+                            }
+                          >
+                            無効化
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <Button
                         variant="secondary"
@@ -142,6 +153,13 @@ export function AccountsList() {
           account={operation.account}
           onClose={() => setOperationState(null)}
           onDone={() => finish("アカウントを再有効化しました")}
+        />
+      )}
+      {operation?.kind === "transfer" && (
+        <TransferDialog
+          account={operation.account}
+          onClose={() => setOperationState(null)}
+          onDone={() => finish("アカウントを異動しました")}
         />
       )}
     </>

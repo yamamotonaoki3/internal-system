@@ -482,14 +482,15 @@ describe("#128 AC-14: コードレビュー1回目（再有効化のダイアロ
     const { user } = renderList();
     const dialog = await reactivateGone(user);
     await waitFor(() => expect(calls.reactivate).toHaveLength(1));
-    await waitFor(() => expect(listRequests).toBeGreaterThanOrEqual(2));
-    // 取り直しの失敗が画面に反映された後も、一時パスワードは同じダイアログで確認できる
-    await waitFor(() =>
-      expect(
-        screen.getByRole("dialog", { name: /再有効化/ }).textContent,
-      ).toContain(TEST_INITIAL_PASSWORD),
-    );
+    // 取り直しの開始ではなく、失敗が画面に反映されたこと（一覧のエラーの表示）を先に待つ
+    expect(
+      await screen.findByText(/アカウントを取得できませんでした/),
+    ).toBeTruthy();
+    expect(listRequests).toBeGreaterThanOrEqual(2);
+    // その状態でも、同じダイアログが残り、一時パスワードを確認できる
     expect(dialog.isConnected).toBe(true);
+    expect(screen.getByRole("dialog", { name: /再有効化/ })).toBe(dialog);
+    expect(dialog.textContent).toContain(TEST_INITIAL_PASSWORD);
     await user.click(
       within(screen.getByRole("dialog", { name: /再有効化/ })).getByRole(
         "button",

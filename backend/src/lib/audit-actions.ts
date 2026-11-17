@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   "account.create",
   "account.deactivate",
   "account.reactivate",
+  "account.transfer",
   "channel.join",
   "channel.invite",
   "channel.company_general_backfill",
