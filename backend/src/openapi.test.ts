@@ -14,6 +14,7 @@ import {
 } from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
 import { caseRequestRoutes } from "./routes/case-requests";
+import { caseRoutes } from "./routes/cases";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
 import { adminClientRoutes, clientRoutes } from "./routes/clients";
@@ -85,6 +86,8 @@ const app = createApp({
     { path: "/api/attachments", app: attachmentRoutes() },
     // #146：案件の作成申請・自分の申請・取り下げ・類似件名の確認。index.ts と同じパスに組み込む
     { path: "/api/case-requests", app: caseRequestRoutes() },
+    // #147：案件の一覧・概要・詳細（EP-5-06〜08）。index.ts と同じパスに組み込む
+    { path: "/api/cases", app: caseRoutes() },
     // #156：監査ログの閲覧（EP-0-19）。index.ts と同じパスに組み込む
     { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
   ],
@@ -384,6 +387,22 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
         "409",
         "422",
       ],
+    };
+    for (const [name, codes] of Object.entries(expected)) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      for (const code of codes)
+        expect(
+          Object.keys(operation?.operation.responses ?? {}),
+          name,
+        ).toContain(code);
+    }
+  });
+  it("#147 5-1 AC-2・AC-4・AC-14（EP-5-06〜EP-5-08。147-A）: 案件の一覧・概要・詳細の契約が書かれている", () => {
+    const expected: Record<string, string[]> = {
+      "GET /api/cases": ["200", "401", "403", "422"],
+      "GET /api/cases/{caseId}": ["200", "401", "403", "404", "422"],
+      "GET /api/cases/{caseId}/detail": ["200", "401", "403", "404", "422"],
     };
     for (const [name, codes] of Object.entries(expected)) {
       const operation = operations.find((entry) => entry.name === name);

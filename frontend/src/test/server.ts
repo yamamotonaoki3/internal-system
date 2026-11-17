@@ -17,6 +17,11 @@ export const server = setupServer(
   http.get("/api/dms", () =>
     HttpResponse.json({ items: [], nextCursor: null }),
   ),
+  // #147：サイドバーの「案件」の見出しの下（CaseSidebarSection）が参加中の進行中の案件（GET /api/cases）を取るため、枠を描画する全テストで空を既定の応答にする。
+  // 個別のテストは test/case-handlers.tsx の respondCases で上書きする。
+  http.get("/api/cases", () =>
+    HttpResponse.json({ items: [], nextCursor: null }),
+  ),
   // #124：ヘッダーの通知（NotificationBell）が未読数（GET /api/me/notifications/unread-count）を 2 秒ごとに取るため、枠（App・Header）を描画する
   // 全テストで「未処理の通信」にならないよう、未読 0 件を既定の応答にする。個別のテストは test/notification-handlers.ts の respondNotifications で上書きする。
   http.get("/api/me/notifications/unread-count", () =>

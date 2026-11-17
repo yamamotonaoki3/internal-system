@@ -36,8 +36,8 @@ export const primaryNavItems: NavItem[] = [
   { id: "members", label: "社員一覧", to: "/members" },
   // 自分が関わるスレッドの一覧（S-35）。ログイン後の全員が使える（権限の条件は付けない）
   { id: "threads", label: "スレッド", to: "/threads" },
-  // 案件の作成の申請（S-18）。全員が申請できる（権限の条件は付けない）。案件一覧（S-16。#147）ができるまでの仮の入口
-  { id: "case-requests", label: "案件の申請", to: "/case-requests" },
+  // 案件一覧（S-16。#147）。ログイン後の全員が見られる（権限の条件は付けない）。案件の作成の申請（S-18）は S-16 から開く
+  { id: "cases", label: "案件", to: "/cases" },
 ];
 
 // 管理メニューの4つのまとまり。項目は、画面を作る後続のIssueが items に足す
