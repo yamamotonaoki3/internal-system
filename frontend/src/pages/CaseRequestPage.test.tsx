@@ -722,4 +722,283 @@ describe("#146 5-3 AC-6 修正して再申請", () => {
         }),
       ).toBeNull();
   });
+
+  describe("無効になった元の選択（レビュー指摘1）", () => {
+    // 部署の選択肢（GET /api/users/departments）に出ない、無効になった部署と取引先
+    const DEPT_GONE = {
+      id: "01JTESTCASEREQDEPTMAJE0001",
+      name: "[UNIT_TEST]廃止した部署",
+    };
+    const CLIENT_GONE = {
+      id: "01JTESTCASEREQCKENT0000009",
+      code: "QZG",
+      name: "[UNIT_TEST]無効な取引先X",
+    };
+
+    async function startResubmit(
+      overrides: Parameters<typeof caseRequestItem>[1],
+    ) {
+      respondProfileDepartment(DEPT_SALES);
+      respondChoices();
+      respondSimilar(false);
+      const { sent } = respondMyCaseRequests([
+        caseRequestItem("R9", {
+          title: "[UNIT_TEST]無効の再申請",
+          status: "rejected",
+          rejectReason: "理由",
+          decidedAt: "2026-11-17T04:00:00.000Z",
+          ...overrides,
+        }),
+      ]);
+      const { user } = renderCaseRequestScreen(<CaseRequestPage />);
+      const row = await findRow("[UNIT_TEST]無効の再申請");
+      await user.click(
+        within(row).getByRole("button", { name: "修正して再申請" }),
+      );
+      await waitFor(() =>
+        expect((titleInput() as HTMLInputElement).value).toBe(
+          "[UNIT_TEST]無効の再申請",
+        ),
+      );
+      return { user, sent };
+    }
+
+    it("#146 5-3 AC-6・AC-7: 元の担当部署の一部が無効なら、初期の選択から外して案内し、有効な部署を選べば無効な部署の ID を送らずに成功する", async () => {
+      const { user, sent } = await startResubmit({
+        departments: [
+          { ...DEPT_DEV, isActive: true },
+          { ...DEPT_GONE, isActive: false },
+        ],
+      });
+      expect(
+        ((await departmentBox(DEPT_DEV.name)) as HTMLInputElement).checked,
+      ).toBe(true);
+      const notice = await screen.findByRole("status");
+      expect(notice.textContent).toContain(DEPT_GONE.name);
+      expect(notice.textContent).toContain("無効になったため");
+      await user.click(await departmentBox(DEPT_SALES.name));
+      await user.click(submitButton());
+      await waitFor(() => expect(sent).toHaveLength(1));
+      const ids = (sent[0]?.body as { departmentIds: string[] }).departmentIds;
+      expect(ids).not.toContain(DEPT_GONE.id);
+      expect(ids).toContain(DEPT_DEV.id);
+      expect(ids).toContain(DEPT_SALES.id);
+      expect(await screen.findByText(TEXTS.submitted)).toBeTruthy();
+    });
+
+    it("#146 5-3 AC-6: 元の担当部署がすべて無効なら、未選択で始まり、選ばずに送ると「担当部署を選んでください」の入力エラーになり、送らない", async () => {
+      const { user, sent } = await startResubmit({
+        departments: [{ ...DEPT_GONE, isActive: false }],
+      });
+      expect(
+        ((await departmentBox(DEPT_SALES.name)) as HTMLInputElement).checked,
+      ).toBe(false);
+      expect(
+        ((await departmentBox(DEPT_DEV.name)) as HTMLInputElement).checked,
+      ).toBe(false);
+      await user.click(submitButton());
+      await waitFor(() =>
+        expect(departmentGroup().getAttribute("aria-invalid")).toBe("true"),
+      );
+      expect(
+        within(departmentGroup()).getByText(/担当部署を.*選んでください/),
+      ).toBeTruthy();
+      expect(sent).toEqual([]);
+    });
+
+    it("#146 5-3 AC-6: 元の取引先が無効なら、取引先は未選択で始まり、選ばずに送ると取引先の入力エラーになり、送らない。選び直せば送れる", async () => {
+      const { user, sent } = await startResubmit({
+        client: { ...CLIENT_GONE, isActive: false },
+        departments: [{ ...DEPT_DEV, isActive: true }],
+      });
+      expect(await clientSelect()).toHaveProperty("value", "");
+      await user.click(submitButton());
+      await waitFor(async () =>
+        expect((await clientSelect()).getAttribute("aria-invalid")).toBe(
+          "true",
+        ),
+      );
+      expect(sent).toEqual([]);
+      await user.selectOptions(await clientSelect(), CLIENT_A.id);
+      await user.click(submitButton());
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.body).toMatchObject({ clientId: CLIENT_A.id });
+    });
+
+    it("#146 5-3 AC-5・AC-6: 元の候補の社員は、画面に出て「外す」で外せ、外せば送らない（候補は選択肢に依らず外せるので詰まらない）", async () => {
+      const { user, sent } = await startResubmit({
+        candidates: [
+          { userId: CANDIDATE.id, displayName: CANDIDATE.displayName },
+        ],
+      });
+      await user.click(
+        await screen.findByRole("button", {
+          name: `${CANDIDATE.displayName}を外す`,
+        }),
+      );
+      await user.click(submitButton());
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.body).toMatchObject({ candidateIds: [] });
+    });
+  });
+});
+
+describe("#146 5-3 AC-5 候補の検索の次のページ（レビュー指摘2）", () => {
+  const PAGE1_USER = {
+    id: "01JTESTCASEREQCANDPG000001",
+    displayName: "testuser_casereq_p1",
+  };
+  const PAGE2_USER = {
+    id: "01JTESTCASEREQCANDPG000002",
+    displayName: "testuser_casereq_p2",
+  };
+  const userItem = (found: { id: string; displayName: string }) => ({
+    id: found.id,
+    displayName: found.displayName,
+    department: DEPT_DEV,
+    extension: null,
+    email: `${found.displayName}@example.com`,
+    status: { kind: "available", returnAt: null, message: null },
+    canSetStatus: false,
+  });
+
+  /** 最初のページ（hasNext なら nextCursor あり）と、cursor 付きの続きのページを返す。受けた q・cursor を記録する */
+  function setupPaged(hasNext: boolean) {
+    const rendered = setup();
+    const calls: { q: string | null; cursor: string | null }[] = [];
+    server.use(
+      http.get("/api/users", ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        const cursor = params.get("cursor");
+        calls.push({ q: params.get("q"), cursor });
+        return HttpResponse.json(
+          cursor === null
+            ? {
+                items: [userItem(PAGE1_USER)],
+                nextCursor: hasNext ? "users-page-2" : null,
+              }
+            : { items: [userItem(PAGE2_USER)], nextCursor: null },
+        );
+      }),
+    );
+    return { ...rendered, calls };
+  }
+  const searchInput = () => screen.getByRole("textbox", { name: "候補の検索" });
+  const candidateGroup = () =>
+    screen.getByRole("group", { name: "追加の候補" });
+  const nextButton = () =>
+    within(candidateGroup()).queryByRole("button", { name: "次のページ" });
+
+  it("#146 5-3 AC-5: 次のページがあれば「次のページ」を出し、押すと続きの社員が出て、候補に追加でき、送る候補に入る。q と cursor が API に付く", async () => {
+    const { user, sent, calls } = setupPaged(true);
+    await fillRequired(user);
+    await user.type(searchInput(), "casereq");
+    await user.click(
+      await screen.findByRole("button", {
+        name: `${PAGE1_USER.displayName}を追加`,
+      }),
+    );
+    await user.click(
+      await within(candidateGroup()).findByRole("button", {
+        name: "次のページ",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: `${PAGE2_USER.displayName}を追加`,
+      }),
+    );
+    expect(calls[0]).toEqual({ q: "casereq", cursor: null });
+    expect(calls.at(-1)).toEqual({ q: "casereq", cursor: "users-page-2" });
+    await user.click(submitButton());
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.body).toMatchObject({
+      candidateIds: [PAGE1_USER.id, PAGE2_USER.id],
+    });
+  });
+
+  it("#146 5-3 AC-5: nextCursor が null なら「次のページ」を出さない", async () => {
+    const { user, calls } = setupPaged(false);
+    await clientSelect();
+    await user.type(searchInput(), "casereq");
+    await screen.findByRole("button", {
+      name: `${PAGE1_USER.displayName}を追加`,
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    expect(nextButton()).toBeNull();
+  });
+
+  it("#146 5-3 AC-5: 検索語を変えたら、ページの位置が最初に戻る（cursor なしで取り直し、また「次のページ」が出る）", async () => {
+    const { user, calls } = setupPaged(true);
+    await clientSelect();
+    await user.type(searchInput(), "casereq");
+    await user.click(
+      await within(candidateGroup()).findByRole("button", {
+        name: "次のページ",
+      }),
+    );
+    await screen.findByRole("button", {
+      name: `${PAGE2_USER.displayName}を追加`,
+    });
+    await user.type(searchInput(), "x");
+    await waitFor(() =>
+      expect(calls.at(-1)).toEqual({ q: "casereqx", cursor: null }),
+    );
+    expect(
+      await within(candidateGroup()).findByRole("button", {
+        name: "次のページ",
+      }),
+    ).toBeTruthy();
+  });
+});
+
+describe("#146 frontend-state 類似件名の確認の失敗（レビュー指摘3）", () => {
+  function failSimilarOnce() {
+    let calls = 0;
+    server.use(
+      http.get("/api/case-requests/similar-title", ({ request }) => {
+        calls += 1;
+        if (calls === 1)
+          return HttpResponse.json(
+            { code: "INTERNAL", message: "一時的なエラーが発生しました" },
+            { status: 500 },
+          );
+        const title = new URL(request.url).searchParams.get("title") ?? "";
+        return HttpResponse.json({ hasSimilar: false, formattedTitle: title });
+      }),
+    );
+    return { calls: () => calls };
+  }
+
+  it("#146 5-3 AC-14: 確認の API が失敗したら「類似の件名を確認できませんでした」を role=alert で出し、「もう一度確認」で取り直せ、申請は送れる", async () => {
+    const { user, sent } = setup();
+    const probe = failSimilarOnce();
+    await fillRequired(user);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "類似の件名を確認できませんでした",
+    );
+    expect(screen.queryByText(TEXTS.similar)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "もう一度確認" }));
+    await waitFor(() => expect(probe.calls()).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    await user.click(submitButton());
+    await waitFor(() => expect(sent).toHaveLength(1));
+  });
+
+  it("#146 5-3 AC-14: 確認が失敗しても、そのまま申請は送れる", async () => {
+    const { user, sent } = setup();
+    failSimilarOnce();
+    await fillRequired(user);
+    await screen.findByRole("alert");
+    await user.click(submitButton());
+    await waitFor(() => expect(sent).toHaveLength(1));
+  });
+
+  it("#146 5-3 AC-14: 確認が成功して類似なしのときは、確認できなかった旨を出さない", async () => {
+    const { user, similar } = setup({ hasSimilar: false });
+    await fillRequired(user);
+    await waitFor(() => expect(similar.queries.length).toBeGreaterThan(0));
+    expect(screen.queryByText(/確認できませんでした/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "もう一度確認" })).toBeNull();
+  });
 });

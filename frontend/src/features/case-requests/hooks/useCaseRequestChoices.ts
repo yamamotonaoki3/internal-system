@@ -1,5 +1,5 @@
 // 申請の欄の候補：取引先（有効なもの）・担当部署（有効なもの）・追加の候補の社員の検索。
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   fetchClientChoices,
   fetchDepartmentChoices,
@@ -24,9 +24,11 @@ export function useDepartmentChoices() {
 }
 
 export function useCandidateSearch(q: string) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: caseRequestChoiceKeys.users(q),
-    queryFn: () => searchCandidateUsers(q),
+    queryFn: ({ pageParam }) => searchCandidateUsers(q, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: q !== "",
     retry: false,
   });

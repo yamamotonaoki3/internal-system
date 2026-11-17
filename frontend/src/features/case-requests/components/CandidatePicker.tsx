@@ -21,9 +21,9 @@ export function CandidatePicker({ selfId, selected, error, onChange }: Props) {
   const settled = useSettledValue(q.trim(), SEARCH_DELAY_MS);
   const search = useCandidateSearch(settled);
   const chosen = new Set(selected.map((user) => user.id));
-  const results = (search.data ?? []).filter(
-    (user) => user.id !== selfId && !chosen.has(user.id),
-  );
+  const results = (
+    search.data?.pages.flatMap((page) => page.items) ?? []
+  ).filter((user) => user.id !== selfId && !chosen.has(user.id));
 
   return (
     <fieldset className="mb-4">
@@ -53,6 +53,15 @@ export function CandidatePicker({ selfId, selected, error, onChange }: Props) {
             </Button>
           ))}
         </div>
+      )}
+      {search.hasNextPage && (
+        <Button
+          variant="secondary"
+          disabled={search.isFetchingNextPage}
+          onClick={() => void search.fetchNextPage()}
+        >
+          次のページ
+        </Button>
       )}
       {selected.length > 0 && (
         <ul className="flex flex-wrap gap-2">

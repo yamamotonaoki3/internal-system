@@ -139,12 +139,20 @@ export async function fetchDepartmentChoices(): Promise<Choice[]> {
   return departmentsSchema.parse(response.data).items;
 }
 
-/** 追加の候補を、社員一覧の API で探す（最初のページだけ） */
+export type CandidateUserPage = {
+  items: CandidateUser[];
+  nextCursor: string | null;
+};
+
+/** 追加の候補を、社員一覧の API で探す（cursor がなければ最初のページ） */
 export async function searchCandidateUsers(
   q: string,
-): Promise<CandidateUser[]> {
-  const response = await apiClient.get("/users", { params: { q } });
-  return userPageSchema
-    .parse(response.data)
-    .items.map(({ id, displayName }) => ({ id, displayName }));
+  cursor?: string,
+): Promise<CandidateUserPage> {
+  const response = await apiClient.get("/users", { params: { q, cursor } });
+  const page = userPageSchema.parse(response.data);
+  return {
+    items: page.items.map(({ id, displayName }) => ({ id, displayName })),
+    nextCursor: page.nextCursor,
+  };
 }

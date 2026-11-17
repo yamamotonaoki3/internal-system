@@ -65,12 +65,33 @@ const blankValues = (description: string): CaseRequestFormValues => ({
   departmentIds: [],
 });
 
+/** 元の申請の選択のうち、無効になって外したものの案内 */
+const droppedNoticesOf = (item: CaseRequestItem | null): string[] =>
+  item === null
+    ? []
+    : [
+        ...item.departments
+          .filter((department) => !department.isActive)
+          .map(
+            (department) =>
+              `担当部署『${department.name}』は無効になったため、選択から外しました`,
+          ),
+        ...(item.client.isActive
+          ? []
+          : [
+              `取引先『${item.client.name}』は無効になったため、選択から外しました`,
+            ]),
+      ];
+
+/** 無効になった取引先・担当部署は初期値に入れない（選び直してもらう） */
 const valuesOf = (item: CaseRequestItem): CaseRequestFormValues => ({
-  clientId: item.client.id,
+  clientId: item.client.isActive ? item.client.id : "",
   title: item.title,
   description: item.description,
   dueDate: item.dueDate ?? "",
-  departmentIds: item.departments.map((department) => department.id),
+  departmentIds: item.departments
+    .filter((department) => department.isActive)
+    .map((department) => department.id),
 });
 
 const candidatesOf = (item: CaseRequestItem | null): CandidateUser[] =>
@@ -140,6 +161,45 @@ function DepartmentCheckboxes({
   );
 }
 
+function DroppedNotices({ notices }: { notices: string[] }) {
+  if (notices.length === 0) return null;
+  return (
+    <Alert tone="info" role="status">
+      {notices.map((notice) => (
+        <p key={notice}>{notice}</p>
+      ))}
+    </Alert>
+  );
+}
+
+/** 類似件名の確認の結果。失敗は「類似なし」にせず、知らせて取り直せるようにする（送信は止めない） */
+function SimilarTitleNotice({
+  similar,
+}: {
+  similar: ReturnType<typeof useSimilarTitle>;
+}) {
+  if (similar.isError) {
+    return (
+      <Alert tone="error" role="alert">
+        <p>類似の件名を確認できませんでした</p>
+        <Button
+          variant="secondary"
+          disabled={similar.isFetching}
+          onClick={() => void similar.refetch()}
+        >
+          もう一度確認
+        </Button>
+      </Alert>
+    );
+  }
+  if (similar.data?.hasSimilar !== true) return null;
+  return (
+    <Alert tone="info" as="p">
+      似た案件があります
+    </Alert>
+  );
+}
+
 /** サーバーの 422 の fields は該当の欄へ、それ以外（409・403 など）は欄の外のエラーにする。ApiError でないものは投げ直す */
 function applyServerError(
   error: unknown,
@@ -169,6 +229,7 @@ export function CaseRequestForm({
   const create = useCreateCaseRequest();
   const [candidates, setCandidates] = useState(() => candidatesOf(resubmit));
   const [resubmitOf, setResubmitOf] = useState(resubmit?.id ?? null);
+  const droppedNotices = resubmitOf === null ? [] : droppedNoticesOf(resubmit);
   const [candidateError, setCandidateError] = useState<string>();
   const [result, setResult] = useState<{ titleFormatted: boolean } | null>(
     null,
@@ -219,6 +280,7 @@ export function CaseRequestForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="mb-8">
+      <DroppedNotices notices={droppedNotices} />
       {canRequest === false && (
         <Alert tone="error" as="p">
           所属部署がないため申請できません
@@ -247,11 +309,7 @@ export function CaseRequestForm({
         error={messageOf(errors.title, "件名は1〜100文字で入力してください")}
         {...register("title")}
       />
-      {similar.data?.hasSimilar === true && (
-        <Alert tone="info" as="p">
-          似た案件があります
-        </Alert>
-      )}
+      <SimilarTitleNotice similar={similar} />
       <TextAreaField
         label="説明"
         hint="2000文字以内（任意）"
