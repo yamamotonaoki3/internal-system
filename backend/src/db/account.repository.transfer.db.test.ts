@@ -227,12 +227,19 @@ describe("#128 部署異動（Repository・D1）", () => {
       string,
       unknown
     >;
+    // #146（5-3 AC-8）：取り消した案件の作成申請の件数を項目として足す（申請がなければ 0）
     expect(Object.keys(detail).sort()).toEqual(
-      ["fromDepartmentId", "roleIds", "toDepartmentId"].sort(),
+      [
+        "cancelledCaseRequestCount",
+        "fromDepartmentId",
+        "roleIds",
+        "toDepartmentId",
+      ].sort(),
     );
     expect(detail).toMatchObject({
       fromDepartmentId: deptA.id,
       toDepartmentId: deptB.id,
+      cancelledCaseRequestCount: 0,
     });
     // AuditDetail は入れ子にしない（project-rules）。役割IDを昇順に「,」で区切った文字列
     expect(detail.roleIds).toBe(ROLE_IDS.member);

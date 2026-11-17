@@ -185,6 +185,66 @@ function actorIsGlobalAdmin(actorId: string): SQL {
 }
 
 /**
+ * 申請者の無効化・異動による、案件の作成申請の自動取消（#146・5-3 AC-8）。無効化と異動で同じ知識をここにまとめる。
+ * readPendingCaseRequests：batch の前に、対象が申請者の審査中の申請の件数と、対象が全体管理者かを読む（監査の detail を JS で作るため）。
+ * 読んだ値が batch の時点でも同じことを、caseRequestsUnchangedSql として前提の条件（assertStatement）に入れる。
+ */
+async function readPendingCaseRequests(db: Database, targetId: string) {
+  const rows = await db
+    .select({
+      n: sql<number>`(SELECT COUNT(*) FROM case_creation_requests c
+        WHERE c.requested_by = ${targetId} AND c.status = 'pending')`,
+      isGlobalAdmin: sql<number>`EXISTS (SELECT 1 FROM user_role_assignments r
+        WHERE r.user_id = ${targetId} AND r.role_id = ${ROLE_IDS.globalAdmin} AND r.scope_type = 'company')`,
+    })
+    .from(users)
+    .where(eq(users.id, targetId))
+    .limit(1);
+  const row = rows[0];
+  if (row === undefined) throw new AccountStateChangedError();
+  return { pendingCount: row.n, isGlobalAdmin: row.isGlobalAdmin === 1 };
+}
+
+function caseRequestsUnchangedSql(
+  targetId: string,
+  read: { pendingCount: number; isGlobalAdmin: boolean },
+): SQL {
+  return sql`(SELECT COUNT(*) FROM case_creation_requests c
+      WHERE c.requested_by = ${targetId} AND c.status = 'pending') = ${read.pendingCount}
+    AND EXISTS (SELECT 1 FROM user_role_assignments r
+      WHERE r.user_id = ${targetId} AND r.role_id = ${ROLE_IDS.globalAdmin} AND r.scope_type = 'company') = ${read.isGlobalAdmin ? 1 : 0}`;
+}
+
+/** 対象の審査中の申請を auto_cancelled にする文（全体管理者は対象外）。申請ごとの監査・通知は作らない */
+function autoCancelCaseRequests(
+  db: Database,
+  input: { targetId: string; actorId: string; now: string },
+) {
+  return db
+    .update(caseCreationRequests)
+    .set({
+      status: "auto_cancelled",
+      version: sql`${caseCreationRequests.version} + 1`,
+      decidedBy: input.actorId,
+      decidedAt: input.now,
+    })
+    .where(
+      and(
+        eq(caseCreationRequests.requestedBy, input.targetId),
+        eq(caseCreationRequests.status, "pending"),
+        sql`NOT EXISTS (SELECT 1 FROM user_role_assignments r
+          WHERE r.user_id = ${input.targetId} AND r.role_id = ${ROLE_IDS.globalAdmin} AND r.scope_type = 'company')`,
+      ),
+    );
+}
+
+/** 監査の detail に入れる、取り消した件数（全体管理者は取り消さないので 0） */
+const cancelledCountOf = (read: {
+  pendingCount: number;
+  isGlobalAdmin: boolean;
+}) => (read.isGlobalAdmin ? 0 : read.pendingCount);
+
+/**
  * 条件が崩れていたら NOT NULL 違反で batch 全体を失敗させる文（login_id を、そのままか NULL にする）。
  * 対象と操作者の両方の行に当てる：どちらかの行がなくても、残った行で条件の崩れを検出する。
  * 部署の版を使う department.repository.ts の関数とは対象の表が違うため、共通化しない。
@@ -321,45 +381,18 @@ export function createAccountRepository(db: Database) {
       const target = rows[0];
       if (target === undefined) throw new AccountStateChangedError();
       const fromDepartmentId = target.departmentId;
-      // 監査の detail（取り消す案件の作成申請の件数。#146・5-3 AC-8）を読む。読んだ件数が batch の時点でも同じことを、前提の条件に含める
-      const [pending] = await db
-        .select({ n: sql<number>`COUNT(*)` })
-        .from(caseCreationRequests)
-        .where(
-          and(
-            eq(caseCreationRequests.requestedBy, input.targetId),
-            eq(caseCreationRequests.status, "pending"),
-          ),
-        );
-      if (pending === undefined)
-        throw new Error("審査中の申請の件数を読めませんでした");
-      const cancelledCaseRequestCount = pending.n;
+      const caseRequests = await readPendingCaseRequests(db, input.targetId);
       const condition = sql`${input.actorId} <> ${input.targetId}
         AND EXISTS (SELECT 1 FROM users t
           WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id IS ${fromDepartmentId})
         AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
           WHERE r.user_id = ${input.targetId} AND r.role_id IN (${ROLE_IDS.globalAdmin}, ${ROLE_IDS.owner}))
-        AND (SELECT COUNT(*) FROM case_creation_requests c
-          WHERE c.requested_by = ${input.targetId} AND c.status = 'pending') = ${cancelledCaseRequestCount}
+        AND ${caseRequestsUnchangedSql(input.targetId, caseRequests)}
         AND ${actorIsGlobalAdmin(input.actorId)}`;
       try {
         await db.batch([
           assertStatement(db, input, condition),
-          // 申請者の審査中の案件の作成申請を自動で取り消す（5-3 AC-8）。申請ごとの監査・通知は作らない
-          db
-            .update(caseCreationRequests)
-            .set({
-              status: "auto_cancelled",
-              version: sql`${caseCreationRequests.version} + 1`,
-              decidedBy: input.actorId,
-              decidedAt: input.now,
-            })
-            .where(
-              and(
-                eq(caseCreationRequests.requestedBy, input.targetId),
-                eq(caseCreationRequests.status, "pending"),
-              ),
-            ),
+          autoCancelCaseRequests(db, input),
           db
             .update(users)
             .set({
@@ -390,7 +423,10 @@ export function createAccountRepository(db: Database) {
             targetId: input.targetId,
             result: "success",
             traceId: input.traceId,
-            detail: { fromDepartmentId, cancelledCaseRequestCount },
+            detail: {
+              fromDepartmentId,
+              cancelledCaseRequestCount: cancelledCountOf(caseRequests),
+            },
           }),
         ]);
       } catch (error) {
@@ -485,16 +521,19 @@ export function createAccountRepository(db: Database) {
         .from(userRoleAssignments)
         .where(eq(userRoleAssignments.userId, input.targetId))
         .orderBy(asc(userRoleAssignments.roleId));
+      const caseRequests = await readPendingCaseRequests(db, input.targetId);
       const condition = sql`${input.fromDepartmentId} <> ${input.toDepartmentId}
         AND EXISTS (SELECT 1 FROM users t
           WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id = ${input.fromDepartmentId})
         AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
           WHERE r.user_id = ${input.targetId} AND r.role_id = ${ROLE_IDS.owner} AND r.department_id = ${input.fromDepartmentId})
         AND EXISTS (SELECT 1 FROM departments d WHERE d.id = ${input.toDepartmentId} AND d.is_active = 1)
+        AND ${caseRequestsUnchangedSql(input.targetId, caseRequests)}
         AND ${actorIsGlobalAdmin(input.actorId)}`;
       try {
         await db.batch([
           assertStatement(db, input, condition),
+          autoCancelCaseRequests(db, input),
           db
             .update(users)
             .set({ departmentId: input.toDepartmentId })
@@ -524,6 +563,7 @@ export function createAccountRepository(db: Database) {
               toDepartmentId: input.toDepartmentId,
               // 監査の detail は入れ子にしない決まり（C-177）のため、昇順の役割IDを「,」で区切った文字列にする
               roleIds: roleRows.map((r) => r.roleId).join(","),
+              cancelledCaseRequestCount: cancelledCountOf(caseRequests),
             },
           }),
         ]);
