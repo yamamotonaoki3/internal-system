@@ -16,6 +16,7 @@ import {
   type MessageActor,
   type MessageListQuery,
 } from "../services/message.service";
+import { attachmentIdsSchema } from "../../../shared/attachment-rules";
 import { messageContentSchema } from "../../../shared/message-rules";
 import {
   isValidReaction,
@@ -25,7 +26,10 @@ import { searchKeywordSchema } from "../../../shared/search-rules";
 
 const roomParamSchema = z.object({ roomId: z.string().min(1).max(64) });
 
-const postSchema = messageContentSchema;
+// 投稿・返信には、アップロード済みの添付の ID を付けられる（#140）。結び付けてよいかは Service と同じ batch の条件で確かめる
+const postSchema = messageContentSchema.safeExtend({
+  attachmentIds: attachmentIdsSchema.optional(),
+});
 const candidateQuerySchema = cursorQuerySchema({
   defaultLimit: PAGE_LIMIT.default,
 })
@@ -187,6 +191,7 @@ export function messageItemRoutes() {
             c.req.valid("param").messageId,
             c.req.valid("json").body,
             c.req.valid("json").mentions ?? [],
+            c.req.valid("json").attachmentIds ?? [],
           ),
         );
         return c.json(created, 201);
@@ -241,6 +246,7 @@ export function messageRoutes() {
             c.req.valid("param").roomId,
             c.req.valid("json").body,
             c.req.valid("json").mentions ?? [],
+            c.req.valid("json").attachmentIds ?? [],
           ),
         );
         return c.json(created, 201);

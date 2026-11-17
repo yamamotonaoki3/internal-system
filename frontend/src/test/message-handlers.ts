@@ -46,6 +46,17 @@ export type TestMessage = {
   mentions: { userId: string; start: number; end: number }[];
   /** #138：種類ごとの集計。付いていない・削除済みは空配列 */
   reactions: TestReaction[];
+  /** #140：添付（ID の昇順）。付いていない・削除済みは空配列 */
+  attachments: TestAttachment[];
+};
+
+/** #140：添付1件（サーバーの一覧の項目の attachments と同じ形） */
+export type TestAttachment = {
+  id: string;
+  name: string;
+  kind: "image" | "document" | "video";
+  contentType: string;
+  size: number;
 };
 
 /** message() の上書き。author の isActive は省略でき、省略したときは true（有効）で補う */
@@ -88,6 +99,7 @@ export function message(
     replyCount: 0,
     mentions: [],
     reactions: [],
+    attachments: [],
     ...overrides,
     author: { ...author, isActive: author.isActive ?? true },
   };
@@ -191,6 +203,7 @@ export function respondMessages(
       target.body = null;
       target.editedAt = null;
       target.reactions = [];
+      target.attachments = [];
       return new HttpResponse(null, { status: 204 });
     }),
   );

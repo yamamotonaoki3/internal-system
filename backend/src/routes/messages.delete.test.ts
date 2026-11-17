@@ -129,6 +129,8 @@ describe("#134 AC-1（1-3 AC-1・AC-4）本人の削除", () => {
         author: before?.author,
         body: null,
         mentions: [],
+        // #140：削除済みの投稿の添付は返さない
+        attachments: [],
         createdAt: before?.createdAt,
         editedAt: null,
         deleted: true,

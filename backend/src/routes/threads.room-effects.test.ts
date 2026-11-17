@@ -139,11 +139,12 @@ describe("#137 AC-1（1-4 AC-1）部屋の一覧（EP-1-01）に返信は出な�
     ).toBe(2);
   });
 
-  it("#137 AC-1: 一覧の項目のキーは、これまでの項目に parentMessageId・replyCount・reactions を足したものだけ", async () => {
+  it("#137 AC-1: 一覧の項目のキーは、これまでの項目に parentMessageId・replyCount・reactions・attachments を足したものだけ", async () => {
     await seedParent(world.channel, world.alice.userId, 1);
     const page = await roomItems(world.channel, "", world.alice.token);
     expect(Object.keys(page.items[0] ?? {}).sort()).toEqual(
       [
+        "attachments",
         "author",
         "body",
         "createdAt",

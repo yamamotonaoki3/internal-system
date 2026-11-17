@@ -77,6 +77,8 @@ describe("#138 AC-1（U-7）削除した投稿の reactions は []", () => {
       body: null,
       mentions: [],
       reactions: [],
+      // #140：削除済みの投稿の添付は空
+      attachments: [],
     });
     expect(list?.[1]?.reactions).toEqual(REACTIONS);
   });

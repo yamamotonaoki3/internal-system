@@ -32,6 +32,8 @@ const message = (n: number, body: string) => ({
   mentions: [],
   // #138：リアクションの必須の項目（リアクションなしの投稿）
   reactions: [],
+  // #140：添付の必須の項目（添付なしの投稿）
+  attachments: [],
 });
 
 // 新しい順（一覧の API の並び）

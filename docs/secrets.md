@@ -152,6 +152,8 @@ gh secret set CLAUDE_CODE_OAUTH_TOKEN
 | `PII_ENCRYPTION_KEY` | 本名（個人情報）を暗号化する鍵（AES-256-GCM。ADR-0013）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
 | `LOGIN_THROTTLE_KEY` | ログインと初回セットアップの試行制限で、接続元・社員IDのキーを作る HMAC の鍵（ADR-0008）。43文字の乱数 | 乱数で生成して `.env.development` に入れる（AIが行ってよい。ADR-0014） | 乱数で生成して `.env.test` に入れる（開発と別の値。AIが行ってよい） | 利用者が `wrangler secret put` で入れる。削除しない |
 
+R2のバインディング`ATTACHMENTS`（メッセージの添付の保存先。Issue #140）は、**秘密情報ではない**。バインディング名とバケット名（`internal-system-attachments`）は`wrangler.jsonc`に書いてあり、値を入れる項目はこの表にない。手元・テストはローカルの保存先（Miniflare）を使い、本物のバケットには接続しない。**本番のR2バケットの作成と、本番のD1へのmigration 0023の適用は、利用者が行う**（デプロイの時。AIは実行しない）。
+
 ## 初回セットアップ用の項目（SETUP_TOKEN・PII_ENCRYPTION_KEY）
 
 初代全体管理者の登録（画面 S-34）に使う2つの項目。どちらも**32バイトの乱数を base64url にした、ちょうど43文字**の値にする。開発・検証・本番で**別の値**にする。値はチャット・Issue・PR・コミットに貼らない。設計の理由は [ADR-0013](adr/0013-initial-setup-auth-and-pii-encryption.md) にある。

@@ -65,13 +65,17 @@ export function loadSession(
   };
 }
 
-/** 公開の許可リスト以外（認証が必要な API）の応答は、成功・失敗とも no-store にする（C-58）。公開のルートは、各ルートが必要に応じて付ける */
+/** 公開の許可リスト以外（認証が必要な API）の応答は、成功・失敗とも no-store を含める（C-58）。公開のルートは、各ルートが必要に応じて付ける */
 export const noStoreForProtected: MiddlewareHandler<{ Bindings: Env }> = async (
   c,
   next,
 ) => {
   await next();
-  if (!isPublic(c.req.method, c.req.path))
+  // 応答が自分で no-store を含む値（添付の配信の private, no-store。#140）を付けた場合は、それを残す
+  if (
+    !isPublic(c.req.method, c.req.path) &&
+    !(c.res.headers.get("Cache-Control") ?? "").includes("no-store")
+  )
     c.header("Cache-Control", "no-store");
 };
 
