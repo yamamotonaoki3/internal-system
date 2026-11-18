@@ -141,6 +141,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 1. 共通のゲート（401・初回パスワードの変更403）。IDの形が不正なら422（`validate`。判定より前）。
 2. `findVisible`：`attachment-visibility.sql.ts`の条件で、見てよい添付だけを引く。**見えない・存在しない・メッセージが削除済み・他人の未投稿の添付は、すべて同じ404**（存在を漏らさない）。
 3. DMの添付なら、`perm.dm.message.view`の認可（メッセージの一覧と同じ。拒否は403）。
+   - 【#297】一覧の`attachments`を読む`loadMessageAttachments`は、閲覧者を必須で受け取り、`messageViewableBy`の条件で、本文の読み取りの後に資格を失った部屋の添付の情報を返さない（[cases.md](cases.md)）。
    - 【#294で直した】`findVisible`の「DMの添付かどうか」（`isDirect`）が、DMが1件でもあると真になり、チャンネルの添付でもDMを見る権限を求めていた（拒否しすぎる側）。列を入れ子のSQLとして渡し、内側の表に別名を付ける形に直した（C-185、`docs/project-rules.md`）。
 4. `perm.attachment.download`の認可（拒否は403。監査ログに残る）。
 5. `parseByteRange`で`Range`を解釈し、R2から読む。実体がなければ404（500にしない）。

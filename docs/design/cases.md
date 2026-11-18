@@ -96,12 +96,15 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 中身の読み取り（メッセージ5） | `message.repository.ts`（`listLatest`・`listAfter`・`findItem`・`listRepliesLatest`・`listRepliesAfter`） | メッセージの一覧・1件・返信の一覧。SQL に`roomViewableBy`を入れた |
 | 中身の読み取り（参加者2） | `channel.repository.ts`（`countMembers`・`listMembers`） | 閲覧者を必須で受け取り、有効な参加者でなければ 0・空。チャンネルの詳細は、非公開で 0 なら 404。公開チャンネルの非参加者は、これまでどおり、参加者の情報なしで 200 |
 | 中身の読み取り（メンションの候補1） | `listMentionCandidates`の`visibleTo`（必須） | 部屋を見てよい閲覧者にだけ名簿を返す |
+| 付随の情報の読み取り（#297） | `message-mentions.sql.ts`（`loadMessageMentions`）、`message-reactions.sql.ts`（`loadMessageReactions`）、`attachment.repository.ts`（`loadMessageAttachments`） | メッセージ5経路とスレッドの一覧の後段。`messageViewableBy`を条件に入れ、閲覧者を必須の引数にした |
+| 未読の数（#297） | `unread-counts.sql.ts`、`thread-unread-counts.sql.ts` | 部屋・スレッドの未読を数える文。資格を失った部屋・スレッドは 0（部屋は戻りから除く。スレッドは 0 の行） |
+| スレッドの一覧の DM（#297） | `thread-list.sql.ts`（`directVisible`） | 閲覧者が有効であることを条件に足した |
 | 規則の寄せ直し | `attachment-visibility.sql.ts`の`attachmentVisible`、`notification.repository.ts`の`viewableRoom` | `roomViewableBy`を使う形に寄せた |
 
 - チャンネルの詳細は、資格の確認の後に、参加者数の読み取りが 0 を返したら（その間に資格を失った）、名前・説明を返さずに 404 にする（`backend/src/services/channel.service.ts`）
 - DM の「当事者に無効な社員がいれば読めない」は、既存の規則（読めなくするのは送信だけ）のまま変えていない
 - 経路の数：計画は「書き込み6・読み取り7」だったが、実装で変えたのは、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り（メッセージ5・参加者2・メンションの候補1）。招待の相手の判定（`findInvitee`）は変えていない
-- テストの場所：`backend/src/db/channel-member.active-writes.db.test.ts`（書き込み6経路。参加の行を残したまま操作者を無効にすると何も残らない）、`backend/src/db/channel-member.active-reads.db.test.ts`（読み取りの各経路）、`backend/src/services/channel-member.active-race.test.ts`（認証の後・取得の前に無効化が確定する競合）
+- テストの場所：`backend/src/db/channel-member.active-writes.db.test.ts`（書き込み6経路。参加の行を残したまま操作者を無効にすると何も残らない）、`backend/src/db/channel-member.active-reads.db.test.ts`（読み取りの各経路）、`backend/src/services/channel-member.active-race.test.ts`（認証の後・取得の前に無効化が確定する競合）。#297 の分：`backend/src/db/room-visibility.related-reads.db.test.ts`（DB の層。付随の3つと未読の2つ、スレッドの一覧の DM の条件）、`backend/src/services/room-visibility.related-reads.interleave.test.ts`（文の間に割り込む層。DB を包み、k 回目の文の直後に資格を失わせる。各回の前に初期のデータに戻し、割り込めたことを確かめる）、共通のデータは`backend/test/related-reads-fixtures.ts`
 
 ## 設計の方針：中身を読む SQL の条件に、その時点の資格を入れる
 
@@ -109,6 +112,9 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 - 詳細（`findDetailExtras`）：案件の行（説明・チャンネルの ID・作成者）と参加者の一覧を、**1つの`db.batch`で読み**、どちらの文にも「操作者が有効な参加者である」条件（`activeChannelMember`）を入れる。案件の行の側は、資格の判定結果（`visible`）と一緒に読み、資格がなければ中身を捨てて`not_visible`を返す。参加者の一覧の側は、条件を満たさなければ0行になる。案件がなければ`not_found`。Service は、`not_found`を 404、`not_visible`を 403 に分ける
 - 参加者数・`canManage`：`list`・`findSummary`が、操作者の ID だけを受け取り、行を読む SQL の中で決める（`participantCount`は、同じ文の中で、有効な参加者か管理の資格のある行にだけ数える）
 - 後の子（147-C-1・147-B）も同じ方針にする：書き込みは前提を batch の先頭の条件にし、読み取りは中身を読む SQL に資格を入れる。資格を確かめる読み取りと、中身の読み取りが別の文になっている既存の経路にも、同じ方針を通した（147-C-1。`roomViewableBy`）。**後の変更で、部屋の中身を読む SQL を足すときは、`roomViewableBy`を条件に入れる。**Service の事前の判定は、エラーの分類（403・404）のためのもので、最後の砦ではない
+- **付随の情報と未読の数にも通した（Issue #297。C-186）**：本文を読んだ後に、別の文でメンション・リアクション・添付と、部屋・スレッドの未読の数を読む経路では、その間に資格を失うと、失った後の情報が返りえた。「絞った後の ID だけを読む」文でも、その行のいまの内容を読むなら、資格の条件が要る。直し方は、後段の文の WHERE（未読は `CASE WHEN`）に、`room-visibility.sql.ts`の`messageViewableBy(messageId, viewerId)`（メッセージの部屋を、閲覧者がいま見てよいか。`roomViewableBy`を使う）を入れること。1つの`db.batch`には、まとめない（文の数と、既存の読み取りの形を変えないため）。メンション・リアクション・添付の読み取り3つの閲覧者の引数は必須で、付け忘れは型で止まる（`loadMessageReactions`の`null`も許さない）。未読は行を消さず 0 にする：部屋の未読は 0 の部屋が戻りから除かれるので一覧から消え、スレッドの未読は 0 の行になる。文の数は変えていない
+- 区別：資格を持ったままの部屋で、2本の文の間に返信・投稿が付く・既読になって未読の数が一時的にずれるのは、これまでどおり許容する（次の取得で直る）。資格を失った部屋は 0 になる
+- スレッドの一覧（S-35）の DM の条件に、閲覧者が有効であること（`users`を主キーで1行）を足した（`thread-list.sql.ts`の`directVisible`。利用者の決定。C-182(18) との食い違いの解消）
 - 選択項目の`sql`の副問い合わせに外側の表の列を書くときの書き方は、`docs/project-rules.md`の「選択項目の`sql`の副問い合わせ（Issue #294）」に従う（`readDecisionFacts`の担当部署の数も同じ書き方）。
 
 ## 管理の資格と参加者数
