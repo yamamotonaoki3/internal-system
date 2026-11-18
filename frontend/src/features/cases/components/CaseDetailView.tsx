@@ -1,17 +1,35 @@
 // S-17（骨格）。まず概要を取り、有効な参加者のときだけ詳細（説明・参加者）を取る。
 // 非参加者と、詳細が 403（外された）のときは「参加者だけが見られます（非公開）」を出し、前の詳細を出さない。
+// 「参加者を管理」は有効な参加者で進行中のときだけ、「納期を変更」は概要の canEditDueDate が真のときだけ出す（表示の制御。認可はサーバー）。
+// 開いているダイアログと、参加者の操作の結果は、この部品（行の外）で持つ。取り直しで非参加・詳細 403 になり「参加者を管理」が消えても、
+// 操作のエラー（「参加者だけが操作できます」など）を、非公開の表示とあわせて出し続ける（コードレビュー1回目の軽微）。利用者が替わったときは、ページごと作り直して残さない（pages/CaseDetailPage.tsx）。
 // やり取り・TODO・添付は後続（#148・#149）で足す。
+import { useState } from "react";
 import { Alert } from "../../../components/Alert";
+import { Button } from "../../../components/Button";
 import { describeError, isApiError } from "../describe-error";
 import { useCaseDetail, useCaseSummary } from "../hooks/useCases";
+import { useParticipantWrites } from "../hooks/useParticipantWrites";
 import { PARTICIPANTS_ONLY_TEXT } from "../labels";
+import { CaseDueDateDialog } from "./CaseDueDateDialog";
 import { CaseHeader } from "./CaseHeader";
 import { CaseParticipantList } from "./CaseParticipantList";
+import { CaseParticipantManager } from "./CaseParticipantManager";
 
-export function CaseDetailView({ caseId }: { caseId: string }) {
+type OpenDialog = "participants" | "dueDate" | null;
+
+export function CaseDetailView({
+  caseId,
+  selfId,
+}: {
+  caseId: string;
+  selfId: string;
+}) {
   const summary = useCaseSummary(caseId);
   const isParticipant = summary.data?.isParticipant === true;
   const detail = useCaseDetail(caseId, isParticipant);
+  const [open, setOpen] = useState<OpenDialog>(null);
+  const writes = useParticipantWrites(caseId);
 
   if (summary.isPending) return <p role="status">読み込み中です</p>;
   if (summary.isError)
@@ -20,6 +38,14 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
         {describeError(summary.error)}
       </Alert>
     );
+
+  const item = summary.data;
+  const close = () => setOpen(null);
+  const managerShown =
+    open === "participants" &&
+    isParticipant &&
+    detail.isSuccess &&
+    item.status === "active";
 
   function renderBody() {
     if (!isParticipant) return <p>{PARTICIPANTS_ONLY_TEXT}</p>;
@@ -39,13 +65,47 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
           <p className="whitespace-pre-wrap">{detail.data.description}</p>
         </section>
         <CaseParticipantList participants={detail.data.participants} />
+        {item.status === "active" && (
+          <div className="mt-2">
+            <Button variant="secondary" onClick={() => setOpen("participants")}>
+              参加者を管理
+            </Button>
+          </div>
+        )}
+        {open === "participants" && (
+          <CaseParticipantManager
+            selfId={selfId}
+            writes={writes}
+            participants={detail.data.participants}
+            onClose={close}
+          />
+        )}
       </>
     );
   }
 
   return (
     <>
-      <CaseHeader item={summary.data} />
+      <CaseHeader item={item} />
+      {item.canEditDueDate && (
+        <div className="mb-4">
+          <Button variant="secondary" onClick={() => setOpen("dueDate")}>
+            納期を変更
+          </Button>
+        </div>
+      )}
+      {open === "dueDate" && (
+        <CaseDueDateDialog
+          caseId={caseId}
+          dueDate={item.dueDate}
+          onClose={close}
+        />
+      )}
+      {!managerShown && writes.error !== undefined && (
+        <Alert tone="error" role="alert">
+          {writes.error}
+        </Alert>
+      )}
       {renderBody()}
     </>
   );

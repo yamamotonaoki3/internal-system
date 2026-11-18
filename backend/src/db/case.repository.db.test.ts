@@ -55,6 +55,7 @@ type ListItem = {
 };
 
 const ITEM_KEYS = [
+  "canEditDueDate",
   "canManage",
   "caseNumber",
   "client",

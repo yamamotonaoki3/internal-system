@@ -37,6 +37,9 @@ export const AUDIT_ACTIONS = [
   "retirement_request.withdraw",
   "case_request.approve",
   "case_request.reject",
+  "case.participant.add",
+  "case.participant.remove",
+  "case.due_date.change",
   "message.delete",
   "audit_log.view",
 ] as const;
@@ -52,6 +55,7 @@ export const AUDIT_TARGET_TYPES = [
   "channel",
   "channel_request",
   "case_request",
+  "case",
   "retirement_request",
   "message",
   "source",

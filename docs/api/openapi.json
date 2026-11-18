@@ -5986,6 +5986,242 @@
           }
         }
       }
+    },
+    "/api/cases/{caseId}/participants": {
+      "post": {
+        "operationId": "addCaseParticipant",
+        "summary": "案件に参加者を追加する（EP-5-09）",
+        "description": "有効な参加者だけが追加できる（全体管理者・担当部署のオーナーでも、参加していなければ 403）。再認証は求めない。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → 本文の形（422）→ 対象の社員がいない・無効（422。fields に userId。同じ本文）→ 終了中（409 closed）→ すでに参加者（409 already_participant）。所属の部署に関係なく追加できる。監査 case.participant.add を残す。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseParticipantAdd"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "追加した。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseParticipantAdded"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。対象・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed）、またはすでに参加者（reason: already_participant）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/participants/{userId}": {
+      "delete": {
+        "operationId": "removeCaseParticipant",
+        "summary": "案件の参加者を外す・本人が退出する（EP-5-10）",
+        "description": "有効な参加者だけが操作できる。userId が本人なら退出。再認証は求めない。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → 対象が参加者でない（404「参加者が見つかりません」）→ 終了中（409 closed）→ 担当部署のオーナー・全体管理者（409 auto_participant。本人の退出も）→ 外すと有効な参加者が0人になる（409 last_active_participant）。退職者の参加の行も外せる。監査 case.participant.remove を残す。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "外した（本文なし）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。対象・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または対象が参加者でない（NOT_FOUND「参加者が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed）、自動参加の人（reason: auto_participant「担当部署のオーナー・全体管理者は外せません」）、または最後の有効な参加者（reason: last_active_participant）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/due-date": {
+      "patch": {
+        "operationId": "changeCaseDueDate",
+        "summary": "案件の納期を変更する",
+        "description": "有効な参加者、案件の担当部署のどれかのオーナー、全体管理者が変更できる（参加していなくてもよい）。再認証は求めない。判定の順は、案件がない（404）→ 変更できない（403）→ 権限 → 形・日本時間の今日より前（422。fields に dueDate）→ 終了中（409 closed）。今と同じ値なら何も書かずに 200。監査 case.due_date.change を残す。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseDueDateChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "変更した（同じ値なら何もしない）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDueDateChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "変更できない（FORBIDDEN。参加者・担当部署のオーナー・全体管理者でない）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9586,6 +9822,7 @@
           "dueDate",
           "isParticipant",
           "canManage",
+          "canEditDueDate",
           "participantCount"
         ],
         "properties": {
@@ -9668,6 +9905,10 @@
             "type": "boolean",
             "description": "操作者に管理の資格があるか（有効な全体管理者か、担当部署のどれかのオーナー）"
           },
+          "canEditDueDate": {
+            "type": "boolean",
+            "description": "進行中の案件で、操作者が有効な参加者か管理の資格のある人なら true（納期の変更の表示の制御）。終了した案件では false"
+          },
           "participantCount": {
             "type": [
               "integer",
@@ -9710,6 +9951,7 @@
           "dueDate",
           "isParticipant",
           "canManage",
+          "canEditDueDate",
           "participantCount",
           "description",
           "channelId",
@@ -9796,6 +10038,10 @@
             "type": "boolean",
             "description": "操作者に管理の資格があるか（有効な全体管理者か、担当部署のどれかのオーナー）"
           },
+          "canEditDueDate": {
+            "type": "boolean",
+            "description": "進行中の案件で、操作者が有効な参加者か管理の資格のある人なら true（納期の変更の表示の制御）。終了した案件では false"
+          },
           "participantCount": {
             "type": [
               "integer",
@@ -9825,7 +10071,9 @@
                 "displayName",
                 "departmentName",
                 "isActive",
-                "isCreator"
+                "isCreator",
+                "autoRole",
+                "removable"
               ],
               "properties": {
                 "userId": {
@@ -9846,6 +10094,22 @@
                 },
                 "isCreator": {
                   "type": "boolean"
+                },
+                "autoRole": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "global_admin",
+                    "department_owner",
+                    null
+                  ],
+                  "description": "自動参加の人の役割（有効で、その時点の割り当て）。全体管理者は global_admin、案件の担当部署のオーナーは department_owner。ほかは null"
+                },
+                "removable": {
+                  "type": "boolean",
+                  "description": "外せるか。自動参加の人は false（本人の退出も）。外すと有効な参加者が0人になる人も false"
                 }
               }
             }
@@ -10205,6 +10469,9 @@
               "retirement_request.withdraw",
               "case_request.approve",
               "case_request.reject",
+              "case.participant.add",
+              "case.participant.remove",
+              "case.due_date.change",
               "message.delete",
               "audit_log.view"
             ],
@@ -10219,6 +10486,7 @@
               "channel",
               "channel_request",
               "case_request",
+              "case",
               "retirement_request",
               "message",
               "source",
@@ -10311,6 +10579,9 @@
               "retirement_request.withdraw",
               "case_request.approve",
               "case_request.reject",
+              "case.participant.add",
+              "case.participant.remove",
+              "case.due_date.change",
               "message.delete",
               "audit_log.view"
             ]
@@ -10380,6 +10651,7 @@
                       "channel",
                       "channel_request",
                       "case_request",
+                      "case",
                       "retirement_request",
                       "message",
                       "source",
@@ -10901,6 +11173,75 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CaseParticipantAdd": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "追加する社員の利用者 ID"
+          }
+        }
+      },
+      "CaseParticipantAdded": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "userId"
+        ],
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          }
+        }
+      },
+      "CaseDueDateChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dueDate"
+        ],
+        "properties": {
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "納期（YYYY-MM-DD。日本時間の今日以降）。null は未定に戻す"
+          }
+        }
+      },
+      "CaseDueDateChanged": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "dueDate"
+        ],
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "納期（YYYY-MM-DD。日本時間の今日以降）。null は未定に戻す"
           }
         }
       }

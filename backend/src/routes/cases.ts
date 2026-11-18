@@ -1,5 +1,7 @@
-// Controller：案件の一覧・概要・詳細（/api/cases。#147 の 147-A。EP-5-06〜08）。
+// Controller：案件の一覧・概要・詳細（/api/cases。#147 の 147-A。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）。
 // 入力の形の確認（422）と応答だけを行い、見える範囲・参加の判定・認可は Service が行う。
+// 147-B の本文は、ここでは JSON のオブジェクトであることだけを確かめ、項目の形は Service が 403 までの判定の後に確かめる
+// （非参加者に、本文の誤りと他の理由を区別させない。存在の非開示）。
 // 認証と送信元の確認（originCheck）は app.ts が /api/* に一括で適用する。
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -26,6 +28,10 @@ const listQuerySchema = cursorQuerySchema({
   })
   .strict();
 const caseParamSchema = z.object({ caseId: z.string().refine(isUlid) });
+const participantParamSchema = caseParamSchema.extend({
+  userId: z.string().refine(isUlid),
+});
+const bodyEnvelopeSchema = z.looseObject({});
 
 function actorOf(c: Context<{ Bindings: Env }>): CaseActor {
   const principal = c.get("principal");
@@ -61,6 +67,53 @@ export function caseRoutes() {
           service.detail(actor, c.req.valid("param").caseId),
         );
         return c.json(detail);
+      },
+    )
+    .post(
+      "/:caseId/participants",
+      noStore,
+      validate("param", caseParamSchema),
+      validate("json", bodyEnvelopeSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const added = await withCaseService(c.env, (service) =>
+          service.addParticipant(
+            actor,
+            c.req.valid("param").caseId,
+            c.req.valid("json"),
+          ),
+        );
+        return c.json(added, 201);
+      },
+    )
+    .delete(
+      "/:caseId/participants/:userId",
+      noStore,
+      validate("param", participantParamSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const { caseId, userId } = c.req.valid("param");
+        await withCaseService(c.env, (service) =>
+          service.removeParticipant(actor, caseId, userId),
+        );
+        return c.body(null, 204);
+      },
+    )
+    .patch(
+      "/:caseId/due-date",
+      noStore,
+      validate("param", caseParamSchema),
+      validate("json", bodyEnvelopeSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const changed = await withCaseService(c.env, (service) =>
+          service.changeDueDate(
+            actor,
+            c.req.valid("param").caseId,
+            c.req.valid("json"),
+          ),
+        );
+        return c.json(changed);
       },
     );
 }

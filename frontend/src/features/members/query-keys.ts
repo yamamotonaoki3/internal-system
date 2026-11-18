@@ -5,4 +5,6 @@ export const memberKeys = {
   list: (departmentId: string, q: string) =>
     [...profileKeys.directory, "list", departmentId, q] as const,
   departments: profileKeys.departments,
+  /** 社員の検索（候補の選択）。一覧とは別のキャッシュ */
+  search: (q: string) => [...profileKeys.directory, "search", q] as const,
 };

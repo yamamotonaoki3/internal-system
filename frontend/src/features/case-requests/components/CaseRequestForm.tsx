@@ -29,7 +29,7 @@ import type {
 } from "../api/case-request-api";
 import { describeError, isApiError } from "../describe-error";
 import { useCreateCaseRequest } from "../hooks/useCreateCaseRequest";
-import { useSettledValue } from "../hooks/useSettledValue";
+import { useSettledValue } from "../../../lib/useSettledValue";
 import { useSimilarTitle } from "../hooks/useSimilarTitle";
 import {
   caseRequestFieldNames,

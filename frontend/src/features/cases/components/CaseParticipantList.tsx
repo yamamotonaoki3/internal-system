@@ -1,5 +1,6 @@
-// S-17 の参加者の一覧（参加者だけに出す）。表示名・部署名と、作成者・退職者の印。並びはサーバーの順（参加した順）。
+// S-17 の参加者の一覧（参加者だけに出す）。表示名・部署名と、作成者・役割の名前（Q8）・退職者の印。並びはサーバーの順（参加した順）。
 import type { CaseParticipant } from "../api/case-api";
+import { AUTO_ROLE_LABELS } from "../labels";
 
 export function CaseParticipantList({
   participants,
@@ -22,6 +23,9 @@ export function CaseParticipantList({
               </span>
             )}
             {p.isCreator && <span className="text-sm">作成者</span>}
+            {p.autoRole !== null && (
+              <span className="text-sm">{AUTO_ROLE_LABELS[p.autoRole]}</span>
+            )}
             {!p.isActive && <span className="text-sm">退職者</span>}
           </li>
         ))}

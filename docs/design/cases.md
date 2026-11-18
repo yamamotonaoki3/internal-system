@@ -1,10 +1,10 @@
-# 案件の一覧・概要・詳細（Issue #147 の 147-A）
+# 案件の一覧・概要・詳細・参加者・納期（Issue #147 の 147-A・147-B）
 
 ## 目的
 
 社員が案件の一覧（S-16）を開き、参加している案件は説明・参加者まで見られ、参加していない案件は概要（件名・状態・取引先・担当部署・納期など）だけを見られるようにする。サイドバーの「案件」の見出しの下に、参加している進行中の案件を出す。案件の作成の承認（[case-requests.md](case-requests.md)）でできた案件への入口である。コードは書き写さず、ファイル名・関数名で指す。
 
-Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この設計書は 147-A（読み取りだけ）の範囲**を書く。後の子は、この設計書に節を足していく。
+Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設計書は 147-A（読み取りだけ）と 147-B（参加者の追加・削除・退出と、納期の変更。書き込み）の範囲を書く（147-B は「147-B の設計」の節）。147-C-2 は、この設計書に節を足していく。
 
 ## 範囲
 
@@ -12,7 +12,8 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 | --- | --- |
 | 147-Aで作ったもの | API3つ（EP-5-06 一覧・EP-5-07 概要・EP-5-08 詳細）／「有効な参加者」の共通の SQL の部品`activeChannelMember`／管理の資格（参加者数と`canManage`）を読み取りの SQL の中で決める仕組み／S-16（案件一覧）・S-17（詳細の骨格）／メニュー「案件」とサイドバーの「案件」の見出しの下の参加中の案件／承認の通知の移動先の変更（C-179(3)の約束）／自分の申請の案件番号のリンク／承認の後の案件のキャッシュの取り直し |
 | 147-C-1で作ったもの | チャンネルの参加の行を資格に使う経路（書き込み6・読み取り7＋`findForManage`の`isMember`）を「有効な参加者」に変えた（実装では、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り〔メッセージ5・参加者2・メンションの候補1〕を`roomViewableBy`で判定する形に変えた）。APIも画面も追加しない（下の「147-C-1 が広げた経路」） |
-| 後の子（着手の順） | **147-B** 参加者の追加・削除・本人の退出、自動参加の人は外せないこと（役割の名前の表示を含む）、最後の有効な参加者、納期の変更（`canEditDueDate`）、S-18 の参加者の管理／**147-C-2** 無効化で案件の参加の記録を残すこと、AC-15 の守り、再有効化・異動の確認、オーナー交代による自動参加、既存の案件の補完 |
+| 147-Bで作ったもの | API3つ（EP-5-09 参加者の追加・EP-5-10 参加者の削除と本人の退出・納期の変更）／自動参加の人は外せないこと（役割の名前の表示を含む）と最後の有効な参加者の規則／監査操作3つと対象の種類`case`／S-17 の「参加者を管理」・退出・「納期を変更」（下の「147-B の設計」） |
+| 後の子（着手の順） | **147-C-2** 無効化で案件の参加の記録を残すこと、AC-15 の守り、再有効化・異動の確認、オーナー交代による自動参加、既存の案件の補完 |
 | 他の Issue に回すもの | やり取り・未読・最終更新（#148）、TODO・進捗（#149）、終了・再開・再編集（#150）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
@@ -126,8 +127,8 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 | 概要（EP-5-07） | パスの`caseId` | 200：概要の項目 |
 | 詳細（EP-5-08） | パスの`caseId` | 200：概要の項目に、`description`・`channelId`・`createdBy`・`participants`を足したもの |
 
-- 概要の項目：`id`・`caseNumber`・`title`・`status`・`client`（`id`・`name`・`isActive`）・`departments`（`id`・`name`・`isActive`）・`dueDate`（`YYYY-MM-DD`または`null`）・`isParticipant`・`canManage`・`participantCount`（上の節のとおり`null`になることがある）。進捗は含めない（#149）
-- 詳細の`createdBy`は**作成者の利用者の ID**。`participants`は、`userId`・`displayName`・`departmentName`・`isActive`・`isCreator`。並びは参加した日時、同じなら利用者 ID の順。退職者（無効）も残し、`isActive`を偽にする
+- 概要の項目：`id`・`caseNumber`・`title`・`status`・`client`（`id`・`name`・`isActive`）・`departments`（`id`・`name`・`isActive`）・`dueDate`（`YYYY-MM-DD`または`null`）・`isParticipant`・`canManage`・`participantCount`（上の節のとおり`null`になることがある）・`canEditDueDate`（147-B で足した。進行中で、有効な参加者か管理の資格のある人なら真）。進捗は含めない（#149）
+- 詳細の`createdBy`は**作成者の利用者の ID**。`participants`は、`userId`・`displayName`・`departmentName`・`isActive`・`isCreator`・`autoRole`・`removable`（後の2つは147-B で足した）。並びは参加した日時、同じなら利用者 ID の順。退職者（無効）も残し、`isActive`を偽にする
 - エラー：401（未認証）、403（権限がない・詳細で参加者でない）、404（案件がない）、422（クエリ・パスの形。`fields`）。応答は`noStore`
 - 具体的な項目の型は`docs/api/openapi.json`を正とする
 
@@ -160,7 +161,126 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 
 ## 同時の操作
 
-147-A は読み取りだけで、書き込みの競合はない。一覧と詳細を読む間に参加から外れたときは、次に詳細を取ると 403 になり、画面が非公開の表示に切り替わる。
+147-A は読み取りだけで、書き込みの競合はない（147-B の書き込みの競合は「147-B の設計」の「同時の操作」）。一覧と詳細を読む間に参加から外れたときは、次に詳細を取ると 403 になり、画面が非公開の表示に切り替わる。
+
+## 147-B の設計（参加者の追加・削除・退出と、納期の変更）
+
+決定は C-182 の Q1・Q2・Q6・Q8 と、147-B の統括の決定（(19)〜(25)）。migration はない（`channel_members`・`cases`を使う）。
+
+### 用語（`backend/src/lib/case-participant-rules.ts`。純粋関数）
+
+- **参加者**：`channel_members`に、案件の`channel_id`と社員の行があること。**有効な参加者**：参加者で、`users.is_active = 1`（`activeChannelMember`）。自動参加の全体管理者・オーナーも数える（Q1）
+- **自動参加の人**：有効で、会社範囲の全体管理者、または案件の担当部署のどれかのオーナー。印の列は持たず、いまの割り当てから導く（`autoRoleOf`。両方なら`global_admin`）
+- `canRemoveParticipant`：自動参加の人は外せない（本人の退出も。Q2）。外すと有効な参加者が0人になるなら外せない（Q1）
+- 書き込みの前提の SQL（`case.repository.ts`）も、これと同じ意味の条件を持つ。**片方だけを変えない**
+
+### ファイルと役割（147-B で足したもの）
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/routes/cases.ts` | `POST /:caseId/participants`・`DELETE /:caseId/participants/:userId`・`PATCH /:caseId/due-date`。パスの形（ULID）と、本文が JSON のオブジェクトであることだけを確かめる。**本文の項目の形（422）は Service が 403 までの判定の後に確かめる**（非参加者に、本文の誤りと他の理由を区別させない。存在の非開示）。全応答に`noStore` |
+| `backend/src/services/case.service.ts` | `addParticipant`・`removeParticipant`・`changeDueDate`。判定の関数（`decideParticipantGate`・`decideAdd`・`decideRemove`・`decideDueDateGate`・`decideDueDate`）で、最初の判定と、前提が崩れた後の読み直しを同じ順で行う。404・403 は`logger.audit`に残す |
+| `backend/src/db/case.repository.ts` | `findWriteFacts`（判定の材料を1つの batch で読む）・`addParticipant`・`removeParticipant`・`changeDueDate`（1操作＝1回の`db.batch`）と`CaseStateChangedError`。概要の`canEditDueDate`と、詳細の参加者の`autoRole`・`removable`も、ここで決める |
+| `backend/src/lib/audit-actions.ts` | 操作`case.participant.add`・`case.participant.remove`・`case.due_date.change`と、対象の種類`case`を足した |
+| `docs/api/openapi.json` | 3つの API の契約と、概要の`canEditDueDate`・詳細の参加者の`autoRole`・`removable`（`backend/src/openapi.case-participants.test.ts`が照合する） |
+
+フロントエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `frontend/src/features/cases/components/CaseParticipantManager.tsx` | 「参加者を管理」のダイアログ。社員の検索・追加、参加者の一覧（役割の名前・「削除」・本人の「退出する」）。確認の対象・完了の表示・エラーは、行の外（この部品）で持つ（取り直しで行が消えても、完了の表示が残る） |
+| `components/CaseConfirmDialog.tsx` | 削除・退出の確認。送信中は確定もキャンセルも押せない |
+| `components/CaseDueDateDialog.tsx` | 「納期を変更」のダイアログ（日付の入力・「未定に戻す」） |
+| `hooks/useCaseWrites.ts` | `useAddCaseParticipant`・`useRemoveCaseParticipant`・`useChangeCaseDueDate`。成功しても失敗しても`caseKeys.all`を取り直す（失敗はほかの人の操作で状態が変わった場合があるため）。本人の退出に成功したときだけは、見えなくなった案件を取り直さず印だけを付ける |
+| `components/CaseDetailView.tsx`・`CaseParticipantList.tsx`・`labels.ts`・`api/case-api.ts` | 「参加者を管理」「納期を変更」の入口、役割の名前の表示、文言、3つの API の呼び出し |
+| `frontend/src/pages/CaseDetailPage.tsx` | 利用者の ID と案件の ID を`key`にして、ページごと作り直す（ダイアログ・入力・完了の表示を、利用者や案件が替わったときに持ち越さない）。ID が確かめられる前は描画しない |
+| `frontend/src/features/members/`（`api/user-search-api.ts`・`hooks/useUserSearch.ts`・`query-keys.ts`）、`frontend/src/lib/useSettledValue.ts` | 社員の検索の API 呼び出しとフック、入力が止まってから値を返すフック。**もとは`features/case-requests`にあったものを移した**（下の「共有の部品を移した理由」） |
+| `frontend/src/features/audit-logs/action-labels.ts` | 3つの操作と、対象の種類「案件」の名前 |
+
+### API と判定の順（変えない）
+
+| 操作 | 判定の順 |
+| --- | --- |
+| 追加（EP-5-09）`POST /api/cases/:caseId/participants`、本文`{ userId }`（`strict`） | 案件がない（404「案件が見つかりません」）→ 操作者が有効な参加者でない（403「参加者だけが操作できます」。担当部署のオーナー・全体管理者でも、参加していなければ追加できない）→ `authorize(perm.case.participant.edit, company)`（403）→ 本文の形（422）→ 対象の社員がいない・無効（422、`fields.userId`。**どちらも同じ文**「追加できる社員を選んでください」。社員の有無・状態を明かさない）→ 終了中（409 `closed`）→ すでに参加者（409 `already_participant`）→ batch。201で`{ caseId, userId }` |
+| 削除・退出（EP-5-10）`DELETE /api/cases/:caseId/participants/:userId`（`userId`が本人なら退出） | 404 → 403（参加者でない）→ `authorize(perm.case.participant.edit)` → 対象が参加者でない（404「参加者が見つかりません」）→ 409 `closed` → 対象が自動参加の人（409 `auto_participant`。本人の退出でも同じ）→ 外すと有効な参加者が0人（409 `last_active_participant`）→ batch。204 |
+| 納期の変更 `PATCH /api/cases/:caseId/due-date`、本文`{ dueDate: "YYYY-MM-DD" または null }`（`strict`） | 404 → 編集できない（403。有効な参加者か管理の資格。参加していなくてよい）→ `authorize(perm.case.edit, company)`（403）→ 形・日本時間の今日より前（422、`fields.dueDate`。`shared/case-rules.ts`の`caseDueDateSchema`・`isDueDateBeforeToday`）→ 409 `closed` → 今と同じ値なら何も書かず 200（版・監査を変えない）→ batch。200で`{ caseId, dueDate }`。`null`は未定に戻す |
+
+- 3つとも**再認証を求めない**（5-1 AC-3、C-122）。401・403`FORBIDDEN_ORIGIN`は`app.ts`の一括の処理
+- 409の`reason`は`closed`・`already_participant`・`auto_participant`・`last_active_participant`。画面は、サーバーの文言をそのまま出す（文言の一覧は下の「画面」）
+- 外された人・無効になった人に、終了などの案件の状態を漏らさない：403 を、案件の状態の判定より先に返す
+- 概要・一覧の項目に`canEditDueDate`を足した。**進行中の案件で、有効な参加者か管理の資格のある人なら真**（終了した案件は偽）。表示の制御で、認可はサーバーが毎回行う。詳細の参加者の項目に`autoRole`（`global_admin`・`department_owner`・`null`）と`removable`（自動参加でなく、外しても有効な参加者が1人以上残る）を足した
+
+### 判定と書き込みの条件の突き合わせ
+
+3つの書き込みはどれも、1回の`db.batch`で、**先頭の前提の確認（#196 の方式）→ 監査 → 業務の文 →（削除だけ）末尾の不変条件**の順に行う。前提は`cases.version`を「そのままか NULL」にする UPDATE で、崩れていれば NOT NULL 違反で batch 全体を取り消し、`CaseStateChangedError`にする（未知の DB エラーは変えずに再送出する）。監査・業務の文にも同じ条件を付け、業務の文が0行なら`CaseStateChangedError`にする。
+
+| 項目 | 追加 | 削除・退出 | 納期の変更 |
+| --- | --- | --- | --- |
+| 案件がある・進行中 | 同じ | 同じ | 同じ |
+| 操作者が有効で資格がある | 有効な参加者（`activeChannelMember`） | 同じ | 有効な参加者、または管理の資格（`canManageSql`と同じ条件） |
+| 対象 | 対象が有効で、参加の行がない | 対象に参加の行があり、自動参加の人でない（いまの割り当て） | なし |
+| 読んだ値 | なし | なし | `cases.due_date`が判定で読んだ値のまま |
+| 末尾の不変条件 | なし | 有効な参加者が1人以上 | なし |
+
+- 「参加の行がある」だけでは、最初の判定の後に無効化された操作者を止められない（行を残す設計。C-142(1)）ので、操作者の有効性を前提に入れる
+- 業務の文と同じ batch に、監査（`case.participant.add`・`case.participant.remove`・`case.due_date.change`）を入れる。条件が崩れたときは何も残らない（行・版・監査とも）
+- Service は、`CaseStateChangedError`を受けたら、最初と同じ判定の関数で材料を**読み直す**。404・403・409・422 のどれかの理由に当たればそれを返す。どれにも当たらなければ、成功にせず`CaseStateChangedError`のまま投げる。納期の変更だけは、ほかの人が同じ値にしていたら 200（求めた結果になっている）
+- 自動参加の人の判定は、最初の判定・詳細の読み取り（`autoRoleOf`）と、batch の前提（SQL）の2か所にある
+
+### 同時の操作
+
+| 組み合わせ | 結果 |
+| --- | --- |
+| 同じ人を同時に2回追加 | 片方が成り立ち、もう片方は前提が崩れる（読み直しで 409 `already_participant`）。行は1つ、監査も1件 |
+| 最後の2人の一般の参加者を同時に削除（自動参加の人がいないデータ） | 後のほうは末尾の不変条件で取り消され、有効な参加者が1人残る（409 `last_active_participant`） |
+| 削除と、対象のオーナー就任 | 削除の前提が崩れ、読み直しで 409 `auto_participant` |
+| 追加と、対象の無効化 | 前提が崩れ、読み直しで 422 |
+| 操作と、操作者自身が外される・無効になる | 前提が崩れ、読み直しで 403 |
+| 操作と、案件の終了（#150。テストでは`status`を直接変える） | 409 `closed` |
+| 納期の同時の変更 | 後のほうは読んだ値の前提が崩れ、読み直しで、値が同じなら 200、それ以外で理由がなければ`CaseStateChangedError` |
+| 納期の変更と、操作者が管理の資格を失う | 前提が崩れ、何も書かない |
+
+### 自動参加の人と、最後の有効な参加者（Q1・Q2）
+
+- 担当部署の有効なオーナー・有効な全体管理者は、自動参加の人。参加者の一覧に役割の名前（「全体管理者」「担当部署のオーナー」）を出し、「削除」も本人の「退出する」も出さない。サーバーも 409 `auto_participant`で拒否する
+- 担当部署から外れたオーナー（案件の担当部署を直接変えたデータ）・前のオーナーは、一般の参加者として外せる
+- 自動参加の人も有効な参加者に数えるので、自動参加の人がいる案件では、一般の参加者の最後の1人も外せる。`last_active_participant`は、自動参加の人がいない案件の守り
+- 外された人が詳細を取ると 403（147-A のとおり）。通知は出さない（下の「既知の差」）
+
+### 監査
+
+- 操作：`case.participant.add`（`detail`：`caseId`・`userId`）、`case.participant.remove`（`caseId`・`userId`・`self`＝本人の退出か）、`case.due_date.change`（`caseId`・`before`・`after`）。対象の種類は`case`、対象の ID は案件の ID。結果は成功。`detail`は入れ子にせず、氏名・本文を入れない
+- 同じ値への変更・前提が崩れた操作は、監査を残さない
+- 監査の一覧（[audit-logs.md](audit-logs.md)）は、対象の種類「案件」の名前を解決せず、種類の名前だけを出す
+
+### 画面
+
+| 場所 | 内容 |
+| --- | --- |
+| S-17「参加者を管理」 | 有効な参加者で、案件が進行中のときだけ出すボタン（非参加者には、管理の資格があっても出さない）。ダイアログは**ページの側（`CaseDetailView`）で開閉を持つ**（取り直しで一覧の行が消えても、ダイアログと完了の表示が残る） |
+| 参加者の管理のダイアログ | 社員の検索（入力が止まって300ミリ秒後に検索。`features/members`の`useUserSearch`。すでに参加している人は候補から除く）と「（名前）を追加」。参加者の一覧の各行：表示名・部署・「作成者」・役割の名前・「退職者」。`removable`が真の行だけに「削除」（ボタン名に対象の表示名を含める）。本人の行は「退出する」（外せる人にだけ出す。自動参加の人・最後の有効な参加者には出さない）。削除・退出は確認のダイアログを経る |
+| 結果の表示 | 成功は「参加者を更新しました」。422 は「社員の検索」の欄に、409・403 などは欄の外に出す。変更中は、追加・削除・退出のボタンを押せない |
+| 退出の後 | 成功したら S-16（`/cases`）へ移る。見えなくなった案件は取り直さず、印だけを付ける（移った先で新しく取る）。それ以外の操作は、成功・失敗のどちらでも`caseKeys.all`を取り直す |
+| S-17「納期を変更」 | ヘッダーの下のボタン。概要の`canEditDueDate`が真のときだけ出す（表示の制御）。日付の入力（下限は日本時間の今日）・「保存する」・「未定に戻す」・「キャンセル」。今日より前・空の日付は、送る前に欄のエラーにする。サーバーの 422 は欄に、それ以外は欄の外に出す。非参加の担当部署のオーナー・全体管理者は、概要の画面からこの操作だけができる（Q6） |
+
+- 画面の文言：確認の見出し「参加者の削除」「案件からの退出」、確認のボタン「削除する」「退出する」。納期の欄のエラー「納期は今日以降の日付にしてください」「日付を選んでください（未定にするときは「未定に戻す」を押してください）」
+- サーバーの文言（画面はそのまま出す）：409 `closed`「終了した案件は変更できません」、`already_participant`「この社員はすでに参加者です」、`auto_participant`「担当部署のオーナー・全体管理者は外せません」、`last_active_participant`「最後の参加者は外せません。先にほかの社員を追加してください」。403「参加者だけが操作できます」「納期を変更できるのは、参加者・担当部署のオーナー・全体管理者だけです」。404「案件が見つかりません」「参加者が見つかりません」。422「追加できる社員を選んでください」「入力内容を確かめてください」
+- 利用者が替わったときは、`CaseDetailPage`が`key`で作り直すので、前の利用者のダイアログ・検索語・完了の表示が残らない
+
+### 共有の部品を移した理由（循環の依存を避ける）
+
+- 社員の検索（API 呼び出しと`useUserSearch`）は、もと`features/case-requests`にあった。参加者の追加でも使うので、`features/cases`が`features/case-requests`の`index.ts`から取ると、`case-requests`が既に`features/cases`（`caseKeys`）を参照しているため、循環の依存ができる
+- そこで、社員の検索の API・フックを、社員の情報を持つ`features/members`（`api/user-search-api.ts`・`hooks/useUserSearch.ts`）に、入力が止まってから値を返す`useSettledValue`を、機能に属さない`frontend/src/lib/`に移した。`features/case-requests`は`features/members`の公開部分を使う（`case-request-api.ts`の`CandidateUser`は`SearchedUser`の別名）。`features/members/index.ts`が`useUserSearch`・`SearchedUser`を公開する
+- 共有の部品は、持ち主の機能（API を持つ側）か、機能に属さない場所に置く。片方の機能の`index.ts`から公開しない
+
+### テストの場所（147-B）
+
+- 単体：`backend/src/lib/case-participant-rules.test.ts`（`autoRoleOf`・`canRemoveParticipant`の表）、`backend/src/lib/audit-actions.case-participants.test.ts`・`audit-actions.test.ts`（操作・対象の種類。対象の種類の完全一致の期待値にも`case`を足した）
+- DB：`backend/src/db/case-participant.repository.db.test.ts`（追加・削除・納期の書き込みと監査、自動参加の人・前のオーナー・退職者の扱い、前提が崩れたとき何も残らないこと、同じ人の同時の追加・最後の2人の同時の退出・納期の同時の変更）、`backend/src/db/case.repository.db.test.ts`（概要の項目の`canEditDueDate`）
+- 割り込み：`backend/src/services/case-participant.interleave.test.ts`（資格を確かめる読み取りの直後に状態が変わる順を固定する。納期の同時の変更で、ほかの人が同じ値なら 200）
+- route・契約：`backend/src/routes/cases.participants.test.ts`（判定の順・存在の非開示・再認証を求めないこと）、`backend/src/routes/cases.test.ts`、`backend/src/openapi.case-participants.test.ts`。テスト部品は`backend/test/case-participant-fixtures.ts`
+- フロントエンド：`frontend/src/pages/CaseParticipantManager.test.tsx`（役割の名前・「削除」「退出する」の出し分け・成功・422・409・403・二重送信の防止・退出の後の遷移）、`CaseDueDate.test.tsx`（`canEditDueDate`・過去日・未定に戻す・二重送信の防止）、`CaseParticipantSessionSwitch.test.tsx`（利用者の切り替え）。MSW は`frontend/src/test/case-handlers.tsx`
+- E2E：`e2e/case-participants.spec.ts`（2件。参加者が社員を追加すると、追加された人が詳細を見られ、削除すると非公開の表示になる。担当部署のオーナーには役割の名前が出て「削除」が出ない／参加者が納期を設定すると、ヘッダーに出る）。シードは`e2e/seeds/case-participants.sql`、後始末は`e2e/seeds/case-participants-cleanup.sql`（[e2e.md](../testing/e2e.md)）
 
 ## 既知の差・未実施・未決定として記録するもの
 
@@ -170,7 +290,12 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 | 最終更新・未読（S-16 の列） | 出さない。#148 |
 | 名前・番号での絞り込み（S-16・5-1 AC-19） | 作らない。方式が未決定（#155） |
 | S-16 の「自分の申請」の状況 | 出さない。S-18 の「自分の申請」に置いたまま |
-| 参加者の追加・削除・退出、納期の変更、S-18 の参加者の管理、参加者の役割の名前の表示（Q8）、`canEditDueDate` | 147-B |
+| 参加者の追加・削除・退出、納期の変更、参加者の管理（S-17 のダイアログ）、参加者の役割の名前の表示（Q8）、`canEditDueDate` | 147-B で実装済み（下の「147-B の設計」） |
+| 参加者の追加・削除の通知（参加した・外された） | 出さない（計画に含めない。参加の通知は未決定）。追加・削除は監査だけに残る |
+| 外された人の TODO の担当を「なし」に戻すこと（5-4 AC-6） | 147-B では扱わない。TODO ができる #149 で扱う |
+| 監査の一覧での案件の名前の解決 | しない。対象の種類「案件」の名前だけを出す（[audit-logs.md](audit-logs.md)） |
+| 追加の対象の社員がいない・無効のときの応答 | 422（`fields.userId`。ない・無効を同じ文にする）。`api-draft.md`の EP-5-09 の 404 の案は採らなかった（C-182(19)） |
+| 参加者の追加・削除のレート制限 | 作らない（X-8 が未決定） |
 | 参加の行を使うチャンネルの経路を「有効な参加者」に変えること | 147-C-1 で実装済み（147-C-2 の前提）。記録を残す変更は147-C-2 |
 | 無効化で案件の参加の記録を残すこと・AC-15 の守り・オーナー交代による自動参加・既存の案件の補完 | 147-C-2。いまの無効化は、案件の参加の行も消す（C-142(1)と食い違う既存の挙動。147-C-2 で直す） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
@@ -186,7 +311,7 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。**この�
 
 ## 関係するIssue・ADR
 
-- Issue #147：本Issue（4つの子に分ける。147-A が最初）。依存は#146（[case-requests.md](case-requests.md)）。参加の行を使う経路の変更は147-C-1、参加者・納期は147-B、無効化・異動・オーナー交代は147-C-2
+- Issue #147：本Issue（4つの子に分ける。147-A が最初）。依存は#146（[case-requests.md](case-requests.md)）。参加の行を使う経路の変更は147-C-1、参加者・納期は147-B（実装済み）、無効化・異動・オーナー交代は147-C-2
 - [ADR-0006](../adr/0006-id-cursor-unread.md)：IDとカーソル／[ADR-0012](../adr/0012-zero-trust-principle.md)：サーバー側で毎回認可する／[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)：ミューテーション・E2Eの実行範囲
-- 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。決定記録[C-182](../requirements/decision-register.md)
+- 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。147-B：5-1 AC-3・AC-7（外せない部分）・AC-11（終了中は不可）・AC-17（変更）・AC-21（納期の変更）、EP-5-09・EP-5-10。決定記録[C-182](../requirements/decision-register.md)
 - 関連する設計：[case-requests.md](case-requests.md)、[app-shell.md](app-shell.md)、[notifications.md](notifications.md)、[channels.md](channels.md)

@@ -13,5 +13,4 @@ export const caseRequestKeys = {
 export const caseRequestChoiceKeys = {
   clients: ["case-request-choices", "clients"] as const,
   departments: ["case-request-choices", "departments"] as const,
-  users: (q: string) => ["case-request-choices", "users", q] as const,
 };

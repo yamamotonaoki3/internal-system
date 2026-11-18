@@ -4,8 +4,8 @@ import { Button } from "../../../components/Button";
 import { TextField } from "../../../components/TextField";
 import type { CandidateUser } from "../api/case-request-api";
 import { describeError } from "../describe-error";
-import { useCandidateSearch } from "../hooks/useCaseRequestChoices";
-import { useSettledValue } from "../hooks/useSettledValue";
+import { useSettledValue } from "../../../lib/useSettledValue";
+import { useUserSearch } from "../../members";
 
 const SEARCH_DELAY_MS = 300;
 
@@ -19,7 +19,7 @@ type Props = {
 export function CandidatePicker({ selfId, selected, error, onChange }: Props) {
   const [q, setQ] = useState("");
   const settled = useSettledValue(q.trim(), SEARCH_DELAY_MS);
-  const search = useCandidateSearch(settled);
+  const search = useUserSearch(settled);
   const chosen = new Set(selected.map((user) => user.id));
   const results = (
     search.data?.pages.flatMap((page) => page.items) ?? []
