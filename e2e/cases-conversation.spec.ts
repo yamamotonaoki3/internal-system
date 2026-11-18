@@ -23,17 +23,62 @@ const CLOSED_TEXT = "[E2E_TEST]終了した案件の過去のやり取り";
 const CLOSED_BANNER = "終了した案件・アーカイブ（読み取り専用）";
 const MEMO = Buffer.from("[E2E_TEST]148 memo", "utf8");
 
-function seedFile(
-  file: "cases-conversation.sql" | "cases-conversation-cleanup.sql",
-) {
+const STATE = ".wrangler/state/test";
+const BUCKET = "internal-system-attachments";
+const WRANGLER = "node_modules/wrangler/bin/wrangler.js";
+
+function run(args: readonly string[]) {
   return new Promise<string>((resolve, reject) => {
     execFile(
       process.execPath,
-      ["scripts/db-local.ts", "test", "seed-file", `e2e/seeds/${file}`],
+      [...args],
       { cwd: process.cwd(), windowsHide: true },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });
+}
+
+const seedFile = (
+  file: "cases-conversation.sql" | "cases-conversation-cleanup.sql",
+) => run(["scripts/db-local.ts", "test", "seed-file", `e2e/seeds/${file}`]);
+
+/**
+ * この E2E の案件の部屋・利用者の添付の実体を、手元の R2（.wrangler/state/test）から消す（行を消す SQL の後始末より前に呼ぶ。e2e/attachments.spec.ts と同じやり方）。
+ * 本物のバケットには接続しない。
+ */
+async function removeStoredObjects() {
+  const output = await run([
+    WRANGLER,
+    "d1",
+    "execute",
+    "DB",
+    "--local",
+    "--persist-to",
+    STATE,
+    "--json",
+    "--command",
+    "SELECT storage_key FROM message_attachments WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKJ-*') OR uploader_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_case148!_%' ESCAPE '!')",
+  ]);
+  const parsed = JSON.parse(output) as {
+    results: { storage_key: string }[];
+  }[];
+  for (const row of parsed.flatMap((entry) => entry.results))
+    await run([
+      WRANGLER,
+      "r2",
+      "object",
+      "delete",
+      `${BUCKET}/${row.storage_key}`,
+      "--local",
+      "--persist-to",
+      STATE,
+    ]);
+}
+
+/** R2 の実体 → SQL の順に後始末する */
+async function cleanup() {
+  await removeStoredObjects();
+  return seedFile("cases-conversation-cleanup.sql");
 }
 
 type Signed = { context: BrowserContext; page: Page };
@@ -70,7 +115,7 @@ let outsider: Signed | undefined;
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async ({ browser, baseURL }) => {
-  await seedFile("cases-conversation-cleanup.sql");
+  await cleanup();
   await seedFile("cases-conversation.sql");
   member = await signIn(browser, baseURL, "e2euser_case148_member");
   partner = await signIn(browser, baseURL, "e2euser_case148_partner");
@@ -80,7 +125,7 @@ test.beforeAll(async ({ browser, baseURL }) => {
 test.afterAll(async () => {
   for (const opened of [member, partner, outsider])
     await opened?.context.close();
-  const output = await seedFile("cases-conversation-cleanup.sql");
+  const output = await cleanup();
   expect(output).toContain("remaining_users");
   expect(output).not.toMatch(/"remaining_\w+":\s*[1-9]/);
 });

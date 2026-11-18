@@ -3,7 +3,7 @@
 --   案件専用チャンネルの参加 → 案件の部署 → 監査 → 案件 → 案件専用チャンネル → 部屋 → セッション → ロールの割り当て → 参加 → 社員 → 部署 → 取引先。
 -- 案件専用チャンネル・部屋は、名前（案件番号。取引先コード QKJ で始まる）と purpose = 'case' で絞る（QKJ はこの E2E の取引先だけのコード）。
 -- 部屋の ID は案件専用チャンネルの名前でしか辿れないため、外部キーの確認を最後に回して（ADR-0025 と同じ defer_foreign_keys）、部屋 → チャンネルの順で消す。
--- 添付の R2 の実体は、手元の検証用の保存先（Miniflare）だけにあり、未投稿・投稿済みとも、添付の後始末の処理の対象（DB の行はここで消す）。
+-- 添付の R2 の実体は、spec の後始末（removeStoredObjects）が、このファイルを流す前に storage_key を読んで手元の R2 から消す。
 -- 監査はこの E2E では書かない（メッセージの操作は業務の監査を書かない）が、ログインなどの行を、この E2E の社員の行だけ消す。
 DELETE FROM read_positions
 WHERE room_id IN (SELECT room_id FROM channels WHERE purpose = 'case' AND name GLOB 'QKJ-*')

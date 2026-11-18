@@ -33,9 +33,16 @@ export function CaseConversation({
   const thread = useThreadParam();
   const [conflict, setConflict] = useState<string | null>(null);
 
+  // 添付つきの送信では、アップロードの拒否が添付の失敗（cause に元のエラー）として届く
   function handlePostError(error: unknown) {
-    if (!isApiError(error) || error.status !== 409) return;
-    setConflict(describeError(error));
+    const cause = error instanceof Error ? error.cause : undefined;
+    const apiError = isApiError(error)
+      ? error
+      : isApiError(cause)
+        ? cause
+        : null;
+    if (apiError === null || apiError.status !== 409) return;
+    setConflict(describeError(apiError));
     void queryClient.invalidateQueries({
       queryKey: caseKeys.summary(selfId, caseId),
     });

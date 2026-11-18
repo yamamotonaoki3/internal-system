@@ -11,7 +11,6 @@ import {
 } from "../../db/schema";
 import { afterCursor, afterId, toAfterIdPage, toPage } from "../lib/cursor";
 import type { CursorPayload } from "../lib/cursor";
-import { ROLE_IDS } from "../lib/permissions";
 import type { Mention } from "../../../shared/message-rules";
 import { createProfileRepository } from "./profile.repository";
 import { roomViewableBy } from "./room-visibility.sql";
@@ -47,7 +46,10 @@ import {
   translateAttachmentBindError,
   type AttachmentView,
 } from "./attachment.repository";
-import { activeChannelMember } from "./channel-member.sql";
+import {
+  activeChannelMember,
+  announcementPostable,
+} from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
 
 export type MessageItem = {
@@ -480,7 +482,7 @@ export function createMessageRepository(db: Database) {
      * ④ お知らせ専用なら、投稿者がそのチャンネルの部署のオーナーか全体管理者
      * ①のほかは、チャンネルなら②〜④、DM なら「投稿者が当事者で、当事者に無効な社員がいない」（DM の権限 perm.dm.message.send は固定ロールがすべて持つため、ここには入れず Service が確かめる）
      * 添付（attachmentIds）は同じ batch で結び付け、合わなければ AttachmentBindError を投げる（メッセージは作られない）
-     * ※ ④の役割は perm.announcement.post を持つ役割（lib/permissions.ts）と一致させる必要がある。一致は services/message.postable-permission.test.ts が固定している
+     * ④の規則は channel-member.sql.ts の announcementPostable（添付の登録と共通）
      */
     async insertIfOrdered(input: MessageInsert): Promise<number> {
       const postable = sql`EXISTS (
@@ -488,9 +490,7 @@ export function createMessageRepository(db: Database) {
         WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
           AND ${activeChannelMember(sql`c.room_id`, input.senderId)}
           AND ${caseRoomOpen(sql`c.room_id`)}
-          AND (c.purpose <> 'announcement'
-            OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.owner} AND a.department_id = c.department_id)
-            OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.globalAdmin})))`;
+          AND ${announcementPostable({ purpose: sql`c.purpose`, departmentId: sql`c.department_id` }, input.senderId)})`;
       const directPostable = sql`(
         EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})
         AND NOT EXISTS (SELECT 1 FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ${input.roomId} AND u.is_active = 0))`;

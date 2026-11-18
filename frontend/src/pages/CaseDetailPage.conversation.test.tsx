@@ -215,6 +215,57 @@ describe("#148 5-1 AC-11 終了した案件の S-17（読み取り専用）", ()
   });
 });
 
+describe("#148 コードレビュー1回目の軽微2 添付つきの送信で、アップロードが 409（終了）", () => {
+  it("#148 5-1 AC-11・C-184: 添付つきの送信で、アップロードが 409「終了した案件には添付できません」なら、理由を出し、概要・詳細を取り直して読み取り専用に切り替わる", async () => {
+    const summaries = [caseSummary(10)];
+    const details = [caseDetail(10)];
+    const cases = respondCases({ summaries, details });
+    const room = respondRoom([]);
+    const uploads: string[] = [];
+    server.use(
+      http.post("/api/rooms/:roomId/attachments", ({ params }) => {
+        uploads.push(String(params.roomId));
+        return apiErrorResponse(
+          409,
+          "CONFLICT",
+          "終了した案件には添付できません",
+        );
+      }),
+    );
+    const { user } = renderPage(10);
+    await conversation();
+    // サーバーの状態を「終了」にしてから送る（取り直しで終了が返る）
+    summaries[0] = caseSummary(10, { status: "closed" });
+    details[0] = caseDetail(10, { status: "closed" });
+    const summaryBefore = cases.summaryCalls.length;
+    const detailBefore = cases.detailCalls.length;
+    await user.upload(
+      screen.getByLabelText<HTMLInputElement>("ファイルを添付"),
+      new File(["[E2E_TEST]148"], "memo148.txt", { type: "text/plain" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "メッセージ" }),
+      "148の添付つき",
+    );
+    await user.click(screen.getByRole("button", { name: "送信" }));
+    await waitFor(() => expect(uploads).toEqual([caseRoomId(10)]));
+    expect(
+      await screen.findByText("終了した案件には添付できません", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(cases.summaryCalls.length).toBeGreaterThan(summaryBefore);
+      expect(cases.detailCalls.length).toBeGreaterThan(detailBefore);
+    });
+    expect(await screen.findByText(CLOSED_BANNER)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "メッセージ" })).toBeNull(),
+    );
+    expect(room.posts).toEqual([]);
+  });
+});
+
 describe("#148 5-2 AC-3 参加者でなければ、やり取りを取得しない", () => {
   it("#148 5-2 AC-3: 非参加者には「やり取り」を出さず、メッセージの要求が飛ばない", async () => {
     respondCases({ summaries: [outsiderSummary(8)] });

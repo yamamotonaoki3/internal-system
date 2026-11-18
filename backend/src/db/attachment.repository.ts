@@ -16,7 +16,10 @@ import {
 } from "../../../shared/attachment-rules";
 import { attachmentVisible } from "./attachment-visibility.sql";
 import { caseRoomOpen } from "./case-room.sql";
-import { activeChannelMember } from "./channel-member.sql";
+import {
+  activeChannelMember,
+  announcementPostable,
+} from "./channel-member.sql";
 import { withDatabase, type Database } from "./database";
 import { messageViewableBy } from "./room-visibility.sql";
 
@@ -53,16 +56,25 @@ export type AttachmentBinding = {
 /**
  * 未投稿の添付を登録してよい、保存の時点の資格（部屋の種類によらない1つの条件。Service の requirePostable・requireReplyable の拒否と同じ範囲）：
  *   チャンネル：未アーカイブで、アップロードした人が有効な参加者・案件専用チャンネルなら案件が進行中
+ *     ・部屋への添付なら、お知らせ専用は部署のオーナーか全体管理者（投稿と同じ）・返信への添付なら、部署が有効（部署なしは有効。返信と同じ）
  *   DM：アップロードした人が当事者で、当事者に無効な社員がいない
  *   返信への添付なら、親が同じ部屋のトップレベルの投稿で、削除されていない
  */
 function pendingInsertable(input: PendingAttachmentInsert) {
+  const context =
+    input.threadParentId === null
+      ? announcementPostable(
+          { purpose: sql`c.purpose`, departmentId: sql`c.department_id` },
+          input.uploaderId,
+        )
+      : sql`(c.department_id IS NULL OR EXISTS (SELECT 1 FROM departments d WHERE d.id = c.department_id AND d.is_active = 1))`;
   const room = sql`(
     EXISTS (
       SELECT 1 FROM channels c
       WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
         AND ${activeChannelMember(sql`c.room_id`, input.uploaderId)}
-        AND ${caseRoomOpen(sql`c.room_id`)})
+        AND ${caseRoomOpen(sql`c.room_id`)}
+        AND ${context})
     OR (
       EXISTS (SELECT 1 FROM conversation_members dm WHERE dm.conversation_id = ${input.roomId} AND dm.user_id = ${input.uploaderId})
       AND NOT EXISTS (SELECT 1 FROM conversation_members cv JOIN users u ON u.id = cv.user_id WHERE cv.conversation_id = ${input.roomId} AND u.is_active = 0)))`;

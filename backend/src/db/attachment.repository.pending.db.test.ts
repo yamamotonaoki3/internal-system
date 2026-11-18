@@ -17,6 +17,10 @@ import {
   setupCaseRoomWorld,
   type CaseRoomWorld,
 } from "../../test/case-room-fixtures";
+import {
+  removeOwner,
+  setDepartmentActive,
+} from "../../test/case-request-fixtures";
 import { deactivateUser } from "../../test/dm-fixtures";
 import {
   archiveChannel,
@@ -144,5 +148,33 @@ describe("#148 5-2 AC-2 未投稿の添付の登録：保存の時点の資格�
     expect(
       (await register(cw.open.roomId, cw.w.memberS1.id, parent)).changes,
     ).toBe(1);
+  });
+});
+
+// #148 コードレビュー1回目の重大1：最初の判定（requirePostable・requireReplyable）が見ている、お知らせ専用の投稿の資格と、
+// 返信先の部屋の部署の有効性も、保存の時点の条件に入れる。
+describe("#148 重大1 お知らせ専用の投稿の資格・返信先の部署の有効性", () => {
+  it("#148 重大1(a): お知らせ専用のチャンネルには、その部署のオーナーは登録でき、オーナーでない参加者・オーナーを外された人は0行", async () => {
+    const room = cw.w.deptS.announcementChannelId;
+    expect((await register(room, cw.w.ownerS.id)).changes).toBe(1);
+    expect((await register(room, cw.w.memberS1.id)).changes).toBe(0);
+    await removeOwner(cw.w.ownerS.id, cw.w.deptS.id);
+    expect((await register(room, cw.w.ownerS.id)).changes).toBe(0);
+  });
+
+  it("#148 重大1(a): 全体管理者は、参加しているお知らせ専用のチャンネルに登録できる", async () => {
+    expect(
+      (await register(cw.w.deptH.announcementChannelId, cw.w.admin.id)).changes,
+    ).toBe(1);
+  });
+
+  it("#148 重大1(b): 返信への添付は、部屋の部署が無効なら0行、有効なら1行（部屋への添付は部署の有効性を問わない）", async () => {
+    const room = cw.w.deptS.dedicatedChannelId;
+    const parent = await seedRoomMessage(room, cw.w.memberS2.id, 80);
+    expect((await register(room, cw.w.memberS1.id, parent)).changes).toBe(1);
+    await setDepartmentActive(cw.w.deptS.id, false);
+    expect((await register(room, cw.w.memberS1.id, parent)).changes).toBe(0);
+    expect((await register(room, cw.w.memberS1.id)).changes).toBe(1);
+    await setDepartmentActive(cw.w.deptS.id, true);
   });
 });

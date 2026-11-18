@@ -31,7 +31,11 @@ import {
   type CaseRoomWorld,
 } from "../../test/case-room-fixtures";
 import { removeCaseMember } from "../../test/case-fixtures";
-import { setUserActive } from "../../test/case-request-fixtures";
+import {
+  removeOwner,
+  setDepartmentActive,
+  setUserActive,
+} from "../../test/case-request-fixtures";
 import { archiveChannel } from "../../test/message-modify-fixtures";
 
 const TEXT = ascii("[UNIT_TEST]148 memo");
@@ -218,3 +222,66 @@ async function cleanupArchive(roomId: string) {
     .bind(roomId)
     .run();
 }
+
+// #148 コードレビュー1回目の重大1：保存の時点の条件を、最初の判定（requirePostable・requireReplyable）と一致させる。
+// 最初の判定が見ている DB の条件のうち、保存の時点の条件になかったもの：
+//   ・お知らせ専用のチャンネルへの投稿の資格（perm.announcement.post。その部署のオーナーか全体管理者）… requirePostable
+//   ・返信先の部屋の部署が有効であること（部署のないチャンネルは有効扱い）… requireReplyable
+// 応答は最初の判定と同じ：投稿の資格を失えば 403 FORBIDDEN、部署が無効なら 409 CONFLICT「部署が無効になっているため、返信できません」。
+describe("#148 重大1 受信中に、お知らせ専用の投稿の資格・返信先の部署の有効性を失う", () => {
+  it("#148 重大1(a): お知らせ専用のチャンネルへのアップロードの受信中に、オーナーでなくなると 403 で、登録されず、R2 の実体も残らない", async () => {
+    const room = cw.w.deptS.announcementChannelId;
+    const { response, pulled } = await uploadWhile(
+      roomUploadPath(room),
+      cw.w.ownerS.token,
+      () => removeOwner(cw.w.ownerS.id, cw.w.deptS.id),
+    );
+    expect(pulled).toBe(true);
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { code: string }).code).toBe(
+      "FORBIDDEN",
+    );
+    expect(await attachmentCountIn(room)).toBe(0);
+    expect(await storedKeys()).toEqual([]);
+  });
+
+  it("#148 重大1(b): 返信への添付の受信中に、部屋の部署が無効になると 409 で、登録されず、R2 の実体も残らない", async () => {
+    const room = cw.w.deptS.dedicatedChannelId;
+    const parent = await seedRoomMessage(room, cw.w.memberS2.id, 70);
+    const { response, pulled } = await uploadWhile(
+      replyUploadPath(parent),
+      cw.w.memberS1.token,
+      () => setDepartmentActive(cw.w.deptS.id, false),
+    );
+    expect(pulled).toBe(true);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "CONFLICT",
+      message: "部署が無効になっているため、返信できません",
+    });
+    expect(await attachmentCountIn(room)).toBe(0);
+    expect(await storedKeys()).toEqual([]);
+    await setDepartmentActive(cw.w.deptS.id, true);
+  });
+
+  it("#148 重大1(c) 退行なし: 資格を持ったままのオーナーはお知らせ専用のチャンネルに、部署が有効なら返信に、アップロードできる（201）", async () => {
+    const announcement = await uploadFile(
+      { kind: "room", roomId: cw.w.deptS.announcementChannelId },
+      "memo148.txt",
+      TEXT,
+      cw.w.ownerS.token,
+    );
+    const parent = await seedRoomMessage(
+      cw.w.deptS.dedicatedChannelId,
+      cw.w.memberS2.id,
+      71,
+    );
+    const toReply = await uploadFile(
+      { kind: "reply", parentId: parent },
+      "memo148.txt",
+      TEXT,
+      cw.w.memberS1.token,
+    );
+    expect([announcement.status, toReply.status]).toEqual([201, 201]);
+  });
+});
