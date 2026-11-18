@@ -64,11 +64,14 @@ export function createThreadRepository(db: Database) {
         cursor?: CursorPayload;
         /** perm.dm.message.view を持つか。持たなければ DM のスレッドを含めない */
         includeDirect: boolean;
+        /** perm.case.view を持つか。偽なら案件専用チャンネルのスレッドを含めない（#148） */
+        includeCase: boolean;
       },
     ): Promise<{ items: ThreadItem[]; nextCursor: string | null }> {
       const rows = await listThreadRows(db, userId, {
         limit: options.limit + 1,
         includeDirect: options.includeDirect,
+        includeCase: options.includeCase,
         ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
       });
       const page = toPage(rows, options.limit, (row) => {

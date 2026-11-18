@@ -1,7 +1,9 @@
 // チャンネルの詳細（S-05）。名前・説明・公開範囲・メッセージ・参加者を出す。参加中で読み取り専用でなければ、招待（S-12）を開ける。
 // 管理できる人には、ヘッダーの「⋯」から名前・説明の編集とアーカイブを出す（#143）。アーカイブしたら、チャンネルの一覧へ移る。
+// 案件専用チャンネル（#148）は、案件の画面（S-17）へ置き換えて移る（?thread= は引き継ぐ）。通知・スレッドの一覧・未読のリンクなど、
+// /channels/<部屋> を作るどの入口からでも案件の画面で開くため。案件の ID は応答の値で受け取り、features/cases を参照しない。
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { useSession } from "../../auth";
@@ -27,6 +29,7 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
   const read = useMarkRoomRead(channelId);
   const thread = useThreadParam();
   const navigate = useNavigate();
+  const location = useLocation();
 
   if (channel.isPending) return <p role="status">読み込み中です</p>;
   if (channel.isError) {
@@ -41,6 +44,8 @@ export function ChannelDetailView({ channelId }: { channelId: string }) {
   }
 
   const data = channel.data;
+  if (data.caseId !== null)
+    return <Navigate replace to={`/cases/${data.caseId}${location.search}`} />;
   return (
     <ThreadLayout roomId={data.roomId}>
       <section className="mx-auto w-full min-w-0 max-w-3xl flex-1 rounded-lg bg-surface p-4 md:p-6">

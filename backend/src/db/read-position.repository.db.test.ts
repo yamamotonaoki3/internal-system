@@ -74,7 +74,9 @@ async function allUnread(userId: string, limit = 100) {
       (r) =>
         r.listUnread(
           userId,
-          cursor === null ? { limit } : { limit, cursor: decodeCursor(cursor) },
+          cursor === null
+            ? { limit, includeCase: true }
+            : { limit, cursor: decodeCursor(cursor), includeCase: true },
         ),
     );
     items.push(...page.items);
@@ -354,13 +356,16 @@ describe("#237 AC-1 ページ送り（対象の部屋の room_id でカーソル
     const unread = await joinedChannel("頁の未読あり", roomIdAt(2));
     await insertMessagesAt(unread, other, AFTER_JOIN_MS, 2);
     expect(empty < unread).toBe(true);
-    const first = await repo((r) => r.listUnread(viewer, { limit: 1 }));
+    const first = await repo((r) =>
+      r.listUnread(viewer, { limit: 1, includeCase: true }),
+    );
     expect(first.items).toEqual([]);
     expect(first.nextCursor).not.toBeNull();
     const second = await repo((r) =>
       r.listUnread(viewer, {
         limit: 1,
         cursor: decodeCursor(first.nextCursor ?? ""),
+        includeCase: true,
       }),
     );
     expect(second.items).toEqual([{ roomId: unread, count: 2 }]);
@@ -372,7 +377,9 @@ describe("#237 AC-1 ページ送り（対象の部屋の room_id でカーソル
       const roomId = await joinedChannel(`頁ちょうど${n}`, roomIdAt(10 + n));
       await insertMessagesAt(roomId, other, AFTER_JOIN_MS, 1);
     }
-    const page = await repo((r) => r.listUnread(viewer, { limit: 3 }));
+    const page = await repo((r) =>
+      r.listUnread(viewer, { limit: 3, includeCase: true }),
+    );
     expect(page.items).toHaveLength(3);
     expect(page.nextCursor).toBeNull();
   });
@@ -469,6 +476,7 @@ describe("#237 AC-4 SQL の数と索引（N+1 にしない。EXPLAIN QUERY PLAN�
       const recording = recordingRepository();
       const page = await recording.repository.listUnread(viewer, {
         limit: 100,
+        includeCase: true,
       });
       expect(page.items).toHaveLength(target);
       counted.push(recording.statements.length);
@@ -488,7 +496,10 @@ describe("#237 AC-4 SQL の数と索引（N+1 にしない。EXPLAIN QUERY PLAN�
     await insertMessagesAt(dm, other, AFTER_JOIN_MS, 2);
 
     const recording = recordingRepository();
-    const page = await recording.repository.listUnread(viewer, { limit: 100 });
+    const page = await recording.repository.listUnread(viewer, {
+      limit: 100,
+      includeCase: true,
+    });
     expect(page.items.map((item: Unread) => item.count).sort()).toEqual([
       2, 2, 3,
     ]);

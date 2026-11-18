@@ -252,6 +252,7 @@ describe("#138 AC-2（1-4 AC-6）スレッド一覧（listThreads）の親の re
       repository.listThreads(world.alice.userId, {
         limit: 10,
         includeDirect: false,
+        includeCase: true,
       }),
     );
     const byId = new Map(

@@ -48,6 +48,7 @@ import {
   type AttachmentView,
 } from "./attachment.repository";
 import { activeChannelMember } from "./channel-member.sql";
+import { caseRoomOpen } from "./case-room.sql";
 
 export type MessageItem = {
   id: string;
@@ -475,7 +476,7 @@ export function createMessageRepository(db: Database) {
     },
     /**
      * 次のすべてを満たすときだけ1行を挿入し、挿入した行数（1 か 0）を返す。確認から書き込みまでに状態が変わっても条件を破る行を残さない。
-     * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も有効な参加者（channel-member.sql の activeChannelMember）
+     * ① ID が部屋の最大より大きい ② チャンネルが未アーカイブ ③ 投稿者が今も有効な参加者（channel-member.sql の activeChannelMember）・案件専用チャンネルなら案件が進行中（#148）
      * ④ お知らせ専用なら、投稿者がそのチャンネルの部署のオーナーか全体管理者
      * ①のほかは、チャンネルなら②〜④、DM なら「投稿者が当事者で、当事者に無効な社員がいない」（DM の権限 perm.dm.message.send は固定ロールがすべて持つため、ここには入れず Service が確かめる）
      * 添付（attachmentIds）は同じ batch で結び付け、合わなければ AttachmentBindError を投げる（メッセージは作られない）
@@ -486,6 +487,7 @@ export function createMessageRepository(db: Database) {
         SELECT 1 FROM channels c
         WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
           AND ${activeChannelMember(sql`c.room_id`, input.senderId)}
+          AND ${caseRoomOpen(sql`c.room_id`)}
           AND (c.purpose <> 'announcement'
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.owner} AND a.department_id = c.department_id)
             OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${input.senderId} AND a.role_id = ${ROLE_IDS.globalAdmin})))`;

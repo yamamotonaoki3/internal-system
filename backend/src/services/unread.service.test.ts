@@ -42,6 +42,9 @@ function channelRow(overrides: Partial<ChannelViewRow> = {}): ChannelViewRow {
     purpose: "normal",
     deletedAt: null,
     joinedAt: "2026-11-09T00:00:00.000Z",
+    // #148：案件専用チャンネルでなければ null
+    caseId: null,
+    caseStatus: null,
     ...overrides,
   } as ChannelViewRow;
 }
@@ -113,6 +116,14 @@ function setup(
     scope: unknown;
   }[] = [];
   const authorizer = {
+    // #148：未読の一覧は、表示の判定（can）で perm.case.view を確かめる
+    async can(
+      _principal: Principal | null,
+      permission: Permission,
+    ): Promise<boolean> {
+      log.push(`can:${permission}`);
+      return !denied.includes(permission);
+    },
     async authorize(
       principal: Principal | null,
       permission: Permission,
@@ -152,9 +163,14 @@ describe("#237 AC-1 list：本人の未読の一覧", () => {
       items: [{ roomId: ROOM_ID, count: 3 }],
       nextCursor: null,
     });
-    expect(log).toEqual(["authorize:perm.notification.own", "listUnread"]);
+    expect(log).toEqual([
+      "authorize:perm.notification.own",
+      "can:perm.case.view",
+      "listUnread",
+    ]);
     expect(readPositions.listUnread).toHaveBeenCalledWith(USER_ID, {
       limit: 20,
+      includeCase: true,
     });
     expect(authorizeCalls).toEqual([
       {
@@ -163,6 +179,22 @@ describe("#237 AC-1 list：本人の未読の一覧", () => {
         scope: { type: "company" },
       },
     ]);
+  });
+
+  it("#148 R-62: perm.case.view がなければ、listUnread を includeCase: false で呼ぶ（SQL の側で案件の部屋を除く）", async () => {
+    const { service, log, readPositions } = setup({
+      denied: ["perm.case.view"],
+    });
+    await service.list(actor, { limit: 20 });
+    expect(log).toEqual([
+      "authorize:perm.notification.own",
+      "can:perm.case.view",
+      "listUnread",
+    ]);
+    expect(readPositions.listUnread).toHaveBeenCalledWith(USER_ID, {
+      limit: 20,
+      includeCase: false,
+    });
   });
 
   it("#237 AC-1: 認可が拒否なら 403 で、DB を読まない（listUnread を呼ばない）", async () => {

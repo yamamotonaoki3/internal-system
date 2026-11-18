@@ -23,10 +23,16 @@ export function createReadPositionRepository(db: Database) {
      */
     async listUnread(
       userId: string,
-      options: { limit: number; cursor?: CursorPayload },
+      options: {
+        limit: number;
+        cursor?: CursorPayload;
+        /** perm.case.view を持つか。偽なら案件専用チャンネルを対象にしない（#148） */
+        includeCase: boolean;
+      },
     ): Promise<{ items: UnreadRoom[]; nextCursor: string | null }> {
       const rows = await listUnreadTargetRows(db, userId, {
         limit: options.limit + 1,
+        includeCase: options.includeCase,
         ...(options.cursor === undefined
           ? {}
           : { cursorRoomId: options.cursor.id }),

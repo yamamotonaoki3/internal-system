@@ -41,6 +41,9 @@ type ViewRow = {
   purpose:
     "normal" | "department" | "announcement" | "company_general" | "case";
   departmentIsActive: boolean;
+  /** #148：案件専用チャンネルでなければ null */
+  caseId: string | null;
+  caseStatus: "active" | "closed" | null;
 };
 type Invitee = { isActive: boolean; joined: boolean } | null;
 
@@ -55,6 +58,8 @@ const view = (overrides: Partial<ViewRow> = {}): ViewRow => ({
   joinedAt: JOINED_AT,
   purpose: "normal",
   departmentIsActive: true,
+  caseId: null,
+  caseStatus: null,
   ...overrides,
 });
 const ACTIVE_NOT_JOINED: Invitee = { isActive: true, joined: false };

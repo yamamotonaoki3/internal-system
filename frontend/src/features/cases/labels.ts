@@ -24,3 +24,10 @@ export const AUTO_ROLE_LABELS: Readonly<Record<CaseAutoRole, string>> = {
 
 /** 参加者の追加・削除・退出の成功の表示 */
 export const PARTICIPANTS_UPDATED_TEXT = "参加者を更新しました";
+
+/** S-17 のやり取り（#148）：終了した案件の帯・投稿できない案内・0件の文 */
+export const CASE_CLOSED_BANNER_TEXT =
+  "終了した案件・アーカイブ（読み取り専用）";
+export const CASE_CANNOT_POST_TEXT =
+  "終了した案件のため、投稿・編集・リアクションはできません（読み取り専用）";
+export const CONVERSATION_EMPTY_TEXT = "まだやり取りがありません";

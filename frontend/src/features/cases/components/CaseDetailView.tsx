@@ -3,7 +3,7 @@
 // 「参加者を管理」は有効な参加者で進行中のときだけ、「納期を変更」は概要の canEditDueDate が真のときだけ出す（表示の制御。認可はサーバー）。
 // 開いているダイアログと、参加者の操作の結果は、この部品（行の外）で持つ。取り直しで非参加・詳細 403 になり「参加者を管理」が消えても、
 // 操作のエラー（「参加者だけが操作できます」など）を、非公開の表示とあわせて出し続ける（コードレビュー1回目の軽微）。利用者が替わったときは、ページごと作り直して残さない（pages/CaseDetailPage.tsx）。
-// やり取り・TODO・添付は後続（#148・#149）で足す。
+// 参加者の本文は、説明 → 参加者 → やり取り（#148。CaseConversation）の順に見出しで縦に並べる（C-184(3)。タブは作らない）。TODO・添付の一覧は後続（#148・#149）で足す。
 import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
@@ -11,6 +11,7 @@ import { describeError, isApiError } from "../describe-error";
 import { useCaseDetail, useCaseSummary } from "../hooks/useCases";
 import { useParticipantWrites } from "../hooks/useParticipantWrites";
 import { PARTICIPANTS_ONLY_TEXT } from "../labels";
+import { CaseConversation } from "./CaseConversation";
 import { CaseDueDateDialog } from "./CaseDueDateDialog";
 import { CaseHeader } from "./CaseHeader";
 import { CaseParticipantList } from "./CaseParticipantList";
@@ -80,6 +81,12 @@ export function CaseDetailView({
             onClose={close}
           />
         )}
+        <CaseConversation
+          caseId={caseId}
+          selfId={selfId}
+          roomId={detail.data.channelId}
+          closed={item.status === "closed"}
+        />
       </>
     );
   }

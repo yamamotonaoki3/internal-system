@@ -39,6 +39,7 @@ describe("#137 AC-1（1-4 AC-4）スレッドの一覧の項目の有効・無�
       repository.listThreads(world.alice.userId, {
         limit: 20,
         includeDirect: true,
+        includeCase: true,
       }),
     );
   }
@@ -150,7 +151,7 @@ function listWith(
 ) {
   return createThreadRepository(fakeDb(threadRows, unreadRows)).listThreads(
     VIEWER,
-    { limit, includeDirect: true },
+    { limit, includeDirect: true, includeCase: true },
   );
 }
 

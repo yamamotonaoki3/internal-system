@@ -3,7 +3,7 @@
 // 次のすべてを満たすときだけ1行を挿入する。
 //   ① ID が部屋の最大（返信も含む）より大きい（部屋の中では、コミットの順に ID が増える。#201。返信も同じ並びに入れる）
 //   ② 親が同じ部屋にあり、通常の投稿（返信への返信は作らない）で、削除済みでない（C-59）
-//   ③ チャンネル：未アーカイブで、投稿者が参加中・部署が有効（会社直属は有効として扱う）／DM：投稿者が当事者で、当事者に無効な社員がいない
+//   ③ チャンネル：未アーカイブで、投稿者が参加中・部署が有効（会社直属は有効として扱う）・案件専用チャンネルなら案件が進行中（#148）／DM：投稿者が当事者で、当事者に無効な社員がいない
 // お知らせ専用でも、参加者なら返信できる（U-6）ので、投稿権限（perm.announcement.post）は条件に入れない。
 // 0 行の理由（状態が崩れた・親が削除された・ID が最大以下）は、呼び出し側（Service）が読み分ける。
 // 添付（#140）は同じ batch で結び付ける（条件は attachment.repository.ts の bindAttachments）。合わなければ AttachmentBindError を投げる。
@@ -24,6 +24,7 @@ import {
   translateAttachmentBindError,
 } from "./attachment.repository";
 import { activeChannelMember } from "./channel-member.sql";
+import { caseRoomOpen } from "./case-room.sql";
 
 export type ReplyInsert = {
   id: string;
@@ -59,6 +60,7 @@ export async function insertReplyIfOrdered(
           LEFT JOIN departments d ON d.id = c.department_id
           WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL
             AND ${activeChannelMember(sql`c.room_id`, input.senderId)}
+            AND ${caseRoomOpen(sql`c.room_id`)}
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = ${input.roomId} AND user_id = ${input.senderId})

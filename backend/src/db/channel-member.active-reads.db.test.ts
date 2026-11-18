@@ -121,7 +121,11 @@ const READS: ReadCase[] = [
     name: "スレッドの一覧（thread-list.sql）",
     sees: async (viewerId) => {
       const rows = await withDatabase(env, (db) =>
-        listThreadRows(db, viewerId, { limit: 100, includeDirect: false }),
+        listThreadRows(db, viewerId, {
+          limit: 100,
+          includeDirect: false,
+          includeCase: true,
+        }),
       );
       return rows.some((row) => row.id === ROOT_ID);
     },
@@ -137,7 +141,7 @@ const READS: ReadCase[] = [
     name: "未読の対象・未読の数（unread-targets.sql）",
     sees: async (viewerId) => {
       const rows = await withDatabase(env, (db) =>
-        listUnreadTargetRows(db, viewerId, { limit: 100 }),
+        listUnreadTargetRows(db, viewerId, { limit: 100, includeCase: true }),
       );
       return rows.some((row) => row.room_id === room.roomId);
     },

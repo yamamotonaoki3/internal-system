@@ -95,7 +95,7 @@
             }
           },
           "409": {
-            "description": "DM の相手のアカウントが無効になっている（CONFLICT）",
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -193,7 +193,7 @@
             }
           },
           "409": {
-            "description": "親が削除済み、部署が無効、または DM の相手のアカウントが無効（CONFLICT）",
+            "description": "親が削除済み、部署が無効、または DM の相手のアカウントが無効（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -2528,7 +2528,7 @@
             }
           },
           "409": {
-            "description": "DM の相手のアカウントが無効になっている（CONFLICT）、または添付がすでに使われている",
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -3377,7 +3377,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する",
+            "description": "削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -3435,7 +3435,7 @@
             }
           },
           "409": {
-            "description": "すでに削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する",
+            "description": "すでに削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -3640,7 +3640,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効・20種類の上限（リアクションは20種類までです）・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する",
+            "description": "削除済み・部署が無効・DM の相手が無効・20種類の上限（リアクションは20種類までです）・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -3730,7 +3730,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する",
+            "description": "削除済み・部署が無効・DM の相手が無効・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -3897,7 +3897,7 @@
             }
           },
           "409": {
-            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する、または添付がすでに使われている",
+            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）",
             "content": {
               "application/json": {
                 "schema": {
@@ -6380,6 +6380,7 @@
           "departmentId",
           "joined",
           "isCaseChannel",
+          "caseId",
           "canPost",
           "readOnly",
           "version",
@@ -6420,7 +6421,15 @@
           },
           "isCaseChannel": {
             "type": "boolean",
-            "description": "案件チャンネルか。今はつねに false"
+            "description": "案件専用チャンネルか（#148）。画面は真のとき、案件の画面（/cases/{caseId}）へ移る"
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "案件専用チャンネルなら、その案件の ID（#148）。それ以外は null。参加者にだけ返る（非参加者は 404）"
           },
           "canPost": {
             "type": "boolean",
@@ -7149,11 +7158,12 @@
             "enum": [
               "deleted_parent",
               "not_joined",
+              "case_closed",
               "read_only",
               "partner_inactive",
               null
             ],
-            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
+            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ case_closed（案件が終了。#148）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
           },
           "items": {
             "type": "array",
@@ -7200,11 +7210,12 @@
             "enum": [
               "deleted_parent",
               "not_joined",
+              "case_closed",
               "read_only",
               "partner_inactive",
               null
             ],
-            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
+            "description": "返信できない理由。できるなら null。複数に当たるときは deleted_parent（親が削除済み）→ not_joined（チャンネルに未参加）→ case_closed（案件が終了。#148）→ read_only（部署が無効）→ partner_inactive（DM の相手が無効）の順。表示の制御だけで、認可は投稿（POST）で改めて行う"
           },
           "items": {
             "type": "array",

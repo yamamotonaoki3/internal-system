@@ -28,6 +28,9 @@ function joinedPrivate(): ChannelViewRow {
     deletedAt: null,
     joinedAt: "2026-11-17T03:00:00.000Z",
     departmentIsActive: true,
+    // #148：案件専用チャンネルでなければ null
+    caseId: null,
+    caseStatus: null,
   };
 }
 
