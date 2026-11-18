@@ -1,6 +1,6 @@
 // Repository：自分のスレッドの一覧（#137。EP-3-08）。DB へのアクセスはこの層に閉じ込める。
 // 1回の取得は SQL 2本（スレッドの一覧 → スレッドごとの未読数）で、スレッドの数に比例しない。
-// 2本の SQL の間に返信が付く・既読になると、その1回だけ古い未読数になる（次の取得で直る）。
+// 2本の SQL の間に返信が付く・既読になると、その1回だけ古い未読数になる（次の取得で直る）。資格を失った部屋のスレッドの未読数と付随の情報は、数のずれではなく、数えない・返さない（#297）。
 import { toPage, type CursorPayload } from "../lib/cursor";
 import { isUlid } from "../lib/ulid";
 import { unreadLowerBound } from "../lib/unread-bound";
@@ -87,9 +87,9 @@ export function createThreadRepository(db: Database) {
         })),
       );
       const ids = page.items.map((row) => row.id);
-      const mentions = await loadMessageMentions(db, ids);
+      const mentions = await loadMessageMentions(db, ids, userId);
       const reactions = await loadMessageReactions(db, ids, userId);
-      const attachments = await loadMessageAttachments(db, ids);
+      const attachments = await loadMessageAttachments(db, ids, userId);
       const items = page.items.map((row): ThreadItem => {
         const unreadCount = counts.get(row.id);
         if (unreadCount === undefined)

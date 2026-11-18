@@ -14,6 +14,7 @@ import {
 } from "../../../shared/attachment-rules";
 import { attachmentVisible } from "./attachment-visibility.sql";
 import { withDatabase, type Database } from "./database";
+import { messageViewableBy } from "./room-visibility.sql";
 
 /** API で返す添付の項目（保存先のキーは含めない） */
 export type AttachmentView = {
@@ -112,6 +113,7 @@ const viewColumns = {
 export async function loadMessageAttachments(
   db: Database,
   messageIds: readonly string[],
+  viewerId: string,
 ): Promise<Map<string, AttachmentView[]>> {
   const result = new Map<string, AttachmentView[]>();
   if (messageIds.length === 0) return result;
@@ -119,7 +121,8 @@ export async function loadMessageAttachments(
     .select(viewColumns)
     .from(messageAttachments)
     .where(
-      sql`${messageAttachments.messageId} IN (SELECT value FROM json_each(${JSON.stringify(messageIds)}))`,
+      sql`${messageAttachments.messageId} IN (SELECT value FROM json_each(${JSON.stringify(messageIds)}))
+        AND ${messageViewableBy(sql`${messageAttachments.messageId}`, viewerId)}`,
     )
     .orderBy(asc(messageAttachments.messageId), asc(messageAttachments.id));
   for (const { messageId, ...row } of rows) {

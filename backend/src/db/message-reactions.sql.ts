@@ -16,6 +16,7 @@ import {
 import { messageReactions } from "../../db/schema";
 import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
+import { messageViewableBy } from "./room-visibility.sql";
 
 export type ReactionUser = {
   id: string;
@@ -136,16 +137,22 @@ function groupReactions(rows: readonly unknown[]): Map<string, Reaction[]> {
 
 /**
  * 投稿ごとの集計を、1回の問い合わせで読む。リアクションのない投稿は Map に入らない（呼び出し側は ?? [] で扱う）。
- * 見える投稿かどうかの確認は呼び出し元の Service が済ませている前提（一覧は requireVisible・requireReadableThread の後）。
- * viewerId が null なら、reactedByMe はすべて false。
+ * 本文の読み取りの後に閲覧者が資格を失っても付随の情報を返さないよう、SQL の条件でも、その時点の資格（部屋を見てよいか）で絞る。
  */
 export async function loadMessageReactions(
   db: Database,
   messageIds: readonly string[],
-  viewerId: string | null,
+  viewerId: string,
 ): Promise<Map<string, Reaction[]>> {
   if (messageIds.length === 0) return new Map();
-  return groupReactions(await selectReactions(db, messageIds, viewerId));
+  return groupReactions(
+    await selectReactions(
+      db,
+      messageIds,
+      viewerId,
+      messageViewableBy(sql`r.message_id`, viewerId),
+    ),
+  );
 }
 
 /**

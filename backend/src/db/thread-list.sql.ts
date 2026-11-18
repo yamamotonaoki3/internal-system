@@ -1,5 +1,5 @@
 // DAO：自分のスレッドの一覧（#137。EP-3-08）。SQL の実行と、結果の形の検証だけを行う。
-// 含めるスレッド：返信が1件以上あり、自分が親の投稿者か、自分が返信したもの。そのうち、部屋が参加中で未アーカイブのチャンネル、または当事者の DM のものだけ（U-4。参加していない公開チャンネルの本文を返さない）。
+// 含めるスレッド：返信が1件以上あり、自分が親の投稿者か、自分が返信したもの。そのうち、部屋が参加中で未アーカイブのチャンネル、または当事者である DM（閲覧者が有効なときだけ。#297）のものだけ（U-4。参加していない公開チャンネルの本文を返さない）。
 // 並び：最後の返信の ID の降順（削除済みの返信も含む）、同じなら親の ID の降順。カーソルは「最後の(最後の返信の ID, 親の ID)の組より古い」。
 // 索引：自分の投稿は messages_sender_id_parent_message_id_idx（sender_id, parent_message_id）で引き、会社全体の返信を読まない。
 //   最後の返信は messages_parent_message_id_id_idx の MAX、親・部屋・参加は主キー、スレッドの既読位置は主キー（EXPLAIN は docs/design/threads.md）。
@@ -48,7 +48,8 @@ export async function listThreadRows(
 ): Promise<ThreadListRow[]> {
   // DM のスレッドを見せない利用者（perm.dm.message.view なし）は、SQL の条件で除く（取得の後に除くと、ページの件数と nextCursor がずれる）
   const directVisible = options.includeDirect
-    ? sql`EXISTS (SELECT 1 FROM conversation_members cv WHERE cv.conversation_id = pp.room_id AND cv.user_id = ${userId})`
+    ? sql`(EXISTS (SELECT 1 FROM users du WHERE du.id = ${userId} AND du.is_active = 1)
+        AND EXISTS (SELECT 1 FROM conversation_members cv WHERE cv.conversation_id = pp.room_id AND cv.user_id = ${userId}))`
     : sql`0`;
   const rows = await db.all(sql`
     WITH mine(parent_id) AS (
