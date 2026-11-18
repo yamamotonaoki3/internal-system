@@ -1,51 +1,41 @@
 // S-17 の「参加者を管理」（S-18 の参加者の部分。#147 の 147-B）。社員を探して追加し、外せる人を外し、本人は退出できる。
 // 自動参加の人（担当部署のオーナー・全体管理者）は役割の名前を出し、「削除」「退出する」を出さない（Q8・Q2）。外せるかはサーバーの removable に従う。
-// 確認の対象・完了の表示・エラーは、行の外（この部品）で持つ：取り直しで行が消えても、完了の表示が残る。
-// 422 は「社員の検索」の欄に、409・403 などは欄の外に出す。変更中は、追加・削除・退出のボタンを押せない。
+// 操作と、その結果（完了の表示・エラー）は、ページの側（useParticipantWrites）で持つ：取り直しで行やこのダイアログが消えても失わない。
+// 確認の対象は、行の外（この部品）で持つ。変更中は、追加・削除・退出のボタンを押せない。
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { TextField } from "../../../components/TextField";
 import { useSettledValue } from "../../../lib/useSettledValue";
 import { useUserSearch } from "../../members";
 import type { CaseParticipant } from "../api/case-api";
-import { describeError, isApiError } from "../describe-error";
-import {
-  useAddCaseParticipant,
-  useRemoveCaseParticipant,
-} from "../hooks/useCaseWrites";
+import { describeError } from "../describe-error";
+import type { ParticipantWrites } from "../hooks/useParticipantWrites";
 import { AUTO_ROLE_LABELS, PARTICIPANTS_UPDATED_TEXT } from "../labels";
 import { CaseConfirmDialog } from "./CaseConfirmDialog";
 
 const SEARCH_DELAY_MS = 300;
 
 type Props = {
-  caseId: string;
   selfId: string;
   participants: CaseParticipant[];
+  writes: ParticipantWrites;
   onClose: () => void;
 };
 
 type Pending = { participant: CaseParticipant; self: boolean };
 
 export function CaseParticipantManager({
-  caseId,
   selfId,
   participants,
+  writes,
   onClose,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const navigate = useNavigate();
-  const add = useAddCaseParticipant(caseId);
-  const remove = useRemoveCaseParticipant(caseId);
   const [q, setQ] = useState("");
   const search = useUserSearch(useSettledValue(q.trim(), SEARCH_DELAY_MS));
   const [confirming, setConfirming] = useState<Pending | null>(null);
-  const [updated, setUpdated] = useState(false);
-  const [searchError, setSearchError] = useState<string>();
-  const [error, setError] = useState<string>();
-  const busy = add.isPending || remove.isPending;
+  const { busy, updated, error, searchError } = writes;
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -56,44 +46,12 @@ export function CaseParticipantManager({
     search.data?.pages.flatMap((page) => page.items) ?? []
   ).filter((user) => !joined.has(user.id));
 
-  function start() {
-    setUpdated(false);
-    setSearchError(undefined);
-    setError(undefined);
-  }
-
-  /** 422 は欄に、それ以外は欄の外に出す */
-  function showError(cause: unknown, field: "search" | "outside") {
-    if (field === "search" && isApiError(cause) && cause.status === 422)
-      setSearchError(cause.message);
-    else setError(describeError(cause));
-  }
-
-  function addUser(userId: string) {
-    start();
-    add.mutate(userId, {
-      onSuccess: () => setUpdated(true),
-      onError: (cause) => showError(cause, "search"),
-    });
-  }
+  const addUser = (userId: string) => writes.addUser(userId);
 
   function confirmRemove() {
     if (confirming === null) return;
-    const { participant, self } = confirming;
-    start();
-    remove.mutate(
-      { userId: participant.userId, self },
-      {
-        onSuccess: () => {
-          if (self) {
-            void navigate("/cases");
-            return;
-          }
-          setUpdated(true);
-        },
-        onError: (cause) => showError(cause, "outside"),
-        onSettled: () => setConfirming(null),
-      },
+    writes.removeUser(confirming.participant, confirming.self, () =>
+      setConfirming(null),
     );
   }
 
@@ -194,7 +152,7 @@ export function CaseParticipantManager({
         <CaseConfirmDialog
           title={confirming.self ? "案件からの退出" : "参加者の削除"}
           confirmLabel={confirming.self ? "退出する" : "削除する"}
-          pending={remove.isPending}
+          pending={writes.removing}
           onConfirm={confirmRemove}
           onClose={() => setConfirming(null)}
         >
