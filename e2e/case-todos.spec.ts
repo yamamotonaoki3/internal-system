@@ -17,6 +17,8 @@ const PASSWORD = "TestPass123!";
 const CASE_ID = "01JTE2E00000000000V0011149";
 const TODO_TITLE = "[E2E_TEST]149見積りを送る";
 const PARTNER_NAME = "E2E案件TODOの相手";
+/** 担当者の選択肢は「表示名（部署名）」で出るため、値（利用者の ID。e2e/seeds/case-todos.sql）で選ぶ（既存の spec の選択欄と同じ選び方） */
+const PARTNER_ID = "01JTE2E00000000000V0006149";
 /** C-88：同じ案件を開いている他の参加者の画面に、3秒以内に反映する */
 const REFLECT_MS = 3_000;
 
@@ -91,7 +93,7 @@ test("#149 AC-2 5-4 AC-2・AC-7・1-9 AC-2: 参加者が担当者つきで TODO 
   await section.getByRole("textbox", { name: "題名" }).fill(TODO_TITLE);
   await section
     .getByRole("combobox", { name: "担当者" })
-    .selectOption({ label: PARTNER_NAME });
+    .selectOption(PARTNER_ID);
   await section.getByRole("button", { name: "追加する" }).click();
   await expect(section.getByText("TODOを追加しました")).toBeVisible();
   await expect(section.getByRole("textbox", { name: "題名" })).toHaveValue("");

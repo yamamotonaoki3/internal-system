@@ -613,17 +613,27 @@ describe("#149 AC-1 5-4 AC-3・AC-8 完了と取り消し", () => {
     release();
   });
 
-  it("#149 コードレビュー1回目（軽微）: A の完了が 409 で失敗したら、その後に B を操作しても、A の失敗が画面に出る", async () => {
+  it("#149 コードレビュー1回目・再レビュー（軽微）: A の完了が 409 で失敗したらエラーを出し、ポーリングの取得の成功では消えず、同じ操作のやり直しが成功したら消える", async () => {
     let releaseA: () => void = () => undefined;
     const gateA = new Promise<void>((resolve) => {
       releaseA = resolve;
     });
-    respondTodos([todoItem(1), todoItem(2)], {
+    let attemptsA = 0;
+    const state = respondTodos([todoItem(1), todoItem(2)], {
       respond: async (write) => {
         if (write.path.includes(todoId(1))) {
-          await gateA;
-          return todoError(409, "CONFLICT", CASE_TODO_TEXTS.closed, {
-            reason: "closed",
+          attemptsA += 1;
+          if (attemptsA === 1) {
+            await gateA;
+            return todoError(409, "CONFLICT", CASE_TODO_TEXTS.closed, {
+              reason: "closed",
+            });
+          }
+          return HttpResponse.json({
+            id: todoId(1),
+            completed: true,
+            version: 2,
+            progress: { done: 1, total: 2 },
           });
         }
         return HttpResponse.json({
@@ -636,6 +646,10 @@ describe("#149 AC-1 5-4 AC-3・AC-8 完了と取り消し", () => {
     });
     const { user } = renderPage(25);
     const region = await section();
+    const buttonA = () =>
+      within(region).getByRole("button", {
+        name: `${todoTitle(1)}を完了にする`,
+      });
     await user.click(
       await within(region).findByRole("button", {
         name: `${todoTitle(1)}を完了にする`,
@@ -644,14 +658,23 @@ describe("#149 AC-1 5-4 AC-3・AC-8 完了と取り消し", () => {
     releaseA();
     const alert = await within(region).findByRole("alert");
     expect(alert.textContent).toContain(CASE_TODO_TEXTS.closed);
-    await user.click(
-      await within(region).findByRole("button", {
-        name: `${todoTitle(2)}を完了にする`,
-      }),
+    // ボタンがまた押せるようになるのを待つ
+    await waitFor(() =>
+      expect((buttonA() as HTMLButtonElement).disabled).toBe(false),
+    );
+    // ポーリング（一覧の取得）が成功しても、エラーは消えない
+    const fetched = state.requests.length;
+    await waitFor(
+      () => expect(state.requests.length).toBeGreaterThan(fetched),
+      { timeout: 5_000 },
     );
     expect(within(region).getByRole("alert").textContent).toContain(
       CASE_TODO_TEXTS.closed,
     );
+    // 同じ操作のやり直しが成功したら、エラーが消える
+    await user.click(buttonA());
+    await waitFor(() => expect(attemptsA).toBe(2));
+    await waitFor(() => expect(within(region).queryByRole("alert")).toBeNull());
   });
 });
 

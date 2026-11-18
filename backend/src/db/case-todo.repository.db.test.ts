@@ -684,6 +684,51 @@ describe("#149 AC-1 計画 6.10 必須の行が0行なら batch 全体を取り�
   });
 });
 
+describe("#149 AC-1 案件がない（ミューテーションの生き残り）", () => {
+  it("#149 AC-1: 案件がなければ、追加・完了・取り消しは何も残さない（CaseStateChangedError）", async () => {
+    await seedOpenTodo(1);
+    await seedOpenTodo(2, {
+      isDone: true,
+      completedAssigneeId: w.memberD1.id,
+      completedAssigneeName: NAME_D1,
+    });
+    await expectNothingChanged(() =>
+      add({
+        caseId: futureIdAt(97),
+        todoId: todoIdAt(3),
+        eventId: eventIdAt(1),
+      }),
+    );
+    await expectNothingChanged(() =>
+      complete({
+        caseId: futureIdAt(97),
+        todoId: todoIdAt(1),
+        eventId: eventIdAt(2),
+      }),
+    );
+    await expectNothingChanged(() =>
+      uncomplete({
+        caseId: futureIdAt(97),
+        todoId: todoIdAt(2),
+        eventId: eventIdAt(4),
+        autoUnassignEventId: eventIdAt(3),
+      }),
+    );
+  });
+
+  it("#149 AC-1 5-4 AC-6: 担当なしで完了した TODO は、completedAssignee も previousAssignee も null", async () => {
+    await seedOpenTodo(1, { assigneeId: null, recordedAssigneeName: null });
+    await complete({ todoId: todoIdAt(1), eventId: eventIdAt(1) });
+    const [item] = (await listOk(w.memberS1.id)).items;
+    expect(item).toMatchObject({
+      completed: true,
+      assignee: null,
+      previousAssignee: null,
+      completedAssignee: null,
+    });
+  });
+});
+
 describe("#149 AC-1 決定 Q2 監査ログ", () => {
   it("#149 AC-1 決定 Q2: 追加・完了・取り消しの後に、監査ログ（audit_logs）の行が増えない", async () => {
     const before = await auditLogCount();
