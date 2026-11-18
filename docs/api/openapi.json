@@ -220,7 +220,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           },
           {
@@ -529,7 +529,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -588,7 +588,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -672,7 +672,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -884,7 +884,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -966,7 +966,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1308,7 +1308,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1447,7 +1447,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1541,7 +1541,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "この部署のチャンネルだけに絞る"
           },
@@ -1600,7 +1600,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1644,7 +1644,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1720,7 +1720,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1769,7 +1769,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -1786,7 +1786,7 @@
                 "properties": {
                   "userId": {
                     "type": "string",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                   }
                 }
               }
@@ -1949,7 +1949,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "この部署の申請に絞る（見える範囲は広がらない）"
           }
@@ -2059,7 +2059,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -2133,7 +2133,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -2217,7 +2217,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -2397,7 +2397,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "このID以降（含まない）をID昇順で取る。画面のポーリングが、取得済みの最後のIDを渡す"
           },
@@ -2690,7 +2690,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -3766,7 +3766,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "このID以降（含まない）をID昇順で取る。画面のポーリングが、取得済みの最後のIDを渡す"
           },
@@ -4225,7 +4225,8 @@
             "name": "departmentId",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "部署で絞り込む"
           },
@@ -4348,7 +4349,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -4414,7 +4416,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -4684,7 +4687,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           },
           {
@@ -5615,7 +5618,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -5691,7 +5694,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           }
         ],
@@ -6236,7 +6239,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string",
@@ -6291,11 +6294,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -6312,6 +6315,7 @@
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "会社直属（全社連絡など）は null"
           },
           "departmentName": {
@@ -6358,7 +6362,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -6385,11 +6389,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -6408,7 +6412,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "joined": {
             "type": "boolean"
@@ -6457,11 +6462,11 @@
         "properties": {
           "channelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "joinedAt": {
             "type": "string"
@@ -6479,11 +6484,11 @@
         "properties": {
           "channelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "userId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "joinedAt": {
             "type": "string"
@@ -6510,11 +6515,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "author": {
             "type": "object",
@@ -6527,7 +6532,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string",
@@ -6569,7 +6574,7 @@
               "string",
               "null"
             ],
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "返信なら親の投稿の ID、通常の投稿は null（返信は1段だけ）。部屋の一覧（EP-1-01）の項目は常に null"
           },
           "replyCount": {
@@ -6616,7 +6621,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "kind": {
             "type": "string",
@@ -6626,13 +6632,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "messageId": {
             "type": [
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "指名通知では指名を含む実メッセージID"
           },
           "targetId": {
@@ -6640,6 +6648,7 @@
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "種類で参照先が決まるID。指名通知ではスレッドの親メッセージID（通常投稿ならmessageIdと同じ）"
           },
           "createdAt": {
@@ -6716,13 +6725,14 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "departmentId": {
             "type": [
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "null は会社直属"
           },
           "name": {
@@ -6765,6 +6775,7 @@
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "承認で作ったチャンネルの ID"
           }
         }
@@ -6812,13 +6823,14 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "departmentId": {
             "type": [
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "null は会社直属"
           },
           "departmentName": {
@@ -6868,11 +6880,12 @@
               "string",
               "null"
             ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "承認で作ったチャンネルの ID"
           },
           "requesterId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "requesterDisplayName": {
             "type": "string"
@@ -6930,7 +6943,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -6938,11 +6951,11 @@
           },
           "channelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           }
         }
       },
@@ -6957,7 +6970,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -6978,7 +6991,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -7089,15 +7102,15 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "parentMessageId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "createdAt": {
             "type": "string",
@@ -7221,7 +7234,7 @@
               },
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "name": {
                 "type": "string"
@@ -7243,7 +7256,7 @@
               },
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "partner": {
                 "type": "object",
@@ -7256,7 +7269,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                   },
                   "displayName": {
                     "type": "string"
@@ -7424,7 +7437,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "displayName": {
                   "type": "string",
@@ -7472,7 +7485,7 @@
         "properties": {
           "messageId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "reactions": {
             "type": "array",
@@ -7494,7 +7507,7 @@
         "properties": {
           "userId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "指名先の社員ID"
           },
           "start": {
@@ -7520,7 +7533,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -7577,7 +7590,7 @@
             "uniqueItems": true,
             "items": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "任意。結び付ける未投稿の添付の ID（本人がアップロードし、同じ部屋・同じ文脈（通常の投稿用か、同じ親の返信用）のもの）。合計は200,000,000バイトまで"
           }
@@ -7595,7 +7608,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "body": {
             "type": "string",
@@ -7626,11 +7639,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "createdAt": {
             "type": "string",
@@ -7648,7 +7661,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -7665,7 +7678,7 @@
         "properties": {
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "partner": {
             "$ref": "#/components/schemas/DmPartnerRef"
@@ -7681,7 +7694,7 @@
         "properties": {
           "partnerUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "DM の相手の社員ID。自分自身は指定できない（当事者は常にセッションの利用者と相手の2人）"
           }
         }
@@ -7697,7 +7710,7 @@
         "properties": {
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "partner": {
             "type": "object",
@@ -7711,7 +7724,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -7792,7 +7805,7 @@
         "properties": {
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "partner": {
             "type": "object",
@@ -7807,7 +7820,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -7882,7 +7895,7 @@
           },
           "departmentId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "extension": {
             "type": "string",
@@ -7904,7 +7917,7 @@
         "properties": {
           "departmentId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "再有効化の後の所属部署（有効な部署）"
           }
         }
@@ -7919,7 +7932,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "initialPassword": {
             "type": "string",
@@ -7936,7 +7949,7 @@
         "properties": {
           "departmentId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "異動先の部署（有効で、今と違う部署）"
           }
         }
@@ -7956,7 +7969,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "loginId": {
             "type": "string"
@@ -7966,7 +7979,7 @@
           },
           "departmentId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "mustChangePassword": {
             "type": "boolean",
@@ -8000,7 +8013,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "loginId": {
             "type": "string"
@@ -8077,7 +8090,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -8112,7 +8125,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "code": {
             "type": "string",
@@ -8144,7 +8157,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "code": {
             "type": "string",
@@ -8171,7 +8184,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "code": {
             "type": "string",
@@ -8320,7 +8333,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -8332,7 +8345,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "ownerDisplayName": {
             "type": [
@@ -8383,7 +8397,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -8392,13 +8406,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "ownedDepartmentId": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "isGlobalAdmin": {
             "type": "boolean"
@@ -8444,11 +8460,11 @@
           },
           "ownerUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "previousDepartmentSuccessorUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           }
         }
       },
@@ -8467,7 +8483,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -8477,15 +8493,15 @@
           },
           "ownerUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "dedicatedChannelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "announcementChannelId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "version": {
             "type": "integer"
@@ -8525,7 +8541,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -8548,11 +8564,11 @@
         "properties": {
           "ownerUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "previousDepartmentSuccessorUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "version": {
             "type": "integer",
@@ -8571,11 +8587,11 @@
         "properties": {
           "departmentId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "ownerUserId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "version": {
             "type": "integer"
@@ -8733,7 +8749,8 @@
             ],
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "loginId": {
                 "type": "string"
@@ -8787,7 +8804,8 @@
             ],
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -8942,7 +8960,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -8966,7 +8985,8 @@
         "description": "自分のプロフィール。本名は復号した値（本人にだけ返す）",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "loginId": {
             "type": "string"
@@ -9086,7 +9106,8 @@
         "description": "本名は含めない",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -9165,7 +9186,8 @@
         "additionalProperties": false,
         "properties": {
           "userId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "displayName": {
             "type": "string"
@@ -9218,7 +9240,8 @@
         "additionalProperties": false,
         "properties": {
           "userId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "$ref": "#/components/schemas/UserStatusKind"
@@ -9247,7 +9270,7 @@
         "properties": {
           "clientId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "有効な取引先"
           },
           "title": {
@@ -9268,7 +9291,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "uniqueItems": true,
             "description": "担当部署（有効な部署。1件以上・重複不可・件数の上限なし。全部署から選べる）",
@@ -9278,14 +9301,14 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "uniqueItems": true,
             "description": "追加の候補（有効な社員。重複不可・申請者本人を含めない・件数の上限なし）"
           },
           "resubmitOf": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "再申請の元（本人の却下済み・取り下げ済み・自動取消の申請）"
           }
         }
@@ -9311,7 +9334,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "title": {
             "type": "string"
@@ -9336,7 +9359,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "code": {
                 "type": "string"
@@ -9362,7 +9385,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "name": {
                   "type": "string"
@@ -9384,7 +9407,7 @@
               "properties": {
                 "userId": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "displayName": {
                   "type": "string"
@@ -9413,7 +9436,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "caseNumber": {
             "type": [
@@ -9510,7 +9534,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "title": {
             "type": "string"
@@ -9535,7 +9559,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "code": {
                 "type": "string"
@@ -9561,7 +9585,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "name": {
                   "type": "string"
@@ -9584,7 +9608,7 @@
               "properties": {
                 "userId": {
                   "type": "string",
-                  "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                 },
                 "displayName": {
                   "type": "string"
@@ -9617,7 +9641,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "resubmittedFrom": {
             "type": [
@@ -9638,7 +9663,7 @@
           },
           "requesterId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "requesterDisplayName": {
             "type": "string"
@@ -9683,7 +9708,7 @@
             "uniqueItems": true,
             "items": {
               "type": "string",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             },
             "description": "承認者が足す候補（重複不可・件数の上限なし）"
           }
@@ -9701,7 +9726,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -9709,7 +9734,7 @@
           },
           "caseId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "caseNumber": {
             "type": "string",
@@ -9717,7 +9742,7 @@
           },
           "roomId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "案件専用チャンネル（非公開）の部屋 ID"
           }
         }
@@ -9744,7 +9769,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -9761,7 +9786,7 @@
         "properties": {
           "requestId": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -10116,13 +10141,16 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "targetUserId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "departmentId": {
             "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "申請の時点の対象の部署"
           },
           "status": {
@@ -10150,7 +10178,8 @@
         "description": "本名・メールは含めない",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -10170,7 +10199,8 @@
             "additionalProperties": false,
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -10238,7 +10268,8 @@
         "description": "本名・メールは含めない",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -10258,7 +10289,8 @@
             "additionalProperties": false,
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -10295,7 +10327,8 @@
             "additionalProperties": false,
             "properties": {
               "id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               },
               "displayName": {
                 "type": "string"
@@ -10350,7 +10383,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -10367,7 +10401,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "status": {
             "type": "string",
@@ -10391,6 +10426,7 @@
           },
           "actorId": {
             "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "操作者の社員ID（ULID）"
           },
           "action": {
@@ -10460,6 +10496,7 @@
           },
           "targetId": {
             "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "対象のID（ULID）"
           },
           "result": {
@@ -10495,7 +10532,8 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "occurredAt": {
             "type": "string",
@@ -10571,7 +10609,8 @@
                 "additionalProperties": false,
                 "properties": {
                   "id": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                   },
                   "displayName": {
                     "type": [
@@ -10620,7 +10659,8 @@
                     ]
                   },
                   "id": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
                   },
                   "label": {
                     "type": [
@@ -10724,7 +10764,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "name": {
             "type": "string"
@@ -10769,7 +10809,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "version": {
             "type": "integer"
@@ -10804,7 +10844,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
           },
           "version": {
             "type": "integer"
