@@ -59,12 +59,20 @@ export function forgetCaseAfterLeave(
   return Promise.all([cancelled, invalidated]).then(() => undefined);
 }
 
-/** 削除・本人の退出。退出に成功したときの片付けは、画面を離れた後に forgetCaseAfterLeave で行う（useParticipantWrites） */
+/**
+ * 削除・本人の退出。退出に成功したら、画面が生きているかに依らず、ここ（定義の側）で forgetCaseAfterLeave を行う
+ * （応答の前に画面を離れると、mutate に渡した onSuccess は呼ばれないため。コードレビュー2回目）。対象は、操作したときの利用者（actorId）と案件。
+ * 画面が表示中なら、概要が非参加になって前の詳細は出ず、画面が外れるときに useParticipantWrites がもう一度片付ける。失敗したときは消さない
+ */
 export function useRemoveCaseParticipant(caseId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { userId: string; self: boolean }) =>
+    mutationFn: (input: { userId: string; self: boolean; actorId: string }) =>
       removeCaseParticipant(caseId, input.userId),
+    onSuccess: (_data, input) =>
+      input.self
+        ? forgetCaseAfterLeave(queryClient, input.actorId, caseId)
+        : undefined,
     onSettled: (_data, error, input) =>
       error === null && input.self
         ? undefined

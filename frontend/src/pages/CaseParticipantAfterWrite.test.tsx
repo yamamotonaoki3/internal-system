@@ -122,6 +122,8 @@ function renderPage() {
             element={<Link to={`/cases/${caseId(N)}`}>案件に戻る</Link>}
           />
         </Routes>
+        {/* 応答の前に画面を離れる操作（ブラウザーの「戻る」の代わり）。どの画面にも置く */}
+        <Link to="/cases">一覧へ移る</Link>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -206,6 +208,81 @@ describe("#147 147-B コードレビュー1回目（重大1）: 退出の後に�
       expect(list.textContent).not.toContain(MEMBER.displayName),
     );
     expect(screen.getByText(SECRET)).toBeTruthy();
+  });
+});
+
+describe("#147 147-B コードレビュー2回目（重大）: 退出の応答の前に画面を離れても、前の詳細を残さない", () => {
+  /** 退出を送り、応答を保留したまま /cases へ移る。release で応答を返す */
+  async function leaveThenNavigate(respond: () => Response) {
+    const state: State = {
+      participant: true,
+      participants: [PARTICIPANT_CREATOR, SELF],
+      gate: null,
+    };
+    respondByState(state);
+    const pending = deferred();
+    let answered = false;
+    respondCaseWrites(async () => {
+      await pending.promise;
+      answered = true;
+      const res = respond();
+      if (res.status === 204) state.participant = false;
+      return res;
+    });
+    const { user } = renderPage();
+    expect(await screen.findByText(SECRET)).toBeTruthy();
+    const manager = await openManager(user);
+    const selfRow = within(manager)
+      .getAllByRole("listitem")
+      .find((row) => row.textContent?.includes(SELF.displayName));
+    if (selfRow === undefined) throw new Error("本人の行がありません");
+    await user.click(within(selfRow).getByRole("button", { name: "退出する" }));
+    const confirm = await screen.findByRole("dialog", {
+      name: "案件からの退出",
+    });
+    await user.click(within(confirm).getByRole("button", { name: "退出する" }));
+    // 応答の前に画面を離れる
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    const back = await screen.findByRole("link", { name: "案件に戻る" });
+    expect(answered).toBe(false);
+    pending.release();
+    await waitFor(() => expect(answered).toBe(true));
+    return { user, state, back };
+  }
+
+  it("#147 5-1 AC-2・AC-3: 退出の成功が画面を離れた後に返っても、同じ案件に戻ったとき、再取得を待つ間に前の説明・参加者の一覧を出さず、応答の後は非公開の表示", async () => {
+    const { user, state, back } = await leaveThenNavigate(
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    const gate = deferred();
+    state.gate = gate.promise;
+    await user.click(back);
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "案件に戻る" })).toBeNull(),
+    );
+    expect(screen.queryByText(SECRET)).toBeNull();
+    expect(screen.queryByRole("list", { name: "参加者" })).toBeNull();
+    state.gate = null;
+    gate.release();
+    expect(await screen.findByText(PRIVATE_TEXT)).toBeTruthy();
+    expect(screen.queryByText(SECRET)).toBeNull();
+  });
+
+  it("#147 5-1 AC-3（対）: 退出が画面を離れた後に 409 で失敗したら、参加者のままなので、戻ったときに説明と参加者の一覧が見られる", async () => {
+    const { user, back } = await leaveThenNavigate(() =>
+      HttpResponse.json(
+        {
+          code: "CONFLICT",
+          message: "最後の参加者は退出できません（[UNIT_TEST]）",
+          reason: "last_active_participant",
+        },
+        { status: 409 },
+      ),
+    );
+    await user.click(back);
+    expect(await screen.findByRole("list", { name: "参加者" })).toBeTruthy();
+    expect(screen.getByText(SECRET)).toBeTruthy();
+    expect(screen.queryByText(PRIVATE_TEXT)).toBeNull();
   });
 });
 

@@ -26,7 +26,8 @@ export function useParticipantWrites(caseId: string) {
   const [error, setError] = useState<string>();
   const left = useRef(false);
 
-  // 退出の後の片付けは、この案件の画面が外れたとき（表示の部品が空の詳細を作り直せなくなった後）に行う
+  // 退出の成功の片付けは useRemoveCaseParticipant が行う。表示中に片付けると、表示の部品が印のない空の詳細を作り直すため、
+  // 画面が外れたときにもう一度行う
   useEffect(
     () => () => {
       if (left.current) void forgetCaseAfterLeave(queryClient, userId, caseId);
@@ -65,7 +66,7 @@ export function useParticipantWrites(caseId: string) {
     ) {
       start();
       remove.mutate(
-        { userId: participant.userId, self },
+        { userId: participant.userId, self, actorId: userId },
         {
           onSuccess: () => {
             if (!self) {
