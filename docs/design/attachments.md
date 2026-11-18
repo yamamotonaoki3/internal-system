@@ -88,6 +88,11 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 4. ヘッダーの確認（422）：`X-File-Name`が読めて有効な名前か、拡張子が許可されているか、`Content-Length`があるか、種類ごとの上限と1回の受信の上限を超えていないか。ここまでは**本文を1バイトも読まない**。
 5. 本文を読んで形式を検査し（422）、保存する。
 6. D1に未投稿の行（`message_id`がNULL）を登録する。応答は201で`{ id, name, kind, contentType, size }`。
+   - 【#148】登録は**保存の時点の資格を条件にした`INSERT … SELECT … WHERE`**（`attachment.repository.ts`の`insertPending`。登録した行数を返す）。2の判定の後、ファイルの受信中に案件の終了・参加の解除・無効化があっても、未投稿の行を残さない。条件は部屋の種類によらない1つ：チャンネルは未アーカイブで、アップロードした人が有効な参加者、案件専用チャンネルなら案件が進行中（`caseRoomOpen`）／DMは当事者で、当事者に無効な社員がいない／返信への添付は、親が同じ部屋のトップレベルの投稿で削除されていない。通常のチャンネル・DMも同じ条件で登録する（行が残らないことの退行テストがある）
+   - 条件への追加（コードレビュー1回目の重大への対応）：部屋への添付は、お知らせ専用で部署のあるチャンネルなら、その部署のオーナーか全体管理者だけ（`channel-member.sql.ts`の`announcementPostable`。投稿と同じ）。返信への添付は、部屋の部署が有効なこと（部署なしは有効。返信と同じ）
+   - **2の判定が見る、DBの行で決まる条件（部屋の存在と可視・未アーカイブ・閲覧者が有効・参加中・案件が進行中・DMの相手が有効・お知らせ専用の投稿の資格・返信の親〔存在・同じ部屋・トップレベル・未削除〕・返信先の部署の有効性）と、この登録の条件は一致させる**。ロールで決まる権限（`perm.*`）はDBの行にないので、2の判定だけ
+   - 0行のときは、保存した実体を消し、2の判定（`requireRoom`。部屋の判定は事前と同じ関数）を読み直して404／403／409にする。どれにも当たらなければ成功にせず409
+   - 2の判定には、案件専用チャンネルの`perm.case.post`（403）と、終了中の409「終了した案件には添付できません」が加わる（C-184(5)(7)）
 
 保存の方式は、種類で分かれる。
 
@@ -143,6 +148,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 3. DMの添付なら、`perm.dm.message.view`の認可（メッセージの一覧と同じ。拒否は403）。
    - 【#297】一覧の`attachments`を読む`loadMessageAttachments`は、閲覧者を必須で受け取り、`messageViewableBy`の条件で、本文の読み取りの後に資格を失った部屋の添付の情報を返さない（[cases.md](cases.md)）。
    - 【#294で直した】`findVisible`の「DMの添付かどうか」（`isDirect`）が、DMが1件でもあると真になり、チャンネルの添付でもDMを見る権限を求めていた（拒否しすぎる側）。列を入れ子のSQLとして渡し、内側の表に別名を付ける形に直した（C-185、`docs/project-rules.md`）。
+   - 【#148】案件専用チャンネルの添付なら、`perm.case.view`の認可（R-64。拒否は403）。`findVisible`が案件の添付か（`isCase`）も返す。終了した案件でも、参加者は取得できる（結合のテスト。C-184(9)）
 4. `perm.attachment.download`の認可（拒否は403。監査ログに残る）。
 5. `parseByteRange`で`Range`を解釈し、R2から読む。実体がなければ404（500にしない）。
 
@@ -235,6 +241,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 | `backend/src/routes/messages.attachments.test.ts` | 投稿・返信への結び付けの応答（404・409・422）、同時の使用、一覧の`attachments`（ID昇順・削除済みは空・公開チャンネルの未参加者にも入る） |
 | `backend/src/attachment-cleanup.test.ts` | 24時間を過ぎた未投稿の掃除、結び付いた行は消えないこと、実体の削除の失敗 |
 | `backend/src/openapi.test.ts` | 3つのエンドポイントと`AttachmentItem`の一致 |
+| `backend/src/db/attachment.repository.pending.db.test.ts`・`backend/src/services/attachment.upload-race.test.ts`・`backend/src/routes/attachments.case-room.test.ts`・`backend/src/services/case-room.permissions.test.ts`（#148） | 条件つきの登録（条件を外れれば0行・満たせば1行。通常のチャンネル・DM・案件の部屋）、受信中の状態変化（案件の終了・参加の解除・無効化）で行が残らず実体が消えること、案件の部屋の添付のアップロード・取得（終了中のアップロード409・ダウンロード200）、`perm.case.view`だけを外したときの配信403 |
 | `backend/test/attachment-files.ts`・`attachment-fixtures.ts` | 架空・無害なバイト列（zipを自前で組む補助を含む）と、DBの準備・後始末。識別子`testuser_attdb_`・`[UNIT_TEST]` |
 | `frontend/src/features/messages/messages.attachments.test.tsx`・`messages.attachments-thread.test.tsx`・`api/message-api.attachments.test.ts`、`frontend/src/test/attachment-handlers.ts` | 上限の判定・取り消し・失敗と時間切れの表示・個別の時間切れ・送信中の取り消し・返信欄・APIの呼び出し |
 | `e2e/attachments.spec.ts`、`e2e/seeds/attachments.sql`・`attachments-cleanup.sql` | 実ブラウザの確認（3件、直列）。一覧は[e2e.md](../testing/e2e.md) |
@@ -246,3 +253,4 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 - [ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)（検査の方式）・[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)（配信のヘッダーの扱い・`content_type`のCHECKをやめた理由）・[ADR-0012](../adr/0012-zero-trust-principle.md)（毎回認可する）・[ADR-0015](../adr/0015-style-foundation.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)（ミューテーションの範囲）。
 - 関連する設計書：[messages.md](messages.md)・[threads.md](threads.md)・[reactions.md](reactions.md)。
 - 要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5、EP-1-09・EP-1-10、perm.attachment.upload・download（R-32・R-33）、S-05・S-06・S-07。
+- Issue #148の148-A：案件専用チャンネルの添付。登録を保存の時点の資格を条件にした条件つきの登録にした（部屋の種類によらない）、案件の終了中は409、配信に`perm.case.view`。公開範囲の選択・変更と添付の一覧は148-B。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-2・AC-3（参加者の部分）

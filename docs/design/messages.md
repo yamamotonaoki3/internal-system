@@ -248,6 +248,17 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - **`insertIfOrdered`**：`messages`の最後の列に`parent_message_id`が増えたため、`INSERT … SELECT`の末尾のNULLを3つから4つにした（`edited_at`・`deleted_at`・`deleted_by`・`parent_message_id`）。列を足したら、ここも合わせる
 - **ID の不変条件**：返信も同じ部屋の並びに入る（返信の挿入は`reply-insert.sql.ts`が同じ条件で行う）。`maxId`は、返信も含めた部屋全体の最大のまま変えない（返信を除くと、IDの作り直しが終わらなくなる）
 - 「スレッド」は、このIssueで実装した（上の「未実装」の表の記述は元のまま残す）
+
+## 案件専用チャンネル（案件の部屋）を通したときの変更（Issue #148の148-A）
+
+元の記述は残し、#148で変わった点だけをここに書く。案件のやり取りは、新しいAPIを作らず、案件専用チャンネル（`purpose = 'case'`。非公開）の部屋のIDで、この設計のAPIをそのまま呼ぶ（5-2 AC-4）。全体は[cases.md](cases.md)の「148-A の設計」、決定はC-184。
+
+- **判定の順への差し込み**：上の「判定の順」の①②の後に、案件の部屋なら案件の権限を`authorize`する（`authorizeCase`）。読み（一覧・1件・返信の一覧・メンションの候補）は`perm.case.view`、書き込み（投稿・返信・編集・削除・リアクション・添付のアップロード）は`perm.case.post`（拒否は403）。非参加者は部屋が見えず404のまま（案件の存在を明かさない）
+- **終了した案件は書き込めない**（5-1 AC-11）：権限の判定の後、部署の判定などの既存の続きの前に、案件が終了中なら409（`requireCaseOpen`。文言は操作ごとに投稿・返信／編集・削除／リアクション／添付の4種。拒否は`logger.audit`にreason `case_closed`で残し、本文は入れない）。一覧・1件・返信の一覧・既読・添付のダウンロードは、終了中も200
+- **SQLの最後の砦**：`insertIfOrdered`の`postable`、`reply-insert.sql.ts`、`message-modify.sql.ts`の`modifiable`、`message-reactions.sql.ts`の`reactable`に、`db/case-room.sql.ts`の`caseRoomOpen`（案件の部屋なら進行中、案件でない部屋は常に真）を足した。確認の後に案件が終了すると0行になり、0行のときの再判定（最初と同じ順）が409にする
+- `requirePostable`・`requireReplyable`は、操作の種類（投稿／アップロード）の引数を受け取る（409の文言を選ぶため）。部屋の情報は`findForViewer`の`caseId`・`caseStatus`から得る（問い合わせは増やしていない）
+- テスト：`backend/src/db/case-room.db.test.ts`・`backend/src/services/message.case-room.test.ts`・`message.case-room.interleave.test.ts`・`backend/src/routes/messages.case-room.test.ts`
+
 ## 関係するIssue・ADR
 
 - Issue #201：本Issue。親Issue #133。#200（チャンネル。`channel.repository`・EP-2-06・S-05が重なる）が先行。DM・スレッド・案件（#133の後続）が「最後のID以降」の部品を使う
@@ -259,3 +270,4 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - Issue #137：スレッドの返信を足した（`parent_message_id`、EP-1-01から返信を除く、`replyCount`）。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08
 - Issue #138：リアクション・スタンプを足した（表`message_reactions`、EP-1-12・EP-1-13、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`reactions`を追加。削除済みは`[]`）。`MessageRepository.listLatest`・`listAfter`の`viewerId`は必須。詳細は[reactions.md](reactions.md)。決定記録C-174。要件：1-7 AC-1〜AC-5、1-4 AC-6
 - Issue #140：メッセージの添付を足した（表`message_attachments`、EP-1-09・EP-1-10、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`attachments`を追加。削除済みは`[]`。投稿・返信の入力に`attachmentIds`。`insertIfOrdered`と`insertReplyIfOrdered`の`db.batch`に結び付けの文を追加。`requirePostable`・`requireReplyable`をアップロードの入口にも公開）。`message.service.ts`の`requireVisible`と`attachment-visibility.sql.ts`は同じ規則で、変えるときは両方を直す。詳細は[attachments.md](attachments.md)。決定記録C-176。要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5
+- Issue #148の148-A：案件専用チャンネルの部屋を、この設計のAPIにそのまま通した（案件の権限・終了中の409・SQLの`caseRoomOpen`）。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-1・AC-4、5-1 AC-11

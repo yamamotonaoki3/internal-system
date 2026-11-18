@@ -66,7 +66,7 @@
 
 ### 未読の対象（どの部屋を数えるか）
 
-自分が**参加中**（`channel_members`の行がある）で**未アーカイブ**（`deleted_at`がnull）のチャンネルと、自分が当事者のDMだけ。公開チャンネルを未参加で読んでいるだけの部屋は対象外（1-1 AC-2・C-94）。全体管理者・オーナーでも、参加していなければ対象外。【#147（147-C-1）：「参加中」は有効な参加者（`unread-targets.sql.ts`が`users.is_active = 1`も条件にする。既読位置の前進も`activeChannelMember`）。[cases.md](cases.md)の「147-C-1 が広げた経路」】
+自分が**参加中**（`channel_members`の行がある）で**未アーカイブ**（`deleted_at`がnull）のチャンネルと、自分が当事者のDMだけ。公開チャンネルを未参加で読んでいるだけの部屋は対象外（1-1 AC-2・C-94）。全体管理者・オーナーでも、参加していなければ対象外。【#147（147-C-1）：「参加中」は有効な参加者（`unread-targets.sql.ts`が`users.is_active = 1`も条件にする。既読位置の前進も`activeChannelMember`）。[cases.md](cases.md)の「147-C-1 が広げた経路」】【#148：案件専用チャンネルも対象だが、`perm.case.view`を持たない利用者の対象からは外す。`unread.service.ts`が`can`（拒否を監査に残さない）で判定した`includeCase`を、`read-position.repository.ts`の`listUnread`（必須の引数）から`unread-targets.sql.ts`へ渡し、`case-room.sql.ts`の`caseRoomListable`で SQL の条件にする（取得の後に除くとページの件数とカーソルがずれるため。スレッドの一覧の`includeDirect`と同じ作り）。既読（部屋・スレッド）は、案件の部屋なら`perm.case.view`を`authorize`する（403）。終了した案件でも既読は進められる（読み取り専用でも読むため）。[cases.md](cases.md)の「148-A の設計」】
 
 ### 未読の一覧（EP-3-01）
 
@@ -265,3 +265,4 @@ SQLは1回の取得で2本で、部屋の数に比例しない（N+1にしない
 - ADR-0004：ポーリングから始める／ADR-0006：ID・カーソル・未読の持ち方／ADR-0012：サーバー側で毎回認可する／ADR-0015：スタイルの土台／ADR-0020：ミューテーション・E2Eの実行範囲
 - 要件：3-1 AC-1〜AC-3、1-1 AC-2、EP-3-01・EP-3-02、S-01・S-05・S-06
 - Issue #137：スレッドの未読・既読（`thread_read_positions`、EP-3-09）を足し、部屋の未読に返信を数えないようにした。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-4、EP-3-08・EP-3-09
+- Issue #148の148-A：案件専用チャンネルを未読の対象に通した（`includeCase`、既読の`perm.case.view`）。サイドバーの案件の未読の印とS-16の未読の列は148-C。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：3-1 AC-1・AC-3、5-2 AC-4

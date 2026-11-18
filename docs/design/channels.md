@@ -518,7 +518,7 @@
 | 操作 | 契約 |
 | --- | --- |
 | 一覧（EP-2-04） | `GET /api/channels`。`departmentId?`・`joined?`・`limit`・`cursor`。200で`items`（`id`・`roomId`・`name`・`visibility`・`departmentId`・`departmentName`・`joined`）と`nextCursor`。401／404（存在しない部署）／422 |
-| 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`canPost`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。**#201で`canPost`を足した**（既存の項目は変えていない）。401／404【Issue #134で、`readOnly`（チャンネルの部署が無効で読み取り専用。部署のない会社直属は偽）を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別。元の記述は残す】 |
+| 詳細（EP-2-06） | `GET /api/channels/{channelId}`。200で`id`・`roomId`・`name`・`description`・`visibility`・`departmentId`・`joined`・`canPost`・`isCaseChannel`。参加者にだけ`memberCount`・`members`（`id`・`displayName`）を足す。**#201で`canPost`を足した**（既存の項目は変えていない）。401／404【Issue #134で、`readOnly`（チャンネルの部署が無効で読み取り専用。部署のない会社直属は偽）を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別。元の記述は残す】【Issue #148（148-A）で、`isCaseChannel`を実値（案件専用チャンネルなら真）にし、必須の`caseId`（案件専用チャンネルならその案件のID、それ以外は`null`）を足した。案件専用チャンネルは非公開なので、200になるのは有効な参加者だけで、その参加者にも`perm.case.view`を求める（403）。非参加者は404のまま。画面は`caseId`があれば案件の画面`/cases/:caseId`へ置き換えて移る。[cases.md](cases.md)の「148-A の設計」】 |
 | 詳細への追記（#143） | 詳細（EP-2-06）の応答に、必須の項目として`version`（管理の操作が送る版）と`manage`（`canRename`・`canEditDescription`・`canArchive`。表示用）を足した（C-181 (3)）。既存の項目は変えていない |
 | 変更・アーカイブ・復元（EP-2-36〜38。#143） | `PATCH /api/channels/{channelId}`（本文`version`必須、`name?`・`description?`は少なくとも1つ）→ 200で`id`・`name`・`description`・`version`・`updatedAt`。`POST …/delete`（本文`version`・`reason?`）→ 200で`id`・`version`・`deletedAt`。`POST …/restore`（本文`version`）→ 200で`id`・`version`・`restoredAt`。401／403（FORBIDDEN・REAUTH_REQUIRED（delete・restore）・Origin）／404／409／422。判定の順は上の「チャンネルの管理」 |
 | 管理者用の一覧・1件・アーカイブした一覧（EP-2-42・43・40。#143の143-b） | `GET /api/admin/channels`（`q`・`state`・`limit`・`cursor`）、`GET /api/admin/channels/{channelId}`、`GET /api/admin/deleted-items`（`type=channel`・`limit`・`cursor`）。401／403（どの範囲でも管理者でない）／404（1件。範囲外・存在しない・案件専用で同じ）／422。形は上の「API（143-b）」 |
@@ -574,4 +574,5 @@
 - Issue #135（親 #132 の残りを含む。2-4 AC-2・AC-3、2-5 AC-1〜7。招待）：決定記録C-175
 - Issue #143（チャンネルの管理とアーカイブ。最初の子・143-a。PR #287）：決定記録C-181。要件：2-6 AC-1・4・5・6、3-4 AC-5、EP-2-36〜38、S-05。ADR-0024（列の追加で作り直しが生成されたとき。今回は新しい表のため該当しない）
 - Issue #143の143-b（S-39・S-38・入口の権限。#290を含む）：決定記録C-183。要件：2-6 AC-5①⑥・AC-6・AC-8、EP-2-40・42・43、S-38・S-39。ADR-0006（カーソル）・ADR-0020（セッションの応答を変えたため、E2Eは全件）
+- Issue #148の148-A（案件のやり取り）：チャンネルの詳細（EP-2-06）の`isCaseChannel`を実値に、必須の`caseId`を足した（`findForViewer`が`cases`を外部結合して`caseId`・`caseStatus`を返す）。`/channels/:id`で案件専用チャンネルを開くと案件の画面へ移る。決定記録C-184。詳細は[cases.md](cases.md)の「148-A の設計」
 - 要件：2-1 AC-16・17、0-1 AC-15、2-3 AC-1・2、S-09。決定記録C-94・C-95・C-163
