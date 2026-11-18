@@ -1,4 +1,5 @@
-// Controller：案件の一覧・概要・詳細（/api/cases。#147 の 147-A。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）。
+// Controller：案件の一覧・概要・詳細（/api/cases。#147 の 147-A。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）、
+// 終了・再開（#150 の 150-A。EP-5-11・12）。
 // 入力の形の確認（422）と応答だけを行い、見える範囲・参加の判定・認可は Service が行う。
 // 147-B の本文は、ここでは JSON のオブジェクトであることだけを確かめ、項目の形は Service が 403 までの判定の後に確かめる
 // （非参加者に、本文の誤りと他の理由を区別させない。存在の非開示）。
@@ -42,78 +43,110 @@ function actorOf(c: Context<{ Bindings: Env }>): CaseActor {
 }
 
 export function caseRoutes() {
-  return new Hono<{ Bindings: Env }>()
-    .get("/", noStore, validate("query", listQuerySchema), async (c) => {
-      const actor = actorOf(c);
-      const page = await withCaseService(c.env, (service) =>
-        service.list(actor, c.req.valid("query")),
-      );
-      return c.json(page);
-    })
-    .get("/:caseId", noStore, validate("param", caseParamSchema), async (c) => {
-      const actor = actorOf(c);
-      const summary = await withCaseService(c.env, (service) =>
-        service.summary(actor, c.req.valid("param").caseId),
-      );
-      return c.json(summary);
-    })
-    .get(
-      "/:caseId/detail",
-      noStore,
-      validate("param", caseParamSchema),
-      async (c) => {
+  return (
+    new Hono<{ Bindings: Env }>()
+      .get("/", noStore, validate("query", listQuerySchema), async (c) => {
         const actor = actorOf(c);
-        const detail = await withCaseService(c.env, (service) =>
-          service.detail(actor, c.req.valid("param").caseId),
+        const page = await withCaseService(c.env, (service) =>
+          service.list(actor, c.req.valid("query")),
         );
-        return c.json(detail);
-      },
-    )
-    .post(
-      "/:caseId/participants",
-      noStore,
-      validate("param", caseParamSchema),
-      validate("json", bodyEnvelopeSchema),
-      async (c) => {
-        const actor = actorOf(c);
-        const added = await withCaseService(c.env, (service) =>
-          service.addParticipant(
-            actor,
-            c.req.valid("param").caseId,
-            c.req.valid("json"),
-          ),
-        );
-        return c.json(added, 201);
-      },
-    )
-    .delete(
-      "/:caseId/participants/:userId",
-      noStore,
-      validate("param", participantParamSchema),
-      async (c) => {
-        const actor = actorOf(c);
-        const { caseId, userId } = c.req.valid("param");
-        await withCaseService(c.env, (service) =>
-          service.removeParticipant(actor, caseId, userId),
-        );
-        return c.body(null, 204);
-      },
-    )
-    .patch(
-      "/:caseId/due-date",
-      noStore,
-      validate("param", caseParamSchema),
-      validate("json", bodyEnvelopeSchema),
-      async (c) => {
-        const actor = actorOf(c);
-        const changed = await withCaseService(c.env, (service) =>
-          service.changeDueDate(
-            actor,
-            c.req.valid("param").caseId,
-            c.req.valid("json"),
-          ),
-        );
-        return c.json(changed);
-      },
-    );
+        return c.json(page);
+      })
+      .get(
+        "/:caseId",
+        noStore,
+        validate("param", caseParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const summary = await withCaseService(c.env, (service) =>
+            service.summary(actor, c.req.valid("param").caseId),
+          );
+          return c.json(summary);
+        },
+      )
+      .get(
+        "/:caseId/detail",
+        noStore,
+        validate("param", caseParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const detail = await withCaseService(c.env, (service) =>
+            service.detail(actor, c.req.valid("param").caseId),
+          );
+          return c.json(detail);
+        },
+      )
+      .post(
+        "/:caseId/participants",
+        noStore,
+        validate("param", caseParamSchema),
+        validate("json", bodyEnvelopeSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const added = await withCaseService(c.env, (service) =>
+            service.addParticipant(
+              actor,
+              c.req.valid("param").caseId,
+              c.req.valid("json"),
+            ),
+          );
+          return c.json(added, 201);
+        },
+      )
+      .delete(
+        "/:caseId/participants/:userId",
+        noStore,
+        validate("param", participantParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const { caseId, userId } = c.req.valid("param");
+          await withCaseService(c.env, (service) =>
+            service.removeParticipant(actor, caseId, userId),
+          );
+          return c.body(null, 204);
+        },
+      )
+      .patch(
+        "/:caseId/due-date",
+        noStore,
+        validate("param", caseParamSchema),
+        validate("json", bodyEnvelopeSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const changed = await withCaseService(c.env, (service) =>
+            service.changeDueDate(
+              actor,
+              c.req.valid("param").caseId,
+              c.req.valid("json"),
+            ),
+          );
+          return c.json(changed);
+        },
+      )
+      // 終了・再開は本文を持たない（送られても読まない）
+      .post(
+        "/:caseId/close",
+        noStore,
+        validate("param", caseParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const closed = await withCaseService(c.env, (service) =>
+            service.close(actor, c.req.valid("param").caseId),
+          );
+          return c.json(closed);
+        },
+      )
+      .post(
+        "/:caseId/reopen",
+        noStore,
+        validate("param", caseParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const reopened = await withCaseService(c.env, (service) =>
+            service.reopen(actor, c.req.valid("param").caseId),
+          );
+          return c.json(reopened);
+        },
+      )
+  );
 }

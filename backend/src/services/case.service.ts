@@ -14,6 +14,10 @@
 // batch の前提が崩れたら（CaseStateChangedError）、最初と同じ判定の関数で読み直す。理由に当たればそれを返し、当たらなければ
 // 成功にせず元のエラーを投げる。読み直しも最初と同じ順なので、外された・無効になった操作者には 403 が先に返り、案件の状態を漏らさない。
 // 147-B の操作はどれも再認証を求めない（5-1 AC-3、C-122）。
+// 終了・再開（#150 の 150-A。EP-5-11・12）：404 → 有効な参加者でない（403。状態より先：状態を漏らさない）→ perm.case.close
+//   → 状態（409 already_closed／already_active）→ batch。再認証は求めない（C-81）。
+//   前提が崩れたら読み直し、理由に当たればそれを返す。版だけが変わっていれば 409 stale（状態が一度変わって戻った場合）。
+//   どれにも当たらなければ宛先が変わったとみて、最初の版のまま宛先を読み直して1回だけやり直し、それでも崩れたら 409 retry。
 import { z } from "zod";
 import {
   caseDueDateSchema,
@@ -38,6 +42,7 @@ import { createLogger } from "../lib/logger/logger";
 import type { Permission } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { createAppAuthorizer } from "./authorizer";
+import { RETRY_CONFLICT_MESSAGE } from "./channel-manage.service";
 
 // 一覧の範囲と状態（route が入力の形に使う。routes は db を直接参照しない）
 export { CASE_LIST_SCOPES, CASE_STATUSES } from "../db/case.repository";
@@ -59,7 +64,11 @@ export type CaseConflictReason =
   | "closed"
   | "already_participant"
   | "auto_participant"
-  | "last_active_participant";
+  | "last_active_participant"
+  | "already_closed"
+  | "already_active"
+  | "stale"
+  | "retry";
 
 const CONFLICT_MESSAGES: Record<CaseConflictReason, string> = {
   closed: "終了した案件は変更できません",
@@ -67,11 +76,20 @@ const CONFLICT_MESSAGES: Record<CaseConflictReason, string> = {
   auto_participant: "担当部署のオーナー・全体管理者は外せません",
   last_active_participant:
     "最後の参加者は外せません。先にほかの社員を追加してください",
+  already_closed: "この案件はすでに終了しています",
+  already_active: "この案件はすでに進行中です",
+  stale:
+    "ほかの人が先にこの案件を変更しました。画面を確かめてから、もう一度操作してください",
+  retry: RETRY_CONFLICT_MESSAGE,
 };
 
 type ViewAction = "case.summary.view" | "case.view";
 type WriteAction =
-  "case.participant.add" | "case.participant.remove" | "case.due_date.change";
+  | "case.participant.add"
+  | "case.participant.remove"
+  | "case.due_date.change"
+  | "case.close"
+  | "case.reopen";
 
 const addBodySchema = z.object({ userId: z.string().refine(isUlid) }).strict();
 const dueDateBodySchema = z
@@ -96,9 +114,11 @@ type Decision =
   | { kind: "error"; error: AppError }
   | null;
 
+const conflictError = (reason: CaseConflictReason) =>
+  new AppError("CONFLICT", CONFLICT_MESSAGES[reason], { reason });
 const conflict = (reason: CaseConflictReason): Decision => ({
   kind: "error",
-  error: new AppError("CONFLICT", CONFLICT_MESSAGES[reason], { reason }),
+  error: conflictError(reason),
 });
 const notFound = (): Decision => ({
   kind: "deny",
@@ -179,6 +199,37 @@ function decideDueDate(facts: CaseWriteFacts): Decision {
   return facts.status === "active" ? null : conflict("closed");
 }
 
+/** 終了の判定（最初の判定と読み直しで同じ）：404 → 403 → 409 already_closed */
+export function decideClose(facts: CaseWriteFacts | null): Decision {
+  return (
+    decideParticipantGate(facts) ??
+    (present(facts).status === "closed" ? conflict("already_closed") : null)
+  );
+}
+
+/** 再開の判定（最初の判定と読み直しで同じ）：404 → 403 → 409 already_active */
+export function decideReopen(facts: CaseWriteFacts | null): Decision {
+  return (
+    decideParticipantGate(facts) ??
+    (present(facts).status === "active" ? conflict("already_active") : null)
+  );
+}
+
+const STATUS_OPERATIONS = {
+  close: {
+    action: "case.close",
+    decide: decideClose,
+    write: "closeCase",
+    status: "closed",
+  },
+  reopen: {
+    action: "case.reopen",
+    decide: decideReopen,
+    write: "reopenCase",
+    status: "active",
+  },
+} as const;
+
 export function withCaseService<T>(
   env: Env,
   run: (service: ReturnType<typeof createCaseService>) => Promise<T>,
@@ -247,6 +298,48 @@ export function createCaseService(
       if (!(error instanceof CaseStateChangedError)) throw error;
       raiseIf(actor, action, caseId, await redecide());
       throw error;
+    }
+  }
+
+  /** 終了・再開。判定の材料（版を含む）を、宛先より先に読む */
+  async function changeStatus<K extends keyof typeof STATUS_OPERATIONS>(
+    actor: CaseActor,
+    caseId: string,
+    operation: (typeof STATUS_OPERATIONS)[K],
+  ): Promise<{
+    caseId: string;
+    status: (typeof STATUS_OPERATIONS)[K]["status"];
+  }> {
+    const { action, decide } = operation;
+    const read = () =>
+      repository.findWriteFacts({ caseId, actorId: actor.userId });
+    const first = await read();
+    raiseIf(actor, action, caseId, decideParticipantGate(first));
+    await authorize(actor, "perm.case.close");
+    raiseIf(actor, action, caseId, decide(first));
+    // 版は最初に読んだものを使い続ける（再試行でも新しい版に差し替えない）
+    const { version } = present(first);
+    for (let attempt = 0; ; attempt += 1) {
+      const recipientIds = await repository.listCaseNotifyRecipients(
+        caseId,
+        actor.userId,
+      );
+      try {
+        await repository[operation.write]({
+          caseId,
+          actorId: actor.userId,
+          version,
+          recipientIds,
+          traceId: actor.traceId,
+        });
+        return { caseId, status: operation.status };
+      } catch (error) {
+        if (!(error instanceof CaseStateChangedError)) throw error;
+        const again = await read();
+        raiseIf(actor, action, caseId, decide(again));
+        if (present(again).version !== version) throw conflictError("stale");
+        if (attempt >= 1) throw conflictError("retry");
+      }
     }
   }
 
@@ -323,6 +416,16 @@ export function createCaseService(
         );
       return { ...summary, ...extras };
     },
+    /** 終了（EP-5-11） */
+    close(actor: CaseActor, caseId: string) {
+      return changeStatus(actor, caseId, STATUS_OPERATIONS.close);
+    },
+
+    /** 再開（EP-5-12。150-A は参加者を選び直さない） */
+    reopen(actor: CaseActor, caseId: string) {
+      return changeStatus(actor, caseId, STATUS_OPERATIONS.reopen);
+    },
+
     /** 参加者の追加（EP-5-09）。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示） */
     async addParticipant(
       actor: CaseActor,

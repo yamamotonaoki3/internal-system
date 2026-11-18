@@ -518,3 +518,43 @@ describe("#147 147-C-2 Q4: 再有効化で、案件の参加の記録を外す",
     expect(detail).toBe("not_visible");
   });
 });
+
+// #150（150-A）計画 6.4・10章「AC-15 との関係」：唯一の有効な参加者の案件を、API の終了・再開と同じ Repository（closeCase・reopenCase）で
+// 終了・再開すると、147-C-2 の条件（進行中の案件だけを数える）が状態で切り替わる。契約は db/case-close.repository.db.test.ts と同じ。
+describe("#150 150-A AC-15 と終了・再開", () => {
+  const statusWrite = async (
+    kind: "close" | "reopen",
+    caseId: string,
+    actorId: string,
+    version: number,
+  ) =>
+    withCases(env, async (r) => {
+      const recipientIds = await r.listCaseNotifyRecipients(caseId, actorId);
+      const input = {
+        caseId,
+        actorId,
+        version,
+        recipientIds,
+        traceId: casereqTraceId(),
+      };
+      return kind === "close" ? r.closeCase(input) : r.reopenCase(input);
+    });
+
+  it("#150 AC-15・5-1 AC-9: 唯一の有効な参加者の進行中の案件を終了すると、その社員を無効化でき、参加の行は残る", async () => {
+    const only = await caseWith([target, w.inactive.id]);
+    await statusWrite("close", only.id, target, 1);
+    await deactivate();
+    expect(await isActive(target)).toBe(0);
+    expect(await participantIdsOf(only.roomId)).toEqual(
+      [target, w.inactive.id].sort(),
+    );
+  });
+
+  it("#150 AC-15・5-1 AC-10: 終了した後に再開すると、再び進行中の案件の唯一の有効な参加者になり、無効化は取り消される", async () => {
+    const only = await caseWith([target, w.inactive.id]);
+    await statusWrite("close", only.id, target, 1);
+    await statusWrite("reopen", only.id, target, 2);
+    await expectDeactivationRejected();
+    expect(await isActive(target)).toBe(1);
+  });
+});
