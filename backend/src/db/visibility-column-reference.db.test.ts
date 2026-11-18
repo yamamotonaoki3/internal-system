@@ -303,15 +303,19 @@ describe("#294 AC-1 ほかの部屋の有効な参加者（A の参加者では�
     expect(page.items.some((i) => i.id === NOTIFICATION_A)).toBe(false);
   });
 
-  it("#294 AC-1: 参加者数・参加者の一覧は、X が読んでも A の参加者に X を含めない（参加者は memberS1・memberS2 の2人）", async () => {
-    const { count, members } = await withChannels(env, async (r) => ({
-      count: await r.countMembers(roomA.roomId, w.memberS1.id),
-      members: await r.listMembers(roomA.roomId, 100, w.memberS1.id),
-    }));
-    expect(count).toBe(2);
-    expect(members.map((m) => m.id).sort()).toEqual(
-      [w.memberS1.id, w.memberS2.id].sort(),
-    );
+  it("#294 AC-1: 参加者数・参加者の一覧は、ほかの部屋だけの参加者 X が読むと返らない（件数 0・一覧が空）。対の memberS1 には2人が返る", async () => {
+    const read = (viewerId: string) =>
+      withChannels(env, async (r) => ({
+        count: await r.countMembers(roomA.roomId, viewerId),
+        members: (await r.listMembers(roomA.roomId, 100, viewerId))
+          .map((m) => m.id)
+          .sort(),
+      }));
+    expect(await read(w.memberS1.id)).toEqual({
+      count: 2,
+      members: [w.memberS1.id, w.memberS2.id].sort(),
+    });
+    expect(await read(w.memberD1.id)).toEqual({ count: 0, members: [] });
   });
 
   it("#294 AC-1: X は A に投稿できない（insertIfOrdered が 0 件）。対の memberS1 は 1 件", async () => {
