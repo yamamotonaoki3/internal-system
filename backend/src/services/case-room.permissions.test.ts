@@ -306,3 +306,147 @@ describe("#148 R-63 perm.case.post だけを外す", () => {
     expect(reacted.error).toBeNull();
   });
 });
+
+// #148 ミューテーションの生き残りへの対応：案件の権限の判定に渡す範囲（資源）は、会社（{ type: "company" }）。
+// 案件は部署に属さないため（perm.dm.* と同じ扱い。thread.service.test.ts の範囲の確認の先例に合わせ、権限の ID と範囲を完全一致で確かめる）。
+type ScopedCall = {
+  method: string;
+  userId: string | null;
+  permission: string;
+  scope: unknown;
+};
+
+function recordingAuthorizer() {
+  const calls: ScopedCall[] = [];
+  return {
+    calls,
+    async authorize(
+      principal: { userId: string } | null,
+      permission: Permission,
+      scope?: unknown,
+    ) {
+      calls.push({
+        method: "authorize",
+        userId: principal?.userId ?? null,
+        permission,
+        scope,
+      });
+    },
+    async can(
+      principal: { userId: string } | null,
+      permission: Permission,
+      scope?: unknown,
+    ) {
+      calls.push({
+        method: "can",
+        userId: principal?.userId ?? null,
+        permission,
+        scope,
+      });
+      return true;
+    },
+  };
+}
+
+const caseCalls = (calls: readonly ScopedCall[]) =>
+  calls.filter((call) => call.permission.startsWith("perm.case."));
+
+describe('#148 案件の権限の判定の範囲は会社（{ type: "company" }）', () => {
+  const COMPANY = { type: "company" };
+  const expectCase = (
+    calls: readonly ScopedCall[],
+    method: string,
+    permission: string,
+  ) =>
+    expect(caseCalls(calls)).toEqual([
+      { method, userId: cw.w.memberS1.id, permission, scope: COMPANY },
+    ]);
+
+  it("#148 R-62・R-63: メッセージの一覧は perm.case.view、投稿は perm.case.post を、会社の範囲で判定する", async () => {
+    const me = actor(cw.w.memberS1.id);
+    const listed = recordingAuthorizer();
+    await withMessages(env, (repository) =>
+      createMessageService(repository, { authorizer: listed }).list(
+        me,
+        cw.open.roomId,
+        { limit: 50 },
+      ),
+    );
+    expectCase(listed.calls, "authorize", "perm.case.view");
+    const posted = recordingAuthorizer();
+    await withMessages(env, (repository) =>
+      createMessageService(repository, { authorizer: posted }).post(
+        me,
+        cw.open.roomId,
+        "[UNIT_TEST]148範囲",
+      ),
+    );
+    expectCase(posted.calls, "authorize", "perm.case.post");
+  });
+
+  it("#148 R-64: 案件の部屋の添付の配信は perm.case.view を、会社の範囲で判定する", async () => {
+    const message = await seedRoomMessage(cw.open.roomId, cw.w.memberD1.id, 90);
+    const attachmentId = await seedStoredAttachment(
+      {
+        roomId: cw.open.roomId,
+        uploaderId: cw.w.memberD1.id,
+        messageId: message,
+      },
+      TEXT,
+    );
+    const recorder = recordingAuthorizer();
+    await createAttachmentService(env, { authorizer: recorder }).download(
+      actor(cw.w.memberS1.id),
+      attachmentId,
+      null,
+    );
+    expectCase(recorder.calls, "authorize", "perm.case.view");
+  });
+
+  it("#148 R-62: 案件の部屋のチャンネルの詳細は perm.case.view を、会社の範囲で判定する", async () => {
+    const recorder = recordingAuthorizer();
+    await withChannels(env, (repository) =>
+      withRoleAssignments(env, (roles) =>
+        createChannelService(repository, roles, { authorizer: recorder }).get(
+          actor(cw.w.memberS1.id),
+          cw.open.roomId,
+        ),
+      ),
+    );
+    expectCase(recorder.calls, "authorize", "perm.case.view");
+  });
+
+  it("#148 R-62: 部屋の既読は perm.case.view を authorize で、未読の一覧は can で、どちらも会社の範囲で判定する", async () => {
+    const parent = await seedRoomMessage(cw.open.roomId, cw.w.memberD1.id, 91);
+    const me = actor(cw.w.memberS1.id);
+    const run =
+      (recorder: ReturnType<typeof recordingAuthorizer>) =>
+      <T>(action: (s: ReturnType<typeof createUnreadService>) => Promise<T>) =>
+        withReadPositions(env, (readPositions) =>
+          withMessages(env, (rooms) =>
+            action(
+              createUnreadService(readPositions, rooms, {
+                authorizer: recorder,
+              }),
+            ),
+          ),
+        );
+    const marked = recordingAuthorizer();
+    await run(marked)((s) => s.markRead(me, cw.open.roomId, parent));
+    expectCase(marked.calls, "authorize", "perm.case.view");
+    const listed = recordingAuthorizer();
+    await run(listed)((s) => s.list(me, { limit: 100 }));
+    expectCase(listed.calls, "can", "perm.case.view");
+  });
+
+  it("#148 R-62: スレッドの一覧は perm.case.view を can で、会社の範囲で判定する", async () => {
+    const recorder = recordingAuthorizer();
+    await withThreads(env, (repository) =>
+      createThreadService(repository, { authorizer: recorder }).list(
+        actor(cw.w.memberS1.id),
+        { limit: 100 },
+      ),
+    );
+    expectCase(recorder.calls, "can", "perm.case.view");
+  });
+});

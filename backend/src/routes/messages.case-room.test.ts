@@ -267,3 +267,96 @@ describe("#148 5-2 AC-6・存在の非開示 非参加者には、存在しな�
     expect(res.status).toBe(404);
   });
 });
+
+// #148 ミューテーションの生き残りへの対応：案件の終了による拒否の監査（logger.audit）の操作（body）と対象（target）を、経路ごとに完全一致で確かめる。
+// 操作の名前は message.service.ts の監査の操作（投稿 message.post・返信 message.reply・編集 message.edit・削除 message.delete・
+// リアクション message.reaction・添付のアップロード attachment.upload）。対象は、部屋への操作は部屋の ID、メッセージへの操作はメッセージの ID、返信は親の ID。
+describe("#148 5-1 AC-11 案件の終了による拒否の監査の操作と対象", () => {
+  type AuditLine = {
+    body: string;
+    attributes: {
+      log_type?: string;
+      target?: string;
+      result?: string;
+      reason?: string;
+    };
+  };
+  const caseClosedAudits = (): { action: string; target: string }[] =>
+    logLines
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as AuditLine];
+        } catch {
+          return [];
+        }
+      })
+      .filter(
+        (line) =>
+          line.attributes?.log_type === "audit" &&
+          line.attributes.reason === "case_closed",
+      )
+      .map((line) => {
+        expect(line.attributes.result).toBe("failure");
+        return { action: line.body, target: line.attributes.target ?? "" };
+      });
+
+  it("#148 5-1 AC-11: 投稿・返信・編集・削除・リアクションの付け外し・添付のアップロード（部屋・返信）の拒否が、それぞれの操作と対象で1件ずつ残る", async () => {
+    const own = await seedRoomMessage(cw.closed.roomId, cw.w.memberS1.id, 7);
+    const token = cw.w.memberS1.token;
+    const text = ascii("[UNIT_TEST]148");
+    const steps: [
+      () => Response | Promise<Response>,
+      { action: string; target: string },
+    ][] = [
+      [
+        () => postTo(cw.closed.roomId, token),
+        { action: "message.post", target: cw.closed.roomId },
+      ],
+      [
+        () => postReply(own, { body: "[UNIT_TEST]148" }, token),
+        { action: "message.reply", target: own },
+      ],
+      [
+        () => editMessage(own, { body: "[UNIT_TEST]148編集" }, token),
+        { action: "message.edit", target: own },
+      ],
+      [
+        () => deleteMessage(own, token),
+        { action: "message.delete", target: own },
+      ],
+      [
+        () => postReaction(own, { kind: "emoji", value: "👍" }, token),
+        { action: "message.reaction", target: own },
+      ],
+      [
+        () => deleteReaction(own, "emoji", "👍", token),
+        { action: "message.reaction", target: own },
+      ],
+      [
+        () =>
+          uploadFile(
+            { kind: "room", roomId: cw.closed.roomId },
+            "memo148.txt",
+            text,
+            token,
+          ),
+        { action: "attachment.upload", target: cw.closed.roomId },
+      ],
+      [
+        () =>
+          uploadFile(
+            { kind: "reply", parentId: own },
+            "memo148.txt",
+            text,
+            token,
+          ),
+        { action: "attachment.upload", target: own },
+      ],
+    ];
+    for (const [step, expected] of steps) {
+      logLines.length = 0;
+      expect((await step()).status).toBe(409);
+      expect(caseClosedAudits()).toEqual([expected]);
+    }
+  });
+});

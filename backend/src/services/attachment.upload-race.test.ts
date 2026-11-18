@@ -285,3 +285,58 @@ describe("#148 重大1 受信中に、お知らせ専用の投稿の資格・返
     expect([announcement.status, toReply.status]).toEqual([201, 201]);
   });
 });
+
+// #148 ミューテーションの生き残りへの対応（決定 C-184(10)）：未投稿の添付の登録が0行で、読み直しでは、どの拒否の理由にも当たらないとき
+// （資格は保たれているのに登録できなかった）は、409「状態が変わったため、添付できませんでした。読み込み直してからお試しください」で、保存した物を後始末する。
+// 作り方：要求の DB を包み、message_attachments への INSERT だけを「実行せずに 0 行」として返す（ほかの文は本物に流す。読み直しは本物の状態で通る）。
+function zeroRowAttachmentInsertDb(real: D1Database): D1Database {
+  const target = /insert\s+into\s+["`]?message_attachments/i;
+  const zero = { success: true, results: [], meta: { changes: 0 } };
+  const fakeStatement = (): D1PreparedStatement =>
+    ({
+      bind: () => fakeStatement(),
+      run: async () => zero,
+      all: async () => zero,
+      raw: async () => [],
+      first: async () => null,
+    }) as unknown as D1PreparedStatement;
+  return new Proxy(real, {
+    get(source, property, receiver) {
+      if (property === "prepare")
+        return (query: string) =>
+          target.test(query) ? fakeStatement() : source.prepare(query);
+      const value = Reflect.get(source, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(source) : value;
+    },
+  });
+}
+
+describe("#148 C-184(10) 登録が0行で、どの拒否の理由にも当たらない", () => {
+  it.each(["room", "reply"] as const)(
+    "#148 C-184(10): %s への添付は 409「状態が変わったため、添付できませんでした。読み込み直してからお試しください」で、R2 の実体を後始末する",
+    async (target) => {
+      const parent = await seedRoomMessage(
+        cw.open.roomId,
+        cw.w.memberD1.id,
+        95,
+      );
+      const response = await uploadFile(
+        target === "room"
+          ? { kind: "room", roomId: cw.open.roomId }
+          : { kind: "reply", parentId: parent },
+        "memo148.txt",
+        TEXT,
+        cw.w.memberS1.token,
+        { envOverrides: { DB: zeroRowAttachmentInsertDb(env.DB) } },
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "CONFLICT",
+        message:
+          "状態が変わったため、添付できませんでした。読み込み直してからお試しください",
+      });
+      expect(await attachmentCountIn(cw.open.roomId)).toBe(0);
+      expect(await storedKeys()).toEqual([]);
+    },
+  );
+});

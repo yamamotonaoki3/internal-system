@@ -93,7 +93,10 @@ describe("#148 返信できない理由 case_closed（EP-1-07）", () => {
     const parent = await seedRoomMessage(cw.closed.roomId, cw.w.memberD1.id, 1);
     const res = await getReplies(parent, "?limit=50", cw.w.memberS1.token);
     expect(res.status).toBe(200);
+    // 参加者のまま（joined: true）で、部屋に書き込めない（roomWritable: false）。返信できない理由は case_closed
     expect(await res.json()).toMatchObject({
+      joined: true,
+      roomWritable: false,
       replyBlockedReason: CASE_CLOSED_REASON,
     });
   });
