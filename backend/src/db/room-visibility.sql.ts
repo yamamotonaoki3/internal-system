@@ -5,6 +5,7 @@
 //     チャンネル：未アーカイブで、公開か、閲覧者が参加中の非公開
 //     DM：閲覧者が当事者
 // 閲覧者の有効性は主キーで1回、参加の行・当事者の行は主キーで引く。
+// メッセージの付随情報（メンション・リアクション・添付）と未読の数の読み取りにも使う（#297。本文の読み取りの後の別の文でも、その時点の資格で絞る）。
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
 export function roomViewableBy(roomId: SQLWrapper, viewerId: string): SQL {
@@ -18,4 +19,13 @@ export function roomViewableBy(roomId: SQLWrapper, viewerId: string): SQL {
       OR EXISTS (
         SELECT 1 FROM conversation_members vv
         WHERE vv.conversation_id = ${roomId} AND vv.user_id = ${viewerId})))`;
+}
+
+/** このメッセージの部屋を、この閲覧者がいま見てよいか。messageId は値か、外側の列を入れ子の SQL（sql`${表.列}`）で渡す */
+export function messageViewableBy(
+  messageId: SQLWrapper,
+  viewerId: string,
+): SQL {
+  return sql`EXISTS (SELECT 1 FROM messages vmsg
+    WHERE vmsg.id = ${messageId} AND ${roomViewableBy(sql`vmsg.room_id`, viewerId)})`;
 }

@@ -64,7 +64,7 @@ Issue #139（親：#110）。メッセージ入力で社員を指名し、指名
 | `createMessageService().edit` | 投稿者、メッセージID、本文、`Mention[]` | `{ id, body, editedAt, mentions }`。権限・指名検証後に編集し、新規宛先だけへ通知する |
 | `insertMessageMentions` | DB、メッセージID、部屋ID、指名配列、任意の許可条件 | 指名行を作るSQL文 |
 | `insertMentionNotifications` | DB、実メッセージID、部屋ID、送信者、親ID、指名配列、新規宛先限定 | 適格な宛先への通知SQL文 |
-| `loadMessageMentions` | DB、メッセージID配列 | メッセージIDから指名配列へのMap |
+| `loadMessageMentions` | DB、メッセージID配列、閲覧者ID（必須。#297） | メッセージIDから指名配列へのMap。閲覧者がそのメッセージの部屋をいま見てよい行だけ（`messageViewableBy`） |
 | `remarkMentions` | 本文と指名範囲 | AST内の原文範囲に一致した指名だけを強調する変換 |
 
 ## 関係するIssue・ADR

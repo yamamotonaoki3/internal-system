@@ -283,9 +283,9 @@ export function createMessageRepository(db: Database) {
         .limit(1);
       const row = rows[0];
       if (row === undefined) return null;
-      const mentions = await loadMessageMentions(db, [row.id]);
+      const mentions = await loadMessageMentions(db, [row.id], viewerId);
       const reactions = await loadMessageReactions(db, [row.id], viewerId);
-      const attachments = await loadMessageAttachments(db, [row.id]);
+      const attachments = await loadMessageAttachments(db, [row.id], viewerId);
       return toItem(
         row,
         mentions.get(row.id) ?? [],
@@ -349,9 +349,9 @@ export function createMessageRepository(db: Database) {
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
       const ids = page.items.map((row) => row.id);
-      const mentions = await loadMessageMentions(db, ids);
+      const mentions = await loadMessageMentions(db, ids, viewerId);
       const reactions = await loadMessageReactions(db, ids, viewerId);
-      const attachments = await loadMessageAttachments(db, ids);
+      const attachments = await loadMessageAttachments(db, ids, viewerId);
       return {
         items: page.items.map((row) =>
           toItem(
@@ -384,9 +384,9 @@ export function createMessageRepository(db: Database) {
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
       const ids = page.items.map((row) => row.id);
-      const mentions = await loadMessageMentions(db, ids);
+      const mentions = await loadMessageMentions(db, ids, viewerId);
       const reactions = await loadMessageReactions(db, ids, viewerId);
-      const attachments = await loadMessageAttachments(db, ids);
+      const attachments = await loadMessageAttachments(db, ids, viewerId);
       return {
         items: page.items.map((row) =>
           toItem(
@@ -424,9 +424,9 @@ export function createMessageRepository(db: Database) {
         .limit(limit + 1);
       const page = toPage(rows, limit, cursorFor);
       const ids = page.items.map((row) => row.id);
-      const mentions = await loadMessageMentions(db, ids);
+      const mentions = await loadMessageMentions(db, ids, viewerId);
       const reactions = await loadMessageReactions(db, ids, viewerId);
-      const attachments = await loadMessageAttachments(db, ids);
+      const attachments = await loadMessageAttachments(db, ids, viewerId);
       return {
         items: page.items.map((row) =>
           toItem(
@@ -458,9 +458,9 @@ export function createMessageRepository(db: Database) {
         .limit(limit + 1);
       const page = toAfterIdPage(rows, limit);
       const ids = page.items.map((row) => row.id);
-      const mentions = await loadMessageMentions(db, ids);
+      const mentions = await loadMessageMentions(db, ids, viewerId);
       const reactions = await loadMessageReactions(db, ids, viewerId);
-      const attachments = await loadMessageAttachments(db, ids);
+      const attachments = await loadMessageAttachments(db, ids, viewerId);
       return {
         items: page.items.map((row) =>
           toItem(

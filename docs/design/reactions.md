@@ -34,7 +34,7 @@ Issue #138（親：#133）。メッセージ（親の投稿と返信）に、絵
 | ファイル | 役割 |
 | --- | --- |
 | `backend/src/db/message-reactions.sql.ts` | 部屋の条件`reactable`、集計`loadMessageReactions`、0行の後の読み直し`loadReactionsIfReactable`、書き込み`addReactionIfReactable`・`removeReactionIfReactable`。SQLの条件を持つものをここに閉じ込める。配列はJSONの1パラメータで渡す。未知のDBエラーは変換せず再送出する |
-| `backend/src/db/message.repository.ts`、`thread.repository.ts` | 各一覧・`findItem`・スレッド一覧の`toItem`が、`loadMessageReactions`の結果を`reactions`として付ける。`listLatest`・`listAfter`の`viewerId`は必須（付け忘れで`reactedByMe`が常に偽になるのを型で防ぐ）。書き込みと読み直しをRepositoryの関数として公開する |
+| `backend/src/db/message.repository.ts`、`thread.repository.ts` | 各一覧・`findItem`・スレッド一覧の`toItem`が、`loadMessageReactions`の結果を`reactions`として付ける。`listLatest`・`listAfter`の`viewerId`は必須（付け忘れで`reactedByMe`が常に偽になるのを型で防ぐ）。書き込みと読み直しをRepositoryの関数として公開する【#297：`loadMessageReactions`の`viewerId`は`string`で必須（`null`を許さない）。集計の文にも`messageViewableBy`の条件が入り、本文の後に資格を失った部屋のリアクションは返らない】 |
 | `backend/src/services/message.service.ts` | `requireReactable`（判定の順）、`addReaction`・`removeReaction`（共通の流れ`writeReaction`）。0行の後の分類を持つ |
 | `backend/src/routes/messages.ts` | `POST /:messageId/reactions`（EP-1-12）、`DELETE /:messageId/reactions/:kind/:value`（EP-1-13）。本文・パスをzodで検査し、`isValidReaction`が偽なら422。422の応答に入力値を含めない |
 | `backend/db/seeds/cleanup.sql` | `messages`・`users`を消す前に`message_reactions`を消し、残数`remaining_message_reactions`を返す |
