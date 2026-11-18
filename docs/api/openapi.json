@@ -561,7 +561,7 @@
             }
           },
           "409": {
-            "description": "対象が既に無効・全体管理者・部署のオーナー（reason: already_inactive・global_admin・department_owner）",
+            "description": "対象が既に無効・全体管理者・部署のオーナー・進行中の案件の唯一の有効な参加者（reason: already_inactive・global_admin・department_owner・case_handover_required）",
             "content": {
               "application/json": {
                 "schema": {

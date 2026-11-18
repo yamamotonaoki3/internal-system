@@ -1205,6 +1205,7 @@ describe("#196 監査の内容・失敗の理由・元のエラーの保持（Re
       ownerUserId: ownerB,
       previousDepartmentId: deptB.id,
       successorUserId: memberB1,
+      caseJoinCount: 0,
     });
   });
 
@@ -1223,6 +1224,7 @@ describe("#196 監査の内容・失敗の理由・元のエラーの保持（Re
       successorUserId: memberB1,
       previousVersion: 1,
       nextVersion: 2,
+      caseJoinCount: 0,
     });
   });
 
@@ -1239,6 +1241,7 @@ describe("#196 監査の内容・失敗の理由・元のエラーの保持（Re
       successorUserId: null,
       previousVersion: 1,
       nextVersion: 2,
+      caseJoinCount: 0,
     });
   });
 
