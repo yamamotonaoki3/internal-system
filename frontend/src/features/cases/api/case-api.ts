@@ -1,4 +1,5 @@
-// API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）の通信はここに書く。
+// API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）、
+// 終了・再開（#150。EP-5-11・12）の通信はここに書く。
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
@@ -105,6 +106,28 @@ export async function removeCaseParticipant(
   await apiClient.delete(
     `${participantsPath(caseId)}/${encodeURIComponent(userId)}`,
   );
+}
+
+const statusChangedSchema = z.object({
+  caseId: z.string().min(1),
+  status: z.enum(CASE_STATUSES),
+});
+export type CaseStatusChanged = z.infer<typeof statusChangedSchema>;
+
+/** 終了（本文なし） */
+export async function closeCase(caseId: string): Promise<CaseStatusChanged> {
+  const response = await apiClient.post(
+    `/cases/${encodeURIComponent(caseId)}/close`,
+  );
+  return statusChangedSchema.parse(response.data);
+}
+
+/** 再開（本文なし。参加者は選び直さない） */
+export async function reopenCase(caseId: string): Promise<CaseStatusChanged> {
+  const response = await apiClient.post(
+    `/cases/${encodeURIComponent(caseId)}/reopen`,
+  );
+  return statusChangedSchema.parse(response.data);
 }
 
 /** null は未定に戻す */

@@ -3,21 +3,26 @@
 // 「参加者を管理」は有効な参加者で進行中のときだけ、「納期を変更」は概要の canEditDueDate が真のときだけ出す（表示の制御。認可はサーバー）。
 // 開いているダイアログと、参加者の操作の結果は、この部品（行の外）で持つ。取り直しで非参加・詳細 403 になり「参加者を管理」が消えても、
 // 操作のエラー（「参加者だけが操作できます」など）を、非公開の表示とあわせて出し続ける（コードレビュー1回目の軽微）。利用者が替わったときは、ページごと作り直して残さない（pages/CaseDetailPage.tsx）。
+// 「案件を終了」「案件を再開」（#150）は有効な参加者だけに出す（R-77。非参加の管理者にも出さない）。確認のダイアログと結果はこの部品で持ち、
+// 結果（完了・失敗の文言）はダイアログの外に出す。送った後は結果によらずダイアログを閉じる（409 なら状態が変わっているので、同じ確認を出し続けない）。
 // 参加者の本文は、説明 → 参加者 → やり取り（#148。CaseConversation）の順に見出しで縦に並べる（C-184(3)。タブは作らない）。TODO・添付の一覧は後続（#148・#149）で足す。
 import { useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { describeError, isApiError } from "../describe-error";
+import { useCaseStatusChange } from "../hooks/useCaseWrites";
 import { useCaseDetail, useCaseSummary } from "../hooks/useCases";
 import { useParticipantWrites } from "../hooks/useParticipantWrites";
-import { PARTICIPANTS_ONLY_TEXT } from "../labels";
+import { CASE_STATUS_CHANGE_TEXTS, PARTICIPANTS_ONLY_TEXT } from "../labels";
+import { CaseConfirmDialog } from "./CaseConfirmDialog";
 import { CaseConversation } from "./CaseConversation";
 import { CaseDueDateDialog } from "./CaseDueDateDialog";
 import { CaseHeader } from "./CaseHeader";
 import { CaseParticipantList } from "./CaseParticipantList";
 import { CaseParticipantManager } from "./CaseParticipantManager";
 
-type OpenDialog = "participants" | "dueDate" | null;
+type OpenDialog = "participants" | "dueDate" | "close" | "reopen" | null;
+type StatusChangeResult = { tone: "info" | "error"; text: string };
 
 export function CaseDetailView({
   caseId,
@@ -31,6 +36,11 @@ export function CaseDetailView({
   const detail = useCaseDetail(caseId, isParticipant);
   const [open, setOpen] = useState<OpenDialog>(null);
   const writes = useParticipantWrites(caseId);
+  const statusChange = useCaseStatusChange(
+    caseId,
+    detail.data?.channelId ?? null,
+  );
+  const [statusResult, setStatusResult] = useState<StatusChangeResult>();
 
   if (summary.isPending) return <p role="status">読み込み中です</p>;
   if (summary.isError)
@@ -47,6 +57,63 @@ export function CaseDetailView({
     isParticipant &&
     detail.isSuccess &&
     item.status === "active";
+
+  function changeStatus(to: "close" | "reopen") {
+    setStatusResult(undefined);
+    statusChange.mutate(to, {
+      onSuccess: () =>
+        setStatusResult({
+          tone: "info",
+          text: CASE_STATUS_CHANGE_TEXTS[to].done,
+        }),
+      onError: (cause) =>
+        setStatusResult({ tone: "error", text: describeError(cause) }),
+      onSettled: close,
+    });
+  }
+
+  const statusAction = item.status === "active" ? "close" : "reopen";
+
+  /** ヘッダーの下の操作（納期の変更・終了・再開）と、終了・再開の確認・結果 */
+  function renderStatusChange() {
+    return (
+      <>
+        {(item.canEditDueDate || isParticipant) && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {item.canEditDueDate && (
+              <Button variant="secondary" onClick={() => setOpen("dueDate")}>
+                納期を変更
+              </Button>
+            )}
+            {isParticipant && (
+              <Button variant="secondary" onClick={() => setOpen(statusAction)}>
+                {CASE_STATUS_CHANGE_TEXTS[statusAction].button}
+              </Button>
+            )}
+          </div>
+        )}
+        {(open === "close" || open === "reopen") && (
+          <CaseConfirmDialog
+            title={CASE_STATUS_CHANGE_TEXTS[open].title}
+            confirmLabel={CASE_STATUS_CHANGE_TEXTS[open].confirm}
+            pending={statusChange.isPending}
+            onConfirm={() => changeStatus(open)}
+            onClose={close}
+          >
+            {CASE_STATUS_CHANGE_TEXTS[open].body}
+          </CaseConfirmDialog>
+        )}
+        {statusResult !== undefined && (
+          <Alert
+            tone={statusResult.tone}
+            role={statusResult.tone === "error" ? "alert" : "status"}
+          >
+            {statusResult.text}
+          </Alert>
+        )}
+      </>
+    );
+  }
 
   function renderBody() {
     if (!isParticipant) return <p>{PARTICIPANTS_ONLY_TEXT}</p>;
@@ -94,13 +161,7 @@ export function CaseDetailView({
   return (
     <>
       <CaseHeader item={item} />
-      {item.canEditDueDate && (
-        <div className="mb-4">
-          <Button variant="secondary" onClick={() => setOpen("dueDate")}>
-            納期を変更
-          </Button>
-        </div>
-      )}
+      {renderStatusChange()}
       {open === "dueDate" && (
         <CaseDueDateDialog
           caseId={caseId}

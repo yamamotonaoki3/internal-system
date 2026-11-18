@@ -34,6 +34,9 @@ const KINDS = {
   // チャンネルのアーカイブ・復元（#143）：権限を失っても残す（3-4 AC-5）。target_id はその回のアーカイブの記録
   "channel.archived": { containsRoomContent: false },
   "channel.restored": { containsRoomContent: false },
+  // 案件の終了・再開（#150）：部屋の内容を含まない（概要は全員に見えるため、参加から外された後も残す）。target_id は案件
+  "case.closed": { containsRoomContent: false },
+  "case.reopened": { containsRoomContent: false },
 } as const satisfies NotificationKindDefinitions;
 
 export type NotificationKind = keyof typeof KINDS;

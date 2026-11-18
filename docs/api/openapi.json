@@ -6222,6 +6222,154 @@
           }
         }
       }
+    },
+    "/api/cases/{caseId}/close": {
+      "post": {
+        "operationId": "closeCase",
+        "summary": "案件を終了する",
+        "description": "有効な参加者が、進行中の案件を終了する。本文は持たない（送られても読まない）。再認証は求めない。判定の順は、案件がない（404）→ 有効な参加者でない（403。状態より先）→ 権限 perm.case.close → 状態（409）。操作した本人を除く有効な参加者に通知 case.closed（target_id は案件の ID）、監査 case.close（detail は caseId・notifiedCount）を同じ batch で確定する。案件専用チャンネルと参加者は残す。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "終了した。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseClosed"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "有効な参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも参加していなければ同じ。案件の状態は明かさない）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに終了している（CONFLICT。reason: already_closed）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/reopen": {
+      "post": {
+        "operationId": "reopenCase",
+        "summary": "案件を再開する",
+        "description": "有効な参加者が、終了した案件を申請なしで再開する（いまの参加者のまま）。本文は持たない（送られても読まない）。再認証は求めない。判定の順は、案件がない（404）→ 有効な参加者でない（403。状態より先）→ 権限 perm.case.close → 状態（409）。操作した本人を除く有効な参加者に通知 case.reopened（target_id は案件の ID）、監査 case.reopen（detail は caseId・notifiedCount）を同じ batch で確定する。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "再開した。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseReopened"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "有効な参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも参加していなければ同じ。案件の状態は明かさない）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "すでに進行中（CONFLICT。reason: already_active）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10483,6 +10631,8 @@
               "case.participant.add",
               "case.participant.remove",
               "case.due_date.change",
+              "case.close",
+              "case.reopen",
               "message.delete",
               "audit_log.view"
             ],
@@ -10593,6 +10743,8 @@
               "case.participant.add",
               "case.participant.remove",
               "case.due_date.change",
+              "case.close",
+              "case.reopen",
               "message.delete",
               "audit_log.view"
             ]
@@ -11253,6 +11405,42 @@
             ],
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "description": "納期（YYYY-MM-DD。日本時間の今日以降）。null は未定に戻す"
+          }
+        }
+      },
+      "CaseClosed": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "closed"
+          }
+        }
+      },
+      "CaseReopened": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "status": {
+            "type": "string",
+            "const": "active"
           }
         }
       }

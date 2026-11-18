@@ -11,6 +11,10 @@ export type NotificationView = {
   to: (item: NotificationItem) => string | null;
 };
 
+/** target_id が案件の ID の通知の移動先（S-17） */
+const caseLink = (item: NotificationItem) =>
+  item.targetId === null ? null : `/cases/${encodeURIComponent(item.targetId)}`;
+
 export const NOTIFICATION_VIEWS: Readonly<
   Record<NotificationKind, NotificationView>
 > = {
@@ -74,6 +78,15 @@ export const NOTIFICATION_VIEWS: Readonly<
   "channel.restored": {
     label: "参加しているチャンネルが復元されました",
     to: (item) => (item.roomId === null ? null : `/channels/${item.roomId}`),
+  },
+  // 案件の終了・再開（#150）。通知の行に件名を保存しないため、固定の文にする。終了は「アーカイブ」と呼ばない
+  "case.closed": {
+    label: "参加している案件が終了しました",
+    to: caseLink,
+  },
+  "case.reopened": {
+    label: "参加している案件が再開されました",
+    to: caseLink,
   },
 };
 

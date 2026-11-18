@@ -180,7 +180,9 @@ describe("#150 150-A 判定の順（計画 6.2）", () => {
         token: w.memberS1.token,
         origin: BAD_ORIGIN,
       });
-      await expectError(res, 403, { code: "FORBIDDEN_ORIGIN" });
+      // 送信元の確認は app.ts の一括で、no-store を付ける処理より前に動く（既存の経路のテストと同じく、no-store は確かめない）
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "FORBIDDEN_ORIGIN" });
       expect(await caseCloseSnapshot()).toEqual(before);
     },
   );

@@ -8,6 +8,7 @@ import { channelArchiveEvents, channels, notifications } from "../../db/schema";
 import { ROLE_IDS } from "../lib/permissions";
 import { newUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
+import { recipientsUnchanged } from "./channel-member.sql";
 import type { Database } from "./database";
 
 /**
@@ -22,20 +23,6 @@ export function channelManagerSql(actorId: string): SQL {
         AND ((r.role_id = ${ROLE_IDS.globalAdmin} AND r.scope_type = 'company')
           OR (r.role_id = ${ROLE_IDS.owner} AND r.scope_type = 'department'
             AND c.department_id IS NOT NULL AND r.department_id = c.department_id)))`;
-}
-
-/** 宛先（有効な参加者で操作者以外）が、読んだ集合と同じであること */
-function recipientsUnchanged(
-  roomId: string,
-  actorId: string,
-  recipientIds: readonly string[],
-): SQL {
-  const current = sql`FROM channel_members m JOIN users u ON u.id = m.user_id
-    WHERE m.channel_id = ${roomId} AND u.is_active = 1 AND m.user_id <> ${actorId}`;
-  // 宛先の ID は JSON の値1つで渡す（人数に比例して値の数を増やさない。D1 の1文あたりの上限のため）
-  return sql`(SELECT COUNT(*) ${current}) = ${recipientIds.length}
-    AND (SELECT COUNT(*) ${current}
-      AND m.user_id IN (SELECT value FROM json_each(${JSON.stringify(recipientIds)}))) = ${recipientIds.length}`;
 }
 
 /** チャンネル（別名 c）の行があり、版が一致し、状態・種類の条件と管理できる人の条件を満たすこと */
