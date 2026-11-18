@@ -105,7 +105,7 @@
 
 ## 監査の行は書き換えない（同じbatchの中で決まる値を入れるとき）
 
-同じ`db.batch`の中で決まる値（採番した案件番号・数えた参加者数など）を監査の`detail`に入れるときは、**行を入れてから`UPDATE`で書き換えない**。値が決まった後に、`auditLogInsertWithDetailSql`（`audit-log.repository.ts`）で、`detail`をSQLの式（`json_object(...)`など）で組み立てて**1回の`INSERT…SELECT`**で入れる。項目名は呼び出し側で固定し、入れ子にしない。使っているのは案件の承認（`case-request.repository.ts`の`approve`）。#146-Bの承認は、行を入れた直後に`json_set`で書き換えていたが、0-6 AC-4と合わないため、C-180で訂正した（`detail`の項目・値は変えていない）。
+同じ`db.batch`の中で決まる値（採番した案件番号・数えた参加者数など）を監査の`detail`に入れるときは、**行を入れてから`UPDATE`で書き換えない**。値が決まった後に、`auditLogInsertWithDetailSql`（`audit-log.repository.ts`）で、`detail`をSQLの式（`json_object(...)`など）で組み立てて**1回の`INSERT…SELECT`**で入れる。項目名は呼び出し側で固定し、入れ子にしない。使っているのは案件の承認（`case-request.repository.ts`の`approve`）と、オーナーの交代・後任のある部署の作成（`department.repository.ts`の`auditWithCaseJoinCount`。`detail`の`caseJoinCount`＝案件に新しく入った行の合計。#147の147-C-2。件数は入る前の不足を数えるため、監査の文を参加の文より前に置く）。#146-Bの承認は、行を入れた直後に`json_set`で書き換えていたが、0-6 AC-4と合わないため、C-180で訂正した（`detail`の項目・値は変えていない）。
 
 番人のテスト`backend/src/audit-log.immutable.test.ts`が見る範囲は、本番のコード（`backend/src`のテスト以外・`backend/db/migrations`・`backend/db/scripts`）のうち、`audit_logs`への`DELETE`・`UPDATE`・`DROP`・`TRUNCATE`と`.delete(auditLogs)`・`.update(auditLogs)`。`INSERT`は対象外。#146-Bの承認の書き換えは、このテストが、mainの取り込みで検出した。
 

@@ -521,7 +521,7 @@
       "post": {
         "operationId": "deactivateAccount",
         "summary": "アカウントを無効化する",
-        "description": "全体管理者（perm.account.deactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（自分自身）→ 再認証 → 409。所属・全チャンネルの参加・追加ロールを外し、有効なセッションを失効させる。DM の参加は残す。本文はない。",
+        "description": "全体管理者（perm.account.deactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（自分自身）→ 再認証 → 409。所属・案件専用を除くチャンネルの参加・追加ロールを外し、有効なセッションを失効させる。案件専用のチャンネルの参加の行と DM の参加は残す（無効な間は、案件の中身を見られず、有効な参加者として数えない）。本文はない。",
         "parameters": [
           {
             "name": "id",
@@ -561,7 +561,7 @@
             }
           },
           "409": {
-            "description": "対象が既に無効・全体管理者・部署のオーナー（reason: already_inactive・global_admin・department_owner）",
+            "description": "対象が既に無効・全体管理者・部署のオーナー・進行中の案件の唯一の有効な参加者（reason: already_inactive・global_admin・department_owner・case_handover_required）",
             "content": {
               "application/json": {
                 "schema": {
@@ -580,7 +580,7 @@
       "post": {
         "operationId": "reactivateAccount",
         "summary": "無効なアカウントを再有効化する",
-        "description": "全体管理者（perm.account.reactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（部署がない・無効）→ 再認証 → 409。同じ ID で有効に戻し、指定の部署と全社連絡・部署の専用チャンネルに参加させる。ロール・個別のチャンネルは戻さない。一時パスワードは応答に一度だけ含め、Cache-Control: no-store を付ける。",
+        "description": "全体管理者（perm.account.reactivate）だけ。再認証が必要。判定の順は 404 → 403 → 422（部署がない・無効）→ 再認証 → 409。同じ ID で有効に戻し、指定の部署と全社連絡・部署の専用チャンネルに参加させる。無効な間に残っていた案件専用のチャンネルの参加の行は外す。ロール・個別のチャンネルは戻さない。一時パスワードは応答に一度だけ含め、Cache-Control: no-store を付ける。",
         "parameters": [
           {
             "name": "id",

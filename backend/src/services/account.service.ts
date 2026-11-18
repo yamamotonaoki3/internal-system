@@ -35,7 +35,11 @@ export type AccountReactivated = {
 };
 
 type LifecycleConflictReason =
-  "already_inactive" | "global_admin" | "department_owner" | "already_active";
+  | "already_inactive"
+  | "global_admin"
+  | "department_owner"
+  | "case_handover_required"
+  | "already_active";
 
 type TransferConflictReason = "inactive" | "department_owner";
 
@@ -56,6 +60,8 @@ const LIFECYCLE_CONFLICT_MESSAGES: Record<LifecycleConflictReason, string> = {
   global_admin: "全体管理者は、後任へ引き継ぐまで無効化できません",
   department_owner:
     "部署のオーナーは、先にオーナーを交代してから無効化してください",
+  case_handover_required:
+    "この社員が唯一の有効な参加者になっている進行中の案件があるため、無効化できません",
   already_active: "このアカウントはすでに有効です",
 };
 
@@ -168,6 +174,8 @@ export function createAccountService(
     if (!target.isActive) throw lifecycleConflict("already_inactive");
     if (target.isGlobalAdmin) throw lifecycleConflict("global_admin");
     if (target.isDepartmentOwner) throw lifecycleConflict("department_owner");
+    if (target.isSoleActiveCaseParticipant)
+      throw lifecycleConflict("case_handover_required");
   }
 
   /** 再有効化の判定（最初と、前提が崩れた後の読み直しで同じものを使う） */

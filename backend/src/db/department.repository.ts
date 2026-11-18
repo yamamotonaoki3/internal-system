@@ -20,7 +20,10 @@ import {
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid, newUlid } from "../lib/ulid";
-import { auditLogInsert } from "./audit-log.repository";
+import {
+  auditLogInsert,
+  auditLogInsertWithDetailSql,
+} from "./audit-log.repository";
 import { withDatabase, type BatchItem, type Database } from "./database";
 import {
   createRoleAssignmentRepository,
@@ -215,8 +218,7 @@ const userFactColumns = {
 
 function auditFor(db: Database, write: DepartmentWrite) {
   return (
-    action:
-      "department.create" | "department.rename" | "department.owner_change",
+    action: "department.create" | "department.rename",
     departmentId: string,
     detail: Record<string, string | number | boolean | null>,
   ) =>
@@ -229,6 +231,61 @@ function auditFor(db: Database, write: DepartmentWrite) {
       traceId: write.traceId,
       detail,
     });
+}
+
+/** オーナーになった人と、案件へ自動参加させる部署（新しいオーナーと、元部署の後任） */
+type CaseJoin = { userId: string; departmentId: string };
+
+function caseJoinsOf(plan: OwnerPlan): CaseJoin[] {
+  const joins = [{ userId: plan.newOwnerId, departmentId: plan.departmentId }];
+  if (plan.previous !== null)
+    joins.push({
+      userId: plan.previous.successorId,
+      departmentId: plan.previous.departmentId,
+    });
+  return joins;
+}
+
+/** 部署が担当部署の案件（進行中・終了とも）のうち、その人がまだ参加していない案件の専用チャンネル */
+function missingCaseRoomsSql(join: CaseJoin): SQL {
+  return sql`SELECT k.channel_id FROM cases k
+    WHERE EXISTS (SELECT 1 FROM case_departments cd
+        WHERE cd.case_id = k.id AND cd.department_id = ${join.departmentId})
+      AND NOT EXISTS (SELECT 1 FROM channel_members cm
+        WHERE cm.channel_id = k.channel_id AND cm.user_id = ${join.userId})`;
+}
+
+/** 新しく入る行の合計（監査の caseJoinCount）。参加の文より前に評価して、入る前の差を数える */
+function caseJoinCountSql(plan: OwnerPlan): SQL {
+  return sql.join(
+    caseJoinsOf(plan).map(
+      (join) => sql`(SELECT COUNT(*) FROM (${missingCaseRoomsSql(join)}))`,
+    ),
+    sql` + `,
+  );
+}
+
+/** 交代の監査。caseJoinCount は batch の中で決まるため、INSERT…SELECT で入れる（後から書き換えない） */
+function auditWithCaseJoinCount(
+  db: Database,
+  write: DepartmentWrite,
+  action: "department.create" | "department.owner_change",
+  departmentId: string,
+  detail: Record<string, string | number | null>,
+  plan: OwnerPlan,
+) {
+  const fields = Object.entries(detail).map(
+    ([key, value]) => sql`${key}, ${value}`,
+  );
+  return auditLogInsertWithDetailSql(db, {
+    actorId: write.actorId,
+    action,
+    targetType: "department",
+    targetId: departmentId,
+    result: "success",
+    traceId: write.traceId,
+    detail: sql`json_object(${sql.join(fields, sql`, `)}, 'caseJoinCount', ${caseJoinCountSql(plan)})`,
+  });
 }
 
 export function createDepartmentRepository(db: Database) {
@@ -453,6 +510,17 @@ export function createDepartmentRepository(db: Database) {
     return statements;
   }
 
+  /**
+   * オーナーになった人を、その部署が担当部署の案件（進行中・終了とも）に参加させる文（C-133(4)・決定 Q3）。
+   * 前のオーナーの行は残す（一般の参加者になる）。案件の側の監査・通知は作らない
+   */
+  function caseJoinStatements(plan: OwnerPlan, now: string): BatchItem[] {
+    return caseJoinsOf(plan).map((join) =>
+      db.insert(channelMembers).select(sql`
+        SELECT r.channel_id, ${join.userId}, ${now} FROM (${missingCaseRoomsSql(join)}) r`),
+    );
+  }
+
   async function runBatch<T>(run: () => Promise<T>): Promise<T> {
     try {
       return await run();
@@ -606,11 +674,26 @@ export function createDepartmentRepository(db: Database) {
             ...invariantAssertions(plan),
             sql`${autoChannelCount(departmentId, "department")} = 1 AND ${autoChannelCount(departmentId, "announcement")} = 1`,
           ]),
-          auditFor(db, write)("department.create", departmentId, {
-            ownerUserId: plan.newOwnerId,
-            previousDepartmentId: plan.previous?.departmentId ?? null,
-            successorUserId: plan.previous?.successorId ?? null,
-          }),
+          // 監査は参加の文より前に置く（caseJoinCount を、入る前の差で数えるため）。後任のないときは detail の形を変えない
+          plan.previous === null
+            ? auditFor(db, write)("department.create", departmentId, {
+                ownerUserId: plan.newOwnerId,
+                previousDepartmentId: null,
+                successorUserId: null,
+              })
+            : auditWithCaseJoinCount(
+                db,
+                write,
+                "department.create",
+                departmentId,
+                {
+                  ownerUserId: plan.newOwnerId,
+                  previousDepartmentId: plan.previous.departmentId,
+                  successorUserId: plan.previous.successorId,
+                },
+                plan,
+              ),
+          ...(plan.previous === null ? [] : caseJoinStatements(plan, now)),
         ]),
       );
       const row = created[0];
@@ -731,14 +814,23 @@ export function createDepartmentRepository(db: Database) {
           assertStatement(db, input.departmentId, factAssertions(plan)),
           ...transferStatements(plan, now),
           assertStatement(db, input.departmentId, invariantAssertions(plan)),
-          auditFor(db, write)("department.owner_change", input.departmentId, {
-            previousOwnerUserId: plan.currentOwnerId,
-            newOwnerUserId: plan.newOwnerId,
-            previousDepartmentId: plan.previous?.departmentId ?? null,
-            successorUserId: plan.previous?.successorId ?? null,
-            previousVersion: input.version,
-            nextVersion: input.version + 1,
-          }),
+          // 監査は参加の文より前に置く（caseJoinCount を、入る前の差で数えるため）
+          auditWithCaseJoinCount(
+            db,
+            write,
+            "department.owner_change",
+            input.departmentId,
+            {
+              previousOwnerUserId: plan.currentOwnerId,
+              newOwnerUserId: plan.newOwnerId,
+              previousDepartmentId: plan.previous?.departmentId ?? null,
+              successorUserId: plan.previous?.successorId ?? null,
+              previousVersion: input.version,
+              nextVersion: input.version + 1,
+            },
+            plan,
+          ),
+          ...caseJoinStatements(plan, now),
         ]),
       );
       const row = bumped[0];

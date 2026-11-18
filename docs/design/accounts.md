@@ -105,14 +105,14 @@
 | --- | --- |
 | 無効化 | `POST /api/admin/accounts/:id/deactivate`。本文なし。成功は204 |
 | 再有効化 | `POST /api/admin/accounts/:id/reactivate`。本文は`departmentId`だけ（余剰項目は422）。成功は200で`id`・`initialPassword`。`Cache-Control: no-store` |
-| 409の`reason` | 無効化：`already_inactive`・`global_admin`・`department_owner`。再有効化：`already_active`。`reason`は、既存のエラー応答の形どおり、応答の最上位に出す |
+| 409の`reason` | 無効化：`already_inactive`・`global_admin`・`department_owner`・`case_handover_required`（#147の147-C-2で足した）。再有効化：`already_active`。`reason`は、既存のエラー応答の形どおり、応答の最上位に出す |
 | その他のエラー | 401、403（全体管理者以外・再認証の期限切れ`REAUTH_REQUIRED`）、404（対象がない）、422（本人の無効化、再有効化の部署がない・無効） |
 
 ### 判定の順
 
 判定は純粋な関数ではなく、Service内の`decideDeactivation`・`decideReactivation`が事実を読んで順に確かめる。最初の判定と、書き込みの前提が崩れた後の読み直しで、同じ関数を使う。
 
-- 無効化：対象がない（404）→ `perm.account.deactivate`（403）→ 対象が操作者本人（422）→ 再認証（403）→ 既に無効（409）→ 対象が全体管理者（409）→ 対象がいずれかの部署のオーナー（409）
+- 無効化：対象がない（404）→ `perm.account.deactivate`（403）→ 対象が操作者本人（422）→ 再認証（403）→ 既に無効（409）→ 対象が全体管理者（409）→ 対象がいずれかの部署のオーナー（409）→ 対象が進行中の案件の唯一の有効な参加者（409 `case_handover_required`。#147の147-C-2。下の「案件の参加の記録」）
 - 再有効化：対象がない（404）→ `perm.account.reactivate`（403）→ 部署がない・無効（422。`fields`は`departmentId`）→ 再認証（403）→ 対象が既に有効（409）
 - routeの`requireAccountAdmin`（`perm.account.create`）が先に全体管理者以外を403にする。そのためHTTPでは、全体管理者以外には対象の有無を教えない
 - 操作の対象のボタンの出し分けは、管理画面を開けるのが全体管理者だけという既存のルートガード（`AccountManageRoute`）に任せる。認可はサーバーが毎回行う（ADR-0012）
@@ -131,6 +131,15 @@
 ### 無効化で変わるもの
 
 1つの`db.batch`で、次を確定する。順に、状態（`is_active`＝無効、`deactivated_at`、`department_id`＝NULL）、全チャンネルの参加の削除（全社連絡・部署の専用・個別。再有効化で戻さないため）、追加ロールの割り当ての削除（全体管理者・オーナーは前提で除外済み）、対象のセッションの失効（`revoked_at`）、監査`account.deactivate`（`detail`は元の部署ID`fromDepartmentId`。128-cで`retirementRequestId`、#146で`cancelledCaseRequestCount`を足した）。128-cで、監査の前に、対象への申請中の退職処理の申請を完了にする文と、申請者への通知を足した（「退職処理の申請と通知」の「無効化との連動」）。mainの取り込みの後の`deactivate`のbatchの順は、案件の作成申請の自動取消（`autoCancelCaseRequests`）、状態、全チャンネルの参加の削除、追加ロールの削除、セッションの失効、退職処理の申請の完了、申請者への通知、監査（#146・128-cの両方の項目を持つ）。
+
+**【Issue #147（147-C-2）で変えた。元の記述は残す】** 上の「全チャンネルの参加の削除」から、案件専用チャンネル（`purpose`が`case`）の参加の行を除いた。案件の参加の行は、退職者の記録として残す（進行中・終了とも。参加の時刻も変えない）。ほかのチャンネルは、これまでどおり消す。
+
+### 案件の参加の記録（Issue #147の147-C-2。5-1 AC-15）
+
+- 残った行があっても、無効な人は案件の「有効な参加者」ではなく、中身を読めず書き込めない（147-C-1。[cases.md](cases.md)）
+- 対象が進行中の案件の唯一の有効な参加者なら、無効化を止める（409 `case_handover_required`）。自動参加の全体管理者・オーナーも、有効なら「ほかの有効な参加者」に数える。終了した案件は対象にしない。引き継ぎの画面は作らない
+- 判定の事実は`findAccountState`の`isSoleActiveCaseParticipant`（常に真偽値）で読み、`decideDeactivation`が`department_owner`の後に確かめる。同じ条件（`soleActiveCaseParticipantSql`）を`deactivate`の batch の先頭の前提にも入れ、判定の後に変わった場合は batch 全体が取り消される。監査`account.deactivate`の`detail`は変えない
+- 再有効化は、チャンネルの参加を全部消してから初期チャンネルに入れる既存の動きのまま、残った案件の参加の行も外す（自動では復元しない）。異動は案件の参加の行を変えない（0-1 AC-19）。どちらもコードは変えず、テストで固定した
 
 **【Issue #146（146-A）で足した。元の記述は残す】** 同じbatchに、対象の審査中の案件の作成申請を自動取消にする文を足した（5-3 AC-8。C-177の統括の決定(8)の「無効化の分は146-Aで足す」）。`account.repository.ts`の`autoCancelCaseRequests`が、`case_creation_requests`の`status`を`auto_cancelled`にし、`version`を1上げ、`decided_by`は無効化を行った操作者、`decided_at`は無効化の時刻にする。申請ごとの監査・通知は作らず、監査`account.deactivate`の`detail`に取り消した件数`cancelledCaseRequestCount`を足した。batchの前に読んだ審査中の件数（`readPendingCaseRequests`）が、batchの時点でも同じことを、先頭の前提の確認（`caseRequestsUnchangedSql`）に含める。詳細は[case-requests.md](case-requests.md)。
 
@@ -377,6 +386,7 @@ batchの中身は、先頭の前提の確認の後に、申請の更新（作成
 - バックエンド：`backend/src/routes/accounts.test.ts`、`backend/src/services/account.service.test.ts`、`backend/src/db/account.repository.db.test.ts`・`account.repository.errors.db.test.ts`（参加・全社連絡がないとき）、`backend/src/services/account.service.logging.test.ts`、`backend/src/routes/accounts.channels.test.ts`、`backend/src/routes/auth.test.ts`（セッション応答の権限）、`backend/src/openapi.test.ts`
 - バックエンド（#128 無効化・再有効化）：`backend/src/db/account.repository.lifecycle.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.lifecycle.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.lifecycle.test.ts`（認可・再認証・応答・ログ）
 - バックエンド（#128 部署異動）：`backend/src/db/account.repository.transfer.db.test.ts`（batchの結果・前提の崩れ・同時の操作・監査）、`backend/src/services/account.service.transfer.test.ts`（判定の順・読み直し）、`backend/src/routes/accounts.transfer.test.ts`（認可・再認証・応答）。契約は`backend/src/openapi.test.ts`
+- バックエンド（#147 147-C-2 案件の参加の記録）：`backend/src/db/account.repository.case-participation.db.test.ts`（無効化・AC-15・再有効化）、`account.repository.transfer.case-participation.db.test.ts`（異動）、`backend/src/services/account.case-handover.test.ts`（409 と判定の順）。詳細は[cases.md](cases.md)
 - バックエンド（#146 案件の作成申請の自動取消）：`backend/src/db/account.repository.case-request.db.test.ts`（無効化）、`account.repository.transfer.case-request.db.test.ts`（異動）。監査の`cancelledCaseRequestCount`と前提の崩れを確かめる（[case-requests.md](case-requests.md)）
 - フロントエンド：`frontend/src/pages/AccountsPage.test.tsx`、`AccountCreatePage.test.tsx`、`frontend/src/accounts-route.test.tsx`、`frontend/src/components/SelectField.test.tsx`、`frontend/src/features/accounts/account-lifecycle.test.tsx`（#128。ボタンの出し分け・一時パスワードの表示と消去）、`account-transfer.test.tsx`（#128。異動のダイアログ・再認証・エラー・完了のメッセージ）
 - E2E：`e2e/accounts.spec.ts`（シードは`e2e/seeds/accounts.sql`・`accounts-cleanup.sql`）、`e2e/accounts-lifecycle.spec.ts`（#128。無効化・再有効化と異動の2本。シードは`e2e/seeds/accounts-lifecycle.sql`・`accounts-lifecycle-cleanup.sql`。[e2e.md](../testing/e2e.md)）

@@ -83,7 +83,7 @@ Repositoryの`create`は、batchの前に`planOwnerTransfer`で事実を読み�
 5. 事実の確認（現オーナーの有無、指名された社員が有効か、全体管理者かどうか、後任が元部署の有効な一般社員か）
 6. ロール・所属・参加の付け替え（下の「所属とオーナーの付け替え」）
 7. 不変条件の確認（オーナーが1人、自動チャンネルが2つ）
-8. 監査ログ（`department.create`）
+8. 監査ログ（`department.create`）。後任があるときは、続けて後任を元部署の案件に入れる文（#147の147-C-2。`detail`に`caseJoinCount`を入れる）
 
 名前が既存のチャンネル（アーカイブ済みを含む）や部署と大文字小文字を区別せず衝突したときは、2〜3または1の一意制約の違反でbatch全体が取り消される。部署・チャンネル・ロール・所属・参加・監査のどれも残らない。衝突の文言は「同じ名前の部署またはチャンネルがあります。別の部署名を入力してください」。切詰めや連番の付加はしない。「営業」のお知らせチャンネルと、部署名「営業のお知らせ」の通常チャンネルの衝突も、同じ一意制約で防ぐ。
 
@@ -112,6 +112,7 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 - 全体管理者でない新オーナーは、これに加えて、所属が移り、旧部署の自動チャンネル2つから外れる（行を削除）。他のチャンネルには触れない。所属の移動と旧部署からの除外は、従来どおり一般社員だけ
 - 参加の追加は`INSERT ... SELECT ... WHERE NOT EXISTS`で、すでに参加している行は作らない。この文は`deleted_at`で絞らない。補完のSQLは絞る、という差がある
 - 監査ログは`department.create`・`department.owner_change`の1件だけで、参加（`channel.join`）の記録は残さない。不変条件の確認の文は増やしていない
+- **【Issue #147（147-C-2）で足した。元の記述は残す】案件への自動参加**：新オーナー（と、元部署の後任）を、その部署が担当部署の案件（進行中・終了とも）に入れる（`department.repository.ts`の`caseJoinStatements`。`changeOwner`と、後任のある`create`が使う。すでに参加している行は重複させず、前のオーナーの行は残す）。件数は監査の`detail`の`caseJoinCount`に入る（`owner_change`は常に、`create`は後任があるときだけ）。件数は同じ batch の`INSERT … SELECT`で数えるため、監査の文を参加の文より前に置く。案件の側の監査・通知は出さない。詳細は[cases.md](cases.md)の「147-C-2 の設計」
 
 ### オーナーの専用チャンネル参加の補完（C-164。Issue #206）
 
@@ -180,7 +181,7 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 
 | 項目 | 状態 |
 | --- | --- |
-| 案件への新オーナーの自動参加、案件専用チャンネルの参加、前オーナーの残留 | 親#125に残す（#147の完成後に統合） |
+| 案件への新オーナーの自動参加、案件専用チャンネルの参加、前オーナーの残留 | #147の147-C-2で実装済み（上の「所属とオーナーの付け替え」）。既存の案件への補完 SQL は未実行（[cases.md](cases.md)）。親#125での統合は残る |
 | 部署APIの試行制限（S-7） | 入れていない。取引先APIのレート制限（X-8）に相当する規則が部署にはないため。必要なら規則を決めてから別Issueで入れる |
 | オーナー用の部署管理画面（S-13）の「部署の部分」（S-15） | 作らない。何を表示するかが要件で未確定 |
 | 部署名に使える文字（S-10、V-29） | 制限しない（制御文字のみ拒否）。使用可能文字の規則を決めるときは、決定記録に追記して改める |
@@ -207,6 +208,7 @@ ownerUserIdを省略すると、作成した全体管理者がオーナーにな
 
 - 共有規則：`backend/src/lib/department-rules.test.ts`（50・51文字、お知らせ名の境界、比較キー）
 - DB結合：`backend/src/db/department.repository.db.test.ts`（作成・改名・交代・同時更新・途中失敗での全体取消・名前衝突・参加の付け替え）、`backend/src/db/channels.schema.db.test.ts`（表の制約）、`backend/src/db/department-channel-backfill.db.test.ts`（0009の補完・衝突・べき等）、`backend/src/db/owner-channel-backfill.db.test.ts`（オーナー参加の補完SQL）
+- DB結合（#147 147-C-2。案件への自動参加）：`backend/src/db/department.repository.case-auto-join.db.test.ts`。既存の`department.repository.db.test.ts`の監査の期待に`caseJoinCount: 0`を足した
 - Service・route：`backend/src/services/department.service.test.ts`、`backend/src/routes/departments.test.ts`
 - 既存テストの変更：`backend/src/routes/auth.test.ts`（セッションの`permissions`）、`backend/src/routes/setup.test.ts`（初代部署のチャンネル）、`backend/src/openapi.test.ts`
 - テスト部品：`backend/test/department-fixtures.ts`、`frontend/src/test/department-harness.tsx`

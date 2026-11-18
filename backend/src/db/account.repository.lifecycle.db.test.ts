@@ -235,6 +235,7 @@ describe("#128 対象の事実の読み取り（findAccountState）", () => {
       isActive: true,
       isGlobalAdmin: false,
       isDepartmentOwner: false,
+      isSoleActiveCaseParticipant: false,
     });
     expect(await read(admin)).toMatchObject({ isGlobalAdmin: true });
     expect(await read(ownerA)).toMatchObject({
