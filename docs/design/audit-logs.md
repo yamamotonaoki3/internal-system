@@ -23,7 +23,7 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`に`audit_log.view`を足した（**Issue #143で、チャンネルの管理の`channel.update`・`channel.archive`・`channel.restore`の3つを足した**。値・理由の文は`detail`に入れない。[channels.md](channels.md)）。`AUDIT_TARGET_TYPES`（対象の種類の固定の一覧。10種）を足した。検索の入力の検証と画面の絞り込みの定義元。各書き込みの`targetType`の型をこの一覧に絞ることはしていない |
+| `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`に`audit_log.view`を足した（**Issue #143で、チャンネルの管理の`channel.update`・`channel.archive`・`channel.restore`の3つを足した**。値・理由の文は`detail`に入れない。[channels.md](channels.md)）。**Issue #147（147-B）で、案件の参加者の追加・削除と納期の変更の`case.participant.add`・`case.participant.remove`・`case.due_date.change`の3つと、対象の種類`case`を足した**（`detail`は`caseId`・`userId`・`self`・`before`・`after`だけ。[cases.md](cases.md)）。`AUDIT_TARGET_TYPES`（対象の種類の固定の一覧。11種。147-B で`case`を足した）を足した。検索の入力の検証と画面の絞り込みの定義元。各書き込みの`targetType`の型をこの一覧に絞ることはしていない |
 | `backend/db/schema.ts` | `auditLogs`に複合索引3つを足した |
 | `backend/db/migrations/0027_add_audit_log_filter_indexes.sql`、`meta/0027_snapshot.json`、`meta/_journal.json` | 索引3つだけの migration（`drizzle-kit generate`の生成物）。#146-B が0026を使ったため、mainの取り込みで0026から0027に振り直した |
 
@@ -47,7 +47,7 @@
 | --- | --- |
 | `frontend/src/features/audit-logs/audit-log-api.ts` | `searchAuditLogs`。共通の`apiClient`で`POST /admin/audit-logs/search`を呼び、応答をzodで検証する。決めた項目以外（`detail`・`trace_id`など）が紛れても画面に渡さない |
 | `frontend/src/features/audit-logs/query-keys.ts` | `auditLogKeys.search`。キーに**利用者のID**と「絞り込む」を押した回数を含める（下の「画面」） |
-| `frontend/src/features/audit-logs/action-labels.ts` | 操作の種類・対象の種類の日本語の名前（Issue #143で、`channel.update`・`channel.archive`・`channel.restore`の名前を足した）。名前がない操作は、操作のIDをそのまま出す（空にしない）。案件の作成の申請の承認・却下（`case_request.approve`・`case_request.reject`）の名前を含む。足りない操作がないことは、画面のテストが`AUDIT_ACTIONS`と照らして確かめる |
+| `frontend/src/features/audit-logs/action-labels.ts` | 操作の種類・対象の種類の日本語の名前（Issue #143で、`channel.update`・`channel.archive`・`channel.restore`の名前を足した）。名前がない操作は、操作のIDをそのまま出す（空にしない）。案件の作成の申請の承認・却下（`case_request.approve`・`case_request.reject`）の名前を含む。147-B で、`case.participant.add`（案件の参加者の追加）・`case.participant.remove`（案件の参加者の削除）・`case.due_date.change`（案件の納期の変更）と、対象の種類「案件」の名前を足した。足りない操作がないことは、画面のテストが`AUDIT_ACTIONS`と照らして確かめる |
 | `frontend/src/features/audit-logs/AuditLogFilters.tsx` | 絞り込みのフォーム（期間・操作の種類・結果）。期間の誤りと、422の`fields`を入力欄の近くに文字で出す |
 | `frontend/src/features/audit-logs/AuditLogsPage.tsx` | S-25。一覧（パソコンは表、狭い画面はカード形式）・「さらに読み込む」・エラー・0件。`useInfiniteQuery`を使う |
 | `frontend/src/App.tsx` | `/audit-logs`と`AuditLogsRoute`（`perm.audit_log.view`がなければ`NotFoundPage`。セッション確認中は待つ） |
@@ -114,7 +114,7 @@
 - 1つのSELECTで、`audit_logs`に`users`（操作者）・`users`（対象が利用者）・`departments`・`clients`・`channels`をLEFT JOINする（N+1にしない）。対象の結合は`target_type`で絞る。チャンネルの`target_id`は`room_id`
 - **同じ表（`users`）を2回結合するため、`is_active`の列に別名を付ける**。D1のbatchは結果を列名のオブジェクトで返すので、同じ列名が2つあると値が入れ替わる
 - 並びは`occurred_at`・`id`の降順。続きは`cursor.ts`の`afterCursor`・`toPage`（OFFSETなし）。後から書かれた行は先頭側に入るので、続きで重複・欠落しない
-- 名前の規則：有効・無効の社員は表示名（無効は`isActive: false`。画面は「（無効）」を付ける。本名は出さない）／部署・取引先・チャンネルは名前／行がない対象は`label: null`（画面は「（削除された対象）」）／`message`・`channel_request`・`case_request`・`retirement_request`・`source`・`audit_log`は名前を解決せず、種類の名前だけを出す
+- 名前の規則：有効・無効の社員は表示名（無効は`isActive: false`。画面は「（無効）」を付ける。本名は出さない）／部署・取引先・チャンネルは名前／行がない対象は`label: null`（画面は「（削除された対象）」）／`message`・`channel_request`・`case_request`・`case`（147-B。案件の名前は解決しない）・`retirement_request`・`source`・`audit_log`は名前を解決せず、種類の名前だけを出す
 - 操作者が不明（ログイン失敗など）は`actor: null`。行がない操作者は`{ displayName: null, isActive: false }`
 - アカウント登録の失敗（`account.create`で結果が失敗）は、`target`を解決せずnullにし、`failureCategory`・`affectedCount`を出す
 

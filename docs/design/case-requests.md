@@ -56,10 +56,10 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/case-requests/api/case-request-api.ts` | `createCaseRequest`・`fetchMyCaseRequests`・`withdrawCaseRequest`・`checkSimilarTitle`と、欄の候補を読む`fetchClientChoices`・`fetchDepartmentChoices`・`searchCandidateUsers`。`apiClient`だけを使い、応答はZodで検証する |
+| `frontend/src/features/case-requests/api/case-request-api.ts` | `createCaseRequest`・`fetchMyCaseRequests`・`withdrawCaseRequest`・`checkSimilarTitle`と、欄の候補を読む`fetchClientChoices`・`fetchDepartmentChoices`。`apiClient`だけを使い、応答はZodで検証する。追加の候補の社員の検索（`searchCandidateUsers`）は、#147（147-B）で`features/members`の`searchUsers`（`api/user-search-api.ts`）に移した。`CandidateUser`は、その`SearchedUser`の別名 |
 | 〃（146-B） | `fetchReviewCaseRequests`（審査一覧）・`approveCaseRequest`・`rejectCaseRequest`と、審査一覧の項目の型`CaseRequestReviewItem`、状態の一覧`CASE_REQUEST_STATUSES`を足した。審査一覧の項目は、自分の申請の項目から`caseNumber`を除き、候補の`isActive`・`requesterId`・`requesterDisplayName`・`hasSimilarTitle`・`canApprove`を足した形。自分の申請の項目には`caseNumber`を足した。応答はZodで検証する |
-| `frontend/src/features/case-requests/api/query-keys.ts` | `caseRequestKeys`（申請・取り下げの後に`all`を取り直す）と、欄の候補用の`caseRequestChoiceKeys` |
-| `frontend/src/features/case-requests/hooks/` | `useMyCaseRequests`（カーソルの無限スクロール）・`useCreateCaseRequest`・`useWithdrawCaseRequest`・`useSimilarTitle`・`useCaseRequestChoices`（取引先・部署・社員の検索）・`useSettledValue`（入力が止まってから値を返す） |
+| `frontend/src/features/case-requests/api/query-keys.ts` | `caseRequestKeys`（申請・取り下げの後に`all`を取り直す）と、欄の候補用の`caseRequestChoiceKeys`（社員の検索のキー`users`は、#147（147-B）で`features/members`の`memberKeys.search`に移した） |
+| `frontend/src/features/case-requests/hooks/` | `useMyCaseRequests`（カーソルの無限スクロール）・`useCreateCaseRequest`・`useWithdrawCaseRequest`・`useSimilarTitle`・`useCaseRequestChoices`（取引先・部署の候補。社員の検索の`useCandidateSearch`は、#147（147-B）で`features/members`の`useUserSearch`に移し、`CandidatePicker`はそれを使う）。入力が止まってから値を返す`useSettledValue`は、`frontend/src/lib/useSettledValue.ts`に移した（機能に属さない共通の部品。案件の参加者の追加でも使うため、`features/cases`と`features/case-requests`の間の循環の依存を避ける。[cases.md](cases.md)） |
 | 〃（146-B） | `useReviewCaseRequests`（状態で絞る審査一覧。カーソルの無限スクロール。キーは`caseRequestKeys.review`）・`useDecideCaseRequest`（承認・却下。成功しても失敗しても`caseRequestKeys.all`を取り直す。再認証は挟まない） |
 | `frontend/src/features/case-requests/schemas/case-request-form.ts` | S-18の入力チェック。件名・説明・納期は`shared/case-rules.ts`の定義を使う。件名は整形した値を送らない（整形で値が変わったかをサーバーが返すため） |
 | `frontend/src/features/case-requests/components/` | `CaseRequestWorkspace`（フォームと自分の申請をまとめ、下書きを1つだけ開く。「修正して再申請」でフォームを作り直す）・`CaseRequestForm`（申請フォーム）・`CandidatePicker`（追加の候補の検索と選択）・`MyCaseRequestList`（自分の申請）・`WithdrawDialog`（取り下げの確認） |
