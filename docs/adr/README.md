@@ -40,3 +40,4 @@
 | [0027](0027-self-made-emoji-picker.md) | 絵文字のピッカーを自前の小さな部品にし、emoji-picker-react を入れない（本番のCSP `style-src 'self'` で動かないため。スタンプは文字6つ） | 採用 |
 | [0028](0028-lighter-process-and-narrowed-scope.md) | 進め方を軽くし、範囲を絞る（文書・テストだけの差分のレビュー省略、ミューテーションの後回し、計画レビューの回数、並列の進め方） | 採用 |
 | [0029](0029-attachment-delivery-headers-and-content-type-check.md) | 添付の配信の応答だけ、共通のセキュリティヘッダー（CSP・Cache-Control）を上書きさせない。`content_type`にCHECK制約を付けない（drizzle-kitが「;」で生成を切るため） | 採用 |
+| [0030](0030-clear-cache-on-user-switch.md) | 利用者の切り替えのときは、枠でセッション以外のキャッシュを一括して捨てる（キーごとに利用者のIDを足さない。進行中の操作は#300、別のタブは#298） | 採用 |
