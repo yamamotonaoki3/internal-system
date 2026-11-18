@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 import { createApp } from "./app";
 import { ULID_PATTERN } from "../../shared/ulid-rules";
+import { REPLY_BLOCKED_REASONS } from "../../shared/message-rules";
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from "./lib/audit-actions";
 import { adminAccountRoutes } from "./routes/accounts";
 import {
@@ -987,6 +988,66 @@ describe("API の仕様書（docs/api/openapi.json）", () => {
     ).ChannelDetail;
     expect(detail?.required).toContain("readOnly");
     expect(detail?.properties?.readOnly?.type).toBe("boolean");
+  });
+
+  it("#148 5-2 AC-6（148-A）: チャンネルの詳細（ChannelDetail）に isCaseChannel（真偽）と caseId（必須・null を許す・ULID の pattern）がある", () => {
+    const detail = (
+      spec.components.schemas as Record<
+        string,
+        {
+          required?: string[];
+          properties?: Record<
+            string,
+            { type?: string | string[]; pattern?: string }
+          >;
+        }
+      >
+    ).ChannelDetail;
+    expect(detail?.required).toEqual(
+      expect.arrayContaining(["isCaseChannel", "caseId"]),
+    );
+    expect(detail?.properties?.isCaseChannel?.type).toBe("boolean");
+    expect(detail?.properties?.caseId?.type).toEqual(["string", "null"]);
+    expect(detail?.properties?.caseId?.pattern).toBe(
+      "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+    );
+  });
+
+  it("#148 5-1 AC-11（148-A）: 返信の一覧（ReplyLatestPage・ReplyAfterPage）の replyBlockedReason の enum に case_closed があり、定義元（REPLY_BLOCKED_REASONS）と一致する", () => {
+    const schemas = spec.components.schemas as Record<
+      string,
+      { properties?: Record<string, { enum?: (string | null)[] }> }
+    >;
+    for (const name of ["ReplyLatestPage", "ReplyAfterPage"]) {
+      const values = schemas[name]?.properties?.replyBlockedReason?.enum ?? [];
+      expect(values).toContain("case_closed");
+      expect(values.filter((v) => v !== null).sort()).toEqual(
+        [...Object.values(REPLY_BLOCKED_REASONS)].sort(),
+      );
+    }
+  });
+
+  it("#148 5-1 AC-11（148-A）: 案件の終了中の 409 が、投稿・返信・編集・削除・リアクション・添付のアップロードに書かれている", () => {
+    const names = [
+      "POST /api/rooms/{roomId}/messages",
+      "POST /api/messages/{messageId}/replies",
+      "PATCH /api/messages/{messageId}",
+      "DELETE /api/messages/{messageId}",
+      "POST /api/messages/{messageId}/reactions",
+      "DELETE /api/messages/{messageId}/reactions/{kind}/{value}",
+      "POST /api/rooms/{roomId}/attachments",
+      "POST /api/messages/{messageId}/replies/attachments",
+    ];
+    for (const name of names) {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      const conflict = (
+        operation?.operation.responses as
+          Record<string, { description?: string }> | undefined
+      )?.["409"];
+      expect(conflict, name).toBeDefined();
+      expect(conflict?.description ?? "", name).toContain("案件");
+    }
   });
 
   it("#156 0-6 AC-1・AC-3（EP-0-19）: 監査ログの検索の応答コードが書かれている（200・401・403・422。429 は作らない）", () => {

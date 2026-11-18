@@ -55,6 +55,8 @@ const BLOCKED_TEXT: Record<string, string> = {
   not_joined: "このチャンネルに参加すると、返信できます",
   read_only: "このチャンネルは読み取り専用のため、返信できません",
   partner_inactive: "相手のアカウントが無効になっているため、返信できません",
+  // #148（148-A）決定記録 C-184
+  case_closed: "終了した案件のため、返信できません",
 };
 const DELETED_TEXT = "このメッセージは削除されました";
 
@@ -376,6 +378,25 @@ describe("#137 AC-2（1-4 AC-2）返信できない理由と削除された親",
     expect(
       within(pane()).getByText(BLOCKED_TEXT.deleted_parent ?? ""),
     ).toBeDefined();
+  });
+
+  it("#148 5-1 AC-11・C-184: 理由 case_closed（終了した案件）のときは、入力欄を出さず、「終了した案件のため、返信できません」を出す。返信は読める", async () => {
+    respondReplies({
+      parent: PARENT,
+      replies: [theirs(1)],
+      replyBlockedReason: "case_closed",
+      // 終了した案件の参加者（参加しているが、書き込めない）
+      joined: true,
+      roomWritable: false,
+    });
+    renderPane(PARENT.id);
+    await within(pane()).findByRole("log", { name: "返信一覧" });
+    expect(within(pane()).queryByRole("textbox")).toBeNull();
+    expect(within(pane()).queryByRole("button", { name: "送信" })).toBeNull();
+    expect(
+      within(pane()).getByText(BLOCKED_TEXT.case_closed ?? ""),
+    ).toBeDefined();
+    expect(rowWith("他人の返信1")).toBeDefined();
   });
 
   it.each(["not_joined", "read_only", "partner_inactive"])(

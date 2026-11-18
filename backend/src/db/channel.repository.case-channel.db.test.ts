@@ -13,6 +13,11 @@ import {
   insertMember,
   type SeededDepartment,
 } from "../../test/department-fixtures";
+import {
+  cleanupCaseRoomWorld,
+  setupCaseRoomWorld,
+  type CaseRoomWorld,
+} from "../../test/case-room-fixtures";
 import { cleanupRoleTestData, insertUser } from "../../test/role-fixtures";
 import { decodeCursor, type CursorPayload } from "../lib/cursor";
 import { withChannels } from "./channel.repository";
@@ -116,5 +121,53 @@ describe("#146 5-1 AC-6・C-83 チャンネルの一覧から案件専用チャ�
     expect(ids).not.toContain(caseRoom);
     expect(ids).not.toContain(privateRoom);
     expect(ids).toContain(publicRoom);
+  });
+});
+
+// #148（148-A）5-2 AC-1・計画「共通の SQL の部品」：findForViewer が cases を外部結合し、案件の部屋なら caseId・caseStatus を返す（通常の部屋は null）。
+// 1文のまま（N+1 にしない）。終了中の判定を Service が使う。
+describe("#148 5-2 AC-1 findForViewer の案件の ID・状態", () => {
+  let cw: CaseRoomWorld;
+  beforeEach(async () => {
+    cw = await setupCaseRoomWorld(1490);
+  });
+  afterEach(async () => {
+    await cleanupCaseRoomWorld();
+  });
+
+  it("#148 5-2 AC-1: 進行中の案件の部屋では caseId と caseStatus 'active'、終了の案件の部屋では 'closed' を返す", async () => {
+    const open = await withChannels(env, (r) =>
+      r.findForViewer(cw.open.roomId, cw.w.memberS1.id),
+    );
+    const closed = await withChannels(env, (r) =>
+      r.findForViewer(cw.closed.roomId, cw.w.memberS1.id),
+    );
+    expect(open).toMatchObject({
+      roomId: cw.open.roomId,
+      purpose: "case",
+      caseId: cw.open.id,
+      caseStatus: "active",
+    });
+    expect(closed).toMatchObject({
+      roomId: cw.closed.roomId,
+      caseId: cw.closed.id,
+      caseStatus: "closed",
+    });
+  });
+
+  it("#148 5-2 AC-1: 案件でない通常のチャンネルでは caseId・caseStatus は null（項目そのものはある）", async () => {
+    const row = await withChannels(env, (r) =>
+      r.findForViewer(cw.normal, cw.w.memberS1.id),
+    );
+    expect(row).not.toBeNull();
+    expect(row).toHaveProperty("caseId", null);
+    expect(row).toHaveProperty("caseStatus", null);
+  });
+
+  it("#148 5-2 AC-1: 別の案件（other）の ID を取り違えない（案件の部屋ごとに、その案件の ID）", async () => {
+    const row = await withChannels(env, (r) =>
+      r.findForViewer(cw.other.roomId, cw.w.memberS2.id),
+    );
+    expect(row).toMatchObject({ caseId: cw.other.id, caseStatus: "active" });
   });
 });

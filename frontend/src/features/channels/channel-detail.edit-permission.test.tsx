@@ -35,6 +35,7 @@ function respondDetail(body: Record<string, unknown>) {
         visibility: "public",
         departmentId: "01JTESTDEPT000000000000S01",
         isCaseChannel: false,
+        caseId: null,
         // #143：詳細の応答に version・manage（必須）が加わった
         version: 1,
         manage: {

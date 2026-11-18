@@ -135,6 +135,7 @@ describe("#200 AC-2 /channels/:channelId", () => {
           departmentId: null,
           joined: true,
           isCaseChannel: false,
+          caseId: null,
           // #143：詳細の応答に version・manage（必須）が加わった
           version: 1,
           manage: {
