@@ -40,6 +40,8 @@ export const AUDIT_ACTIONS = [
   "case.participant.add",
   "case.participant.remove",
   "case.due_date.change",
+  "case.close",
+  "case.reopen",
   "message.delete",
   "audit_log.view",
 ] as const;

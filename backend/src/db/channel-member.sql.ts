@@ -14,6 +14,23 @@ export function activeChannelMember(roomId: SQL, userId: string | SQL): SQL {
 }
 
 /**
+ * 通知の宛先（有効な参加者で操作者以外）が、読んだ集合と同じであること（チャンネルのアーカイブ・復元、案件の終了・再開の前提）。
+ * 部屋は値でも SQL の式（外側の表の列）でも渡せる
+ */
+export function recipientsUnchanged(
+  roomId: string | SQL,
+  actorId: string,
+  recipientIds: readonly string[],
+): SQL {
+  const current = sql`FROM channel_members m JOIN users u ON u.id = m.user_id
+    WHERE m.channel_id = ${roomId} AND u.is_active = 1 AND m.user_id <> ${actorId}`;
+  // 宛先の ID は JSON の値1つで渡す（人数に比例して値の数を増やさない。D1 の1文あたりの上限のため）
+  return sql`(SELECT COUNT(*) ${current}) = ${recipientIds.length}
+    AND (SELECT COUNT(*) ${current}
+      AND m.user_id IN (SELECT value FROM json_each(${JSON.stringify(recipientIds)}))) = ${recipientIds.length}`;
+}
+
+/**
  * channel_members を外部結合するときの結合の条件。結合した行があること＝閲覧者が有効な参加者であること（activeChannelMember と同じ規則）。
  * 利用者の有効性は主キーで1行を引く。
  */

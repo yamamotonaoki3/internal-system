@@ -33,6 +33,24 @@ export const CASE_CANNOT_POST_TEXT =
   "終了した案件のため、投稿・編集・リアクションはできません（読み取り専用）";
 export const CONVERSATION_EMPTY_TEXT = "まだやり取りがありません";
 
+/** S-17 の終了・再開（#150）：ボタン・確認のダイアログ・完了の表示 */
+export const CASE_STATUS_CHANGE_TEXTS = {
+  close: {
+    button: "案件を終了",
+    title: "案件の終了",
+    body: "終了すると、メッセージ・参加者・納期は読み取り専用になります。参加者は、いつでも再開できます。",
+    confirm: "終了する",
+    done: "案件を終了しました",
+  },
+  reopen: {
+    button: "案件を再開",
+    title: "案件の再開",
+    body: "再開すると、いまの参加者のまま進行中に戻ります。",
+    confirm: "再開する",
+    done: "案件を再開しました",
+  },
+} as const;
+
 /** S-17 の TODO（#149） */
 export const CASE_TODO_HEADING = "TODO";
 export const CASE_TODO_EMPTY_TEXT = "項目なし";

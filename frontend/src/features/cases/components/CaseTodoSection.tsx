@@ -69,7 +69,11 @@ export function CaseTodoSection({
   function onToggle(todo: CaseTodo) {
     if (toggle.isPending) return;
     setAdded(false);
-    toggle.mutate({ todoId: todo.id, completed: !todo.completed });
+    // 操作が成功したら、先の失敗の表示を消す（取り直しの成功では消さない）。送信中はほかの操作を受け付けないので、この呼び出しの結果は失われない
+    toggle.mutate(
+      { todoId: todo.id, completed: !todo.completed },
+      { onSuccess: () => setError(undefined) },
+    );
   }
 
   function renderBody() {

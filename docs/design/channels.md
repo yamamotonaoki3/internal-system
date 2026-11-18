@@ -191,7 +191,7 @@
 | `shared/notification-kinds.ts` | `channel.archived`・`channel.restored`（どちらも`containsRoomContent: false`） |
 | `backend/src/lib/channel-rules.ts` | `channelManageActions`（種類と状態から「種類として」できる操作を返す純粋関数。権限は含めない）、`channelScopeOf`（部署があれば部署の範囲、なければ会社の範囲） |
 | `backend/src/lib/audit-actions.ts` | `channel.update`・`channel.archive`・`channel.restore`を足した |
-| `backend/src/db/channel-manage.sql.ts`（新規） | 書き込みの文。`channelManagerSql`（操作者が有効で管理できる人の条件。権限の規則のSQL版）、前提の確認`assertStatement`、`channelUpdateStatements`・`channelArchiveStatements`・`channelRestoreStatements` |
+| `backend/src/db/channel-manage.sql.ts`（新規） | 書き込みの文。`channelManagerSql`（操作者が有効で管理できる人の条件。権限の規則のSQL版）、前提の確認`assertStatement`、`channelUpdateStatements`・`channelArchiveStatements`・`channelRestoreStatements`。宛先の一致の確認`recipientsUnchanged`は、Issue #150（150-A）で`channel-member.sql.ts`へ**移した**（案件の終了・再開と共用。条件は変えていない。ここからはimportして使う） |
 | `backend/src/db/channel.repository.ts` | `findForManage`（管理の判定に使う行）・`listNotifyRecipients`（通知の宛先）・`update`・`archive`・`restore`（batchの実行とエラーの変換）。専用エラー`ChannelManageConflictError`・`ChannelNameTakenError` |
 | `backend/src/db/notification.repository.ts` | 通知の一覧用に`archiveStatesFor`を足した（[notifications.md](notifications.md)） |
 | `backend/src/services/channel-manage.service.ts`（新規） | `createChannelManageService`・`withChannelManageService`。`update`・`archive`・`restore`と、判定の順・0行の後の読み直し・宛先のやり直し |
@@ -298,6 +298,7 @@
 ### 通知と監査
 
 - アーカイブ・復元の通知は、そのチャンネルの**有効な参加者のうち、操作した本人を除く**全員（D-5）。種類は`channel.archived`・`channel.restored`、`room_id`はチャンネル、`target_id`はその回のアーカイブの記録のID。業務のUPDATEと同じbatchで確定する。名前・説明の変更は通知しない（2-6 AC-5③）。通知の一覧の`reason`・`roomArchived`の作り方、過去の通知を開いたときの動きは[notifications.md](notifications.md)
+- 通知の宛先が読んだときのままであることの確認`recipientsUnchanged`は、`channel-member.sql.ts`にある（#150の150-Aで`channel-manage.sql.ts`から移した。案件の終了・再開の通知と同じ規則を1か所に保つため。[cases.md](cases.md)）
 - 通知の作成は`channel-manage.sql.ts`の`archiveNotificationInsert`が行う（`notificationInserts`の`onlyWhen`は使わなくなったので外した）。既存の呼び出し（申請・招待・指名など）は変わらない（回帰をテストで固定）
 - 監査の3操作は`audit-actions.ts`の一覧に足した。管理の拒否（403）は`authorize`が運用ログに記録する（見えないチャンネルの404は記録しない）。D1の`audit_logs`に残るのは、成功した3操作だけ
 

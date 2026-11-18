@@ -5,10 +5,13 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { messageKeys } from "../../messages";
 import {
   addCaseParticipant,
   changeCaseDueDate,
+  closeCase,
   removeCaseParticipant,
+  reopenCase,
   type CaseSummary,
 } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
@@ -87,5 +90,31 @@ export function useChangeCaseDueDate(caseId: string) {
   return useMutation({
     mutationFn: (dueDate: string | null) => changeCaseDueDate(caseId, dueDate),
     onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
+  });
+}
+
+/**
+ * 終了・再開。成功しても失敗しても、案件と、その案件の部屋のメッセージ・開いているスレッドを取り直す。
+ * スレッドの返信の可否は返信のキャッシュで決まるため、ポーリングを待たずに切り替える（スレッドのキーは部屋で絞れないので前方一致）
+ */
+export function useCaseStatusChange(caseId: string, roomId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (to: "close" | "reopen") =>
+      to === "close" ? closeCase(caseId) : reopenCase(caseId),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: caseKeys.all }),
+        ...(roomId === null
+          ? []
+          : [
+              queryClient.invalidateQueries({
+                queryKey: messageKeys.room(roomId),
+              }),
+            ]),
+        queryClient.invalidateQueries({
+          queryKey: ["messages", "thread"],
+        }),
+      ]),
   });
 }

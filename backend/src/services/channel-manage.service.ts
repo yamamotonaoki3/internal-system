@@ -61,7 +61,8 @@ const NOT_FOUND_MESSAGE = "チャンネルが見つかりません";
 const ALREADY_PROCESSED_MESSAGE = "この項目はすでに処理されています";
 const VERSION_MISMATCH_MESSAGE =
   "ほかの人が先に変更しました。読み込み直してください";
-const RETRY_CONFLICT_MESSAGE =
+/** 宛先の読み直しで1回やり直しても前提が崩れたときの文言（案件の終了・再開も同じ文言を使う） */
+export const RETRY_CONFLICT_MESSAGE =
   "ほかの操作と重なりました。もう一度お試しください";
 const CASE_CHANNEL_MESSAGE = "案件専用のチャンネルは、ここでは変更できません";
 const RENAME_NOT_ALLOWED_MESSAGE = "このチャンネルの名前は変更できません";
