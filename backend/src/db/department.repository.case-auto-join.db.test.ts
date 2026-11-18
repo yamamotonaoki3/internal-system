@@ -25,6 +25,7 @@ import {
   TEST_TAG,
   type CaseWorld,
 } from "../../test/case-request-fixtures";
+import { CaseStateChangedError, withCases } from "./case.repository";
 import { withCaseRequests } from "./case-request.repository";
 import { withDepartments } from "./department.repository";
 
@@ -171,13 +172,25 @@ describe("#147 147-C-2 C-133(4)・Q3: オーナーの交代で、新しいオー
     ]);
   });
 
-  it("#147 Q3: 担当の案件がなければ、caseJoinCount は 0。案件の監査（case.*）と通知は増えない", async () => {
-    await caseOf([w.deptD.id], [w.memberD1.id]);
+  it("#147 Q3: 自動参加が起きても、案件の側の監査（case.*）と通知は増えず、部署の監査は1件だけ", async () => {
+    const active = await caseOf([w.deptS.id], [w.ownerS.id]);
+    const closed = await caseOf([w.deptS.id], [w.ownerS.id], "closed");
     const notifications = await notificationCount();
+    const departmentAudits = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM audit_logs WHERE action LIKE 'department.%'",
+        ).first<{ n: number }>()
+      )?.n ?? 0;
+    const departmentAuditsBefore = await departmentAudits();
     await changeOwner({ departmentId: w.deptS.id, ownerUserId: w.memberS1.id });
+    // 参加の行が増えたこと（自動参加が実際に起きたこと）
+    expect(await participantIdsOf(active.roomId)).toContain(w.memberS1.id);
+    expect(await participantIdsOf(closed.roomId)).toContain(w.memberS1.id);
     expect(await auditDetails("department.owner_change")).toEqual([
-      expect.objectContaining({ caseJoinCount: 0 }),
+      expect.objectContaining({ caseJoinCount: 2 }),
     ]);
+    expect(await departmentAudits()).toBe(departmentAuditsBefore + 1);
     expect(await caseAuditCount()).toBe(0);
     expect(await notificationCount()).toBe(notifications);
   });
@@ -310,6 +323,35 @@ describe("#147 147-C-2 Q3: caseJoinCount を入れる監査と入れない監査
         caseJoinCount: 0,
       },
     ]);
+  });
+});
+
+describe("#147 147-C-2 C-133(4): オーナーの交代と、その人の参加者からの削除（計画 147-C-2 の同時の操作）", () => {
+  const removeSelf = (caseId: string, userId: string, actorId: string) =>
+    withCases(env, (r) =>
+      r.removeParticipant({
+        caseId,
+        actorId,
+        userId,
+        traceId: casereqTraceId(),
+      }),
+    );
+
+  it("#147 C-133(4): 交代が先なら、新しいオーナーの削除は取り消され（自動参加の人）、参加の行は残る", async () => {
+    const room = await caseOf([w.deptS.id], [w.memberS2.id, w.memberS1.id]);
+    await changeOwner({ departmentId: w.deptS.id, ownerUserId: w.memberS1.id });
+    await expect(
+      removeSelf(room.id, w.memberS1.id, w.memberS2.id),
+    ).rejects.toBeInstanceOf(CaseStateChangedError);
+    expect(await participantIdsOf(room.roomId)).toContain(w.memberS1.id);
+  });
+
+  it("#147 C-133(4): 削除が先なら、交代で再び参加者に入る", async () => {
+    const room = await caseOf([w.deptS.id], [w.memberS2.id, w.memberS1.id]);
+    await removeSelf(room.id, w.memberS1.id, w.memberS2.id);
+    expect(await participantIdsOf(room.roomId)).not.toContain(w.memberS1.id);
+    await changeOwner({ departmentId: w.deptS.id, ownerUserId: w.memberS1.id });
+    expect(await participantIdsOf(room.roomId)).toContain(w.memberS1.id);
   });
 });
 

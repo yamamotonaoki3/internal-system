@@ -1,10 +1,10 @@
-# 案件の一覧・概要・詳細・参加者・納期（Issue #147 の 147-A・147-B）
+# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携（Issue #147 の 147-A・147-B・147-C-1・147-C-2）
 
 ## 目的
 
 社員が案件の一覧（S-16）を開き、参加している案件は説明・参加者まで見られ、参加していない案件は概要（件名・状態・取引先・担当部署・納期など）だけを見られるようにする。サイドバーの「案件」の見出しの下に、参加している進行中の案件を出す。案件の作成の承認（[case-requests.md](case-requests.md)）でできた案件への入口である。コードは書き写さず、ファイル名・関数名で指す。
 
-Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設計書は 147-A（読み取りだけ）と 147-B（参加者の追加・削除・退出と、納期の変更。書き込み）の範囲を書く（147-B は「147-B の設計」の節）。147-C-2 は、この設計書に節を足していく。
+Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設計書は 147-A（読み取りだけ）と 147-B（参加者の追加・削除・退出と、納期の変更。書き込み）の範囲を書く（147-B は「147-B の設計」の節）。147-C-1 は経路の資格の変更、147-C-2 は無効化・再有効化・オーナー交代・既存の案件の補完で、それぞれ「147-C-1 が広げた経路」「147-C-2 の設計」の節に書く。
 
 ## 範囲
 
@@ -13,7 +13,8 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 147-Aで作ったもの | API3つ（EP-5-06 一覧・EP-5-07 概要・EP-5-08 詳細）／「有効な参加者」の共通の SQL の部品`activeChannelMember`／管理の資格（参加者数と`canManage`）を読み取りの SQL の中で決める仕組み／S-16（案件一覧）・S-17（詳細の骨格）／メニュー「案件」とサイドバーの「案件」の見出しの下の参加中の案件／承認の通知の移動先の変更（C-179(3)の約束）／自分の申請の案件番号のリンク／承認の後の案件のキャッシュの取り直し |
 | 147-C-1で作ったもの | チャンネルの参加の行を資格に使う経路（書き込み6・読み取り7＋`findForManage`の`isMember`）を「有効な参加者」に変えた（実装では、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り〔メッセージ5・参加者2・メンションの候補1〕を`roomViewableBy`で判定する形に変えた）。APIも画面も追加しない（下の「147-C-1 が広げた経路」） |
 | 147-Bで作ったもの | API3つ（EP-5-09 参加者の追加・EP-5-10 参加者の削除と本人の退出・納期の変更）／自動参加の人は外せないこと（役割の名前の表示を含む）と最後の有効な参加者の規則／監査操作3つと対象の種類`case`／S-17 の「参加者を管理」・退出・「納期を変更」（下の「147-B の設計」） |
-| 後の子（着手の順） | **147-C-2** 無効化で案件の参加の記録を残すこと、AC-15 の守り、再有効化・異動の確認、オーナー交代による自動参加、既存の案件の補完 |
+| 147-C-2で作ったもの | 無効化で案件専用チャンネルの参加の行を残すこと／AC-15 の守り（409 `case_handover_required`）／再有効化・異動の確認（テストだけ）／オーナー交代・後任のある部署の作成による担当の案件への自動参加と監査の`caseJoinCount`／既存の案件を補う SQL（下の「147-C-2 の設計」）。migration・APIの追加はない（`docs/api/openapi.json`は 409 の説明文だけ） |
+| 後の子 | なし（#147 の4つの子は、すべて実装済み） |
 | 他の Issue に回すもの | やり取り・未読・最終更新（#148）、TODO・進捗（#149）、終了・再開・再編集（#150）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
@@ -64,7 +65,7 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 - 参加の行（`channel_members`）があり、**かつ利用者が有効（`users.is_active = 1`）**であること。一覧の`joined`・`isParticipant`・詳細の 403 の判定は、この部品だけを使う
 - 一覧の`joined`・`isParticipant`と、詳細の中身を読む SQL（案件の行・参加者の一覧）は、この部品を条件に入れる。引数は、部屋（案件の`channel_id`）と利用者。どちらも値でも外側の表の列（SQL の式）でも渡せるので、一覧の1行ごとの判定（`CASE WHEN`）にも使える
 - **「記録として残す参加の行」と「いまの閲覧・操作の資格」を分ける**。参加の行は、退職者を参加者の一覧に残す・参加者数に数えるための記録で（C-142(1)）、資格ではない。資格の判定に`channel_members`を直接結合する書き方は、この子の後は作らない
-- この時点では、無効化は、まだ参加の行を消す（147-C-2 で、記録を残す形に変える）。147-C-1 は、その前に、資格の判定を記録から切り離すための変更で、実装した（次の節）。検索（#155）もこの部品を使う
+- 147-C-1 では、無効化はまだ参加の行を消していた。147-C-1 は、記録を残す前に、資格の判定を記録から切り離すための変更で（次の節）、記録を残す変更は 147-C-2 で実装した（「147-C-2 の設計」）。検索（#155）もこの部品を使う
 
 ### 147-C-1 が広げた経路（実装済み）
 
@@ -288,6 +289,60 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 - フロントエンド：`frontend/src/pages/CaseParticipantManager.test.tsx`（役割の名前・「削除」「退出する」の出し分け・成功・422・409・403・二重送信の防止・退出の後の遷移）、`CaseDueDate.test.tsx`（`canEditDueDate`・過去日・未定に戻す・二重送信の防止）、`CaseParticipantSessionSwitch.test.tsx`（利用者の切り替え）。MSW は`frontend/src/test/case-handlers.tsx`
 - E2E：`e2e/case-participants.spec.ts`（2件。参加者が社員を追加すると、追加された人が詳細を見られ、削除すると非公開の表示になる。担当部署のオーナーには役割の名前が出て「削除」が出ない／参加者が納期を設定すると、ヘッダーに出る）。シードは`e2e/seeds/case-participants.sql`、後始末は`e2e/seeds/case-participants-cleanup.sql`（[e2e.md](../testing/e2e.md)）
 
+## 147-C-2 の設計（無効化・再有効化・異動・オーナー交代・既存の案件の補完）
+
+決定は[C-182](../requirements/decision-register.md)（Q1・Q3・Q4・Q5と、147-C-2 の統括の決定）。API・画面・migration は足していない。コードは書き写さず、ファイル名・関数名で指す。
+
+### ファイルと役割（147-C-2 で変えたもの）
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/db/account.repository.ts` | `deactivate`：チャンネルの参加の削除から、案件専用チャンネル（`channels.purpose = 'case'`）を除いた。`soleActiveCaseParticipantSql`：AC-15 の条件の SQL の部品。`findAccountState`の`isSoleActiveCaseParticipant`と、`deactivate`の batch の先頭の前提（`NOT`）の両方が使う |
+| `backend/src/services/account.service.ts` | `decideDeactivation`に`case_handover_required`の判定を足した（文言と 409 の`reason`） |
+| `backend/src/db/department.repository.ts` | `caseJoinStatements`：新しいオーナー（と元部署の後任）を、その部署が担当部署の案件に入れる文。`caseJoinCountSql`・`auditWithCaseJoinCount`：入る行の数を数えて監査の`detail`の`caseJoinCount`に入れる。`changeOwner`と、後任のある`create`が使う |
+| `backend/db/scripts/backfill-case-auto-participants.sql` | 既存の案件に自動参加の人を補う、べき等な SQL（運用の手順。migration ではない） |
+
+### 無効化（AC-15。Q1）
+
+- 案件専用チャンネルの参加の行は残す（進行中・終了とも。参加した時刻も変えない）。ほかのチャンネル（全社連絡・部署・個別）の行は、これまでどおり消す。DM には触れない
+- 行が残っても、無効な人は「有効な参加者」ではない（147-C-1）。案件の中身を読めず、書き込めず、参加者数の「有効な」側には数えない。退職者として、参加者の一覧には残る（C-142(1)）
+- AC-15：対象が、進行中の案件の唯一の有効な参加者なら、無効化を止める。409 `case_handover_required`、文言は「この社員が唯一の有効な参加者になっている進行中の案件があるため、無効化できません」。自動参加の全体管理者・オーナーも、有効なら「ほかの有効な参加者」に数える。終了した案件は対象にしない。引き継ぎの画面は作らない
+- 判定の順：404 → 403 → 422（本人）→ 再認証 → 409 `already_inactive` → `global_admin` → `department_owner` → `case_handover_required`
+- 同じ判定を、`deactivate`の batch の先頭の条件にも入れる（#196 の方式。`soleActiveCaseParticipantSql`を共用）。判定の後にほかの参加者が外された場合も、有効な参加者0人の進行中の案件が残らない。前提が崩れると batch 全体が取り消され、既存どおり読み直して分類する
+- 監査`account.deactivate`の`detail`は変えない。画面（`DeactivateDialog`）は、409 の文言を応答から出す（専用の画面の変更はない）
+
+### 再有効化・異動
+
+- 再有効化（Q4）：コードは変えない。「チャンネルの参加を全部消してから初期チャンネルに入れる」ので、無効化で残った案件の参加の行も外れる。自動では復元しない。テストで固定した
+- 異動（0-1 AC-19）：コードは変えない。異動の前後で案件の参加の行は同じで、旧部署の専用チャンネルからだけ外れる。テストで固定した
+
+### オーナーの交代・後任のある部署の作成による自動参加（Q3。C-133(4)）
+
+- 新しいオーナーを、その部署が担当部署の**すべての案件（進行中・終了とも）**の参加者に入れる。別部署の現オーナーを指名して元部署の後任がオーナーになる場合は、後任を元部署の案件に入れる（`department.create`でも同じ）。入れるのは、`cases`と`case_departments`から選ぶ`INSERT … SELECT`で、すでに参加している行は`NOT EXISTS`で除く（重複させない）。担当部署でない案件には入れない
+- 前のオーナーの行は消さない（一般の参加者として残り、外せるようになる）。新しいオーナーが有効なことは、既存の事実の確認（`factAssertions`）が前提にしている
+- 案件の側の監査・通知は出さない。個別の監査も増やさない
+- 監査：`department.owner_change`の`detail`には常に`caseJoinCount`（新しく入った行の合計。0 でも）。`department.create`は、後任があるときだけ入れる（**後任のない部署の作成では、`detail`に`caseJoinCount`を入れない**。統括の決定）。件数は、同じ batch の`INSERT … SELECT`で数えて入れる（監査ログを書き換えない。[audit-logs.md](audit-logs.md)）
+- **batch の中の文の順**：監査の文を、案件に入れる文より前に置く。件数は「入る前の不足」の数で、先に監査が数えないと、入れた後は不足が0になるため。順を入れ替えると件数が常に0になる
+- 同時の操作：承認とオーナー交代が同時でも、どちらが先でも新しいオーナーが参加者になる（D1 は書き込みを直列に実行する）。交代と、その人の参加者の削除が同時のとき、交代が先なら削除は 409 `auto_participant`、削除が先なら交代で再び入る。案件の担当部署の変更は#150 の範囲
+
+### 既存の案件の補完 SQL（Q5）
+
+- `backend/db/scripts/backfill-case-auto-participants.sql`：有効な全体管理者を全案件に、各案件の担当部署の有効なオーナーをその案件に入れる。足りない行だけを足し、何回流しても同じ（参加済みの行と`joined_at`は変わらない）。案件専用チャンネル以外には触れない。方針は[project-rules.md](../project-rules.md)の「べき等な SQL を `backend/db/scripts/` に置く」に従う
+- 実行手順：①入るべき行の数を数える`SELECT`を`wrangler d1 execute`で流す（適用前）、②本ファイルを`--file`で流す、③①と同じ`SELECT`を流して**0件**になったことを確かめる
+- **まだ、どの環境にも実行していない**。ローカルの開発 DB を含め、実行は利用者の承認の後に行う。本番への実行は、機能の完了条件に含めず、別に利用者の承認を得る（運用の手順は[env-deploy](../../.claude/skills/env-deploy/SKILL.md)）
+
+### テストの場所（147-C-2）
+
+- DB：`backend/src/db/account.repository.case-participation.db.test.ts`（無効化の後も案件の行が残ること・ほかのチャンネルの行は消えること・無効な社員の名前での書き込みが何も残さないこと・AC-15 の batch 全体の取り消しと同時の操作・再有効化）、`backend/src/db/account.repository.transfer.case-participation.db.test.ts`（異動で案件の行が変わらないこと）、`backend/src/db/department.repository.case-auto-join.db.test.ts`（交代・後任の経路・重複しないこと・前のオーナーが残ること・`caseJoinCount`・承認との同時の操作）、`backend/src/db/backfill-case-auto-participants.db.test.ts`（補完 SQL を読み込んで、足りない行だけが入ること・2回流しても増えないこと・無効な社員が入らないこと）
+- 既存のテストへの足し込み：`backend/src/db/department.repository.db.test.ts`（監査の`detail`に`caseJoinCount: 0`の期待を3件）、`backend/src/db/account.repository.lifecycle.db.test.ts`（`findAccountState`の`isSoleActiveCaseParticipant: false`の期待を1件）、`frontend/src/features/accounts/account-lifecycle.test.tsx`（409 `case_handover_required`の文言）
+- Service・結合：`backend/src/services/account.case-handover.test.ts`（判定の順と`case_handover_required`）
+- E2E：足さない（DB と結合の層で検出できるため）
+
+### 設計の判断（知見）
+
+- `findAccountState`は`isSoleActiveCaseParticipant`を常に真偽値で返す（統括の決定）。既存のテストが状態の完全一致を期待しているため、返り値の形を不自然にして合わせることはせず、期待に項目を足した（`department.repository.db.test.ts`の3件・`account.repository.lifecycle.db.test.ts`の1件）
+- 補完 SQL のテストなど、新しいテストの置き場所も、層の依存の決まりに従う（DB の層のテストは`backend/src/db/`）
+
 ## 既知の差・未実施・未決定として記録するもの
 
 | 項目 | 状態 |
@@ -302,8 +357,10 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 監査の一覧での案件の名前の解決 | しない。対象の種類「案件」の名前だけを出す（[audit-logs.md](audit-logs.md)） |
 | 追加の対象の社員がいない・無効のときの応答 | 422（`fields.userId`。ない・無効を同じ文にする）。`api-draft.md`の EP-5-09 の 404 の案は採らなかった（C-182(19)） |
 | 参加者の追加・削除のレート制限 | 作らない（X-8 が未決定） |
-| 参加の行を使うチャンネルの経路を「有効な参加者」に変えること | 147-C-1 で実装済み（147-C-2 の前提）。記録を残す変更は147-C-2 |
-| 無効化で案件の参加の記録を残すこと・AC-15 の守り・オーナー交代による自動参加・既存の案件の補完 | 147-C-2。いまの無効化は、案件の参加の行も消す（C-142(1)と食い違う既存の挙動。147-C-2 で直す） |
+| 参加の行を使うチャンネルの経路を「有効な参加者」に変えること | 147-C-1 で実装済み（147-C-2 の前提） |
+| 無効化で案件の参加の記録を残すこと・AC-15 の守り・オーナー交代による自動参加 | 147-C-2 で実装済み（解消。以前の無効化は案件の参加の行も消していて、C-142(1)と食い違っていた）。下の「147-C-2 の設計」 |
+| 既存の案件への自動参加の補完 SQL（`backfill-case-auto-participants.sql`） | 作成済み・**どの環境にも未実行**。本番への実行は、利用者の承認が別に必要 |
+| 異動・再有効化で案件の参加の行が変わらないこと／外れること | コードは変えず、テストで固定した（147-C-2） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
 | 本番の D1 への適用 | migration がないため該当しない |
 | API 仕様（`docs/api/openapi.json`）の ULID の`pattern` | 案件の経路だけ、実装の ULID の形と一致させた。ほかの経路を含む全体は Issue #289 |

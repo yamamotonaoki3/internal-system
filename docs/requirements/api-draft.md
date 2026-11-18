@@ -1680,7 +1680,7 @@ DM の画面（S-06）が、相手と投稿できるかを知るための API。
 
 | EP | 実装した形（Issue #128 の 128-a） |
 | --- | --- |
-| EP-0-10 | `POST /api/admin/accounts/:id/deactivate`。本文なし。成功は `204`。判定の順は 404 → 403 → 422（自分自身）→ 再認証（`403：REAUTH_REQUIRED`）→ 409。409 は `reason` で `already_inactive`・`global_admin`・`department_owner` を分ける。無効化で、状態・所属・全チャンネルの参加・追加ロール・セッションを一度に変え、監査 `account.deactivate`（`detail` は元の部署ID）を残す。ダイレクトメッセージには触れない |
+| EP-0-10 | `POST /api/admin/accounts/:id/deactivate`。本文なし。成功は `204`。判定の順は 404 → 403 → 422（自分自身）→ 再認証（`403：REAUTH_REQUIRED`）→ 409。409 は `reason` で `already_inactive`・`global_admin`・`department_owner`・`case_handover_required` を分ける（`case_handover_required` は#147の147-C-2。対象が進行中の案件の唯一の有効な参加者のとき。判定は `department_owner` の後）。無効化で、状態・所属・案件専用でないチャンネルの参加（案件専用チャンネルの参加の行は残す）・追加ロール・セッションを一度に変え、監査 `account.deactivate`（`detail` は元の部署ID）を残す。ダイレクトメッセージには触れない |
 | EP-0-11 | `POST /api/admin/accounts/:id/reactivate`。本文は `departmentId`（必須・有効な部署。余剰項目は 422）。成功は `200`：`id`・`initialPassword`（`Cache-Control: no-store`。ログ・監査に残さない）。判定の順は 404 → 403 → 422（部署）→ 再認証 → 409（`reason: already_active`）。ロール・個別チャンネルは戻さず、全社連絡と指定部署の専用チャンネルに参加させ、変更を求める。監査 `account.reactivate`（`detail` は部署ID） |
 | 前提が崩れたとき | 判定の後に、対象・操作者・部署の状態が変わると、何も書かず、状態を読み直して 403・404・409・422 のどれかを返す。無効化と再有効化が同時に来たときは、片方が先に確定し、もう片方は確定した後の状態に対して前提を確かめる |
 | 要件の一覧 | `GET /api/admin/accounts` は、無効なアカウントも含めて返す（`active`）。`status`・`deactivatedAt`・絞り込みは持たない（#199 の記録のとおり） |
