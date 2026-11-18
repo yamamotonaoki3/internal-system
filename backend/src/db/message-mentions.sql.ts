@@ -5,6 +5,7 @@ import type { Mention } from "../../../shared/message-rules";
 import { newUlid } from "../lib/ulid";
 import type { Database } from "./database";
 import { eligibleMentionRecipient } from "./notification.repository";
+import { messageViewableBy } from "./room-visibility.sql";
 
 /** 直前の条件付きINSERTが0行なら、部屋の必須列の違反でbatch全体を取り消す。 */
 export function guardInsertedMessage(db: Database, roomId: string) {
@@ -87,6 +88,7 @@ export function insertMentionNotifications(
 export async function loadMessageMentions(
   db: Database,
   messageIds: readonly string[],
+  viewerId: string,
 ): Promise<Map<string, Mention[]>> {
   const result = new Map<string, Mention[]>();
   if (messageIds.length === 0) return result;
@@ -99,7 +101,8 @@ export async function loadMessageMentions(
     })
     .from(messageMentions)
     .where(
-      sql`${messageMentions.messageId} IN (SELECT value FROM json_each(${JSON.stringify(messageIds)}))`,
+      sql`${messageMentions.messageId} IN (SELECT value FROM json_each(${JSON.stringify(messageIds)}))
+        AND ${messageViewableBy(sql`${messageMentions.messageId}`, viewerId)}`,
     )
     .orderBy(messageMentions.messageId, messageMentions.start);
   for (const row of rows) {

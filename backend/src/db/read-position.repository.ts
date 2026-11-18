@@ -19,7 +19,7 @@ export function createReadPositionRepository(db: Database) {
     /**
      * 自分の対象の部屋（参加中・未アーカイブのチャンネルと当事者の DM）を room_id の昇順で limit 件調べ、未読のある部屋だけを返す。
      * カーソルは「調べた対象の部屋」の最後の room_id。items は limit より少なく、空でも nextCursor がありうる。
-     * 2本の SQL の間に参加が変わると、その1回だけ古い対象で数える（次の取得で直る）。
+     * 2本の SQL の間に参加した部屋は、その1回だけ対象に入らない（次の取得で直る）。2本の間に資格を失った部屋は、数える SQL の条件で 0 になり、返らない（#297）。
      */
     async listUnread(
       userId: string,
