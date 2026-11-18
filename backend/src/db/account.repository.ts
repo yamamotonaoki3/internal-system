@@ -107,6 +107,8 @@ export type AccountState = {
   isActive: boolean;
   isGlobalAdmin: boolean;
   isDepartmentOwner: boolean;
+  /** 進行中の案件のうち、対象のほかに有効な参加者がいない案件がある（AC-15） */
+  isSoleActiveCaseParticipant: boolean;
 };
 
 export type AccountDeactivateInput = {
@@ -264,6 +266,19 @@ function assertStatement(
     .where(inArray(users.id, [input.targetId, input.actorId]));
 }
 
+/**
+ * 対象が参加している進行中の案件のうち、対象のほかに有効な参加者が1人もいない案件があること（AC-15）。
+ * 終了した案件は対象にしない（有効な参加者0人になってよい）。自動参加の全体管理者・オーナーも、有効なら数える（決定 Q1）。
+ */
+function soleActiveCaseParticipantSql(targetId: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM cases k
+    JOIN channel_members tm ON tm.channel_id = k.channel_id AND tm.user_id = ${targetId}
+    WHERE k.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM channel_members om
+        JOIN users ou ON ou.id = om.user_id AND ou.is_active = 1
+        WHERE om.channel_id = k.channel_id AND om.user_id <> ${targetId}))`;
+}
+
 /** 全社連絡と、所属部署の専用チャンネル2つ（department・announcement）に参加させる文。専用チャンネルがない部署でも成功する */
 function joinInitialChannels(
   db: Database,
@@ -356,6 +371,7 @@ export function createAccountRepository(db: Database) {
           isActive: users.isActive,
           isGlobalAdmin: sql<number>`EXISTS (SELECT 1 FROM user_role_assignments r WHERE r.user_id = ${id} AND r.role_id = ${ROLE_IDS.globalAdmin})`,
           isDepartmentOwner: sql<number>`EXISTS (SELECT 1 FROM user_role_assignments r WHERE r.user_id = ${id} AND r.role_id = ${ROLE_IDS.owner})`,
+          isSoleActiveCaseParticipant: sql<number>`${soleActiveCaseParticipantSql(id)}`,
         })
         .from(users)
         .where(eq(users.id, id))
@@ -367,11 +383,12 @@ export function createAccountRepository(db: Database) {
         isActive: row.isActive,
         isGlobalAdmin: row.isGlobalAdmin === 1,
         isDepartmentOwner: row.isDepartmentOwner === 1,
+        isSoleActiveCaseParticipant: row.isSoleActiveCaseParticipant === 1,
       };
     },
     /**
-     * 無効化：状態・所属・全チャンネルの参加・追加ロール・セッションの失効・監査1件を1つの batch で確定する。
-     * DM の参加・既読・投稿には触れない。前提が崩れていたら AccountStateChangedError で、何も残さない。
+     * 無効化：状態・所属・案件専用でないチャンネルの参加・追加ロール・セッションの失効・監査1件を1つの batch で確定する。
+     * 案件専用チャンネルの参加の行は、退職者の記録として残す（C-142(1)）。DM の参加・既読・投稿には触れない。前提が崩れていたら AccountStateChangedError で、何も残さない。
      */
     async deactivate(input: AccountDeactivateInput): Promise<void> {
       // 監査の detail（元の部署）を読む。読んだ値が batch の時点でも同じことを、前提の条件に含める
@@ -407,6 +424,7 @@ export function createAccountRepository(db: Database) {
           WHERE t.id = ${input.targetId} AND t.is_active = 1 AND t.department_id IS ${fromDepartmentId})
         AND NOT EXISTS (SELECT 1 FROM user_role_assignments r
           WHERE r.user_id = ${input.targetId} AND r.role_id IN (${ROLE_IDS.globalAdmin}, ${ROLE_IDS.owner}))
+        AND NOT ${soleActiveCaseParticipantSql(input.targetId)}
         AND ${caseRequestsUnchangedSql(input.targetId, caseRequests)}
         AND ${actorIsGlobalAdmin(input.actorId)}`;
       try {
@@ -423,7 +441,12 @@ export function createAccountRepository(db: Database) {
             .where(eq(users.id, input.targetId)),
           db
             .delete(channelMembers)
-            .where(eq(channelMembers.userId, input.targetId)),
+            .where(
+              and(
+                eq(channelMembers.userId, input.targetId),
+                sql`${channelMembers.channelId} NOT IN (SELECT c.room_id FROM channels c WHERE c.purpose = 'case')`,
+              ),
+            ),
           db
             .delete(userRoleAssignments)
             .where(eq(userRoleAssignments.userId, input.targetId)),
