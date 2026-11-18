@@ -476,7 +476,8 @@ export function createCaseRequestRepository(db: Database) {
     const [row] = await db
       .select({
         requestedBy: caseCreationRequests.requestedBy,
-        departmentCount: sql<number>`(SELECT COUNT(*) FROM case_creation_request_departments d WHERE d.request_id = ${caseCreationRequests.id})`,
+        // 外側の列は入れ子の SQL で渡す（直接書くと表名なしになり、内側の表の同名の列と解釈されうる）
+        departmentCount: sql<number>`(SELECT COUNT(*) FROM case_creation_request_departments d WHERE d.request_id = ${sql`${caseCreationRequests.id}`})`,
       })
       .from(caseCreationRequests)
       .where(eq(caseCreationRequests.id, requestId))

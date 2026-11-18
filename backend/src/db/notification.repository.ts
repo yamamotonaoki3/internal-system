@@ -213,14 +213,15 @@ export function createNotificationRepository(
           id: notifications.id,
           reason: sql<
             string | null
-          >`CASE WHEN ${notifications.kind} = 'channel.archived'
+          >`CASE WHEN ${sql`${notifications.kind}`} = 'channel.archived'
             THEN (SELECT e.reason FROM channel_archive_events e
-              WHERE e.id = ${notifications.targetId} AND e.channel_id = ${notifications.roomId})
+              WHERE e.id = ${sql`${notifications.targetId}`} AND e.channel_id = ${sql`${notifications.roomId}`})
             END`,
+          // 外側の列は入れ子の SQL で渡す（直接書くと表名なしになり、内側の表の同名の列と解釈されうる）
           roomArchived:
             sql<boolean>`${inArray(notifications.kind, [...ROOM_ARCHIVED_KINDS])}
             AND EXISTS (SELECT 1 FROM channels c
-              WHERE c.room_id = ${notifications.roomId} AND c.deleted_at IS NOT NULL)`.mapWith(
+              WHERE c.room_id = ${sql`${notifications.roomId}`} AND c.deleted_at IS NOT NULL)`.mapWith(
               Boolean,
             ),
         })

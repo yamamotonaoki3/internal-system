@@ -166,8 +166,9 @@ export function createAttachmentRepository(db: Database) {
           kind: messageAttachments.kind,
           contentType: messageAttachments.contentType,
           sizeBytes: messageAttachments.sizeBytes,
+          // 列は入れ子の SQL で渡す（直接書くと表名なしになり、内側の conversations.room_id と解釈される）
           isDirect:
-            sql<boolean>`EXISTS (SELECT 1 FROM conversations WHERE room_id = ${messageAttachments.roomId})`.mapWith(
+            sql<boolean>`EXISTS (SELECT 1 FROM conversations cv WHERE cv.room_id = ${sql`${messageAttachments.roomId}`})`.mapWith(
               Boolean,
             ),
         })
