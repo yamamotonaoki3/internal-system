@@ -176,6 +176,13 @@ test("#148 5-2 AC-1・AC-4: 別の参加者がスレッド（?thread=）で返�
   await expect(
     pane(b.page).getByRole("log", { name: "返信一覧" }),
   ).toContainText(REPLY_TEXT);
+  // 返信の保存の完了を待つ（e2e/threads.spec.ts と同じ：入力欄が空になり、返信した側の親の行が「返信 1 件」になる）
+  await expect(pane(b.page).getByRole("textbox", { name: "返信" })).toHaveValue(
+    "",
+  );
+  await expect(
+    rowWith(b.page, POST_TEXT).getByRole("button", { name: /^返信 1 件/ }),
+  ).toBeVisible();
 
   const row = rowWith(b.page, POST_TEXT);
   await row.getByRole("button", { name: /^リアクションを付ける/ }).click();
@@ -188,6 +195,14 @@ test("#148 5-2 AC-1・AC-4: 別の参加者がスレッド（?thread=）で返�
     .first()
     .click();
   await expect(picker).toHaveCount(0);
+  // ピッカーは送信の前に閉じるため、保存の完了は、操作した側の行に押下済みのチップ（件数 1）が出ることで待つ（e2e/reactions.spec.ts と同じ待ち方。
+  // ピッカーの中のセルは除く）
+  await expect(
+    row
+      .getByRole("button", { pressed: true })
+      .and(b.page.locator(':not([role="dialog"] *)'))
+      .filter({ hasText: "👍" }),
+  ).toContainText("1");
 
   // 部屋のポーリングは新着（after）だけを取り足し、既存の行の返信の件数・リアクションは取り直さない（チャンネルと同じ既存の動き。
   // e2e/reactions.spec.ts も、ほかの人の画面は開き直して確かめる）。投稿した人は開き直して確かめる
