@@ -56,7 +56,8 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `frontend/src/pages/LoginPage.tsx` | 画面S-02（`/login`）。部品を組み合わせるだけ。ログイン済みなら`/`へ移る。未ログインでも見えるよう、`HealthStatus`と`SetupEntryLink`もここに置く |
 | `frontend/src/pages/HomePage.tsx` | ログイン後のホーム（`h1`「ホーム」と`WelcomeMessage`）。枠（`main`）と、ログイン済みの確認は、`App.tsx`のレイアウトルート（`RequireAuth`→`AppShell`）が持つ（#121。[app-shell.md](app-shell.md)） |
 | `frontend/src/features/auth/components/LoginForm.tsx` | 入力フォームと送信。401（`INVALID_CREDENTIALS`）・429・422・通信エラー・その他で文言を分ける。どちらが違うかは示さない |
-| `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`は枠なしで`PageLayout`に包み、後者は`PasswordChangePending`からS-03のフォームを出す |
+| `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`は枠なしで`PageLayout`に包み、後者は`PasswordChangePending`からS-03のフォームを出す。成功の後の出力（初回のパスワード変更の分岐と子）は、同期で読んだ利用者のID（`useSignedInUserId`）をkeyにして作り直し、そのIDがセッションの内容と一致しない間は中身を出さず「確認中です」だけを出す（Issue #284。下の「利用者の切り替え」） |
+| `frontend/src/features/auth/user-switch-guard.ts` | 利用者の切り替えの見張り`installUserSwitchGuard`（`main.tsx`で1回だけ登録。解除の関数を返す）と、セッションの公開`publishSession`（古いセッションの取得を取り消してから書く。`useLogin`が使う）。`features/auth/index.ts`から公開する（Issue #284） |
 | `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |【Issue #239：`LogoutButton`は、入力中の変更があるとき、ログアウトのAPIの前に確認を出す。失敗の案内は`LogoutFailureNotice`（共通レイアウト）、ログイン画面の案内は`DraftCleanupNotice`。詳細は[drafts.md](drafts.md)。元の記述は残す】
 | `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |【Issue #239：`useLogout`に`mutationKey`（`authKeys.logout`）を付け、成功時にその利用者の端末の下書きを消す。`useSignedInUserId`（キャッシュの`user.id`を購読して返す）を足した。元の記述は残す】
 | `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `SessionInfo`型と`fetchSession`・`login`・`logout`・`changePassword`・`reauthenticate`。共通の`apiClient`を使い、ログイン時の`reauthenticatedAt`は`null` |
@@ -122,6 +123,28 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 ### 失効の関数と呼び出し元
 
 `revokeAllForUserStatement`（その利用者の有効なセッションをすべて失効させる）と`revokeOthersForUserStatement`（現在のセッションを除く）は文を返す。後者は`credential.repository.ts`がパスワード変更の`db.batch`で実行する。前者は再発行（#127）・無効化のIssueで使う。失効の書き込みが失敗したら、成功扱いにせずエラーにする（ADR-0008）。
+
+## 利用者の切り替え（Issue #284。表示の側）
+
+同じ画面を開いたまま利用者が替わる（Aのセッションが切れ、同じタブでBがログインする）と、Bの応答が届くまでの間、Aのデータがキャッシュや画面の状態から表示されえた。これを防ぐ。判断は[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)、決定記録はC-187。
+
+### 処理の流れ
+
+1. `main.tsx`が、401の共通処理の登録の隣で、`installUserSwitchGuard(queryClient)`を1回だけ呼ぶ。登録の時点のセッションのユーザーIDを「前に分かっていたID」として覚える（捨てない）
+2. 見張りはクエリのキャッシュの通知のたびに、セッションのユーザーIDを読む。未定義（401の後でセッションを捨てた状態）なら何もせず、覚えたIDも消さない
+3. 読んだIDが、前に分かっていたIDと違うときは、先に覚えるIDを新しい値にしてから、セッションのキー以外のクエリをすべて`removeQueries`で捨てる。先に更新するのは、削除の通知で再び呼ばれても何もしないため。覚えたIDが無かった（最初のID）ときは捨てない。捨てたクエリの進行中の取得は取り消され、古い応答は書き戻されない
+4. ログインの成功は`useLogin`が`publishSession`で書く。古いセッションの取得（ログイン画面でのセッションの確認など）を取り消してから`setQueryData`するので、遅れて返ったAの応答がBを上書きしない
+5. `RequireAuth`は、`useSession`に加えて`useSignedInUserId`（キャッシュの購読で同期に読む）を使う。`useSession`の画面への通知は遅れるため、同期のIDで、成功の後の出力（`mustChangePassword`の分岐を含む）をkey付きで作り直す。同期のIDが無い、またはセッションの内容のIDと一致しない間は、中身を出さず確認中の表示にする。ページ・ダイアログ・入力・サイドバーの開閉・再認証のダイアログなどの画面の状態は、これで作り直される。`?thread=`などURLが持つ状態は残る
+
+### 同じ利用者の再ログインとの関係
+
+利用者のIDが変わらないときは、何も捨てず、作り直しもしない（0-2 AC-8の#120の読み方。期限切れのあとに同じ利用者が戻ると、前の一覧と端末の下書きが残る）。mutationのキャッシュは、どちらの場合も捨てない。キーに利用者のIDを入れている機能（退職処理の申請・監査ログ・案件・チャンネルの管理）は、そのまま残す。
+
+### 範囲外
+
+- 操作の途中で別の人に替わった場合の、前の利用者の操作の応答の書き戻し・途中から始まる通信・ログアウトの後処理：Issue #300
+- 同じブラウザの別のタブで別の人がログインした場合：Issue #298
+- 401の共通処理（`unauthenticated-handler.ts`）、`useLogout`、`usePostMessage`は変えていない
 
 ## 既定拒否とゲート
 
@@ -239,6 +262,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | API仕様との一致 | `backend/src/openapi.test.ts` |
 | 画面 | `frontend/src/pages/LoginPage.test.tsx`・`HomePage.test.tsx`、`frontend/src/features/auth/`配下の`*.test.ts(x)`、`frontend/src/components/SecretField.test.tsx` |
 | Issue #123の画面・再認証 | `frontend/src/pages/PasswordChangePage.test.tsx`、`frontend/src/features/auth/schemas/password-change-form.test.ts`・`hooks/useReauth.test.tsx`・`components/`配下の関連テスト |
+| Issue #284の利用者の切り替え | 単体：`frontend/src/features/auth/user-switch-guard.test.ts`（QueryClientだけ）。画面：`frontend/src/user-switch.session-switch.test.tsx`（App全体）。枠：`frontend/src/test/user-switch-harness.tsx`（`main.tsx`と同じ組み立てのデータルーター・離れる前の確認・401の処理・見張りの登録）、`frontend/src/test/render-watch.tsx`（Profilerで描画の確定ごとに、前の利用者の識別の文字列が本文・入力欄の値・`aria-label`にないことを記録する見張り。検出力は`user-switch.session-switch.test.tsx`の見張りの確かめ（誤った見本の部品で記録が1件以上になること）で確かめる）。E2Eは足していない |
 | E2E | `e2e/login.spec.ts`、`e2e/sample-users.spec.ts`（架空データ`e2euser_`・`@example.com`） |
 | テスト用の部品 | `backend/test/auth-fixtures.ts`、`frontend/src/test/auth-handlers.ts` |
 | 変異テスト | `stryker.config.json`の対象に、`password.ts`・`session-middleware.ts`・`source-key.ts`・`throttle-policy.ts`・`session-token.ts`・`auth.repository.ts`・`session.repository.ts`を足した |
@@ -255,6 +279,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 
 - Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
 - ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）
-- 決定記録：C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
+- Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）、#298（別のタブ）
+- 決定記録：C-187、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`
 - 関連する設計書：[roles-and-setup.md](roles-and-setup.md)（`/api/setup`、`password.ts`の元の部分）
