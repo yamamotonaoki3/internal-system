@@ -43,7 +43,10 @@ async function joinedChannel(label: string) {
 
 async function unreadOf(userId: string) {
   const page = await withDatabase(env, (db) =>
-    createReadPositionRepository(db).listUnread(userId, { limit: 100 }),
+    createReadPositionRepository(db).listUnread(userId, {
+      limit: 100,
+      includeCase: true,
+    }),
   );
   return new Map(page.items.map((item) => [item.roomId, item.count]));
 }

@@ -25,6 +25,8 @@ const channelDetailSchema = z
     departmentId: z.string().nullable(),
     joined: z.boolean(),
     isCaseChannel: z.boolean(),
+    // 案件専用チャンネルなら、その案件の ID（#148）。画面は案件の画面へ移る
+    caseId: z.string().min(1).nullable(),
     // このチャンネルに投稿できるか（参加者で、お知らせ専用なら権限がある）
     canPost: z.boolean(),
     // 部署が無効で、読み取り専用か。真のあいだは、自分の投稿の編集・削除もできない

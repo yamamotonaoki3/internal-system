@@ -55,8 +55,10 @@ export type ChannelDetail = {
   canPost: boolean;
   /** チャンネルの部署が無効で読み取り専用か（C-143(1)）。投稿の権限とは別で、編集・削除のボタンの表示に使う */
   readOnly: boolean;
-  /** 案件チャンネル（#134 以降）。今はつねに false */
-  isCaseChannel: false;
+  /** 案件専用チャンネルか（#148） */
+  isCaseChannel: boolean;
+  /** 案件専用チャンネルなら、その案件の ID（画面が案件の画面へ移るため。#148）。それ以外は null */
+  caseId: string | null;
   /** 管理の操作（#143）が送る版 */
   version: number;
   /** 閲覧者に出してよい管理の操作（表示用。判定は管理の API が毎回行う） */
@@ -107,7 +109,7 @@ export function withChannelService<T>(
 
 // roles は詳細の canPost（お知らせ専用の権限）の判定に使う。canPost の判定は `can` で行い、拒否を監査に記録しない（記録するのは投稿APIだけ）
 type ChannelServiceDependencies = {
-  /** 招待の権限（perm.channel.invite）の判定。省略時は roles から操作者ごとに組む */
+  /** 招待の権限（perm.channel.invite）・案件の閲覧の権限（perm.case.view）の判定。省略時は roles から操作者ごとに組む */
   authorizer?: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
 };
 
@@ -117,20 +119,19 @@ export function createChannelService(
   deps: ChannelServiceDependencies = {},
 ) {
   // 拒否は authorize が logger.audit に記録し、FORBIDDEN を投げる
-  async function authorizeInvite(actor: ChannelActor): Promise<void> {
+  async function authorizeCompany(
+    actor: ChannelActor,
+    permission: "perm.channel.invite" | "perm.case.view",
+  ): Promise<void> {
     if (deps.authorizer !== undefined)
-      return deps.authorizer.authorize(
-        { userId: actor.userId },
-        "perm.channel.invite",
-        { type: "company" },
-      );
+      return deps.authorizer.authorize({ userId: actor.userId }, permission, {
+        type: "company",
+      });
     if (roles === undefined)
       throw new Error("権限の判定に必要な Repository が渡されていません");
     return createAppAuthorizer(roles, {
       logger: createLogger({ traceId: actor.traceId, userId: actor.userId }),
-    }).authorize({ userId: actor.userId }, "perm.channel.invite", {
-      type: "company",
-    });
+    }).authorize({ userId: actor.userId }, permission, { type: "company" });
   }
 
   async function canPostAnnouncement(
@@ -218,7 +219,7 @@ export function createChannelService(
       throw new AppError("FORBIDDEN", INVITE_FORBIDDEN_MESSAGE);
     }
     // 権限は見えるチャンネルの参加者についてだけ確かめる（見えないチャンネルを拒否の監査に残さない）
-    await authorizeInvite(actor);
+    await authorizeCompany(actor, "perm.channel.invite");
     beforeState?.();
     if (decision === "case_channel")
       throw new AppError("CONFLICT", CASE_CHANNEL_MESSAGE);
@@ -244,6 +245,9 @@ export function createChannelService(
     },
     async get(actor: ChannelActor, roomId: string): Promise<ChannelDetail> {
       const channel = await requireVisible(roomId, actor);
+      // 案件専用チャンネルは非公開なので、ここまで来るのは参加者だけ（非参加者は 404 で、案件の存在を明かさない）
+      const { caseId } = channel;
+      if (caseId !== null) await authorizeCompany(actor, "perm.case.view");
       const manage = await manageOf(actor, channel);
       const base = {
         id: channel.roomId,
@@ -252,7 +256,8 @@ export function createChannelService(
         description: channel.description,
         visibility: channel.visibility,
         departmentId: channel.departmentId,
-        isCaseChannel: false,
+        isCaseChannel: caseId !== null,
+        caseId,
         readOnly: !channel.departmentIsActive,
         version: channel.version,
         manage,

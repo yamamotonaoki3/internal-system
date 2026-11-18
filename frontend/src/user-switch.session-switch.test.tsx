@@ -175,6 +175,7 @@ function respondWorld(initialUser: TestUser | null): World {
         visibility: "public",
         departmentId: null,
         isCaseChannel: false,
+        caseId: null,
         version: 1,
         manage: {
           canRename: false,

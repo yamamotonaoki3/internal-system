@@ -246,7 +246,7 @@ const READS_A: Probe[] = [
     sees: async (viewerId) =>
       (
         await withDatabase(env, (db) =>
-          listUnreadTargetRows(db, viewerId, { limit: 100 }),
+          listUnreadTargetRows(db, viewerId, { limit: 100, includeCase: true }),
         )
       ).some((row) => row.room_id === roomA.roomId),
   },
@@ -287,7 +287,11 @@ describe("#294 AC-1 ほかの部屋の有効な参加者（A の参加者では�
     const ids = async (viewerId: string) =>
       (
         await withDatabase(env, (db) =>
-          listThreadRows(db, viewerId, { limit: 100, includeDirect: false }),
+          listThreadRows(db, viewerId, {
+            limit: 100,
+            includeDirect: false,
+            includeCase: true,
+          }),
         )
       ).map((row) => row.id);
     expect(await ids(w.memberS1.id)).toContain(ROOT_A);

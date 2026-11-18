@@ -84,11 +84,12 @@ export function canPostToChannel(input: {
 
 /**
  * スレッドに返信できない理由（#137。EP-1-07 の replyBlockedReason）。サーバーの応答と画面の案内が同じ値を参照する定義元。
- * 複数に当たるときの優先順は、この並び（削除された親 → 未参加 → 部署が無効 → DM の相手が無効）。
+ * 複数に当たるときの優先順は、この並び（削除された親 → 未参加 → 案件が終了（#148）→ 部署が無効 → DM の相手が無効）。
  */
 export const REPLY_BLOCKED_REASONS = {
   deletedParent: "deleted_parent",
   notJoined: "not_joined",
+  caseClosed: "case_closed",
   readOnly: "read_only",
   partnerInactive: "partner_inactive",
 } as const;

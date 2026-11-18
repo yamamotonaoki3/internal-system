@@ -3,7 +3,7 @@
 // 部屋の条件は message-modify.sql.ts の modifiable と同じ形で、「本人の投稿か」だけを除いたもの。
 // 条件が似ているため、部屋の条件を変えるときは、このファイルの reactable と modifiable の両方を直す（偶然似ているだけの処理ではなく、同じ「部屋に参加している本人が操作できるか」の規則）。
 //   メッセージが未削除で、部屋が次のどちらか。
-//   チャンネル：本人が参加中・未アーカイブ・部署が有効（部署のない会社直属のチャンネルは有効として扱う）
+//   チャンネル：本人が参加中・未アーカイブ・部署が有効（部署のない会社直属のチャンネルは有効として扱う）・案件専用チャンネルなら案件が進行中（#148）
 //   DM：本人が当事者で、当事者に無効な社員がいない
 // お知らせ専用の投稿権限は条件に入れない（投稿とは別の操作。参加者なら誰でも付けられる）。
 // 配列は JSON 1パラメータで渡し、D1 の bind 数を投稿の数に依存させない。未知の DB のエラーは変換せずに呼び出し元へ投げる。
@@ -16,6 +16,7 @@ import {
 import { messageReactions } from "../../db/schema";
 import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
+import { caseRoomOpen } from "./case-room.sql";
 import { messageViewableBy } from "./room-visibility.sql";
 
 export type ReactionUser = {
@@ -54,6 +55,7 @@ export function reactable(messageId: string, userId: string): SQL {
           LEFT JOIN departments d ON d.id = c.department_id
           WHERE c.room_id = m.room_id AND c.deleted_at IS NULL
             AND ${activeChannelMember(sql`c.room_id`, userId)}
+            AND ${caseRoomOpen(sql`c.room_id`)}
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = m.room_id AND user_id = ${userId})

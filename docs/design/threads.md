@@ -80,7 +80,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 
 ### 判定の順
 
-**返信の投稿（`postReply`。EP-1-08。この順を変えない）**：①親が存在して見えるか（404）→ ②親が返信でないか（404。返信への返信は作らない）→ ③チャンネルで参加しているか（403）→ ④`perm.message.reply`（R-30。403で、`authorize`が監査に残す）→ ⑤親が削除済みか（409。C-59）→ ⑥部屋の状態（DMの相手が無効・部署が無効は409）→ ⑦条件付きのINSERT。0行のときは、①〜⑥をもう一度確かめ（状態が崩れていれば404・403・409）、どれにも当たらなければIDが部屋の最大以下だったとして、最大より大きいIDで作り直して再試行する（上限を超えたら503）。DMの返信のPOSTは`perm.message.reply`だけを見る（DMの本文を読む権限`perm.dm.message.view`は求めない）。お知らせ専用チャンネルでも参加者は返信できる（U-6）ので、`perm.announcement.post`は条件に入れない。【#147（147-C-1）：③の「参加しているか」は有効な参加者（`activeChannelMember`）。返信の書き込み・既読位置・スレッドの一覧も同じ。返信を読む SQL には`roomViewableBy`を入れてある。[cases.md](cases.md)の「147-C-1 が広げた経路」】
+**返信の投稿（`postReply`。EP-1-08。この順を変えない）**：①親が存在して見えるか（404）→ ②親が返信でないか（404。返信への返信は作らない）→ ③チャンネルで参加しているか（403）→ ④`perm.message.reply`（R-30。403で、`authorize`が監査に残す）→ ⑤親が削除済みか（409。C-59）→ ⑥部屋の状態（DMの相手が無効・部署が無効は409）→ ⑦条件付きのINSERT。0行のときは、①〜⑥をもう一度確かめ（状態が崩れていれば404・403・409）、どれにも当たらなければIDが部屋の最大以下だったとして、最大より大きいIDで作り直して再試行する（上限を超えたら503）。DMの返信のPOSTは`perm.message.reply`だけを見る（DMの本文を読む権限`perm.dm.message.view`は求めない）。お知らせ専用チャンネルでも参加者は返信できる（U-6）ので、`perm.announcement.post`は条件に入れない。【#147（147-C-1）：③の「参加しているか」は有効な参加者（`activeChannelMember`）。返信の書き込み・既読位置・スレッドの一覧も同じ。返信を読む SQL には`roomViewableBy`を入れてある。[cases.md](cases.md)の「147-C-1 が広げた経路」】【#148：案件専用チャンネルの部屋は、⑤の後に`perm.case.post`（403）→ 案件が終了中なら409「終了した案件には投稿できません」→ ⑥。SQL（`reply-insert.sql.ts`）にも`caseRoomOpen`を入れた。返信の取得・スレッドの既読は`perm.case.view`。[cases.md](cases.md)の「148-A の設計」】
 
 **返信の取得（`listReplies`。EP-1-07）**：①②まで（未参加の公開チャンネルも読める）。DMの部屋は、チャンネルの閲覧権限の代わりに`perm.dm.message.view`（拒否は403）。応答に、親の1件（削除済みなら`body: null`）・`replyBlockedReason`・`joined`・`roomWritable`を添える。
 
@@ -105,7 +105,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 
 ### 返信できない理由と`joined`・`roomWritable`
 
-- `replyBlockedReason`は、優先順で**1つだけ**返す：`deleted_parent`（親が削除済み）→ `not_joined`（未参加の公開チャンネル）→ `read_only`（部署が無効）→ `partner_inactive`（DMの相手が無効）。できるときは`null`
+- `replyBlockedReason`は、優先順で**1つだけ**返す：`deleted_parent`（親が削除済み）→ `not_joined`（未参加の公開チャンネル）→ `read_only`（部署が無効）→ `partner_inactive`（DMの相手が無効）。できるときは`null`【#148：未参加の次に`case_closed`（案件専用チャンネルの案件が終了）を足した。優先順は`deleted_parent → not_joined → case_closed → read_only → partner_inactive`。定義元は`shared/message-rules.ts`の`REPLY_BLOCKED_REASONS`。画面は「終了した案件のため、返信できません」を出す（C-184(6)）。`roomWritable`は偽になる】
 - 理由を1つに絞ると、隠れた理由が効かない（例：未参加で親が削除済みだと`not_joined`が届かず、画面が未参加でも既読を送って403になる）。そこで、独立した真偽として`joined`（参加しているか。DMは当事者なら`true`）と`roomWritable`（部屋に今書き込めるか）を返す。画面は、既読の送信と自分の返信の編集・削除の表示を`joined && roomWritable`で決める（`roomReplyState`が同じ材料から1か所で求め、サーバーの書き込みの条件`reply-insert.sql.ts`・`message-modify.sql.ts`と食い違わない）
 - **これらは表示の制御だけ**で、認可ではない。認可は、POST・PATCH・DELETEのときに、サーバーが改めて行う
 
@@ -113,7 +113,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 
 - **含める条件（U-4）**：返信が1件以上あり、自分が親の投稿者か、自分が返信したスレッド。かつ、部屋が、参加中で未アーカイブのチャンネル、または当事者のDM（相手が無効でも含める）。参加していない公開チャンネル・抜けたチャンネル・アーカイブ済みは出さない。親が削除済みでも含める（`body: null`）
 - **並び**：最後の返信のIDの降順、同じなら親のIDの降順（削除された返信も含める）。カーソルは`(最後の返信のID, 親のID)`。`cursor.ts`の`cursorQuerySchema`（既定20・最大100）
-- **DMの権限**：`perm.dm.message.view`を持たない利用者には、DMのスレッドを含めない（一覧自体は200）。取得の後に除くとページの件数と`nextCursor`がずれるので、**SQLの条件**（`includeDirect`）で除く。表示の判定なので、`can`（拒否を監査に残さない）を使う。2秒ごとの取り直しで、拒否が監査に溜まらないようにするため
+- **DMの権限**：`perm.dm.message.view`を持たない利用者には、DMのスレッドを含めない（一覧自体は200）。取得の後に除くとページの件数と`nextCursor`がずれるので、**SQLの条件**（`includeDirect`）で除く。表示の判定なので、`can`（拒否を監査に残さない）を使う。2秒ごとの取り直しで、拒否が監査に溜まらないようにするため【#148：案件専用チャンネルのスレッドも同じ作りで、`perm.case.view`を持たない利用者には含めない。`thread-list.sql.ts`の`includeCase`（**必須の引数**）と`case-room.sql.ts`の`caseRoomListable`。権限があれば、案件のスレッドも一覧に出る。`/channels/<部屋>`を作る入口は、チャンネルの詳細が案件の画面（`/cases/:caseId?thread=`）へ置き換えて移る。通知`message.mentioned`の移動先はS-35のまま。C-184(2)）。[cases.md](cases.md)】
 - **未読（`unreadCount`）**：0〜100（`UNREAD_COUNT_LIMIT`）。自分の返信と削除済みの返信は数えない。下限は`unreadLowerBound`（スレッドの既読位置と、チャンネルの`joined_at`の新しい方）
 - **応答の形**：項目は`parent`（親の1件と`replyCount`）・`room`（チャンネルは`kind`・`id`・`name`、DMは`kind`・`id`・`partner`）・`lastReplyAt`・`unreadCount`。権限は`perm.notification.own`。応答は`no-store`
 - SQLは2本（一覧 → 未読数）で、スレッドの数に比例しない。2本の間に返信が付く・既読になると、その1回だけ古い未読数になる（次の取得で直る）【#297：資格を持ったままの部屋でのずれだけが許容。2本の間に閲覧者が資格を失った部屋のスレッドは、未読数の文の条件（`messageViewableBy`）で 0 になる（行は残す）。親・付随の情報の読み取り（メンション・リアクション・添付）にも同じ条件が入る。DMの当事者の条件には、閲覧者が有効であることも足した（`directVisible`）。[cases.md](cases.md)】
@@ -184,3 +184,4 @@ SQLの本数：スレッド一覧は2本、返信のGETは6本（認証・親・
 - [ADR-0006](../adr/0006-id-cursor-unread.md)（ID・カーソル・未読）・[ADR-0004](../adr/0004-realtime-polling-then-websocket.md)（ポーリング）・[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーションとE2Eの範囲。(c)に当たる）
 - 関連する設計書：[messages.md](messages.md)・[unread.md](unread.md)・[drafts.md](drafts.md)・[dms.md](dms.md)・[message-edit-markdown.md](message-edit-markdown.md)・[app-shell.md](app-shell.md)・[reactions.md](reactions.md)（#138。返信・親にもリアクションを付けられる。スレッド一覧の項目`reactions`、`ThreadReplies.tsx`の`canReact`）、[attachments.md](attachments.md)（#140。返信にも添付できる。返信用のアップロードの入口、スレッド一覧の親の項目`attachments`）
 - 要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08・EP-3-08・EP-3-09、S-07・S-35
+- Issue #148の148-A：案件専用チャンネルの部屋のスレッド。返信できない理由に`case_closed`を足し、スレッドの一覧に`includeCase`を足した。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-4、5-1 AC-11、S-07・S-35

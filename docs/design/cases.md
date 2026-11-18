@@ -1,10 +1,12 @@
-# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携（Issue #147 の 147-A・147-B・147-C-1・147-C-2）
+# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携、案件のやり取り（Issue #147 の 147-A・147-B・147-C-1・147-C-2、Issue #148 の 148-A）
 
 ## 目的
 
 社員が案件の一覧（S-16）を開き、参加している案件は説明・参加者まで見られ、参加していない案件は概要（件名・状態・取引先・担当部署・納期など）だけを見られるようにする。サイドバーの「案件」の見出しの下に、参加している進行中の案件を出す。案件の作成の承認（[case-requests.md](case-requests.md)）でできた案件への入口である。コードは書き写さず、ファイル名・関数名で指す。
 
 Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設計書は 147-A（読み取りだけ）と 147-B（参加者の追加・削除・退出と、納期の変更。書き込み）の範囲を書く（147-B は「147-B の設計」の節）。147-C-1 は経路の資格の変更、147-C-2 は無効化・再有効化・オーナー交代・既存の案件の補完で、それぞれ「147-C-1 が広げた経路」「147-C-2 の設計」の節に書く。
+
+Issue #148（案件のやり取り）も「影響大」で、3つの子に分けた（C-184）。最初の子 148-A（案件の画面 S-17 に、案件専用チャンネルのやり取りを出す。既存のメッセージ・スレッド・添付・未読の経路に、案件の条件を足す）の設計は「148-A の設計」の節に書く。
 
 ## 範囲
 
@@ -14,8 +16,9 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 147-C-1で作ったもの | チャンネルの参加の行を資格に使う経路（書き込み6・読み取り7＋`findForManage`の`isMember`）を「有効な参加者」に変えた（実装では、書き込み6・読み取り6＋`findForManage`の`isMember`と、中身の読み取り〔メッセージ5・参加者2・メンションの候補1〕を`roomViewableBy`で判定する形に変えた）。APIも画面も追加しない（下の「147-C-1 が広げた経路」） |
 | 147-Bで作ったもの | API3つ（EP-5-09 参加者の追加・EP-5-10 参加者の削除と本人の退出・納期の変更）／自動参加の人は外せないこと（役割の名前の表示を含む）と最後の有効な参加者の規則／監査操作3つと対象の種類`case`／S-17 の「参加者を管理」・退出・「納期を変更」（下の「147-B の設計」） |
 | 147-C-2で作ったもの | 無効化で案件専用チャンネルの参加の行を残すこと／AC-15 の守り（409 `case_handover_required`）／再有効化・異動の確認（テストだけ）／オーナー交代・後任のある部署の作成による担当の案件への自動参加と監査の`caseJoinCount`／既存の案件を補う SQL（下の「147-C-2 の設計」）。migration・APIの追加はない（`docs/api/openapi.json`は 409 の説明文だけ） |
-| 後の子 | なし（#147 の4つの子は、すべて実装済み） |
-| 他の Issue に回すもの | やり取り・未読・最終更新（#148）、TODO・進捗（#149）、終了・再開・再編集（#150）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
+| 148-Aで作ったもの | S-17 の「やり取り」（案件専用チャンネルのメッセージ・スレッド・添付。進行中の案件だけ書き込める。終了した案件は閲覧・既読・ダウンロードだけ）／書き込みの SQL の条件`caseRoomOpen`／案件の権限（`perm.case.view`・`perm.case.post`）を確かめる経路／混ざる一覧（S-35・未読）の`includeCase`／添付のアップロードの保存の時点の資格（`insertPending`の条件つきの登録。部屋の種類によらない）／チャンネルの詳細の`caseId`と、`/channels/:id`から案件の画面への置き換え／返信できない理由`case_closed`（下の「148-A の設計」）。新しい API・migration はない |
+| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：148-B（添付の公開範囲の選択・変更と、案件の添付の一覧。migration を伴う）、148-C（S-16 の最終更新・未読の列と、サイドバーの案件の未読の印） |
+| 他の Issue に回すもの | 添付の一覧・最終更新・未読（#148 の148-B・148-C）、TODO・進捗（#149）、終了・再開・再編集（#150）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
 
@@ -151,7 +154,7 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 画面 | ファイル | 内容 |
 | --- | --- | --- |
 | S-16 案件一覧（`/cases`） | `pages/CasesPage.tsx`、`features/cases/components/CaseList.tsx` | 「自分が参加する案件／すべての案件」と「進行中／終了した案件」の切り替え（共通の部品`frontend/src/components/RadioGroup.tsx`を使う。props は、見出し`label`・`options`（`value`と`label`の組）・`value`・`onChange`・`disabled`。素のラジオで矢印キーで移せる。`className`は受け取らない。[ADR-0015](../adr/0015-style-foundation.md)。初期は「自分が参加する案件・進行中」）。行は件名（S-17 へのリンク）と、案件番号・状態・取引先（無効なら「（無効）」）・担当部署（「・」でつなぐ）・納期（`YYYY-MM-DD`。過ぎていても強調しない）・参加者数（返されたときだけ）。読み込み中・エラー・0件・ありの4つを分ける。0件の文言は「参加している案件はありません」「案件はありません」「終了した案件はありません」。続きは「次のページ」のボタン。「案件の作成を申請」のリンクで`/case-requests`（S-18）へ移る（自分の申請は S-18 に置いたまま） |
-| S-17 案件詳細（骨格。`/cases/:caseId`） | `pages/CaseDetailPage.tsx`、`CaseDetailView.tsx`・`CaseHeader.tsx`・`CaseParticipantList.tsx` | まず概要を取り、`isParticipant`のときだけ詳細を取る。参加者には、ヘッダー（件名・案件番号・状態・取引先・担当部署・納期・参加者数）・説明・参加者の一覧（表示名・部署名・「作成者」・退職者は「退職者」）。非参加者には概要の項目と「参加者だけが見られます（非公開）」だけを出し、説明・参加者を出さない（AC-14）。詳細が 403（外された）のときも同じ表示にする。存在しない案件は「案件が見つかりません」。やり取り・TODO・添付の項目は置かない（動かない仮の項目を置かない。#148・#149） |
+| S-17 案件詳細（骨格。`/cases/:caseId`） | `pages/CaseDetailPage.tsx`、`CaseDetailView.tsx`・`CaseHeader.tsx`・`CaseParticipantList.tsx` | まず概要を取り、`isParticipant`のときだけ詳細を取る。参加者には、ヘッダー（件名・案件番号・状態・取引先・担当部署・納期・参加者数）・説明・参加者の一覧（表示名・部署名・「作成者」・退職者は「退職者」）。非参加者には概要の項目と「参加者だけが見られます（非公開）」だけを出し、説明・参加者を出さない（AC-14）。詳細が 403（外された）のときも同じ表示にする。存在しない案件は「案件が見つかりません」。TODO・添付の一覧の項目は置かない（動かない仮の項目を置かない。#148 の148-B・#149）。やり取りは 148-A で足した（下の「148-A の設計」の「画面」） |
 | サイドバーの「案件」 | `CaseSidebarSection.tsx`（`SidebarNav.tsx`から1か所で呼ぶ） | 見出し「案件」の下に、参加している進行中の案件（最初の1ページ）。件名を押すと S-17 へ移る。読み込み中・エラー・0件（「参加中の案件はありません」）を、この部品の中に出し、枠全体は壊さない。どの立場の人も、メニュー「案件」→ S-16 → S-17 の経路でも行ける。サイドバーの取得は、再試行なし・利用者の ID があるときだけ行い、セッション切れの後は止まる（`features/cases/hooks/useCases.ts`） |
 | メニュー | `navigation.ts` | 「案件」（`/cases`）。146-A の仮の入口「案件の申請」を置き換えた |
 | 通知 | `notification-views.ts` | `case_request.approved`の移動先は`/cases`（[notifications.md](notifications.md)） |
@@ -343,12 +346,100 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 - `findAccountState`は`isSoleActiveCaseParticipant`を常に真偽値で返す（統括の決定）。既存のテストが状態の完全一致を期待しているため、返り値の形を不自然にして合わせることはせず、期待に項目を足した（`department.repository.db.test.ts`の3件・`account.repository.lifecycle.db.test.ts`の1件）
 - 補完 SQL のテストなど、新しいテストの置き場所も、層の依存の決まりに従う（DB の層のテストは`backend/src/db/`）
 
+## 148-A の設計（案件のやり取り）
+
+決定は[C-184](../requirements/decision-register.md)。要件は 5-2 AC-1〜AC-6・5-1 AC-11（AC-7〜AC-9 は148-B）。**新しい API も migration もない**。案件のやり取りは、案件専用チャンネル（`channels.purpose = 'case'`。非公開。有効な参加者だけが見える）の部屋に、既存のメッセージ・スレッド・添付・未読の経路（部屋の ID で呼ぶ API）をそのまま通す（5-2 AC-4）。差は次の4つだけ：①終了した案件には書き込めない、②案件の権限（`perm.case.view`・`perm.case.post`）を確かめる、③チャンネルの詳細が案件の ID を返し、画面が案件の画面へ移る、④添付の登録を保存の時点の資格で条件にする。コードは書き写さず、ファイル名・関数名で指す。
+
+### ファイルと役割
+
+バックエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/db/case-room.sql.ts` | 新規。`caseRoomOpen(roomId)`：その部屋が案件専用チャンネルなら案件が進行中、案件でない部屋は常に真（`NOT EXISTS`）。書き込みの SQL の条件に入れる。`caseRoomListable(roomId, includeCase)`：混ざる一覧（スレッドの一覧・未読の対象）に案件の部屋を含めてよいか。`includeCase`が偽なら、案件の部屋だけを除く |
+| `backend/src/db/message.repository.ts`（`insertIfOrdered`の`postable`）・`reply-insert.sql.ts`・`message-modify.sql.ts`（`modifiable`）・`message-reactions.sql.ts`（`reactable`） | 投稿・返信・編集・削除・リアクションの追加と取り消しの SQL の条件に`caseRoomOpen`を足した。最後の砦：Service の確認の後に案件が終了しても、終了した案件の部屋には行を書かない |
+| `backend/src/db/attachment.repository.ts` | `insertPending`を条件つきの登録（`INSERT … SELECT … WHERE`。条件は内部の`pendingInsertable`）にし、登録した行数（1 か 0）を返す。`findVisible`が案件専用チャンネルの添付か（`isCase`）も返す |
+| `backend/src/db/channel.repository.ts`（`findForViewer`） | `cases`を外部結合し、`caseId`・`caseStatus`（案件でなければ`null`）を返す。1文のまま |
+| `backend/src/db/thread-list.sql.ts`・`thread.repository.ts`、`unread-targets.sql.ts`・`read-position.repository.ts` | 混ざる一覧。`includeCase`を**必須の引数**で受け取り、`caseRoomListable`で SQL の条件にする（取得の後に除くと、ページの件数とカーソルがずれるため。DM の`includeDirect`と同じ作り。付け忘れは型で止まる） |
+| `backend/src/services/message.service.ts` | 案件の権限の判定（`authorizeCase`）と、終了中の 409（`requireCaseOpen`。文言は操作ごと〔C-184(5)〕、拒否は`logger.audit`に reason `case_closed`で残し本文は入れない）。`requirePostable`・`requireReplyable`は操作の種類（`RoomWriteKind`＝投稿・アップロード）を受け取り、添付の入口も同じ関数を通る。返信できない理由の`case_closed`は`roomReplyState`が決める |
+| `backend/src/services/attachment.service.ts` | アップロードの前の部屋の判定（`requireRoom`）、登録が 0 行のときの後始末（R2 の保存物を消す）と読み直し、配信の`perm.case.view`（案件専用チャンネルの添付のとき） |
+| `backend/src/services/channel.service.ts` | チャンネルの詳細で、案件専用チャンネルなら`perm.case.view`（403）。`isCaseChannel`を実値に、`caseId`を足した |
+| `backend/src/services/thread.service.ts`・`unread.service.ts` | 表示の判定（`authorizer.can`。拒否を監査に溜めない）で`includeCase`を求めて Repository へ渡す。既読（部屋・スレッド）は`authorize`で`perm.case.view`（403） |
+| `shared/message-rules.ts` | `REPLY_BLOCKED_REASONS.caseClosed`（`case_closed`）。並びが優先順を表す（定義元。OpenAPI の enum と、`backend/src/openapi.test.ts`が一致を確かめる） |
+| `docs/api/openapi.json` | チャンネルの詳細の`caseId`（必須・`null`あり）、`isCaseChannel`の説明、`replyBlockedReason`の`case_closed`、書き込み系の 409 の説明に案件の終了を追記 |
+
+フロントエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `frontend/src/features/cases/components/CaseConversation.tsx` | 新規。S-17 の「やり取り」。`features/threads`の`ThreadLayout`・`features/messages`の`RoomMessages`・`features/unread`の`useMarkRoomRead`を、各機能の`index.ts`経由で組み合わせる（`features/channels`には依存しない）。終了した案件では帯と投稿できない案内を出し、投稿・編集・リアクションの操作を出さない（閲覧と既読はできる）。投稿が 409 のとき、理由を出し続け、概要と詳細を取り直して読み取り専用に切り替える。添付つきの送信では、アップロードの 409（案件の終了）が添付の失敗（`cause`に元のエラー）として届くので、これも同じに扱う |
+| `components/CaseDetailView.tsx`・`labels.ts` | 参加者の本文の、説明・参加者の下に`CaseConversation`を置く（縦に並べる。C-184(3)）。帯・案内・0件の文言は`labels.ts` |
+| `frontend/src/features/channels/api/channel-api.ts`・`components/ChannelDetailView.tsx` | 詳細の応答の`caseId`を検証して受け取る。`caseId`があれば、チャンネルの見出し等を出さずに`/cases/:caseId`へ置き換えて移る（`?thread=`を引き継ぐ。案件の ID は応答の値で受け取り、`features/cases`を参照しない） |
+| `frontend/src/features/messages/components/ThreadReplies.tsx` | 返信できない理由`case_closed`の案内文（C-184(6)） |
+
+### 案件の権限を確かめる経路
+
+案件の部屋かどうかは、`findForViewer`の`caseId`で決める（案件でない部屋・DM では何もしない）。非参加者は、権限の前に部屋が見えず 404 になる（案件の存在を明かさない）。
+
+| 経路 | 権限 | 確かめる場所 |
+| --- | --- | --- |
+| メッセージの一覧・1件・返信の一覧・メンションの候補 | `perm.case.view` | `message.service.ts`（`requireVisible`・返信の取得・候補の取得） |
+| 投稿・返信・編集・削除・リアクションの追加と取り消し・添付のアップロード | `perm.case.post` | `message.service.ts`（`requirePostable`・`requireReplyable`・編集削除・リアクション）。アップロードは`attachment.service.ts`が同じ関数を通る（C-184(7)でリアクションを含めた） |
+| 既読（部屋・スレッド） | `perm.case.view` | `unread.service.ts`（`markRead`・`markThreadRead`） |
+| 添付の配信 | `perm.case.view`（R-64） | `attachment.service.ts`の`download`（`findVisible`の`isCase`が真のとき） |
+| スレッドの一覧（S-35） | `perm.case.view` | `thread.service.ts`が`can`で判定し、権限がなければ`thread-list.sql.ts`が SQL の側で案件の部屋を除く |
+| チャンネルの詳細 | `perm.case.view` | `channel.service.ts`の`get`（拒否は 403） |
+| 未読の数・対象 | `perm.case.view` | `unread.service.ts`が`can`で判定し、権限がなければ`unread-targets.sql.ts`が SQL の側で案件の部屋を除く |
+
+現在の固定ロールは全員が両方の権限を持つので、実際の挙動は変わらない。権限だけを外した経路ごとの確認は Service の層で行う（C-184(8)）。
+
+### 終了した案件への書き込み（5-1 AC-11）
+
+- 進行中だけ書き込める：投稿・返信・編集・削除・リアクションの追加と取り消し・添付のアップロード。終了した案件は、閲覧・既読・添付のダウンロードだけ
+- **判定の順**：既存の判定（404・403）の後、`perm.case.post`（403）→ 案件が終了中（409）→ 部署の判定など既存の続き。非参加者には、資格の確認の後でなければ 409 を返さないので、案件の状態は漏れない。返信・編集・削除・リアクションでは、既存の「削除済みの親・投稿は 409」の後に置く
+- 409 の文言（C-184(5)）：投稿・返信「終了した案件には投稿できません」、編集・削除「終了した案件のメッセージは変更できません」、リアクション「終了した案件にはリアクションできません」、添付のアップロード「終了した案件には添付できません」
+- **SQL が最後の砦**：書き込みの条件に`caseRoomOpen`を入れた（上の表）。Service の確認の後に案件が終了すると、書き込みは 0 行になり、既存の読み直し（最初と同じ順の判定）が 409 にする。どの理由にも当たらなければ、これまでどおり成功にしない（再試行・上限の後は 503）。「部署が有効」の条件が投稿の SQL にない既存の差は、案件専用チャンネルが部署を持たないため影響せず、変えていない
+- 権限（`perm.case.post`）は DB の行ではなくロールの割り当てなので、SQL の条件には入れない（既存の権限と同じ）
+- 返信できない理由（EP-1-07。`replyBlockedReason`）の優先は、削除された親 → 未参加 → `case_closed` → 部署が無効 → DM の相手が無効。スレッドの画面は`case_closed`で入力欄を出さず「終了した案件のため、返信できません」を出す
+- 終了した案件の実際の状態：終了・再開の操作は #150 で作るため、いまの終了した案件は、テストのデータ・シードにしか存在しない
+
+### 添付のアップロード：保存の時点の資格
+
+- 計画レビュー1回目の指摘への対応。アップロードの事前の確認（Service）を通った後、ファイルの受信中に案件が終了したり、操作者が参加から外れたり無効になったりしても、未投稿の添付の行を残さない。**事前の確認ではなく、保存の時点（登録の SQL）で条件にする**
+- `attachment.repository.ts`の`insertPending`は、次の条件を満たすときだけ 1 行を登録する（部屋の種類によらない 1 つの条件。通常のチャンネル・DM も同じ）：チャンネルは未アーカイブで、アップロードした人が有効な参加者、案件専用チャンネルなら案件が進行中。部屋への添付なら、お知らせ専用で部署のあるチャンネルは、その部署のオーナーか全体管理者だけ（投稿と同じ。`channel-member.sql.ts`の`announcementPostable`）。DM は当事者で、当事者に無効な社員がいない。返信への添付なら、親が同じ部屋のトップレベルの投稿で、削除されていないこと、部屋の部署が有効なこと（部署なしは有効。返信と同じ）
+- **最初の判定（Service）が見る、DB の行で決まる条件と、保存の時点の条件を一致させる**（コードレビュー1回目の重大への対応）：部屋の存在と可視・未アーカイブ・閲覧者が有効・参加中・案件が進行中・DM の相手が有効・お知らせ専用の投稿の資格・返信の親（存在・同じ部屋・トップレベル・未削除）・返信先の部署の有効性。ロールで決まる権限（`perm.*`）は DB の行にないので、最初の判定だけで確かめる
+- 0 行のとき、`attachment.service.ts`は保存した実体を消し、事前の確認と同じ順で部屋の判定を読み直して 404／403／409 にする。どれにも当たらなければ成功にせず 409（「状態が変わったため、添付できませんでした。読み込み直してからお試しください」。統括の決定。C-184(10)）にする
+- 結び付け（投稿・返信と同じ batch）の条件は変えていない。残った未投稿の行は、既存の掃除の処理が消す
+
+### 画面（S-17）
+
+- 参加者の S-17 に、説明 → 参加者 → やり取りの順で、見出し「やり取り」を縦に並べる（C-184(3)。タブは作らない）。非参加者・詳細が 403 の人には、やり取りの領域を出さず、要求も送らない
+- 0 件は「まだやり取りがありません」。終了した案件は、帯「終了した案件・アーカイブ（読み取り専用）」と案内「終了した案件のため、投稿・編集・リアクションはできません（読み取り専用）」を出し、入力欄・編集・リアクションの操作を出さない
+- スレッドは`?thread=<親ID>`（S-07。既存）。案件・利用者が替われば、ページごと作り直す（`CaseDetailPage`の`key`）。メッセージ・返信・スレッドのキャッシュは、#284（C-187）の枠で利用者が替わったときに捨てる
+- `/channels/:id`で案件専用チャンネルを開くと、案件の画面へ置き換えて移る（通知・スレッドの一覧・未読のリンクなど、`/channels/<部屋>`を作るどの入口からでも案件の画面で開く）。`message.mentioned`の通知は S-35 のまま（C-184(2)）
+- サイドバーの「案件」の項目は変えない（未読の印は 148-C）
+
+### 同時の操作
+
+- 資格を確かめる読み取りの直後に案件が終了：投稿・返信・編集・削除・リアクションの 5 経路で、書き込みが 0 行になり 409。行が残らない・変わらない
+- 資格の確認の直後に参加から外れる：既存の 147-C-1 の条件が案件の部屋でも効く（投稿 1 件で固定）
+- 添付の受信中に案件の終了・参加の解除・無効化：部屋への添付・返信への添付の両方で、行が残らず、R2 の実体が消え、案件の部屋は終了で 409・参加の解除と無効化で 404。通常のチャンネル（アーカイブ 404・参加の解除 403）と DM（相手の無効化 409）でも、同じ形で行が残らない
+
+### テストの場所（148-A）
+
+- DB：`backend/src/db/case-room.db.test.ts`（`caseRoomOpen`の真偽、書き込み 5 経路の 0 行／1 行、通常のチャンネル・DM の退行なし、相関の確認〔#294。ほかの部屋の参加者・ほかの案件の状態で結果が変わらない〕）、`backend/src/db/attachment.repository.pending.db.test.ts`（添付の条件つきの登録）、`backend/src/db/channel.repository.case-channel.db.test.ts`（`findForViewer`の`caseId`・`caseStatus`）
+- Service：`backend/src/services/message.case-room.test.ts`（判定の順・0 行の読み直し）、`message.case-room.interleave.test.ts`（資格の確認の直後に案件が終了する割り込み）、`attachment.upload-race.test.ts`（受信中の状態変化）、`case-room.permissions.test.ts`（案件の権限だけを外した経路ごとの確認。C-184(8)）
+- 結合：`backend/src/routes/messages.case-room.test.ts`（参加者の流れ・終了中の 409・存在の非開示）、`attachments.case-room.test.ts`（終了中のダウンロードは 200 を含む。C-184(9)）、`channels.case-channel.test.ts`（詳細の`caseId`）、契約は`backend/src/openapi.test.ts`・`backend/src/lib/reply-blocked-reasons.test.ts`。テスト部品は`backend/test/case-room-fixtures.ts`
+- 画面：`frontend/src/pages/CaseDetailPage.conversation.test.tsx`（やり取りの表示・終了中の読み取り専用・409 の切り替え・利用者の切り替え）、`frontend/src/pages/ChannelDetailPage.case-redirect.test.tsx`（`/channels/:id`から案件の画面への置き換え）、`frontend/src/features/threads/threads.pane.test.tsx`（`case_closed`の案内）
+- E2E：`e2e/cases-conversation.spec.ts`（4 件。投稿・添付・返信・リアクション・終了した案件の読み取り専用・非参加者。[e2e.md](../testing/e2e.md)）
+- 既存のテスト・見本に期待を足したもの：チャンネルの詳細の応答に必須の`caseId`、返信できない理由の`case_closed`、混ざる一覧の`includeCase`の引数（一覧は PR に書く）
+
 ## 既知の差・未実施・未決定として記録するもの
 
 | 項目 | 状態 |
 | --- | --- |
 | 進捗（5-1 AC-2。S-16・S-17 の進捗） | 出さない。#149 で足す（Q7） |
-| 最終更新・未読（S-16 の列） | 出さない。#148 |
+| 最終更新・未読（S-16 の列）、サイドバーの案件の未読の印 | 出さない。#148 の148-C（C-184(1)）。148-A では作らない |
 | 名前・番号での絞り込み（S-16・5-1 AC-19） | 作らない。方式が未決定（#155） |
 | S-16 の「自分の申請」の状況 | 出さない。S-18 の「自分の申請」に置いたまま |
 | 参加者の追加・削除・退出、納期の変更、参加者の管理（S-17 のダイアログ）、参加者の役割の名前の表示（Q8）、`canEditDueDate` | 147-B で実装済み（下の「147-B の設計」） |
@@ -364,6 +455,13 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
 | 本番の D1 への適用 | migration がないため該当しない |
 | API 仕様（`docs/api/openapi.json`）の ULID の`pattern` | 案件の経路だけ、実装の ULID の形と一致させた。ほかの経路を含む全体は Issue #289 |
+| 案件のやり取り（S-17）、終了した案件の読み取り専用、案件の権限の確認 | 148-A で実装済み（下の「148-A の設計」） |
+| 添付の公開範囲の選択・変更、案件の添付の一覧と元の投稿への移動 | 作らない。#148 の148-B（migration を伴う。C-184(4)） |
+| 終了した案件の実際の状態 | 終了・再開の操作は #150。いまの終了した案件は、テストのデータ・シードにしか存在しない（書き込みの 409 は DB に直接`status`を書いて確かめている） |
+| 審査中の一時閲覧・承認済み全社員公開アーカイブでの非参加者の閲覧（5-2 AC-3 の一部） | 作らない。5-5・5-6 の Issue |
+| 進行中の操作（投稿・添付の送信など）の途中で利用者が替わったときの扱い | 148-A でも直していない。Issue #300 |
+| 既に画面に出ている行の返信の件数・リアクションの、ほかの人の変更の反映 | 部屋のポーリング（`features/messages/hooks/message-polling.ts`の`catchUpMessages`）は最後の ID より後の新着だけを取り足し、既存の行は取り直さない。開き直すと出る（チャンネルと同じ既存の動き。`e2e/reactions.spec.ts`も開き直して確かめる）。リアルタイムの更新は #117 |
+| 投稿（トップレベル）の SQL に「部署が有効」の条件がない既存の差 | 案件専用チャンネルは部署を持たないので影響しない。148-A では変えていない |
 
 ## テストの場所
 
@@ -376,5 +474,6 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 
 - Issue #147：本Issue（4つの子に分ける。147-A が最初）。依存は#146（[case-requests.md](case-requests.md)）。参加の行を使う経路の変更は147-C-1、参加者・納期は147-B（実装済み）、無効化・異動・オーナー交代は147-C-2
 - [ADR-0006](../adr/0006-id-cursor-unread.md)：IDとカーソル／[ADR-0012](../adr/0012-zero-trust-principle.md)：サーバー側で毎回認可する／[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)：ミューテーション・E2Eの実行範囲
+- Issue #148：案件のやり取り（3つの子に分ける。148-A が最初。依存は #147・#284・#297・#294）。要件：5-2 AC-1〜AC-6（AC-3 は参加者の閲覧・取得の部分）・5-1 AC-11、R-62〜R-64、S-17・S-07・S-35。決定記録[C-184](../requirements/decision-register.md)。関連する設計：[messages.md](messages.md)・[threads.md](threads.md)・[attachments.md](attachments.md)・[unread.md](unread.md)・[channels.md](channels.md)
 - 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。147-B：5-1 AC-3・AC-7（外せない部分）・AC-11（終了中は不可）・AC-17（変更）・AC-21（納期の変更）、EP-5-09・EP-5-10。決定記録[C-182](../requirements/decision-register.md)
 - 関連する設計：[case-requests.md](case-requests.md)、[app-shell.md](app-shell.md)、[notifications.md](notifications.md)、[channels.md](channels.md)

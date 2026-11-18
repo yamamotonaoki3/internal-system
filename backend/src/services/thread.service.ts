@@ -1,6 +1,6 @@
 // Service：自分のスレッドの一覧（#137。EP-3-08）の業務ルール。HTTP も DB のライブラリも知らない。
 // 権限は perm.notification.own（R-55。会社の範囲）。拒否は authorize が監査に記録する。
-// DM のスレッドは perm.dm.message.view がある利用者にだけ返す。
+// DM のスレッドは perm.dm.message.view、案件専用チャンネルのスレッドは perm.case.view（#148）がある利用者にだけ返す。
 // 見える範囲（参加中の未アーカイブのチャンネル・当事者の DM）の絞り込みは、Repository の SQL が行う（U-4）。
 import { withRoleAssignments } from "../db/role-assignment.repository";
 import { withThreads, type ThreadRepository } from "../db/thread.repository";
@@ -56,9 +56,15 @@ export function createThreadService(
         "perm.dm.message.view",
         { type: "company" },
       );
+      const includeCase = await authorizer.can(
+        { userId: actor.userId },
+        "perm.case.view",
+        { type: "company" },
+      );
       return repository.listThreads(actor.userId, {
         ...options,
         includeDirect,
+        includeCase,
       });
     },
   };

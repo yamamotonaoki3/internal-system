@@ -1,7 +1,7 @@
 // DAO：メッセージの編集・削除の書き込み（#134）。「編集・削除してよい」条件を持つ SQL をここに閉じ込める。
 // 条件を UPDATE の WHERE に置くのは、Service の確認から書き込みまでの間に状態が変わっても、条件を破る行を書かないため。
 // 本人の投稿で未削除、かつ部屋が次のどちらか。
-//   チャンネル：本人が参加中・未アーカイブ・部署が有効（部署のない会社直属のチャンネルは有効として扱う）
+//   チャンネル：本人が参加中・未アーカイブ・部署が有効（部署のない会社直属のチャンネルは有効として扱う）・案件専用チャンネルなら案件が進行中（#148）
 //   DM：本人が当事者で、当事者に無効な社員がいない
 // お知らせ専用の投稿権限は条件に入れない（利用者の決定 U-3：今その部屋に参加している本人なら編集・削除できる）。
 import { sql, type SQL } from "drizzle-orm";
@@ -14,6 +14,7 @@ import {
 import { auditLogInsert } from "./audit-log.repository";
 import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
+import { caseRoomOpen } from "./case-room.sql";
 
 export function modifiable(messageId: string, userId: string): SQL {
   return sql`EXISTS (
@@ -25,6 +26,7 @@ export function modifiable(messageId: string, userId: string): SQL {
           LEFT JOIN departments d ON d.id = c.department_id
           WHERE c.room_id = m.room_id AND c.deleted_at IS NULL
             AND ${activeChannelMember(sql`c.room_id`, userId)}
+            AND ${caseRoomOpen(sql`c.room_id`)}
             AND (c.department_id IS NULL OR d.is_active = 1))
         OR (
           EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = m.room_id AND user_id = ${userId})

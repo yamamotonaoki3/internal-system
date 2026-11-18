@@ -24,6 +24,7 @@ const BLOCKED_TEXT = {
   [REPLY_BLOCKED_REASONS.deletedParent]:
     "元のメッセージが削除されたため、返信できません",
   [REPLY_BLOCKED_REASONS.notJoined]: "このチャンネルに参加すると、返信できます",
+  [REPLY_BLOCKED_REASONS.caseClosed]: "終了した案件のため、返信できません",
   [REPLY_BLOCKED_REASONS.readOnly]:
     "このチャンネルは読み取り専用のため、返信できません",
   [REPLY_BLOCKED_REASONS.partnerInactive]:

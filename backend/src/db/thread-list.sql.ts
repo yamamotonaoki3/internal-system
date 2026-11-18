@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { CursorPayload } from "../lib/cursor";
 import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
+import { caseRoomListable } from "./case-room.sql";
 
 const rowSchema = z.object({
   id: z.string(),
@@ -44,7 +45,13 @@ function olderThan(cursor: CursorPayload | undefined): SQL {
 export async function listThreadRows(
   db: Database,
   userId: string,
-  options: { limit: number; cursor?: CursorPayload; includeDirect: boolean },
+  options: {
+    limit: number;
+    cursor?: CursorPayload;
+    includeDirect: boolean;
+    /** perm.case.view を持つか。偽なら案件専用チャンネルのスレッドを含めない（#148） */
+    includeCase: boolean;
+  },
 ): Promise<ThreadListRow[]> {
   // DM のスレッドを見せない利用者（perm.dm.message.view なし）は、SQL の条件で除く（取得の後に除くと、ページの件数と nextCursor がずれる）
   const directVisible = options.includeDirect
@@ -83,7 +90,8 @@ export async function listThreadRows(
           EXISTS (
             SELECT 1 FROM channels ch
             WHERE ch.room_id = pp.room_id AND ch.deleted_at IS NULL
-              AND ${activeChannelMember(sql`ch.room_id`, userId)})
+              AND ${activeChannelMember(sql`ch.room_id`, userId)}
+              AND ${caseRoomListable(sql`ch.room_id`, options.includeCase)})
           OR ${directVisible})
         AND ${olderThan(options.cursor)}
       ORDER BY t.last_reply_id DESC, t.parent_id DESC

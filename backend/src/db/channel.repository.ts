@@ -1,7 +1,13 @@
 // Repository：チャンネルの一覧・詳細・参加（DB へのアクセスはこの層に閉じ込める）。
 // 参加の行と、参加の監査ログは、同じ db.batch で確定する（片方が失敗したら、どちらも残さない）。
 import { and, asc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { channelMembers, channels, departments, users } from "../../db/schema";
+import {
+  cases,
+  channelMembers,
+  channels,
+  departments,
+  users,
+} from "../../db/schema";
 import { channelNameKey } from "../../../shared/department-rules";
 import type { ChannelVisibility } from "../lib/channel-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
@@ -62,6 +68,9 @@ export type ChannelViewRow = ChannelDetailRow & {
   version: number;
   /** チャンネルの部署が有効か。部署のない会社直属のチャンネルは true */
   departmentIsActive: boolean;
+  /** 案件専用チャンネルなら、その案件の ID と状態（#148。案件でない部屋は null） */
+  caseId: string | null;
+  caseStatus: "active" | "closed" | null;
 };
 
 export type ChannelMember = { id: string; displayName: string };
@@ -261,9 +270,12 @@ export function createChannelRepository(db: Database) {
             sql<boolean>`${departments.id} IS NULL OR ${departments.isActive} = 1`.mapWith(
               Boolean,
             ),
+          caseId: cases.id,
+          caseStatus: cases.status,
         })
         .from(channels)
         .leftJoin(departments, eq(departments.id, channels.departmentId))
+        .leftJoin(cases, eq(cases.channelId, channels.roomId))
         .leftJoin(
           channelMembers,
           activeMembershipJoin(channels.roomId, viewerId),

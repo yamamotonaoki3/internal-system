@@ -49,6 +49,7 @@ function respondRooms(messages: Record<string, TestMessage[]>) {
         visibility: "public",
         departmentId: null,
         isCaseChannel: false,
+        caseId: null,
         // #143：詳細の応答に version・manage（必須）が加わった
         version: 1,
         manage: {

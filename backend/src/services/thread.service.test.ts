@@ -231,12 +231,15 @@ describe("#137 AC-1（1-4 AC-4・R-55）権限の判定の範囲", () => {
       "perm.notification.own",
       { type: "company" },
     );
-    expect(can).toHaveBeenCalledTimes(1);
-    expect(can).toHaveBeenCalledWith(
-      { userId: world.alice.userId },
-      "perm.dm.message.view",
-      { type: "company" },
-    );
+    // #148：DM の判定に続けて、案件専用チャンネルの perm.case.view（計画「案件の権限を確かめる経路」）
+    expect(can.mock.calls).toEqual([
+      [
+        { userId: world.alice.userId },
+        "perm.dm.message.view",
+        { type: "company" },
+      ],
+      [{ userId: world.alice.userId }, "perm.case.view", { type: "company" }],
+    ]);
   });
 });
 

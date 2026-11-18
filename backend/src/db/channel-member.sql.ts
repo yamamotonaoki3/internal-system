@@ -4,6 +4,7 @@
 // 外側の列は sql`${表.列}` と入れ子にして渡す（表名つきで出力される）。内側の表には必ず別名を付ける。
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { channelMembers } from "../../db/schema";
+import { ROLE_IDS } from "../lib/permissions";
 
 /** 部屋・利用者は値でも SQL の式（外側の表の列）でも渡せる */
 export function activeChannelMember(roomId: SQL, userId: string | SQL): SQL {
@@ -19,4 +20,19 @@ export function activeChannelMember(roomId: SQL, userId: string | SQL): SQL {
 export function activeMembershipJoin(roomId: SQLWrapper, userId: string): SQL {
   return sql`${channelMembers.channelId} = ${roomId} AND ${channelMembers.userId} = ${userId}
     AND EXISTS (SELECT 1 FROM users u WHERE u.id = ${userId} AND u.is_active = 1)`;
+}
+
+/**
+ * お知らせ専用のチャンネルなら、利用者がその部署のオーナーか全体管理者であること（それ以外のチャンネルは真）。
+ * 投稿（message.repository.ts の insertIfOrdered）と未投稿の添付の登録（attachment.repository.ts）が使う、投稿の資格の同じ規則。
+ * purpose・departmentId は外側のチャンネルの列を、別名つきの SQL の式（sql`c.purpose` 等）で渡す（#294）。
+ * ※ 役割は perm.announcement.post を持つ役割（lib/permissions.ts）と一致させる。一致は services/message.postable-permission.test.ts が固定している
+ */
+export function announcementPostable(
+  channel: { purpose: SQL; departmentId: SQL },
+  userId: string,
+): SQL {
+  return sql`(${channel.purpose} <> 'announcement'
+    OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${userId} AND a.role_id = ${ROLE_IDS.owner} AND a.department_id = ${channel.departmentId})
+    OR EXISTS (SELECT 1 FROM user_role_assignments a WHERE a.user_id = ${userId} AND a.role_id = ${ROLE_IDS.globalAdmin}))`;
 }

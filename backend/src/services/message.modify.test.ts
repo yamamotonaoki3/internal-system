@@ -48,6 +48,9 @@ type ChannelState = {
   purpose: "normal" | "department" | "announcement" | "company_general";
   deletedAt: string | null;
   joinedAt: string | null;
+  /** #148：案件専用チャンネルでなければ null */
+  caseId: string | null;
+  caseStatus: "active" | "closed" | null;
 };
 
 type State = {
@@ -76,6 +79,8 @@ function channel(overrides: Partial<ChannelState> = {}): ChannelState {
     purpose: "department",
     deletedAt: null,
     joinedAt: "2026-11-01T00:00:00.000Z",
+    caseId: null,
+    caseStatus: null,
     ...overrides,
   };
 }

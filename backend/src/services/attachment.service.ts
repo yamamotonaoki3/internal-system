@@ -5,8 +5,11 @@
 //   画像・文書はメモリに読み込んで検査し、画像は Exif を除いてから保存する。動画は先頭を検査し、FixedLengthStream で流して保存する。
 //   受信したバイト数が Content-Length と違えば 422 で、保存物を残さない。
 //   D1 の登録が失敗したら、保存した実体の削除を試みてから元のエラーを投げ直す（削除の失敗は error ログに残す）。
+//   登録は保存の時点の資格を条件にする（#148。attachment.repository.ts の insertPending）。0行なら、保存した実体を消し、
+//   部屋の判定を最初と同じ順で読み直して 404／403／409 にする。どれにも当たらなければ成功にしない（409）。
 // 配信の判定の順：見えるか（attachment-visibility.sql.ts。見えなければ存在しない添付と同じ 404）
-//   → DM なら perm.dm.message.view（一覧と同じ）→ perm.attachment.download（403）→ R2 から読む（実体がなければ 404）。
+//   → DM なら perm.dm.message.view（一覧と同じ）・案件専用チャンネルなら perm.case.view（#148。R-64）
+//   → perm.attachment.download（403）→ R2 から読む（実体がなければ 404）。
 // ログにファイル名・保存先のキーを出さない。
 import { withAttachments } from "../db/attachment.repository";
 import { withMessages } from "../db/message.repository";
@@ -26,7 +29,7 @@ import {
 } from "../../../shared/attachment-rules";
 import type { CronJob } from "../scheduled";
 import { createAppAuthorizer } from "./authorizer";
-import { createMessageService } from "./message.service";
+import { createMessageService, type RoomWriteKind } from "./message.service";
 
 export type AttachmentActor = { userId: string; traceId: string };
 
@@ -255,6 +258,20 @@ export function createAttachmentService(
     return { inspected, size: contentLength };
   }
 
+  // 部屋の判定（アップロードの前と、登録が0行のときの読み直しで同じ順）
+  async function requireRoom(
+    actor: AttachmentActor,
+    context: { roomId: string; threadParentId: string | null },
+  ): Promise<void> {
+    const kind: RoomWriteKind = "upload";
+    const { threadParentId } = context;
+    await withMessageRules(async (service) => {
+      if (threadParentId === null)
+        await service.requirePostable(actor, context.roomId, kind);
+      else await service.requireReplyable(actor, threadParentId, kind);
+    });
+  }
+
   async function store(
     actor: AttachmentActor,
     context: { roomId: string; threadParentId: string | null },
@@ -272,8 +289,9 @@ export function createAttachmentService(
         : await storeWhole(key, name, upload, contentLength);
     if (!inspected.ok) throw unsupported();
     const id = newUlid();
+    let inserted: number;
     try {
-      await withAttachments(env, (repository) =>
+      inserted = await withAttachments(env, (repository) =>
         repository.insertPending({
           id,
           roomId: context.roomId,
@@ -289,6 +307,14 @@ export function createAttachmentService(
     } catch (error) {
       await removeStored(key, logger);
       throw error;
+    }
+    if (inserted === 0) {
+      await removeStored(key, logger);
+      await requireRoom(actor, context);
+      throw new AppError(
+        "CONFLICT",
+        "状態が変わったため、添付できませんでした。読み込み直してからお試しください",
+      );
     }
     return {
       id,
@@ -310,11 +336,10 @@ export function createAttachmentService(
       roomId: string,
       upload: AttachmentUpload,
     ) {
-      await withMessageRules((service) =>
-        service.requirePostable(actor, roomId),
-      );
+      const context = { roomId, threadParentId: null };
+      await requireRoom(actor, context);
       await authorizeUpload(actor);
-      return store(actor, { roomId, threadParentId: null }, upload);
+      return store(actor, context, upload);
     },
     async uploadToReply(
       actor: AttachmentActor,
@@ -322,7 +347,7 @@ export function createAttachmentService(
       upload: AttachmentUpload,
     ) {
       const parent = await withMessageRules((service) =>
-        service.requireReplyable(actor, parentId),
+        service.requireReplyable(actor, parentId, "upload"),
       );
       await authorizeUpload(actor);
       return store(
@@ -347,6 +372,10 @@ export function createAttachmentService(
           "perm.dm.message.view",
           { type: "company" },
         );
+      if (attachment.isCase)
+        await authorizer.authorize({ userId: actor.userId }, "perm.case.view", {
+          type: "company",
+        });
       await authorizer.authorize(
         { userId: actor.userId },
         "perm.attachment.download",

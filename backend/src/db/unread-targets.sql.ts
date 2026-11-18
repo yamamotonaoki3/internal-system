@@ -5,6 +5,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./database";
+import { caseRoomListable } from "./case-room.sql";
 
 const rowSchema = z.object({
   room_id: z.string(),
@@ -24,7 +25,12 @@ function afterRoom(cursorRoomId: string | undefined): SQL {
 export async function listUnreadTargetRows(
   db: Database,
   userId: string,
-  options: { limit: number; cursorRoomId?: string },
+  options: {
+    limit: number;
+    cursorRoomId?: string;
+    /** perm.case.view を持つか。偽なら案件専用チャンネルを対象にしない（#148） */
+    includeCase: boolean;
+  },
 ): Promise<UnreadTargetRow[]> {
   const rows = await db.all(sql`
     SELECT t.room_id AS room_id, t.joined_at AS joined_at, rp.last_read_message_id AS last_read_message_id
@@ -34,6 +40,7 @@ export async function listUnreadTargetRows(
       JOIN channels c ON c.room_id = cm.channel_id
       JOIN users u ON u.id = cm.user_id AND u.is_active = 1
       WHERE cm.user_id = ${userId} AND c.deleted_at IS NULL
+        AND ${caseRoomListable(sql`c.room_id`, options.includeCase)}
       UNION ALL
       SELECT conv.conversation_id AS room_id, NULL AS joined_at
       FROM conversation_members conv

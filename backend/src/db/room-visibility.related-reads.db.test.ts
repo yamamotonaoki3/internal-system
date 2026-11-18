@@ -547,7 +547,11 @@ describe("#297 AC-1（利用者の決定）スレッドの一覧の DM の条件
   const ids = async (viewerId: string) =>
     (
       await withDatabase(env, (db) =>
-        listThreadRows(db, viewerId, { limit: 100, includeDirect: true }),
+        listThreadRows(db, viewerId, {
+          limit: 100,
+          includeDirect: true,
+          includeCase: true,
+        }),
       )
     ).map((row) => row.id);
 

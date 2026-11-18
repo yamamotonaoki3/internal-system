@@ -8,6 +8,8 @@
 // markThreadRead（#137。C-147）の判定の順：① 親が存在して見えるか（404）→ ② 親が返信でないか（404）→ ③ 参加者か（未参加は 403）
 //   → ④ perm.notification.own → ⑤ スレッドの既読位置を進める（条件付きの upsert 1文）。0行のとき：①〜③をもう一度行い（崩れていれば 404／403）、
 //   lastReadMessageId がそのスレッドの返信でなければ 404、すでに同じかより新しい位置なら成功、どれでもなければ 409。
+// 案件専用チャンネル（#148）：markRead・markThreadRead は、部屋の判定の後に perm.case.view（R-62。拒否は 403）。
+//   未読の一覧は、perm.case.view がなければ SQL の条件で案件専用チャンネルを除く（表示の判定なので can。2秒ごとの取り直しで拒否を監査に溜めない）。
 // 既読は本人の閲覧の記録で、監査ログに残さない（既定の方針 4）。
 import { withMessages, type MessageRepository } from "../db/message.repository";
 import {
@@ -23,8 +25,11 @@ import { createAppAuthorizer } from "./authorizer";
 
 export type UnreadActor = { userId: string; traceId: string };
 
+type AppAuthorizer = ReturnType<typeof createAppAuthorizer>;
+
 type Dependencies = {
-  authorizer: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
+  /** can は未読の一覧で案件専用チャンネルを含めるかの判定に使う（表示の判定。拒否を監査に残さない） */
+  authorizer: Pick<AppAuthorizer, "authorize" | "can">;
   now?: () => Date;
 };
 
@@ -78,6 +83,17 @@ export function createUnreadService(
     );
   }
 
+  // 案件専用チャンネルなら perm.case.view（参加者の判定の後に呼ぶ。非参加者は 404 で、案件の存在を明かさない）
+  async function authorizeCaseView(
+    channel: { caseId: string | null },
+    actor: UnreadActor,
+  ) {
+    if (channel.caseId !== null)
+      await authorizer.authorize({ userId: actor.userId }, "perm.case.view", {
+        type: "company",
+      });
+  }
+
   // 既読にしてよい部屋か（見えない・当事者でない 404、見えるが未参加 403）。チャンネルでなければ DM として探す
   async function requireReadableRoom(roomId: string, actor: UnreadActor) {
     const channel = await rooms.findRoomForViewer(roomId, actor.userId);
@@ -86,6 +102,7 @@ export function createUnreadService(
         throw new AppError("NOT_FOUND", ROOM_NOT_FOUND_MESSAGE);
       if (channel.joinedAt === null)
         throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+      await authorizeCaseView(channel, actor);
       return;
     }
     const direct = await rooms.findDirectForParticipant(roomId, actor.userId);
@@ -114,6 +131,7 @@ export function createUnreadService(
       throw new AppError("NOT_FOUND", THREAD_NOT_FOUND_MESSAGE);
     if (channel !== null && channel.joinedAt === null)
       throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+    if (channel !== null) await authorizeCaseView(channel, actor);
   }
 
   return {
@@ -122,7 +140,15 @@ export function createUnreadService(
       options: { limit: number; cursor?: CursorPayload },
     ) {
       await authorizeOwn(actor);
-      return readPositions.listUnread(actor.userId, options);
+      const includeCase = await authorizer.can(
+        { userId: actor.userId },
+        "perm.case.view",
+        { type: "company" },
+      );
+      return readPositions.listUnread(actor.userId, {
+        ...options,
+        includeCase,
+      });
     },
 
     async markRead(

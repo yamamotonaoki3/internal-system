@@ -18,6 +18,9 @@
 // 添付（#140）：投稿・返信と同じ batch で attachmentIds を結び付ける。既存の判定の後、結び付けが合わなければ読み直して分ける：
 //   他人の・別の部屋の・別の文脈の・存在しない添付 → 404 → 使用済み → 409 → 合計の超過 → 422（それ以外は状態が変わった 409）。
 //   アップロードの入口（services/attachment.service.ts）は、requirePostable・requireReplyable をそのまま使う。
+// 案件専用チャンネル（案件の部屋。#148）：既存の資格の判定（非参加者は 404）の後に、読みは perm.case.view、書き込み（リアクション・添付のアップロードを含む）は
+//   perm.case.post を判定し（拒否は 403）、書き込みは案件が終了中なら 409（部署の判定の前。拒否は logger.audit に reason case_closed で残し、本文は入れない）。
+//   書き込みの SQL にも「案件が進行中」の条件（db/case-room.sql.ts の caseRoomOpen）があり、確認の後に終了した場合は 0 行の読み直しでこの 409 になる。
 // 書き込みは条件付きの INSERT 1文。挿入できなかった（0 行）ときは、原因を読み直して分ける：
 //   状態が崩れた → 404／403、IDが部屋の最大以下 → 最大より大きいIDで作り直して再試行（上限あり。超えたら 503）。
 import { AttachmentBindError } from "../db/attachment.repository";
@@ -79,6 +82,17 @@ export type MessageEdited = {
 };
 
 type ModifyOperation = "edit" | "delete";
+
+/** 終了した案件の部屋への書き込みの 409 の文言（操作ごと。#148） */
+const CASE_CLOSED_MESSAGES = {
+  post: "終了した案件には投稿できません",
+  modify: "終了した案件のメッセージは変更できません",
+  reaction: "終了した案件にはリアクションできません",
+  upload: "終了した案件には添付できません",
+} as const;
+
+/** 部屋への書き込みの種類（終了した案件の 409 の文言を選ぶ） */
+export type RoomWriteKind = "post" | "upload";
 
 const MODIFY_PERMISSION = {
   edit: "perm.message.edit.own",
@@ -184,6 +198,37 @@ export function createMessageService(
     });
   }
 
+  type FoundRoom = NonNullable<Awaited<ReturnType<typeof findRoom>>>;
+
+  // 案件の部屋なら、案件の権限を確かめる（案件でない部屋では何もしない）
+  async function authorizeCase(
+    actor: MessageActor,
+    room: FoundRoom,
+    permission: "perm.case.view" | "perm.case.post",
+  ) {
+    if (room.kind === "channel" && room.channel.caseId !== null)
+      await authorizer.authorize({ userId: actor.userId }, permission, {
+        type: "company",
+      });
+  }
+
+  // 案件の部屋で案件が終了していれば 409。拒否は audit に残す（本文は入れない）
+  function requireCaseOpen(
+    actor: MessageActor,
+    room: FoundRoom,
+    audit: { action: string; target: string },
+    message: string,
+  ) {
+    if (room.kind !== "channel" || room.channel.caseStatus !== "closed") return;
+    createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
+      audit.action,
+      audit.target,
+      "failure",
+      { reason: "case_closed" },
+    );
+    throw new AppError("CONFLICT", message);
+  }
+
   // 一覧で見てよい部屋の規則。添付の配信の条件（db/attachment-visibility.sql.ts）も同じ規則なので、変えるときは両方を直す
   async function requireVisible(roomId: string, actor: MessageActor) {
     const room = await findRoom(roomId, actor);
@@ -195,6 +240,7 @@ export function createMessageService(
     const { channel } = room;
     if (!canViewChannel(channel, channel.joinedAt !== null))
       throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    await authorizeCase(actor, room, "perm.case.view");
   }
 
   // 指名候補と新規投稿で共通の、閲覧・参加の資格（DM は送信権限・相手の有効状態も）を確かめる
@@ -219,9 +265,23 @@ export function createMessageService(
   }
 
   // 新規投稿だけが、お知らせ専用の投稿権限を追加で要求する。
-  async function requirePostable(roomId: string, actor: MessageActor) {
+  async function requirePostable(
+    roomId: string,
+    actor: MessageActor,
+    kind: RoomWriteKind,
+  ) {
     const room = await requireParticipatingRoom(roomId, actor);
     if (room.kind === "direct") return;
+    await authorizeCase(actor, room, "perm.case.post");
+    requireCaseOpen(
+      actor,
+      room,
+      {
+        action: kind === "post" ? "message.post" : "attachment.upload",
+        target: roomId,
+      },
+      CASE_CLOSED_MESSAGES[kind],
+    );
     const { channel } = room;
     // 全社連絡（部署なし）は、参加者なら誰でも投稿できる。権限で制限するのはお知らせ専用だけ（canPostToChannel と同じ規則）
     if (channel.purpose === "announcement" && channel.departmentId !== null)
@@ -233,7 +293,11 @@ export function createMessageService(
   }
 
   // 返信の ①〜⑥（上の判定の順）。親（と部屋）を返す
-  async function requireReplyable(actor: MessageActor, parentId: string) {
+  async function requireReplyable(
+    actor: MessageActor,
+    parentId: string,
+    kind: RoomWriteKind,
+  ) {
     const parent = await repository.findThreadParent(parentId);
     if (parent === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     const room = await findRoom(parent.roomId, actor);
@@ -252,6 +316,16 @@ export function createMessageService(
     });
     if (parent.deletedAt !== null)
       throw new AppError("CONFLICT", "削除された投稿には返信できません");
+    await authorizeCase(actor, room, "perm.case.post");
+    requireCaseOpen(
+      actor,
+      room,
+      {
+        action: kind === "post" ? "message.reply" : "attachment.upload",
+        target: parentId,
+      },
+      CASE_CLOSED_MESSAGES[kind],
+    );
     if (room.kind === "direct") {
       if (!room.partnerIsActive)
         throw new AppError(
@@ -281,14 +355,13 @@ export function createMessageService(
       throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
     if (parent.parentMessageId !== null)
       throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    await authorizeCase(actor, room, "perm.case.view");
     return { parent, room };
   }
 
   // 部屋の側の状態（親の削除は含めない）。joined・roomWritable・部屋が原因の理由を、同じ材料から1か所で求める。
-  // 理由の優先順は not_joined → read_only → partner_inactive（親が削除済みなら、呼び出し側が deleted_parent を最優先にする）
-  async function roomReplyState(
-    room: NonNullable<Awaited<ReturnType<typeof findRoom>>>,
-  ) {
+  // 理由の優先順は not_joined → case_closed → read_only → partner_inactive（親が削除済みなら、呼び出し側が deleted_parent を最優先にする）
+  async function roomReplyState(room: FoundRoom) {
     if (room.kind === "direct") {
       const reason = room.partnerIsActive
         ? null
@@ -300,6 +373,12 @@ export function createMessageService(
         joined: false,
         roomWritable: false,
         reason: REPLY_BLOCKED_REASONS.notJoined,
+      };
+    if (room.channel.caseStatus === "closed")
+      return {
+        joined: true,
+        roomWritable: false,
+        reason: REPLY_BLOCKED_REASONS.caseClosed,
       };
     const inactive =
       room.channel.departmentId !== null &&
@@ -360,6 +439,13 @@ export function createMessageService(
         );
         throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
       }
+      await authorizeCase(actor, room, "perm.case.post");
+      requireCaseOpen(
+        actor,
+        room,
+        { action: `message.${operation}`, target: messageId },
+        CASE_CLOSED_MESSAGES.modify,
+      );
       if (
         channel.departmentId !== null &&
         !(await repository.isDepartmentActive(channel.departmentId))
@@ -394,6 +480,13 @@ export function createMessageService(
         "CONFLICT",
         "削除された投稿にはリアクションを付け外しできません",
       );
+    await authorizeCase(actor, room, "perm.case.post");
+    requireCaseOpen(
+      actor,
+      room,
+      { action: "message.reaction", target: messageId },
+      CASE_CLOSED_MESSAGES.reaction,
+    );
     if (room.kind === "direct") {
       if (!room.partnerIsActive)
         throw new AppError(
@@ -510,11 +603,17 @@ export function createMessageService(
 
   return {
     /** 通常の投稿をしてよいか（添付のアップロードの入口も使う。#140） */
-    requirePostable: (actor: MessageActor, roomId: string) =>
-      requirePostable(roomId, actor),
+    requirePostable: (
+      actor: MessageActor,
+      roomId: string,
+      kind: RoomWriteKind,
+    ) => requirePostable(roomId, actor, kind),
     /** 返信してよいか（添付のアップロードの入口も使う。#140）。親を返す */
-    requireReplyable: (actor: MessageActor, parentId: string) =>
-      requireReplyable(actor, parentId),
+    requireReplyable: (
+      actor: MessageActor,
+      parentId: string,
+      kind: RoomWriteKind,
+    ) => requireReplyable(actor, parentId, kind),
     async edit(
       actor: MessageActor,
       messageId: string,
@@ -565,7 +664,8 @@ export function createMessageService(
       roomId: string,
       query: { keyword?: string; limit: number; cursor?: CursorPayload },
     ) {
-      await requireParticipatingRoom(roomId, actor);
+      const room = await requireParticipatingRoom(roomId, actor);
+      await authorizeCase(actor, room, "perm.case.view");
       return repository.listMentionCandidates({
         ...query,
         visibleTo: { roomId, viewerId: actor.userId },
@@ -631,7 +731,7 @@ export function createMessageService(
       mentions: readonly Mention[] = [],
       attachmentIds: readonly string[] = [],
     ): Promise<ReplyCreated> {
-      const parent = await requireReplyable(actor, parentId);
+      const parent = await requireReplyable(actor, parentId, "post");
       await validateMentions(body, mentions);
       const displayName = await repository.findDisplayName(actor.userId);
       if (displayName === null)
@@ -661,7 +761,7 @@ export function createMessageService(
         if (inserted > 0)
           return { id, roomId, parentMessageId: parentId, createdAt };
         // 状態が崩れていれば 404／403／409 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
-        await requireReplyable(actor, parentId);
+        await requireReplyable(actor, parentId, "post");
         if (retry >= MAX_ID_RETRIES) break;
         const max = await repository.maxId(roomId);
         id = max === null ? newUlid() : ulidAfter(max);
@@ -682,7 +782,7 @@ export function createMessageService(
       mentions: readonly Mention[] = [],
       attachmentIds: readonly string[] = [],
     ): Promise<MessageCreated> {
-      await requirePostable(roomId, actor);
+      await requirePostable(roomId, actor, "post");
       await validateMentions(body, mentions);
       const displayName = await repository.findDisplayName(actor.userId);
       if (displayName === null)
@@ -708,8 +808,8 @@ export function createMessageService(
           attachmentIds,
         );
         if (inserted > 0) return { id, roomId, createdAt };
-        // 状態が崩れていれば 404／403 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
-        await requirePostable(roomId, actor);
+        // 状態が崩れていれば 404／403／409 になる（上限に達した最後の挿入の後も確かめ、503 に隠さない）。崩れていなければ、IDが部屋の最大以下だった
+        await requirePostable(roomId, actor, "post");
         if (retry >= MAX_ID_RETRIES) break;
         const max = await repository.maxId(roomId);
         id = max === null ? newUlid() : ulidAfter(max);
