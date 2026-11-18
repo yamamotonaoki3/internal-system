@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import "./lib/zod-config";
 import { App } from "./App";
+import { installUserSwitchGuard } from "./features/auth";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
   openDraftStorage,
@@ -40,6 +41,8 @@ setUnauthenticatedHandler(
     currentPath: () => window.location.pathname,
   }),
 );
+// 利用者が替わったら、前の利用者のキャッシュを捨てる（アプリの間ずっと有効なので解除しない）
+installUserSwitchGuard(queryClient);
 
 const root = document.getElementById("root");
 if (root === null)

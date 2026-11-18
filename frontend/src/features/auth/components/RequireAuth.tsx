@@ -1,28 +1,24 @@
 // ログイン済みのときだけ中身を出す。未ログイン（401）なら /login へ移り、
 // 初回パスワードの変更が必要な利用者には案内だけを出す。
 // 確認中・確認できない・変更待ちの画面は、共通レイアウト（AppShell）の外なので、自分で画面の枠（main と h1）を持つ。
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Navigate } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { PageLayout } from "../../../components/PageLayout";
 import type { ApiError } from "../../../services/api-client";
 import { useSession } from "../hooks/useSession";
+import { useSignedInUserId } from "../hooks/useSignedInUserId";
 import { PasswordChangePending } from "./PasswordChangePending";
 
 const SESSION_CHECK_TITLE = "ログイン状態の確認";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const session = useSession();
+  // useSession の通知は遅れて届くため、同期で読む ID で作り直しと一致の確認をする
+  const signedInUserId = useSignedInUserId();
 
-  if (session.isPending)
-    return (
-      <PageLayout title={SESSION_CHECK_TITLE} width="narrow">
-        <p role="status" className="mb-3 text-text-muted">
-          確認中です
-        </p>
-      </PageLayout>
-    );
+  if (session.isPending) return <SessionChecking />;
 
   if (session.isError) {
     // apiClient は失敗を ApiError の形で返す（services/api-client.ts）
@@ -41,11 +37,30 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (session.data.mustChangePassword)
-    return (
-      <PageLayout title="パスワードの変更が必要です" width="narrow">
-        <PasswordChangePending />
-      </PageLayout>
-    );
-  return <>{children}</>;
+  // 利用者の切り替えの直後、遅れた通知が届くまでは、前の利用者の表示を出さない
+  if (signedInUserId === undefined || signedInUserId !== session.data.user.id)
+    return <SessionChecking />;
+
+  // 利用者が替わったら、成功の後の画面全体（入力中の状態を含む）を作り直す
+  return (
+    <Fragment key={signedInUserId}>
+      {session.data.mustChangePassword ? (
+        <PageLayout title="パスワードの変更が必要です" width="narrow">
+          <PasswordChangePending />
+        </PageLayout>
+      ) : (
+        children
+      )}
+    </Fragment>
+  );
+}
+
+function SessionChecking() {
+  return (
+    <PageLayout title={SESSION_CHECK_TITLE} width="narrow">
+      <p role="status" className="mb-3 text-text-muted">
+        確認中です
+      </p>
+    </PageLayout>
+  );
 }

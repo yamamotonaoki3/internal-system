@@ -6,3 +6,4 @@ export { LogoutFailureNotice } from "./components/LogoutFailureNotice";
 export { useSession } from "./hooks/useSession";
 export { useReauth } from "./hooks/useReauth";
 export { useSignedInUserId } from "./hooks/useSignedInUserId";
+export { installUserSwitchGuard, publishSession } from "./user-switch-guard";
