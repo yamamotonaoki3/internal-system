@@ -1,6 +1,6 @@
 // #148（148-A）5-2 AC-1・AC-2・AC-4・5-1 AC-11、画面 S-17：案件のやり取りの主な流れを、画面からバックエンドまで通して確かめる（実ブラウザ）。
 // 流れ：参加者 member が進行中の案件の S-17 の「やり取り」で、添付つきで投稿 → 別のブラウザの参加者 partner の S-17 に、再読み込みなしで出る（ポーリング）
-//   → partner がスレッド（S-07。?thread=）を開いて返信し、リアクションを付ける → member の画面に返信の件数・リアクションが出る。
+//   → partner がスレッド（S-07。?thread=）を開いて返信し、リアクションを付ける → member が開き直すと、返信の件数・リアクションが出る（既存の行はポーリングで取り直さない）。
 //   終了の案件（シードで closed）では、入力欄がなく、帯「終了した案件・アーカイブ（読み取り専用）」が出て、過去のやり取りは読める。
 //   非参加者 outsider は「参加者だけが見られます（非公開）」で、やり取りが出ない。
 // 判定の順・認可・同時の操作の網羅は backend の結合・DB・Service のテスト、画面の分岐は frontend/src/pages/CaseDetailPage.conversation.test.tsx で確かめ、
@@ -162,7 +162,7 @@ test("#148 5-2 AC-1・AC-2・AC-4: 参加者が S-17 で添付つきで投稿す
   expect(Buffer.compare(await res.body(), MEMO)).toBe(0);
 });
 
-test("#148 5-2 AC-1・AC-4: 別の参加者がスレッド（?thread=）で返信し、リアクションを付けると、投稿した人の画面に出る", async () => {
+test("#148 5-2 AC-1・AC-4: 別の参加者がスレッド（?thread=）で返信し、リアクションを付けると、投稿した人が開き直した画面に出る", async () => {
   const a = member as Signed;
   const b = partner as Signed;
   await rowWith(b.page, POST_TEXT)
@@ -189,7 +189,9 @@ test("#148 5-2 AC-1・AC-4: 別の参加者がスレッド（?thread=）で返�
     .click();
   await expect(picker).toHaveCount(0);
 
-  // 投稿した人の画面（再読み込みなし）に、返信の件数とリアクションが出る
+  // 部屋のポーリングは新着（after）だけを取り足し、既存の行の返信の件数・リアクションは取り直さない（チャンネルと同じ既存の動き。
+  // e2e/reactions.spec.ts も、ほかの人の画面は開き直して確かめる）。投稿した人は開き直して確かめる
+  await a.page.reload();
   await expect(
     rowWith(a.page, POST_TEXT).getByRole("button", { name: /^返信 1 件/ }),
   ).toBeVisible();
