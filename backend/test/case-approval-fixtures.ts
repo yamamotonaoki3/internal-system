@@ -261,6 +261,18 @@ export async function cleanupCaseApprovalTestData() {
     const roomIds = results.map((r) => r.channel_id);
     const inRooms = `SELECT value FROM json_each(?1)`;
     const rooms = JSON.stringify(roomIds);
+    // #149（149-A）：TODO の記録 → TODO を、案件より先に消す（外部キーの順。表がまだない間は何もしない）
+    if (await tableExists("case_todos")) {
+      const testCases = `SELECT id FROM cases WHERE client_id IN (${testClients}) OR number_client_id IN (${testClients})`;
+      await env.DB.batch([
+        env.DB.prepare(
+          `DELETE FROM case_todo_events WHERE case_id IN (${testCases})`,
+        ).bind(tagged),
+        env.DB.prepare(
+          `DELETE FROM case_todos WHERE case_id IN (${testCases})`,
+        ).bind(tagged),
+      ]);
+    }
     await env.DB.batch([
       env.DB.prepare(
         `DELETE FROM read_positions WHERE room_id IN (${inRooms})`,

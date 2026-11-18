@@ -77,6 +77,8 @@ const SUMMARY_KEYS = [
   "id",
   "isParticipant",
   "participantCount",
+  // #149（149-A）：TODO の進捗（R-78。全員に返す）
+  "progress",
   "status",
   "title",
 ];
