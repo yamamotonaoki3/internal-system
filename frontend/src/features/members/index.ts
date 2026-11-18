@@ -4,3 +4,5 @@ export { MemberSearchField } from "./MemberSearchField";
 export { MembersList } from "./MembersList";
 export { useMembers } from "./hooks/useMembers";
 export type { Member } from "./api/member-api";
+export type { SearchedUser } from "./api/user-search-api";
+export { useUserSearch } from "./hooks/useUserSearch";

@@ -17,6 +17,8 @@ export type CaseSummary = {
   isParticipant: boolean;
   canManage: boolean;
   participantCount: number | null;
+  /** #147（147-B）：納期を変えられるか（表示の制御。認可はサーバー） */
+  canEditDueDate: boolean;
 };
 
 export type CaseParticipant = {
@@ -25,6 +27,10 @@ export type CaseParticipant = {
   departmentName: string | null;
   isActive: boolean;
   isCreator: boolean;
+  /** #147（147-B）Q8：自動参加の役割（その時点の割り当て） */
+  autoRole: "global_admin" | "department_owner" | null;
+  /** #147（147-B）：外せるか（自動参加でなく、外しても有効な参加者が残る） */
+  removable: boolean;
 };
 
 export type CaseDetail = CaseSummary & {
@@ -81,6 +87,7 @@ export function caseSummary(
     isParticipant: true,
     canManage: false,
     participantCount: 2,
+    canEditDueDate: true,
     ...overrides,
   };
 }
@@ -94,6 +101,7 @@ export function outsiderSummary(
     isParticipant: false,
     canManage: false,
     participantCount: null,
+    canEditDueDate: false,
     ...overrides,
   });
 }
@@ -104,6 +112,8 @@ export const PARTICIPANT_CREATOR: CaseParticipant = {
   departmentName: CASE_DEPT_SALES.name,
   isActive: true,
   isCreator: true,
+  autoRole: null,
+  removable: true,
 };
 export const PARTICIPANT_RETIRED: CaseParticipant = {
   userId: "01JTESTCASE147APR000000001",
@@ -111,6 +121,8 @@ export const PARTICIPANT_RETIRED: CaseParticipant = {
   departmentName: CASE_DEPT_DEV.name,
   isActive: false,
   isCreator: false,
+  autoRole: null,
+  removable: true,
 };
 
 export function caseDetail(
@@ -191,4 +203,107 @@ export function respondCases(
     }),
   );
   return { queries, detailCalls, summaryCalls };
+}
+
+// ---- #147（147-B）参加者の追加・削除・退出と、納期の変更 ----
+
+/** 画面の文言（計画 147-B の画面・S-18。サーバーの文言と同じもの） */
+export const CASE_147B_TEXTS = {
+  updated: "参加者を更新しました",
+  participantsOnly: "参加者だけが操作できます",
+  autoParticipant: "担当部署のオーナー・全体管理者は外せません",
+  roleOwner: "担当部署のオーナー",
+  roleAdmin: "全体管理者",
+} as const;
+
+export type CaseWrite = { method: string; path: string; body: unknown };
+
+export type CaseWriteResponder = (
+  write: CaseWrite,
+) => Response | Promise<Response>;
+
+/**
+ * 参加者の追加（POST /api/cases/:caseId/participants）・削除（DELETE …/participants/:userId）・納期の変更（PATCH …/due-date）の架空の応答。
+ * respond を省くと、追加は 201 { caseId, userId }、削除は 204、納期は 200 { caseId, dueDate } を返す。送った要求を writes に記録する。
+ */
+export function respondCaseWrites(respond?: CaseWriteResponder) {
+  const writes: CaseWrite[] = [];
+  async function record(request: {
+    method: string;
+    url: string;
+    text(): Promise<string>;
+  }): Promise<CaseWrite> {
+    const text = await request.text();
+    const write: CaseWrite = {
+      method: request.method,
+      path: new URL(request.url).pathname,
+      body: text === "" ? undefined : (JSON.parse(text) as unknown),
+    };
+    writes.push(write);
+    return write;
+  }
+  server.use(
+    http.post(
+      "/api/cases/:caseId/participants",
+      async ({ request, params }) => {
+        const write = await record(request);
+        if (respond !== undefined) return respond(write);
+        return HttpResponse.json(
+          {
+            caseId: String(params.caseId),
+            userId: (write.body as { userId?: string } | undefined)?.userId,
+          },
+          { status: 201 },
+        );
+      },
+    ),
+    http.delete(
+      "/api/cases/:caseId/participants/:userId",
+      async ({ request }) => {
+        const write = await record(request);
+        if (respond !== undefined) return respond(write);
+        return new HttpResponse(null, { status: 204 });
+      },
+    ),
+    http.patch("/api/cases/:caseId/due-date", async ({ request, params }) => {
+      const write = await record(request);
+      if (respond !== undefined) return respond(write);
+      return HttpResponse.json({
+        caseId: String(params.caseId),
+        dueDate: (write.body as { dueDate?: string | null } | undefined)
+          ?.dueDate,
+      });
+    }),
+  );
+  return { writes };
+}
+
+export type SearchUser = { id: string; displayName: string };
+
+/** 社員の検索（GET /api/users?q&cursor）。pages の順にページを返す（cursor は "page-2"・"page-3" …）。送った q を記録する */
+export function respondUserSearch(pages: SearchUser[][]) {
+  const queries: { q: string; cursor: string | null }[] = [];
+  server.use(
+    http.get("/api/users", ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      const cursor = params.get("cursor");
+      queries.push({ q: params.get("q") ?? "", cursor });
+      const index =
+        cursor === null ? 0 : Number(cursor.replace("page-", "")) - 1;
+      const items = (pages[index] ?? []).map((user) => ({
+        id: user.id,
+        displayName: user.displayName,
+        department: null,
+        extension: null,
+        email: `${user.displayName}@example.com`,
+        status: { kind: "available", returnAt: null, message: null },
+        canSetStatus: false,
+      }));
+      return HttpResponse.json({
+        items,
+        nextCursor: index + 1 < pages.length ? `page-${index + 2}` : null,
+      });
+    }),
+  );
+  return { queries };
 }

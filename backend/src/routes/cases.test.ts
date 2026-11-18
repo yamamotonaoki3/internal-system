@@ -68,6 +68,7 @@ type Detail = Summary & {
 type Page = { items: Summary[]; nextCursor: string | null };
 
 const SUMMARY_KEYS = [
+  "canEditDueDate",
   "canManage",
   "caseNumber",
   "client",
@@ -87,10 +88,12 @@ const DETAIL_KEYS = [
   "participants",
 ].sort();
 const PARTICIPANT_KEYS = [
+  "autoRole",
   "departmentName",
   "displayName",
   "isActive",
   "isCreator",
+  "removable",
   "userId",
 ];
 
@@ -393,6 +396,9 @@ describe("#147 5-1 AC-2・AC-14 詳細（EP-5-08）", () => {
         departmentName: w.deptS.name,
         isActive: true,
         isCreator: true,
+        // 自動参加でなく、有効な参加者が2人いるので、どの人も外せる（Q1・Q2）
+        autoRole: null,
+        removable: true,
       },
       {
         userId: w.memberD1.id,
@@ -400,6 +406,9 @@ describe("#147 5-1 AC-2・AC-14 詳細（EP-5-08）", () => {
         departmentName: w.deptD.name,
         isActive: true,
         isCreator: false,
+        // 自動参加でなく、有効な参加者が2人いるので、どの人も外せる（Q1・Q2）
+        autoRole: null,
+        removable: true,
       },
       {
         userId: w.inactive.id,
@@ -407,6 +416,9 @@ describe("#147 5-1 AC-2・AC-14 詳細（EP-5-08）", () => {
         departmentName: w.deptS.name,
         isActive: false,
         isCreator: false,
+        // 自動参加でなく、有効な参加者が2人いるので、どの人も外せる（Q1・Q2）
+        autoRole: null,
+        removable: true,
       },
     ]);
   });

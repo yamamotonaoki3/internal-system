@@ -17,7 +17,7 @@ describe("#156 0-6 AC-6: 操作の種類の一覧", () => {
 });
 
 describe("#156 0-6 AC-3: 対象の種類の一覧", () => {
-  it("#156 0-6 AC-3: 実際に書かれる種類（社員・部署・取引先・チャンネル・チャンネル申請・案件の作成申請・退職処理の申請・メッセージ・接続元。計画の後に #146・#128-c が足した case_request・retirement_request を含む）と、閲覧の記録の audit_log を、過不足なく持つ", () => {
+  it("#156 0-6 AC-3: 実際に書かれる種類（社員・部署・取引先・チャンネル・チャンネル申請・案件の作成申請・退職処理の申請・メッセージ・接続元。計画の後に #146・#128-c が足した case_request・retirement_request と、#147（147-B）が足した case を含む）と、閲覧の記録の audit_log を、過不足なく持つ", () => {
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual(
       [
         "user",
@@ -26,6 +26,7 @@ describe("#156 0-6 AC-3: 対象の種類の一覧", () => {
         "channel",
         "channel_request",
         "case_request",
+        "case",
         "retirement_request",
         "message",
         "source",

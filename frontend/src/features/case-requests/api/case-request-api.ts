@@ -2,6 +2,7 @@
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
+import type { SearchedUser } from "../../members";
 
 export const CASE_REQUEST_STATUSES = [
   "pending",
@@ -93,11 +94,6 @@ const clientPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 const departmentsSchema = z.object({ items: z.array(choiceSchema) });
-const userPageSchema = z.object({
-  items: z.array(z.object({ id: z.string().min(1), displayName: z.string() })),
-  nextCursor: z.string().nullable(),
-});
-
 export type CaseRequestStatus = z.infer<typeof statusSchema>;
 export type CaseRequestItem = z.infer<typeof itemSchema>;
 export type CaseRequestPage = z.infer<typeof pageSchema>;
@@ -105,7 +101,8 @@ export type CaseRequestReviewItem = z.infer<typeof reviewItemSchema>;
 export type CaseRequestReviewPage = z.infer<typeof reviewPageSchema>;
 export type CreatedCaseRequest = z.infer<typeof createdSchema>;
 export type Choice = z.infer<typeof choiceSchema>;
-export type CandidateUser = { id: string; displayName: string };
+/** 追加の候補の社員（社員の検索の結果と同じ形） */
+export type CandidateUser = SearchedUser;
 
 export type CreateCaseRequestInput = {
   clientId: string;
@@ -198,22 +195,4 @@ export async function fetchClientChoices(): Promise<Choice[]> {
 export async function fetchDepartmentChoices(): Promise<Choice[]> {
   const response = await apiClient.get("/users/departments");
   return departmentsSchema.parse(response.data).items;
-}
-
-export type CandidateUserPage = {
-  items: CandidateUser[];
-  nextCursor: string | null;
-};
-
-/** 追加の候補を、社員一覧の API で探す（cursor がなければ最初のページ） */
-export async function searchCandidateUsers(
-  q: string,
-  cursor?: string,
-): Promise<CandidateUserPage> {
-  const response = await apiClient.get("/users", { params: { q, cursor } });
-  const page = userPageSchema.parse(response.data);
-  return {
-    items: page.items.map(({ id, displayName }) => ({ id, displayName })),
-    nextCursor: page.nextCursor,
-  };
 }
