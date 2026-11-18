@@ -42,9 +42,11 @@ export function CaseTodoSection({
 }: Props) {
   const headingId = useId();
   const queryClient = useQueryClient();
-  const toggle = useSetCaseTodoCompleted(caseId);
   const [added, setAdded] = useState(false);
   const [error, setError] = useState<string>();
+  const toggle = useSetCaseTodoCompleted(caseId, (cause) =>
+    setError(describeError(cause)),
+  );
   const forbidden = isApiError(todos.error) && todos.error.status === 403;
 
   useEffect(() => {
@@ -62,12 +64,12 @@ export function CaseTodoSection({
     setError(undefined);
   }
 
+  // 送信中は、どの行の操作も受け付けない（応答の順と結果の表示を1つに保つ）。
+  // 先の操作の失敗（409 など）は、後の操作で消さずに出し続ける（利用者が見落とさないため）
   function onToggle(todo: CaseTodo) {
-    start();
-    toggle.mutate(
-      { todoId: todo.id, completed: !todo.completed },
-      { onError: (cause) => setError(describeError(cause)) },
-    );
+    if (toggle.isPending) return;
+    setAdded(false);
+    toggle.mutate({ todoId: todo.id, completed: !todo.completed });
   }
 
   function renderBody() {
@@ -86,7 +88,6 @@ export function CaseTodoSection({
     const items = pages.flatMap((page) => page.items);
     // どのページの取得でも全体から数えた進捗が返る。最後に取得したページの値を使う
     const progress = pages.at(-1)?.progress ?? null;
-    const busyId = toggle.isPending ? toggle.variables.todoId : undefined;
     return (
       <>
         <p className="mb-2">
@@ -112,7 +113,7 @@ export function CaseTodoSection({
                 key={todo.id}
                 todo={todo}
                 readOnly={closed}
-                busy={busyId === todo.id}
+                busy={toggle.isPending}
                 onToggle={onToggle}
               />
             ))}

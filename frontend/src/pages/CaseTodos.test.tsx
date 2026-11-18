@@ -187,6 +187,21 @@ describe("#149 AC-1 5-4 AC-1・AC-4・AC-6 一覧・進捗・担当", () => {
           isActive: false,
         },
       }),
+      todoItem(6, {
+        previousAssignee: {
+          userId: MEMBER.userId,
+          displayName: "テスト外れた担当149",
+          isActive: true,
+        },
+      }),
+      todoItem(7, {
+        completed: true,
+        completedAssignee: {
+          userId: MEMBER.userId,
+          displayName: "テスト完了時有効149",
+          isActive: true,
+        },
+      }),
     ]);
     renderPage(6);
     const region = await section();
@@ -202,12 +217,23 @@ describe("#149 AC-1 5-4 AC-1・AC-4・AC-6 一覧・進捗・担当", () => {
     expect(rowOf(region, todoTitle(3)).textContent).toContain(
       CASE_TODO_TEXTS.noAssignee,
     );
+    expect(rowOf(region, todoTitle(1)).textContent).not.toContain("退職者");
+    // 5-4 AC-6・計画 6.9(1)：以前の担当が今無効なら「（退職者）」を併記する
     expect(rowOf(region, todoTitle(4)).textContent).toContain(
-      "担当なし（以前の担当：テスト以前の担当149）",
+      "担当なし（以前の担当：テスト以前の担当149（退職者））",
     );
+    // 参加から外れただけ（有効）なら併記しない
+    const detached = rowOf(region, todoTitle(6));
+    expect(detached.textContent).toContain(
+      "担当なし（以前の担当：テスト外れた担当149）",
+    );
+    expect(detached.textContent).not.toContain("退職者");
     const done = rowOf(region, todoTitle(5));
     expect(done.textContent).toContain("テスト完了時149（退職者）");
     expect(within(done).queryByRole("link")).toBeNull();
+    const doneActive = rowOf(region, todoTitle(7));
+    expect(doneActive.textContent).toContain("テスト完了時有効149");
+    expect(doneActive.textContent).not.toContain("退職者");
   });
 
   it("#149 AC-1 計画 6.9(4): 参加者のヘッダーの進捗は、概要ではなく TODO の一覧の取得の progress（区画と同じ値）", async () => {
@@ -538,6 +564,94 @@ describe("#149 AC-1 5-4 AC-3・AC-8 完了と取り消し", () => {
     await user.click(button);
     expect(state.writes).toHaveLength(1);
     release();
+  });
+
+  it("#149 コードレビュー1回目（軽微）: A の行の完了の応答を待つ間は、すべての行の完了・取り消しのボタンを押せず、B を押しても送らない", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const state = respondTodos(
+      [todoItem(1), todoItem(2), todoItem(3, { completed: true })],
+      {
+        respond: async () => {
+          await gate;
+          return HttpResponse.json({
+            id: todoId(1),
+            completed: true,
+            version: 2,
+            progress: { done: 2, total: 3 },
+          });
+        },
+      },
+    );
+    const { user } = renderPage(24);
+    const region = await section();
+    await user.click(
+      await within(region).findByRole("button", {
+        name: `${todoTitle(1)}を完了にする`,
+      }),
+    );
+    const others = [
+      within(region).getByRole("button", {
+        name: `${todoTitle(2)}を完了にする`,
+      }),
+      within(region).getByRole("button", {
+        name: `${todoTitle(3)}を未完了に戻す`,
+      }),
+    ];
+    await waitFor(() => {
+      for (const button of within(region).getAllByRole("button", {
+        name: /を完了にする$|を未完了に戻す$/,
+      }))
+        expect((button as HTMLButtonElement).disabled, button.textContent).toBe(
+          true,
+        );
+    });
+    for (const button of others) await user.click(button);
+    expect(state.writes).toHaveLength(1);
+    release();
+  });
+
+  it("#149 コードレビュー1回目（軽微）: A の完了が 409 で失敗したら、その後に B を操作しても、A の失敗が画面に出る", async () => {
+    let releaseA: () => void = () => undefined;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    respondTodos([todoItem(1), todoItem(2)], {
+      respond: async (write) => {
+        if (write.path.includes(todoId(1))) {
+          await gateA;
+          return todoError(409, "CONFLICT", CASE_TODO_TEXTS.closed, {
+            reason: "closed",
+          });
+        }
+        return HttpResponse.json({
+          id: todoId(2),
+          completed: true,
+          version: 2,
+          progress: { done: 1, total: 2 },
+        });
+      },
+    });
+    const { user } = renderPage(25);
+    const region = await section();
+    await user.click(
+      await within(region).findByRole("button", {
+        name: `${todoTitle(1)}を完了にする`,
+      }),
+    );
+    releaseA();
+    const alert = await within(region).findByRole("alert");
+    expect(alert.textContent).toContain(CASE_TODO_TEXTS.closed);
+    await user.click(
+      await within(region).findByRole("button", {
+        name: `${todoTitle(2)}を完了にする`,
+      }),
+    );
+    expect(within(region).getByRole("alert").textContent).toContain(
+      CASE_TODO_TEXTS.closed,
+    );
   });
 });
 

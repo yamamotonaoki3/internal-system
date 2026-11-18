@@ -16,7 +16,7 @@ function assigneeText(todo: CaseTodo): string {
   const shown = todo.completed ? todo.completedAssignee : todo.assignee;
   if (shown !== null) return personName(shown);
   if (!todo.completed && todo.previousAssignee !== null)
-    return `${CASE_TODO_NO_ASSIGNEE_TEXT}（以前の担当：${todo.previousAssignee.displayName}）`;
+    return `${CASE_TODO_NO_ASSIGNEE_TEXT}（以前の担当：${personName(todo.previousAssignee)}）`;
   return CASE_TODO_NO_ASSIGNEE_TEXT;
 }
 

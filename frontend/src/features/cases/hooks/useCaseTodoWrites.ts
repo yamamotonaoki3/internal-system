@@ -13,9 +13,14 @@ export function useAddCaseTodo(caseId: string) {
   });
 }
 
-export function useSetCaseTodoCompleted(caseId: string) {
+/** onError は定義の側で受ける：呼び出しごとの onError は、後から別の操作をすると呼ばれず、先の失敗が失われるため */
+export function useSetCaseTodoCompleted(
+  caseId: string,
+  onError: (cause: unknown) => void,
+) {
   const queryClient = useQueryClient();
   return useMutation({
+    onError,
     mutationFn: (input: { todoId: string; completed: boolean }) =>
       setCaseTodoCompleted(caseId, input.todoId, input.completed),
     onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),

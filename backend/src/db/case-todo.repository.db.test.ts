@@ -959,6 +959,20 @@ describe("#149 AC-1 5-4 AC-6 計画 6.9(1) 担当の名前の出し分け", () =
     });
   });
 
+  it("#149 AC-1 5-4 AC-6: 現在の担当なしで、保存した担当が今も有効なら、previousAssignee は isActive: true", async () => {
+    await seedOpenTodo(1, {
+      assigneeId: null,
+      recordedAssigneeId: w.memberD1.id,
+      recordedAssigneeName: "テスト外れた担当149",
+    });
+    const [item] = (await listOk(w.memberS1.id)).items;
+    expect(item?.previousAssignee).toEqual({
+      userId: w.memberD1.id,
+      displayName: "テスト外れた担当149",
+      isActive: true,
+    });
+  });
+
   it("#149 AC-1 5-4 AC-6・AC-11: 完了 → 担当者の改名 → 無効化の後も、completedAssignee は完了の時の名前と isActive: false", async () => {
     await seedOpenTodo(1);
     await complete({ todoId: todoIdAt(1), eventId: eventIdAt(1) });

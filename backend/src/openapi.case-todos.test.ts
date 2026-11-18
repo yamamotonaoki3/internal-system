@@ -259,6 +259,19 @@ describe("#149 149-A API の仕様書：TODO", () => {
     }
   });
 
+  it.each([
+    ["post", TODOS],
+    ["post", COMPLETE],
+    ["post", UNCOMPLETE],
+  ] as const)(
+    "#149 AC-1 計画 6.10（コードレビュー1回目）: %s %s の応答に 503（ID の作り直しの上限を超えた）が書かれている",
+    (method, path) => {
+      expect(Object.keys(paths[path]?.[method]?.responses ?? {})).toContain(
+        "503",
+      );
+    },
+  );
+
   it("#149 AC-1 5-1 AC-2・R-78: 概要（CaseSummary）は progress（{ done, total } か null）を必須で持つ", () => {
     const summary = resolve(schemas.CaseSummary);
     expect(summary.required).toContain("progress");
