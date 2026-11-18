@@ -83,7 +83,8 @@ describe("#147 S-17 参加者の表示", () => {
     renderPage(1);
     await screen.findByRole("list", { name: "参加者" });
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
-    expect(screen.queryByText("TODO")).toBeNull();
+    // #149：TODO はタブではなく、見出しつきの区画として縦に並べる（C-184(3)）。タブ・タブの一覧がないことだけを確かめる
+    expect(screen.queryByRole("tablist")).toBeNull();
   });
 });
 

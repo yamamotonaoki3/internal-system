@@ -17,6 +17,7 @@ import {
 import { adminAuditLogRoutes } from "./routes/audit-logs";
 import { authRoutes } from "./routes/auth";
 import { caseRequestRoutes } from "./routes/case-requests";
+import { caseTodoRoutes } from "./routes/case-todos";
 import { caseRoutes } from "./routes/cases";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
@@ -63,6 +64,7 @@ export const app = createApp({
     { path: "/api/channel-requests", app: channelRequestRoutes() },
     { path: "/api/case-requests", app: caseRequestRoutes() },
     { path: "/api/cases", app: caseRoutes() },
+    { path: "/api/cases", app: caseTodoRoutes() },
     { path: "/api/retirement-requests", app: retirementRequestRoutes() },
     {
       path: "/api/admin/retirement-requests",

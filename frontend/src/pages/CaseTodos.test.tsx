@@ -290,7 +290,7 @@ describe("#149 AC-1 5-4 AC-2・AC-6 追加", () => {
     const { user } = renderPage(11);
     const region = await section();
     const title = await within(region).findByRole("textbox", { name: "題名" });
-    await user.type(title, "[UNIT_TEST]149A見積り");
+    await user.type(title, "[[UNIT_TEST]149A見積り");
     await user.selectOptions(
       within(region).getByRole("combobox", { name: "担当者" }),
       within(region).getByRole("option", {
@@ -318,7 +318,7 @@ describe("#149 AC-1 5-4 AC-2・AC-6 追加", () => {
     const region = await section();
     await user.type(
       await within(region).findByRole("textbox", { name: "題名" }),
-      "[UNIT_TEST]149A担当なし",
+      "[[UNIT_TEST]149A担当なし",
     );
     await user.click(within(region).getByRole("button", { name: "追加する" }));
     await waitFor(() => expect(state.writes).toHaveLength(1));
@@ -362,7 +362,7 @@ describe("#149 AC-1 5-4 AC-2・AC-6 追加", () => {
     const region = await section();
     await user.type(
       await within(region).findByRole("textbox", { name: "題名" }),
-      "[UNIT_TEST]149A",
+      "[[UNIT_TEST]149A",
     );
     await user.click(within(region).getByRole("button", { name: "追加する" }));
     const select = within(region).getByRole("combobox", { name: "担当者" });
@@ -395,7 +395,7 @@ describe("#149 AC-1 5-4 AC-2・AC-6 追加", () => {
       const title = await within(region).findByRole("textbox", {
         name: "題名",
       });
-      await user.type(title, "[UNIT_TEST]149A残す");
+      await user.type(title, "[[UNIT_TEST]149A残す");
       await user.click(
         within(region).getByRole("button", { name: "追加する" }),
       );
@@ -424,7 +424,7 @@ describe("#149 AC-1 5-4 AC-2・AC-6 追加", () => {
     const region = await section();
     await user.type(
       await within(region).findByRole("textbox", { name: "題名" }),
-      "[UNIT_TEST]149A二重",
+      "[[UNIT_TEST]149A二重",
     );
     const button = within(region).getByRole("button", { name: "追加する" });
     await user.click(button);

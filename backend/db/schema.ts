@@ -907,3 +907,95 @@ export const channelArchiveEvents = sqliteTable(
     ),
   ],
 );
+
+// 案件の TODO（#149）。削除は論理削除（5-4 AC-12・AC-13 が削除後の閲覧と復元を求めるため）。
+// recorded_assignee_* は担当した時点の人と表示名で、現在の担当が外れても残す（5-4 AC-6・C-74）。completed_assignee_* は完了した時の担当（AC-11）
+export const caseTodos = sqliteTable(
+  "case_todos",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id),
+    title: text("title").notNull(),
+    assigneeId: text("assignee_id").references(() => users.id),
+    recordedAssigneeId: text("recorded_assignee_id").references(() => users.id),
+    recordedAssigneeName: text("recorded_assignee_name"),
+    completedAssigneeId: text("completed_assignee_id").references(
+      () => users.id,
+    ),
+    completedAssigneeName: text("completed_assignee_name"),
+    isDone: integer("is_done").notNull().default(0),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+    deletedBy: text("deleted_by").references(() => users.id),
+  },
+  (t) => [
+    check("case_todos_is_done_check", sql`${t.isDone} in (0, 1)`),
+    check(
+      "case_todos_assignee_check",
+      sql`${t.assigneeId} is null or (${t.recordedAssigneeId} is not null and ${t.assigneeId} = ${t.recordedAssigneeId})`,
+    ),
+    check(
+      "case_todos_recorded_assignee_check",
+      sql`(${t.recordedAssigneeId} is null) = (${t.recordedAssigneeName} is null)`,
+    ),
+    check(
+      "case_todos_completed_assignee_check",
+      sql`(${t.completedAssigneeId} is null) = (${t.completedAssigneeName} is null) and (${t.isDone} = 1 or ${t.completedAssigneeId} is null)`,
+    ),
+    check(
+      "case_todos_deleted_check",
+      sql`(${t.deletedAt} is null) = (${t.deletedBy} is null)`,
+    ),
+    index("case_todos_case_id_id_idx").on(t.caseId, t.id),
+  ],
+);
+
+// TODO の変更の記録（#149。5-4 AC-10〜AC-13）。書き換えない・消さない。監査ログとは別の業務のデータ（S-17 で参加者に見せる）
+export const caseTodoEvents = sqliteTable(
+  "case_todo_events",
+  {
+    id: text("id").primaryKey(),
+    todoId: text("todo_id")
+      .notNull()
+      .references(() => caseTodos.id),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id),
+    kind: text("kind", {
+      enum: [
+        "create",
+        "title_change",
+        "assignee_change",
+        "complete",
+        "uncomplete",
+        "delete",
+        "restore",
+        "auto_unassign",
+      ],
+    }).notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title"),
+    previousTitle: text("previous_title"),
+    assigneeId: text("assignee_id"),
+    assigneeName: text("assignee_name"),
+    previousAssigneeId: text("previous_assignee_id"),
+    previousAssigneeName: text("previous_assignee_name"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [
+    check(
+      "case_todo_events_kind_check",
+      sql`${t.kind} in ('create', 'title_change', 'assignee_change', 'complete', 'uncomplete', 'delete', 'restore', 'auto_unassign')`,
+    ),
+    index("case_todo_events_todo_id_id_idx").on(t.todoId, t.id),
+  ],
+);

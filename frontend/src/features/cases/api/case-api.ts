@@ -1,4 +1,4 @@
-// API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）の通信はここに書く。
+// API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08。概要の進捗は #149）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）の通信はここに書く。
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
@@ -12,6 +12,10 @@ const namedSchema = z.object({
   name: z.string(),
   isActive: z.boolean(),
 });
+/** TODO の進捗（削除済みを除く。0件は null）。TODO の一覧の応答（case-todo-api.ts）も同じ形 */
+export const todoProgressSchema = z
+  .object({ done: z.number().int(), total: z.number().int() })
+  .nullable();
 const summarySchema = z.object({
   id: z.string().min(1),
   caseNumber: z.string(),
@@ -24,6 +28,7 @@ const summarySchema = z.object({
   canManage: z.boolean(),
   participantCount: z.number().int().nullable(),
   canEditDueDate: z.boolean(),
+  progress: todoProgressSchema,
 });
 const pageSchema = z.object({
   items: z.array(summarySchema),
@@ -53,6 +58,7 @@ export type CaseSummary = z.infer<typeof summarySchema>;
 export type CasePage = z.infer<typeof pageSchema>;
 export type CaseDetail = z.infer<typeof detailSchema>;
 export type CaseParticipant = CaseDetail["participants"][number];
+export type TodoProgress = z.infer<typeof todoProgressSchema>;
 
 export async function fetchCases(
   scope: CaseListScope,

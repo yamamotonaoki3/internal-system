@@ -54,6 +54,8 @@ export type CaseSummary = {
   canEditDueDate: boolean;
   /** 参加の行の数（退職者を含む）。参加者か管理の資格のある人だけに入れる */
   participantCount: number | null;
+  /** TODO の進捗（削除済みを除く。0件は null）。数だけなので全員に返す（R-78） */
+  progress: { done: number; total: number } | null;
 };
 
 export type CaseParticipant = {
@@ -111,7 +113,7 @@ function translateWriteError(error: unknown): unknown {
   return error;
 }
 
-async function runWriteBatch<T>(run: () => Promise<T>): Promise<T> {
+export async function runWriteBatch<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
@@ -180,10 +182,10 @@ function rolesOf(rows: readonly RoleRow[], userId: string) {
 // ---- 147-B の書き込みの条件（案件の行は別名 k） ----
 
 const K_ID = sql`k.id`;
-const K_ROOM = sql`k.channel_id`;
+export const K_ROOM = sql`k.channel_id`;
 
 /** 案件があり、進行中で、extra を満たすこと */
-function activeCaseWith(caseId: string, extra: SQL): SQL {
+export function activeCaseWith(caseId: string, extra: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM cases k WHERE k.id = ${caseId} AND k.status = 'active' AND ${extra})`;
 }
 
@@ -199,7 +201,7 @@ function hasMembershipRow(userId: string): SQL {
 const autoParticipantSql = (userId: string) => canManageSql(userId, K_ID);
 
 /** 前提の確認：条件が崩れていたら cases.version を NULL にして NOT NULL 違反で batch 全体を取り消す */
-function assertStatement(db: Database, caseId: string, condition: SQL) {
+export function assertStatement(db: Database, caseId: string, condition: SQL) {
   return db
     .update(cases)
     .set({
@@ -252,6 +254,8 @@ export function createCaseRepository(db: Database) {
   const selectRows = (actorId: string) => {
     const isParticipant = activeChannelMember(sql`${cases.channelId}`, actorId);
     const canManage = canManageSql(actorId, sql`${cases.id}`);
+    // 外側の案件の ID は表の名前つきで渡し、内側の表には別名を付ける（#294）
+    const todosOfCase = sql`FROM case_todos pt WHERE pt.case_id = ${sql`${cases.id}`} AND pt.deleted_at IS NULL`;
     return db
       .select({
         id: cases.id,
@@ -268,6 +272,8 @@ export function createCaseRepository(db: Database) {
         participantCount: sql<
           number | null
         >`CASE WHEN ${isParticipant} OR ${canManage} THEN (SELECT COUNT(*) FROM channel_members pc WHERE pc.channel_id = ${cases.channelId}) ELSE NULL END`,
+        todoTotal: sql<number>`(SELECT COUNT(*) ${todosOfCase})`,
+        todoDone: sql<number>`(SELECT COALESCE(SUM(pt.is_done), 0) ${todosOfCase})`,
       })
       .from(cases)
       .innerJoin(clients, eq(clients.id, cases.clientId));
@@ -311,6 +317,10 @@ export function createCaseRepository(db: Database) {
       canManage: row.canManage === 1,
       canEditDueDate: row.canEditDueDate === 1,
       participantCount: row.participantCount,
+      progress:
+        row.todoTotal === 0
+          ? null
+          : { done: row.todoDone, total: row.todoTotal },
     }));
   }
 
