@@ -22,6 +22,7 @@ import { useParticipantWrites } from "../hooks/useParticipantWrites";
 import {
   CASE_ACCESS_UNVERIFIED_TEXT,
   CASE_STATUS_CHANGE_TEXTS,
+  closeTodoWarning,
   PARTICIPANTS_ONLY_TEXT,
 } from "../labels";
 import { CaseAttachments } from "./CaseAttachments";
@@ -46,6 +47,25 @@ function headerProgressOf(
   return todos.isSuccess
     ? (todos.data.pages.at(-1)?.progress ?? null)
     : undefined;
+}
+
+/** 終了の確認の警告：未完了の件数は進捗から出す（画面の行は数えない）。読み込み中・失敗・進捗なし・0件は出さない */
+function CloseTodoWarning({
+  todos,
+}: {
+  todos: ReturnType<typeof useCaseTodos>;
+}) {
+  const progress = todos.isSuccess
+    ? todos.data.pages.at(-1)?.progress
+    : undefined;
+  if (!progress) return null;
+  const remaining = progress.total - progress.done;
+  if (remaining <= 0) return null;
+  return (
+    <Alert tone="info" role="status" as="p">
+      {closeTodoWarning(remaining)}
+    </Alert>
+  );
 }
 
 /** 概要の取り直しが失敗している間（前の値が残っていても）は、参加者として取りにいかない */
@@ -162,6 +182,7 @@ export function CaseDetailView({
             title={CASE_STATUS_CHANGE_TEXTS[open].title}
             confirmLabel={CASE_STATUS_CHANGE_TEXTS[open].confirm}
             pending={statusChange.isPending}
+            notice={open === "close" && <CloseTodoWarning todos={todos} />}
             onConfirm={() => changeStatus(open)}
             onClose={close}
           >
