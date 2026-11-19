@@ -1,6 +1,7 @@
 // スレッドを開ける画面（チャンネル・DM）の枠。スレッドを開いているときは、本体（children）の隣（スマートフォンでは全画面）に ThreadPane を出す。
 // 開いているスレッドは URL の ?thread= が持つ（useThreadParam）。本体の側は、スレッドを開く操作（open）だけを useThreadParam から受け取る。
 import type { ReactNode } from "react";
+import type { AttachmentPublicationConfig } from "../../messages";
 import { useThreadParam } from "../hooks/useThreadParam";
 import { ThreadPane } from "./ThreadPane";
 
@@ -13,6 +14,8 @@ type ThreadLayoutProps = {
   onReplied?: () => void;
   /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
   onDeleted?: () => void;
+  /** 案件のスレッドの返信の入力欄で、添付ごとに公開範囲を選ばせる設定 */
+  publication?: AttachmentPublicationConfig;
   children: ReactNode;
 };
 
@@ -21,6 +24,7 @@ export function ThreadLayout({
   retiredAuthorIds,
   onReplied,
   onDeleted,
+  publication,
   children,
 }: ThreadLayoutProps) {
   const { parentMessageId } = useThreadParam();
@@ -35,6 +39,7 @@ export function ThreadLayout({
           retiredAuthorIds={retiredAuthorIds}
           onReplied={onReplied}
           onDeleted={onDeleted}
+          publication={publication}
         />
       )}
     </div>

@@ -23,6 +23,8 @@ export type ThreadRepliesData = {
   replyBlockedReason: ThreadRepliesPage["replyBlockedReason"];
   joined: boolean;
   roomWritable: boolean;
+  /** スレッドの部屋が案件専用チャンネルか（添付の公開範囲の選択を出すかに使う） */
+  caseRoom: boolean;
 };
 
 export function useThreadReplies(parentMessageId: string) {
@@ -44,6 +46,7 @@ export function useThreadReplies(parentMessageId: string) {
           replyBlockedReason: latest.replyBlockedReason,
           joined: latest.joined,
           roomWritable: latest.roomWritable,
+          caseRoom: latest.caseRoom,
         };
       }
       const { messages, lastPage } = await catchUpMessages(
@@ -61,6 +64,7 @@ export function useThreadReplies(parentMessageId: string) {
         joined: lastPage === undefined ? current.joined : lastPage.joined,
         roomWritable:
           lastPage === undefined ? current.roomWritable : lastPage.roomWritable,
+        caseRoom: lastPage === undefined ? current.caseRoom : lastPage.caseRoom,
       };
     },
     ...messagePollingOptions,

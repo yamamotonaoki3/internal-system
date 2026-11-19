@@ -5,8 +5,13 @@
 // 添付（#140）は選んだ順に送信前の一覧に持ち、送信時に1件ずつアップロードしてから投稿する。送信中は「送信を取り消す」で取り消せる。
 // 失敗・取り消しでは投稿せず、一覧と本文を残す。添付は下書きに保存しない。
 // parentMessageId を渡すと、そのスレッドへの返信の入力欄になる（名前は「返信」、下書きはスレッドごと）。部屋が替わっても、同じ部屋の別のスレッドへ替わっても、使う側が key で作り直す。
+// publication を渡すと、添付ごとに公開範囲を選べる（#148。案件の部屋）。ファイルと選んだ値は1つの配列で持ち、取り消しで一緒に消える。
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState, type KeyboardEvent } from "react";
+import {
+  DEFAULT_PUBLICATION_VISIBILITY,
+  type PublicationVisibility,
+} from "../../../../../shared/attachment-rules";
 import type { Mention } from "../../../../../shared/message-rules";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { Alert } from "../../../components/Alert";
@@ -19,7 +24,10 @@ import {
 } from "../../drafts";
 import { useLeaveGuard } from "../../leave-guard";
 import { describeError, isApiError } from "../describe-error";
-import { AttachmentList } from "./AttachmentList";
+import {
+  AttachmentList,
+  type AttachmentPublicationConfig,
+} from "./AttachmentList";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { MentionTextArea } from "./MentionTextArea";
 import { AttachmentUploadError, usePostMessage } from "../hooks/usePostMessage";
@@ -36,7 +44,11 @@ type MessageComposerProps = {
   userId?: string;
   onPosted?: () => void;
   onPostError?: (error: unknown) => void;
+  /** 添付ごとの公開範囲の選択（渡したときだけ出す） */
+  publication?: AttachmentPublicationConfig;
 };
+
+type PendingAttachment = { file: File; visibility: PublicationVisibility };
 
 export function MessageComposer({
   roomId,
@@ -44,6 +56,7 @@ export function MessageComposer({
   userId,
   onPosted,
   onPostError,
+  publication,
 }: MessageComposerProps) {
   const post = usePostMessage(roomId, parentMessageId);
   const draft = useDraft(
@@ -53,7 +66,8 @@ export function MessageComposer({
       : threadDraftScope(roomId, parentMessageId),
   );
   const [mentions, setMentions] = useState<Mention[]>(draft.initialMentions);
-  const [files, setFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const files = attachments.map((attachment) => attachment.file);
   const [canceled, setCanceled] = useState(false);
   const [uploadController, setUploadController] =
     useState<AbortController | null>(null);
@@ -84,6 +98,11 @@ export function MessageComposer({
         body: values.body,
         mentions,
         files,
+        ...(publication !== undefined && {
+          publicationVisibilities: attachments.map(
+            (attachment) => attachment.visibility,
+          ),
+        }),
         signal: controller.signal,
         // 投稿の要求を始めたら取り消せないため、ボタンを消す
         onUploaded: () => setUploadController(null),
@@ -113,7 +132,7 @@ export function MessageComposer({
     // 復元した値に戻さず、空にする
     reset({ body: "" });
     setMentions([]);
-    setFiles([]);
+    setAttachments([]);
     draft.discard();
     // 呼び出し側の後始末（一覧の取り直しなど）の失敗は、送信の失敗として表示しない。その場では受け止めず、外へ伝える（利用者の決定）
     onPosted?.();
@@ -161,13 +180,36 @@ export function MessageComposer({
       <AttachmentPicker
         files={files}
         disabled={isSubmitting}
-        onAdd={(added) => setFiles((current) => [...current, ...added])}
+        onAdd={(added) =>
+          setAttachments((current) => [
+            ...current,
+            ...added.map((file) => ({
+              file,
+              visibility:
+                publication?.defaultValue ?? DEFAULT_PUBLICATION_VISIBILITY,
+            })),
+          ])
+        }
       />
       <AttachmentList
         files={files}
         disabled={isSubmitting}
         onRemove={(index) =>
-          setFiles((current) => current.filter((_, i) => i !== index))
+          setAttachments((current) => current.filter((_, i) => i !== index))
+        }
+        publication={
+          publication === undefined
+            ? undefined
+            : {
+                config: publication,
+                values: attachments.map((attachment) => attachment.visibility),
+                onChange: (index, visibility) =>
+                  setAttachments((current) =>
+                    current.map((attachment, i) =>
+                      i === index ? { ...attachment, visibility } : attachment,
+                    ),
+                  ),
+              }
         }
       />
       {canceled && (

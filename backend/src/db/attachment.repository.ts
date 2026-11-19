@@ -11,8 +11,10 @@ import { messageAttachments, messages } from "../../db/schema";
 import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_ATTACHMENT_TOTAL_BYTES,
+  DEFAULT_PUBLICATION_VISIBILITY,
   type AttachmentContentType,
   type AttachmentKind,
+  type PublicationVisibility,
 } from "../../../shared/attachment-rules";
 import { attachmentVisible } from "./attachment-visibility.sql";
 import { caseRoomOpen } from "./case-room.sql";
@@ -42,6 +44,8 @@ export type PendingAttachmentInsert = {
   kind: AttachmentKind;
   contentType: AttachmentContentType;
   sizeBytes: number;
+  /** 公開範囲（全社員公開アーカイブで公開できる、は案件の部屋だけ。省略で既定値に落とさない） */
+  publicationVisibility: PublicationVisibility;
 };
 
 export type AttachmentBinding = {
@@ -59,8 +63,15 @@ export type AttachmentBinding = {
  *     ・部屋への添付なら、お知らせ専用は部署のオーナーか全体管理者（投稿と同じ）・返信への添付なら、部署が有効（部署なしは有効。返信と同じ）
  *   DM：アップロードした人が当事者で、当事者に無効な社員がいない
  *   返信への添付なら、親が同じ部屋のトップレベルの投稿で、削除されていない
+ *   参加者限定でない公開範囲は、案件専用チャンネルだけ（Service の 422 と同じ範囲の二重の守り）
  */
 function pendingInsertable(input: PendingAttachmentInsert) {
+  const publication = sql`(${input.publicationVisibility} = ${DEFAULT_PUBLICATION_VISIBILITY}
+    OR EXISTS (SELECT 1 FROM cases pk WHERE pk.channel_id = ${input.roomId}))`;
+  return sql`${roomInsertable(input)} AND ${publication}`;
+}
+
+function roomInsertable(input: PendingAttachmentInsert) {
   const context =
     input.threadParentId === null
       ? announcementPostable(
@@ -237,10 +248,14 @@ export function createAttachmentRepository(db: Database) {
     },
     /** 資格（pendingInsertable）を満たすときだけ1行を登録し、登録した行数（1 か 0）を返す */
     async insertPending(input: PendingAttachmentInsert): Promise<number> {
-      // 列の順は表の定義と同じ（message_id は未投稿なので NULL、created_at は表の既定と同じ形の現在時刻）
-      const result = await db.insert(messageAttachments).select(sql`
+      // 列は名前で指定する（表に列が加わっても、値の位置がずれないように）。
+      // message_id は未投稿なので NULL、created_at は表の既定と同じ形の現在時刻
+      const result = await db.run(sql`
+        INSERT INTO message_attachments (id, room_id, thread_parent_id, message_id, uploader_id, storage_key,
+          original_name, kind, content_type, size_bytes, created_at, publication_visibility)
         SELECT ${input.id}, ${input.roomId}, ${input.threadParentId}, NULL, ${input.uploaderId}, ${input.storageKey},
-          ${input.originalName}, ${input.kind}, ${input.contentType}, ${input.sizeBytes}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ${input.originalName}, ${input.kind}, ${input.contentType}, ${input.sizeBytes}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          ${input.publicationVisibility}
         WHERE ${pendingInsertable(input)}`);
       return result.meta.changes;
     },

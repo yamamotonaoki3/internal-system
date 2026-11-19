@@ -38,6 +38,8 @@ import {
 
 type ErrorBody = { code: string; message: string; fields?: string[] };
 type Item = {
+  publicationVisibility: string;
+  canChangeVisibility: boolean;
   id: string;
   name: string;
   kind: string;
@@ -149,6 +151,9 @@ describe("#148 AC-7 EP-5-19 一覧", () => {
             displayName: NAME_S1,
             isActive: true,
           },
+          // #148（148-B-2）で加わる項目：既定は参加者限定。閲覧者 memberD1 は投稿者でも管理の資格もない
+          publicationVisibility: "participants_only",
+          canChangeVisibility: false,
         },
         {
           id: caseAttachmentIdAt(1),
@@ -164,6 +169,9 @@ describe("#148 AC-7 EP-5-19 一覧", () => {
             displayName: NAME_S1,
             isActive: true,
           },
+          // #148（148-B-2）で加わる項目：既定は参加者限定。閲覧者 memberD1 は投稿者でも管理の資格もない
+          publicationVisibility: "participants_only",
+          canChangeVisibility: false,
         },
       ],
       nextCursor: null,

@@ -83,6 +83,7 @@ function respondWorld(isCase: boolean) {
         hasMore: false,
         parent: message(1, { roomId: caseRoomId(N), replyCount: 0 }),
         replyBlockedReason: null,
+        caseRoom: true,
         joined: true,
         roomWritable: true,
       }),

@@ -45,6 +45,8 @@ import { withCaseAttachments } from "./case-attachment.repository";
 
 type Uploader = { id: string; displayName: string; isActive: boolean };
 type Item = {
+  publicationVisibility?: string;
+  canChangeVisibility?: boolean;
   id: string;
   name: string;
   kind: string;
@@ -159,6 +161,9 @@ describe("#148 AC-7 148-B-1 一覧に出る範囲と並び", () => {
       messageId: parent,
       threadParentId: null,
       uploader: { id: cw.w.memberS1.id, displayName: NAME_S1, isActive: true },
+      // #148（148-B-2）で加わる項目：既定は参加者限定。閲覧者 memberD1 は投稿者でも管理の資格もないので変更できない
+      publicationVisibility: "participants_only",
+      canChangeVisibility: false,
     });
     expect(Object.keys(item ?? {}).sort()).toEqual([
       ...CASE_ATTACHMENT_ITEM_KEYS,

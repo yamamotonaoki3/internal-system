@@ -16,6 +16,8 @@ export type UploadRecord = {
   /** X-File-Name を復号した名前 */
   name: string;
   contentType: string | null;
+  /** #148（148-B-2）クエリ publicationVisibility（付いていなければ null） */
+  publicationVisibility: string | null;
 };
 
 export type AttachmentServer = {
@@ -60,7 +62,11 @@ export function respondAttachments(): AttachmentServer {
     ): HttpResponseResolver =>
     async ({ params, request }) => {
       const name = decodeURIComponent(request.headers.get("X-File-Name") ?? "");
+      const publicationVisibility = new URL(request.url).searchParams.get(
+        "publicationVisibility",
+      );
       state.uploads.push({
+        publicationVisibility,
         entry,
         targetId: String(params[param]),
         name,
@@ -81,6 +87,8 @@ export function respondAttachments(): AttachmentServer {
           kind: "document",
           contentType: "application/pdf",
           size,
+          // #148（148-B-2）UploadedAttachmentItem：案件の部屋なら値、ほかは null（MSW は部屋の種類を知らないので、指定の値をそのまま返す）
+          publicationVisibility,
         },
         { status: 201 },
       );

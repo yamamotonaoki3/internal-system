@@ -158,9 +158,18 @@ describe("#140 AC-1（1-6 AC-1・AC-3・AC-6）通常の投稿用のアップロ
       kind: "image",
       contentType: "image/png",
       size: png.length,
+      // #148（148-B-2）計画 6.3：案件でない部屋の応答の公開範囲は null
+      publicationVisibility: null,
     });
     expect(Object.keys(body).sort()).toEqual(
-      ["contentType", "id", "kind", "name", "size"].sort(),
+      [
+        "contentType",
+        "id",
+        "kind",
+        "name",
+        "publicationVisibility",
+        "size",
+      ].sort(),
     );
     const row = await attachmentRow(body.id);
     expect(row).toMatchObject({

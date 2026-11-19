@@ -122,6 +122,7 @@ function respondThread(
         hasMore: false,
         parent,
         replyBlockedReason: options.parentDeleted ? "deleted_parent" : null,
+        caseRoom: true,
         joined: true,
         roomWritable: true,
       });
@@ -372,6 +373,8 @@ describe("#148 AC-7 計画「取り直し」 自分の添付つきの投稿の�
             kind: "document",
             contentType: "text/plain; charset=utf-8",
             size: 13,
+            // #148（148-B-2）案件の部屋のアップロードの応答（指定なしは参加者限定）
+            publicationVisibility: "participants_only",
           },
           { status: 201 },
         ),
@@ -424,6 +427,8 @@ describe("#148 AC-7 計画「取り直し」 スレッドでの添付つきの�
             kind: "document",
             contentType: "text/plain; charset=utf-8",
             size: 13,
+            // #148（148-B-2）案件の部屋のアップロードの応答（指定なしは参加者限定）
+            publicationVisibility: "participants_only",
           },
           { status: 201 },
         ),
@@ -600,6 +605,7 @@ describe("#148 AC-7 コードレビュー1回目（軽微） 削除・編集の�
             replyCount: 1,
           }),
           replyBlockedReason: null,
+          caseRoom: true,
           joined: true,
           roomWritable: true,
         }),

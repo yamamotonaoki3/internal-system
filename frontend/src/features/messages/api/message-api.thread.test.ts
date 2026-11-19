@@ -89,6 +89,7 @@ describe("#137 AC-1（1-4 AC-1）返信の応答の joined（今参加してい�
         parent: PARENT,
         replies: [reply(PARENT, 1)],
         replyBlockedReason: joined ? null : "not_joined",
+        caseRoom: false,
         joined,
       });
       expect((await fetchLatestReplies(PARENT.id)).joined).toBe(joined);
@@ -113,6 +114,7 @@ describe("#137 AC-1（1-4 AC-1）返信の応答の joined（今参加してい�
             hasMore: false,
             parent: PARENT,
             replyBlockedReason: null,
+            caseRoom: false,
             joined,
             roomWritable: true,
           }),
@@ -157,6 +159,7 @@ describe("#137 AC-1（1-4 AC-1）返信の応答の roomWritable（部屋に今�
             hasMore: false,
             parent: PARENT,
             replyBlockedReason: null,
+            caseRoom: false,
             joined: true,
             roomWritable,
           }),
@@ -174,6 +177,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
       parent: PARENT,
       replies: [reply(PARENT, 1), reply(PARENT, 2)],
       replyBlockedReason: "read_only",
+      caseRoom: false,
     });
     const result = await fetchLatestReplies(PARENT.id);
     expect(result.items.map((m) => m.id)).toEqual([
@@ -194,6 +198,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
       parent: { ...PARENT, deleted: true, body: null },
       replies: [reply(PARENT, 1)],
       replyBlockedReason: "deleted_parent",
+      caseRoom: false,
     });
     const result = await fetchLatestReplies(PARENT.id);
     expect(result.parent.deleted).toBe(true);
@@ -244,6 +249,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
             hasMore: false,
             parent: PARENT,
             replyBlockedReason: value,
+            caseRoom: false,
           }),
         ),
       );

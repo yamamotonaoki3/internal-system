@@ -273,6 +273,8 @@ export function respondReplies(
     replyBlockedReason?: string | null;
     joined?: boolean;
     roomWritable?: boolean;
+    /** #148（148-B-2）スレッドの部屋が案件専用チャンネルか（既定 false） */
+    caseRoom?: boolean;
   },
   options: { afterPageSize?: number } = {},
 ): ReplyServer {
@@ -304,6 +306,7 @@ export function respondReplies(
         replyBlockedReason: state.replyBlockedReason,
         joined: state.joined,
         roomWritable: state.roomWritable,
+        caseRoom: initial.caseRoom ?? false,
       };
       if (after === null)
         return HttpResponse.json({

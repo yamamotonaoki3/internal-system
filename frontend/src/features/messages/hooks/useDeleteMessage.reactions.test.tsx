@@ -91,6 +91,7 @@ describe("#138 AC-1（U-7）削除した投稿の reactions は []", () => {
       parent,
       replies: [target],
       replyBlockedReason: null,
+      caseRoom: false,
       joined: true,
       roomWritable: true,
     };

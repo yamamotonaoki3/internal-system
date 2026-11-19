@@ -348,6 +348,7 @@ describe("#137 AC-1（1-4 AC-1）自分の返信の編集・削除", () => {
         parent: PARENT,
         replies: [mine(1)],
         replyBlockedReason: reason,
+        caseRoom: false,
         // 参加していないのは not_joined だけ（DM の相手が無効・読み取り専用でも、参加者）
         joined: reason !== "not_joined",
         // 書き込めないのは、未参加・読み取り専用・DM の相手が無効のすべて
@@ -367,6 +368,7 @@ describe("#137 AC-2（1-4 AC-2）返信できない理由と削除された親",
       parent: { ...PARENT, deleted: true, body: null },
       replies: [theirs(1), mine(2)],
       replyBlockedReason: "deleted_parent",
+      caseRoom: false,
     });
     renderPane(PARENT.id);
     await within(pane()).findByRole("log", { name: "返信一覧" });
@@ -385,6 +387,7 @@ describe("#137 AC-2（1-4 AC-2）返信できない理由と削除された親",
       parent: PARENT,
       replies: [theirs(1)],
       replyBlockedReason: "case_closed",
+      caseRoom: false,
       // 終了した案件の参加者（参加しているが、書き込めない）
       joined: true,
       roomWritable: false,
@@ -406,6 +409,7 @@ describe("#137 AC-2（1-4 AC-2）返信できない理由と削除された親",
         parent: PARENT,
         replies: [theirs(1)],
         replyBlockedReason: reason,
+        caseRoom: false,
         // 参加していないのは not_joined だけ（DM の相手が無効・読み取り専用でも、参加者）
         joined: reason !== "not_joined",
         // 書き込めないのは、未参加・読み取り専用・DM の相手が無効のすべて
@@ -438,6 +442,7 @@ describe("#137 AC-4（1-4 AC-4）既読・編集・削除は joined で決める
       parent: { ...PARENT, deleted: true, body: null },
       replies: [theirs(1), mine(2)],
       replyBlockedReason: "deleted_parent",
+      caseRoom: false,
       joined: false,
     });
     const puts = respondThreadReadOnly({ failStatus: 403 });
@@ -460,6 +465,7 @@ describe("#137 AC-4（1-4 AC-4）既読・編集・削除は joined で決める
         parent: { ...PARENT, deleted: true, body: null },
         replies: [theirs(1), mine(2)],
         replyBlockedReason: reason,
+        caseRoom: false,
         joined: true,
         roomWritable: false,
       });
@@ -478,6 +484,7 @@ describe("#137 AC-4（1-4 AC-4）既読・編集・削除は joined で決める
       parent: { ...PARENT, deleted: true, body: null },
       replies: [theirs(1), mine(2)],
       replyBlockedReason: "deleted_parent",
+      caseRoom: false,
       joined: true,
     });
     const puts = respondThreadReadOnly();
@@ -595,6 +602,7 @@ describe("#137 AC-4（1-4 AC-4）最新の返信を表示したらスレッド�
       parent: PARENT,
       replies: [theirs(1)],
       replyBlockedReason: "not_joined",
+      caseRoom: false,
       joined: false,
       roomWritable: false,
     });

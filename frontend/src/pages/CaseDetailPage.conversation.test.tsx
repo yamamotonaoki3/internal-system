@@ -389,6 +389,7 @@ function respondSwitchWorld() {
         hasMore: false,
         parent: parentOf(user),
         replyBlockedReason: null,
+        caseRoom: true,
         joined: true,
         roomWritable: true,
       })),

@@ -72,6 +72,7 @@ describe("#137 AC-1（1-4 AC-3）S-06 から S-07 を開く", () => {
       parent: PARENT,
       replies: [PARTNER_REPLY],
       replyBlockedReason: "partner_inactive",
+      caseRoom: false,
       roomWritable: false,
     });
     renderInApp(<DmView roomId={ROOM} />, {
@@ -158,6 +159,7 @@ describe("#137 AC-1（1-4 AC-3）S-06 から S-07 を開く", () => {
       parent: { ...PARENT, deleted: true, body: null },
       replies: [PARTNER_REPLY, mine],
       replyBlockedReason: "deleted_parent",
+      caseRoom: false,
       joined: true,
       roomWritable: false,
     });

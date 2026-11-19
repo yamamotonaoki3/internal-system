@@ -5,6 +5,7 @@ export {
   roomMessageSchema,
   type RoomMessage,
 } from "./api/message-api";
+export type { AttachmentPublicationConfig } from "./components/AttachmentList";
 export { RoomMessages } from "./components/RoomMessages";
 export { ThreadReplies } from "./components/ThreadReplies";
 export { formatAttachmentSize } from "./format-size";

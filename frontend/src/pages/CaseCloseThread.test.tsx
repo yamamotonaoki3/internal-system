@@ -82,6 +82,7 @@ function world(initial: "active" | "closed") {
         hasMore: false,
         parent,
         replyBlockedReason: closed ? "case_closed" : null,
+        caseRoom: true,
         joined: true,
         roomWritable: !closed,
       });

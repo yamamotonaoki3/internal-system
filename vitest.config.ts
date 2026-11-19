@@ -25,6 +25,10 @@ export default defineConfig(async () => {
               wrangler: { configPath: "./wrangler.jsonc" },
               miniflare: {
                 bindings: { ...values, TEST_MIGRATIONS: migrations },
+                // migration の更新の試験だけで使う空の D1（既存の行がある DB への適用を試す。DB とは別の識別子）
+                d1Databases: {
+                  MIGRATION_UPGRADE_DB: "test-migration-upgrade-db",
+                },
               },
             }),
           ],

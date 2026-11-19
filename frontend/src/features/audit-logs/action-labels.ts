@@ -42,6 +42,7 @@ export const ACTION_LABELS: ReadonlyMap<string, string> = new Map([
   ["case.due_date.change", "案件の納期の変更"],
   ["case.close", "案件の終了"],
   ["case.reopen", "案件の再開"],
+  ["case.attachment.visibility.change", "案件の添付の公開範囲の変更"],
   ["retirement_request.create", "退職処理の申請"],
   ["retirement_request.reject", "退職処理の申請の却下"],
   ["retirement_request.withdraw", "退職処理の申請の取り下げ"],
@@ -60,6 +61,7 @@ export const TARGET_TYPE_LABELS: ReadonlyMap<string, string> = new Map([
   ["case", "案件"],
   ["retirement_request", "退職処理の申請"],
   ["message", "メッセージ"],
+  ["attachment", "添付ファイル"],
   ["source", "接続元"],
   ["audit_log", "監査ログ"],
 ]);

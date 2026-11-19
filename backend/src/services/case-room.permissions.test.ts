@@ -118,6 +118,8 @@ const attachmentService = (denied: readonly Permission[]) =>
 const upload = () => ({
   name: "memo148.txt",
   contentLength: TEXT.length,
+  // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+  publicationVisibility: undefined,
   body: new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(TEXT);

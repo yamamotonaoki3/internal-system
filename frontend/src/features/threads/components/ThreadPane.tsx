@@ -5,7 +5,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
-import { ThreadReplies } from "../../messages";
+import {
+  ThreadReplies,
+  type AttachmentPublicationConfig,
+} from "../../messages";
 import { threadKeys } from "../api/query-keys";
 import { describeError } from "../describe-error";
 import { useMarkThreadRead } from "../hooks/useMarkThreadRead";
@@ -21,6 +24,8 @@ type ThreadPaneProps = {
   onReplied?: () => void;
   /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
   onDeleted?: () => void;
+  /** 案件のスレッドの返信の入力欄で、添付ごとに公開範囲を選ばせる設定 */
+  publication?: AttachmentPublicationConfig;
 };
 
 function OpenThreadPane({
@@ -29,6 +34,7 @@ function OpenThreadPane({
   retiredAuthorIds,
   onReplied,
   onDeleted,
+  publication,
 }: ThreadPaneProps) {
   const { close } = useThreadParam();
   const queryClient = useQueryClient();
@@ -77,6 +83,7 @@ function OpenThreadPane({
         retiredAuthorIds={retiredAuthorIds}
         onLatestReplyIdChange={read.markRead}
         onDeleted={onDeleted}
+        publication={publication}
         // 自分の返信で、スレッド一覧（件数・並び）をすぐ取り直す
         onReplied={() => {
           void queryClient.invalidateQueries({ queryKey: threadKeys.all });

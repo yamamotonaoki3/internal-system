@@ -1,4 +1,4 @@
-// 参加者の追加・削除（退出）と納期の変更（#147 の 147-B）。成功しても失敗しても、案件のキャッシュ（caseKeys.all）を取り直す
+// 参加者の追加・削除（退出）と納期の変更（#147 の 147-B）、添付の公開範囲の変更（#148）。成功しても失敗しても、案件のキャッシュ（caseKeys.all）を取り直す
 // （失敗は、ほかの人の操作で状態が変わったことによる場合があるため）。
 import {
   useMutation,
@@ -7,9 +7,11 @@ import {
   type QueryClient,
   type QueryFilters,
 } from "@tanstack/react-query";
+import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
 import { messageKeys } from "../../messages";
 import {
   addCaseParticipant,
+  changeAttachmentVisibility,
   changeCaseDueDate,
   closeCase,
   removeCaseParticipant,
@@ -168,6 +170,22 @@ export function useChangeCaseDueDate(caseId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (dueDate: string | null) => changeCaseDueDate(caseId, dueDate),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
+  });
+}
+
+/** 添付の公開範囲の変更。1行を書き換えず取り直す（一覧のページと続きの位置を崩さない） */
+export function useChangeAttachmentVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      attachmentId: string;
+      publicationVisibility: PublicationVisibility;
+    }) =>
+      changeAttachmentVisibility(
+        input.attachmentId,
+        input.publicationVisibility,
+      ),
     onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
   });
 }

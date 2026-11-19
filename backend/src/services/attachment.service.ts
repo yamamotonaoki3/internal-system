@@ -1,7 +1,8 @@
 // Service：メッセージの添付のアップロードと配信（#140）。HTTP は知らない。実体は R2（env.ATTACHMENTS）、行は D1。
 // アップロードの判定の順（この順を変えない。本文はすべての判定の後に読む）：
 //   部屋（通常の投稿用は message.service の requirePostable、返信用は requireReplyable）→ perm.attachment.upload（403）
-//   → 名前・Content-Length・種類の上限（422）→ 本文を読んで形式を検査（422）→ R2 に保存 → D1 に未投稿の行を登録
+//   → 名前・Content-Length・種類の上限（422）→ 公開範囲の指定（422。案件の部屋だけで指定できる。#148）
+//   → 本文を読んで形式を検査（422）→ R2 に保存 → D1 に未投稿の行を登録
 //   画像・文書はメモリに読み込んで検査し、画像は Exif を除いてから保存する。動画は先頭を検査し、FixedLengthStream で流して保存する。
 //   受信したバイト数が Content-Length と違えば 422 で、保存物を残さない。
 //   D1 の登録が失敗したら、保存した実体の削除を試みてから元のエラーを投げ直す（削除の失敗は error ログに残す）。
@@ -22,10 +23,13 @@ import { createLogger, type Logger } from "../lib/logger/logger";
 import { newUlid } from "../lib/ulid";
 import {
   ATTACHMENT_SIZE_LIMITS,
+  DEFAULT_PUBLICATION_VISIBILITY,
   MAX_ATTACHMENT_UPLOAD_BYTES,
+  PUBLICATION_VISIBILITIES,
   attachmentKindFromName,
   isValidAttachmentName,
   type AttachmentKind,
+  type PublicationVisibility,
 } from "../../../shared/attachment-rules";
 import type { CronJob } from "../scheduled";
 import { createAppAuthorizer } from "./authorizer";
@@ -38,6 +42,8 @@ export type AttachmentUpload = {
   name: string | null;
   contentLength: number | null;
   body: ReadableStream<Uint8Array> | null;
+  /** 公開範囲の指定（クエリ。任意で、値はまだ確かめていない） */
+  publicationVisibility: string | undefined;
 };
 
 export type UploadedAttachment = {
@@ -46,6 +52,8 @@ export type UploadedAttachment = {
   kind: AttachmentKind;
   contentType: string;
   size: number;
+  /** 案件の部屋なら公開範囲、ほかの部屋は null */
+  publicationVisibility: PublicationVisibility | null;
 };
 
 type Dependencies = {
@@ -258,30 +266,47 @@ export function createAttachmentService(
     return { inspected, size: contentLength };
   }
 
-  // 部屋の判定（アップロードの前と、登録が0行のときの読み直しで同じ順）
+  // 部屋の判定（アップロードの前と、登録が0行のときの読み直しで同じ順）。部屋が案件専用チャンネルかを返す
   async function requireRoom(
     actor: AttachmentActor,
     context: { roomId: string; threadParentId: string | null },
-  ): Promise<void> {
+  ): Promise<{ caseRoom: boolean }> {
     const kind: RoomWriteKind = "upload";
     const { threadParentId } = context;
-    await withMessageRules(async (service) => {
-      if (threadParentId === null)
-        await service.requirePostable(actor, context.roomId, kind);
-      else await service.requireReplyable(actor, threadParentId, kind);
-    });
+    return withMessageRules((service) =>
+      threadParentId === null
+        ? service.requirePostable(actor, context.roomId, kind)
+        : service.requireReplyable(actor, threadParentId, kind),
+    );
+  }
+
+  // 公開範囲の指定（任意）。全社員公開アーカイブの選択は案件の部屋だけにあるので、案件でない部屋では値によらず指定そのものを受け付けない
+  function checkPublication(
+    requested: string | undefined,
+    caseRoom: boolean,
+  ): PublicationVisibility {
+    if (requested === undefined) return DEFAULT_PUBLICATION_VISIBILITY;
+    const value = PUBLICATION_VISIBILITIES.find((item) => item === requested);
+    if (value === undefined || !caseRoom)
+      throw invalid("publicationVisibility", "公開範囲を確かめてください");
+    return value;
   }
 
   async function store(
     actor: AttachmentActor,
     context: { roomId: string; threadParentId: string | null },
     upload: AttachmentUpload,
+    caseRoom: boolean,
   ): Promise<UploadedAttachment> {
     const logger = createLogger({
       traceId: actor.traceId,
       userId: actor.userId,
     });
     const { name, contentLength } = checkHeaders(upload);
+    const publicationVisibility = checkPublication(
+      upload.publicationVisibility,
+      caseRoom,
+    );
     const key = `${STORAGE_PREFIX}${newUlid()}`;
     const { inspected, size } =
       attachmentKindFromName(name) === "video"
@@ -302,6 +327,7 @@ export function createAttachmentService(
           kind: inspected.kind,
           contentType: inspected.contentType,
           sizeBytes: size,
+          publicationVisibility,
         }),
       );
     } catch (error) {
@@ -322,6 +348,7 @@ export function createAttachmentService(
       kind: inspected.kind,
       contentType: inspected.contentType,
       size,
+      publicationVisibility: caseRoom ? publicationVisibility : null,
     };
   }
 
@@ -337,9 +364,9 @@ export function createAttachmentService(
       upload: AttachmentUpload,
     ) {
       const context = { roomId, threadParentId: null };
-      await requireRoom(actor, context);
+      const { caseRoom } = await requireRoom(actor, context);
       await authorizeUpload(actor);
-      return store(actor, context, upload);
+      return store(actor, context, upload, caseRoom);
     },
     async uploadToReply(
       actor: AttachmentActor,
@@ -354,6 +381,7 @@ export function createAttachmentService(
         actor,
         { roomId: parent.roomId, threadParentId: parentId },
         upload,
+        parent.caseRoom,
       );
     },
     async download(

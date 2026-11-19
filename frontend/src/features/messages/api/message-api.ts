@@ -5,7 +5,11 @@ import {
   mentionSchema,
   type Mention,
 } from "../../../../../shared/message-rules";
-import { ATTACHMENT_KINDS } from "../../../../../shared/attachment-rules";
+import {
+  ATTACHMENT_KINDS,
+  PUBLICATION_VISIBILITIES,
+  type PublicationVisibility,
+} from "../../../../../shared/attachment-rules";
 import { REACTION_KINDS } from "../../../../../shared/reaction-rules";
 import { apiClient } from "../../../services/api-client";
 
@@ -34,6 +38,12 @@ export const attachmentSchema = z.object({
   size: z.number().int().min(0),
 });
 export type Attachment = z.infer<typeof attachmentSchema>;
+
+/** アップロードの応答。公開範囲は案件の部屋なら値、ほかの部屋は null（メッセージの表示の添付は公開範囲を持たない） */
+const uploadedAttachmentSchema = attachmentSchema.extend({
+  publicationVisibility: z.enum(PUBLICATION_VISIBILITIES).nullable(),
+});
+export type UploadedAttachment = z.infer<typeof uploadedAttachmentSchema>;
 
 const reactionsResultSchema = z.object({
   messageId: z.string().min(1),
@@ -100,6 +110,8 @@ const repliesLatestSchema = z.object({
   joined: z.boolean(),
   /** 部屋に今書き込めるか（読み取り専用・アーカイブ・DM の相手が無効でないか）。自分の返信の編集・削除の可否に使う */
   roomWritable: z.boolean(),
+  /** スレッドの部屋が案件専用チャンネルか。添付の公開範囲の選択を出すかに使う（表示の制御だけ） */
+  caseRoom: z.boolean(),
 });
 const repliesAfterSchema = z.object({
   items: z.array(replySchema),
@@ -110,6 +122,8 @@ const repliesAfterSchema = z.object({
   joined: z.boolean(),
   /** 部屋に今書き込めるか（読み取り専用・アーカイブ・DM の相手が無効でないか）。自分の返信の編集・削除の可否に使う */
   roomWritable: z.boolean(),
+  /** スレッドの部屋が案件専用チャンネルか。添付の公開範囲の選択を出すかに使う（表示の制御だけ） */
+  caseRoom: z.boolean(),
 });
 const createdSchema = z.object({
   id: z.string().min(1),
@@ -142,6 +156,7 @@ export type ThreadRepliesPage = {
   replyBlockedReason: z.infer<typeof replyBlockedReasonSchema>;
   joined: boolean;
   roomWritable: boolean;
+  caseRoom: boolean;
 };
 export type ThreadRepliesAfterPage = ThreadRepliesPage & { hasMore: boolean };
 
@@ -242,6 +257,7 @@ export async function fetchLatestReplies(
     replyBlockedReason: page.replyBlockedReason,
     joined: page.joined,
     roomWritable: page.roomWritable,
+    caseRoom: page.caseRoom,
   };
 }
 
@@ -305,21 +321,31 @@ const attachmentsPath = (target: AttachmentTarget) =>
     ? `/rooms/${encodeURIComponent(target.roomId)}/attachments`
     : `${repliesPath(target.parentMessageId)}/attachments`;
 
-/** 添付を1件アップロードする。本文はファイルのバイト列、元の名前は X-File-Name（パーセントエンコード）で送る */
+/**
+ * 添付を1件アップロードする。本文はファイルのバイト列、元の名前は X-File-Name（パーセントエンコード）で送る。
+ * 公開範囲は値があるときだけクエリで送る（案件の部屋だけで指定できる）
+ */
 export async function uploadAttachment(
   target: AttachmentTarget,
   file: File,
-  options: { signal?: AbortSignal } = {},
-): Promise<Attachment> {
+  options: {
+    signal?: AbortSignal;
+    publicationVisibility?: PublicationVisibility;
+  } = {},
+): Promise<UploadedAttachment> {
+  const { publicationVisibility } = options;
   const response = await apiClient.post(attachmentsPath(target), file, {
     headers: {
       "Content-Type": "application/octet-stream",
       "X-File-Name": encodeURIComponent(file.name),
     },
+    ...(publicationVisibility !== undefined && {
+      params: { publicationVisibility },
+    }),
     timeout: ATTACHMENT_UPLOAD_TIMEOUT_MS,
     signal: options.signal,
   });
-  return attachmentSchema.parse(response.data);
+  return uploadedAttachmentSchema.parse(response.data);
 }
 
 /** 添付の配信の URL。ID から組み立てる（応答の任意の URL を使わない） */

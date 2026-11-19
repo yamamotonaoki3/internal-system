@@ -35,6 +35,7 @@ function build() {
     joined: true,
     roomWritable: true,
     replyBlockedReason: null,
+    caseRoom: false,
   });
   const api = respondAttachments();
   recordReplyPosts(api, parent.id);

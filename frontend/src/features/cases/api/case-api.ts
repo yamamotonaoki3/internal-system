@@ -1,8 +1,12 @@
 // API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08。概要の進捗は #149）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）、
-// 終了・再開（#150。EP-5-11・12）、添付の一覧（#148。EP-5-19）の通信はここに書く。
+// 終了・再開（#150。EP-5-11・12）、添付の一覧（#148。EP-5-19）と添付の公開範囲の変更（#148。EP-1-23）の通信はここに書く。
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
-import { ATTACHMENT_KINDS } from "../../../../../shared/attachment-rules";
+import {
+  ATTACHMENT_KINDS,
+  PUBLICATION_VISIBILITIES,
+  type PublicationVisibility,
+} from "../../../../../shared/attachment-rules";
 import { apiClient } from "../../../services/api-client";
 
 export const CASE_LIST_SCOPES = ["joined", "all"] as const;
@@ -166,6 +170,9 @@ const attachmentItemSchema = z.object({
     displayName: z.string(),
     isActive: z.boolean(),
   }),
+  publicationVisibility: z.enum(PUBLICATION_VISIBILITIES),
+  /** 閲覧者が公開範囲を変えられるか（表示の制御だけ。認可はサーバー） */
+  canChangeVisibility: z.boolean(),
 });
 const attachmentPageSchema = z.object({
   items: z.array(attachmentItemSchema),
@@ -184,4 +191,20 @@ export async function fetchCaseAttachments(
     { params: { cursor } },
   );
   return attachmentPageSchema.parse(response.data);
+}
+
+const visibilityChangedSchema = z.object({
+  id: z.string().min(1),
+  publicationVisibility: z.enum(PUBLICATION_VISIBILITIES),
+});
+
+export async function changeAttachmentVisibility(
+  attachmentId: string,
+  publicationVisibility: PublicationVisibility,
+): Promise<z.infer<typeof visibilityChangedSchema>> {
+  const response = await apiClient.patch(
+    `/attachments/${encodeURIComponent(attachmentId)}`,
+    { publicationVisibility },
+  );
+  return visibilityChangedSchema.parse(response.data);
 }

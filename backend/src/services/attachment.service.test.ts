@@ -70,6 +70,8 @@ describe("#140 AC-1 perm.attachment.upload", () => {
       const upload = {
         name: "image.png",
         contentLength: png.length,
+        // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+        publicationVisibility: undefined,
         body: tracked.stream,
       };
       const actor = actorOf(world.alice.userId);
@@ -101,6 +103,8 @@ describe("#140 AC-1 perm.attachment.upload", () => {
         {
           name: "memo.txt",
           contentLength: TEXT_BYTES.length,
+          // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+          publicationVisibility: undefined,
           body: trackedBody(TEXT_BYTES).stream,
         },
       ),
@@ -213,6 +217,8 @@ describe("#140 AC-1 認可の引数と順", () => {
     await service.uploadToRoom(actorOf(world.alice.userId), world.channel, {
       name: "memo.txt",
       contentLength: TEXT_BYTES.length,
+      // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+      publicationVisibility: undefined,
       body: trackedBody(TEXT_BYTES).stream,
     });
     expect(
