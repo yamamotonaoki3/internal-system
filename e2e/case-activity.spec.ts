@@ -5,7 +5,7 @@
 //   → 非参加者 C の S-16（すべての案件）の行には、最終更新・未読が出ない。
 // 値を返す範囲・値の決め方の網羅は backend の DB・結合のテスト、画面の分岐は frontend の CasesPage.activity・case-sidebar.unread のテストで確かめ、ここでは重ねない。
 // 前提：e2e/seeds/case-activity.sql（[E2E_TEST]部署148C・e2euser_case148c_member（A）／_partner（B）（参加者）／_outsider（C。非参加者）・
-//   取引先 テスト商事最終更新 [E2E_TEST]（QKP）・進行中の案件 QKP-261119-0001）。後始末は e2e/seeds/case-activity-cleanup.sql（識別子だけ。残数 0 を確かめる）。
+//   取引先 テスト商事148C活動 [E2E_TEST]（QKP）・進行中の案件 QKP-261119-0001）。後始末は e2e/seeds/case-activity-cleanup.sql（識別子だけ。残数 0 を確かめる）。
 //   この E2E の利用者は、ほかの spec と共有しない。E2E は同時に1つだけ動かす。
 // ログインの試行制限に当たらないよう、ログインは利用者ごとに1回だけにする（それぞれ別のブラウザのコンテキスト）。
 // 自分で作ったページには console-guard の監視が付かないため、3人のページそれぞれに同じ監視を付け、最後に照合する。
@@ -15,12 +15,23 @@ import { expect, test } from "./console-guard";
 
 const PASSWORD = "TestPass123!";
 const CASE_ID = "01JTE2E00000000000W0011148";
-const CASE_TITLE = "[E2E_TEST]最終更新の進行中の案件";
-const POST_TEXT = "[E2E_TEST]148C最終更新の投稿";
+const CASE_TITLE = "[E2E_TEST]148C活動の進行中の案件";
+const POST_TEXT = "[E2E_TEST]148C活動の投稿";
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-/** 仕様どおりの拒否の応答だけを許す：ログイン前のセッションの確認（401） */
-const INTENDED_REJECTION =
-  /Failed to load resource: the server responded with a status of 401/;
+/**
+ * 仕様どおりの拒否の応答だけを、状態と URL を限定して許す（e2e/case-access-loss.spec.ts の型）：
+ *   401：ログイン前のセッションの確認。
+ * この spec では、非参加者 C は S-17 を開かない（S-16 とサイドバーだけ）ので、403・404 になる取得はない。許さない。
+ */
+const INTENDED_REJECTIONS: { status: number; url: RegExp }[] = [
+  { status: 401, url: /\/api\/auth\/session$/ },
+];
+const REJECTION_TEXT =
+  /Failed to load resource: the server responded with a status of (\d+)/;
+/** 未読の印の読み上げの文（UnreadCountBadge。見える数字は aria-hidden で、読み上げ用の文を別に持つ） */
+const UNREAD_SPOKEN = /未読 \d+件/;
+/** 参加の行の最終更新のラベル（CaseList.tsx の表示） */
+const ACTIVITY_LABEL = "最終更新：";
 
 function seedFile(file: "case-activity.sql" | "case-activity-cleanup.sql") {
   return new Promise<string>((resolve, reject) => {
@@ -49,8 +60,13 @@ async function signIn(
   await page.setViewportSize({ width: 1280, height: 800 });
   const errors: string[] = [];
   page.on("console", (m) => {
-    if (m.type() === "error" && !INTENDED_REJECTION.test(m.text()))
-      errors.push(m.text());
+    if (m.type() !== "error") return;
+    const status = Number(REJECTION_TEXT.exec(m.text())?.[1]);
+    const url = m.location().url;
+    const intended = INTENDED_REJECTIONS.some(
+      (rule) => rule.status === status && rule.url.test(url),
+    );
+    if (!intended) errors.push(`${m.text()} (${url})`);
   });
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto("/login");
@@ -116,7 +132,7 @@ test("#148 148-C 5-1 AC-4: 投稿の前、参加者 B の S-16 の行は「最�
   await openCases(pb);
   await expect(card(pb)).toHaveCount(1);
   await expect(card(pb)).toContainText("最終更新：—");
-  await expect(card(pb)).not.toContainText("未読");
+  await expect(card(pb)).not.toContainText(UNREAD_SPOKEN);
   await expect(sidebarLink(pb)).toHaveAccessibleName(CASE_TITLE);
 });
 
@@ -166,7 +182,7 @@ test("#148 148-C 3-1 AC-2: B が案件を開くと既読になり、サイドバ
 
   await openCases(pb);
   await expect(card(pb)).toHaveCount(1);
-  await expect(card(pb)).not.toContainText("未読");
+  await expect(card(pb)).not.toContainText(UNREAD_SPOKEN);
   await expect(card(pb).locator("time")).toHaveCount(1);
 });
 
@@ -178,8 +194,8 @@ test("#148 148-C 5-1 AC-2・C-191(4): 非参加者 C の S-16（すべての案�
     .getByRole("radio", { name: "すべての案件", exact: true })
     .check();
   await expect(card(pc)).toHaveCount(1);
-  await expect(card(pc)).not.toContainText("最終更新");
-  await expect(card(pc)).not.toContainText("未読");
+  await expect(card(pc)).not.toContainText(ACTIVITY_LABEL);
+  await expect(card(pc)).not.toContainText(UNREAD_SPOKEN);
   await expect(card(pc).locator("time")).toHaveCount(0);
   // 参加していないので、サイドバーにも出ない
   await expect(sidebarLink(pc)).toHaveCount(0);

@@ -5,7 +5,7 @@
 -- メッセージはシードで入れず、画面から投稿する（最初は「最終更新：—」から始める）。
 -- パスワードのハッシュは、既存の架空ログインfixture（e2euser_login_001）の行から参照して、ここに値を書かない。
 -- 本名は架空の平文で入れる（test 環境の seed-file が、e2euser_ の平文の本名を各利用者のIDで暗号化する）。
--- 識別子：社員ID e2euser_case148c_、部署名 [E2E_TEST]部署148C、取引先名 テスト商事最終更新 [E2E_TEST]（コード QKP。既存の E2E のシードと重ならない）、
+-- 識別子：社員ID e2euser_case148c_、部署名 [E2E_TEST]部署148C、取引先名 テスト商事148C活動 [E2E_TEST]（コード QKP。既存の E2E のシードと重ならない）、
 -- 件名・説明・本文に [E2E_TEST] を付ける。案件番号・案件専用チャンネルの名前は QKP で始める。case-activity-cleanup.sql でこの識別子だけを消す。
 -- 役割（オーナー・全体管理者）は付けない（ほかの E2E の利用者の役割を変えない。この E2E の利用者は、ほかの spec と共有しない）。
 INSERT INTO departments (id, name, name_normalized, is_active, created_at, description, version, updated_at)
@@ -16,7 +16,7 @@ VALUES (
 
 INSERT INTO clients (id, code, name, name_normalized, is_active, version, created_at, updated_at)
 VALUES (
-  '01JTE2E00000000000W0003148', 'QKP', 'テスト商事最終更新 [E2E_TEST]', 'テスト商事最終更新 [e2e_test]', 1, 1,
+  '01JTE2E00000000000W0003148', 'QKP', 'テスト商事148C活動 [E2E_TEST]', 'テスト商事148c活動 [e2e_test]', 1, 1,
   '2026-11-19T00:00:00.000Z', '2026-11-19T00:00:00.000Z'
 );
 
@@ -26,7 +26,7 @@ INSERT INTO users (
 )
 SELECT
   '01JTE2E00000000000W0005148', 'e2euser_case148c_member', 'e2euser_case148c_member',
-  'E2E最終更新の投稿者', 'テスト本名最終更新投稿者',
+  'E2E148C活動の投稿者', 'テスト本名148C活動投稿者',
   'e2euser_case148c_member@example.com', 'e2euser_case148c_member@example.com',
   '01JTE2E00000000000W0002148', password_hash, 0, 1
 FROM users WHERE login_id = 'e2euser_login_001';
@@ -37,7 +37,7 @@ INSERT INTO users (
 )
 SELECT
   '01JTE2E00000000000W0006148', 'e2euser_case148c_partner', 'e2euser_case148c_partner',
-  'E2E最終更新の相手', 'テスト本名最終更新相手',
+  'E2E148C活動の相手', 'テスト本名148C活動相手',
   'e2euser_case148c_partner@example.com', 'e2euser_case148c_partner@example.com',
   '01JTE2E00000000000W0002148', password_hash, 0, 1
 FROM users WHERE login_id = 'e2euser_login_001';
@@ -48,7 +48,7 @@ INSERT INTO users (
 )
 SELECT
   '01JTE2E00000000000W0007148', 'e2euser_case148c_outsider', 'e2euser_case148c_outsider',
-  'E2E最終更新の非参加者', 'テスト本名最終更新非参加者',
+  'E2E148C活動の非参加者', 'テスト本名148C活動非参加者',
   'e2euser_case148c_outsider@example.com', 'e2euser_case148c_outsider@example.com',
   '01JTE2E00000000000W0002148', password_hash, 0, 1
 FROM users WHERE login_id = 'e2euser_login_001';
@@ -70,7 +70,7 @@ INSERT INTO cases (
   status, created_by, approved_by, version, created_at, updated_at
 ) VALUES (
   '01JTE2E00000000000W0011148', 'QKP-261119-0001', '01JTE2E00000000000W0003148', '01JTE2E00000000000W0003148',
-  '01JTE2E00000000000W0010148', '01JTE2E00000000000W0012148', '[E2E_TEST]最終更新の進行中の案件', '[E2E_TEST]最終更新の案件の説明',
+  '01JTE2E00000000000W0010148', '01JTE2E00000000000W0012148', '[E2E_TEST]148C活動の進行中の案件', '[E2E_TEST]148C活動の案件の説明',
   NULL, 'active', '01JTE2E00000000000W0005148', '01JTE2E00000000000W0005148', 1,
   '2026-11-19T00:00:00.000Z', '2026-11-19T00:00:00.000Z'
 );
