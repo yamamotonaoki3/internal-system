@@ -38,6 +38,13 @@ const TEXTS = {
 const warning = (count: number) => `未完了の TODO が ${count} 件あります`;
 const WARNING_PATTERN = /未完了の TODO が/;
 
+const FAIL_500 = {
+  status: 500,
+  code: "INTERNAL_ERROR",
+  message: "サーバーでエラーが起きました",
+};
+const LOAD_ERROR_WAIT = { timeout: 8_000 };
+
 const advance = (ms: number) =>
   act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -185,15 +192,14 @@ describe("#309 AC-2 警告を出さないとき", () => {
   });
 
   it("#309 AC-2: TODO の読み込みに失敗しているときは、警告を出さない", async () => {
-    const state = respondTodos(todos(5, 2), {
-      failWith: {
-        status: 500,
-        code: "INTERNAL_ERROR",
-        message: "サーバーでエラーが起きました",
-      },
-    });
+    respondTodos(todos(5, 2), { failWith: FAIL_500 });
     const { user } = renderPage(8);
-    await waitFor(() => expect(state.requests.length).toBeGreaterThan(0));
+    // 読み込み中ではなく、取得のエラーの表示になってから確かめる
+    await screen.findAllByText(
+      "TODOを読み込めませんでした",
+      {},
+      LOAD_ERROR_WAIT,
+    );
     const dialog = await openCloseDialog(user);
     expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull();
   });
@@ -251,5 +257,28 @@ describe("#309 AC-1 ポーリングで進捗が変わったとき", () => {
     await waitFor(() =>
       expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull(),
     );
+  });
+
+  it("#309 AC-2: 取得に成功して警告が出た後、ポーリングの取得が失敗したら、取得のエラーの表示に合わせて警告が消える（開いているダイアログでも、開き直しても）", async () => {
+    const state = respondTodos(todos(5, 2));
+    const { user } = renderPage(12);
+    await waitForProgress("2/5");
+    const dialog = await openCloseDialog(user);
+    expect(within(dialog).getByText(warning(3))).toBeTruthy();
+    state.failWith = FAIL_500;
+    await advance(POLL_MS);
+    await screen.findAllByText(
+      "TODOを読み込めませんでした",
+      {},
+      LOAD_ERROR_WAIT,
+    );
+    await waitFor(() =>
+      expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull(),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "キャンセル" }),
+    );
+    const reopened = await openCloseDialog(user);
+    expect(within(reopened).queryByText(WARNING_PATTERN)).toBeNull();
   });
 });
