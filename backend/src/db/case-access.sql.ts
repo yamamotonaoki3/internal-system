@@ -6,7 +6,7 @@ import { ROLE_IDS } from "../lib/permissions";
  * 管理の資格＝有効な全体管理者、または、その案件の担当部署のどれかの有効なオーナー。
  * 先に読んだ割り当てに頼ると、交代・無効化の後の要求に参加者数が返るため、読み取りの SQL の中で決める
  */
-export function canManageSql(actorId: string, caseId: SQL): SQL {
+export function canManageSql(actorId: string | SQL, caseId: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM users mu WHERE mu.id = ${actorId} AND mu.is_active = 1 AND (
     EXISTS (SELECT 1 FROM user_role_assignments ga
       WHERE ga.user_id = mu.id AND ga.role_id = ${ROLE_IDS.globalAdmin} AND ga.scope_type = 'company')

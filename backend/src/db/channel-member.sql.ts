@@ -31,6 +31,22 @@ export function recipientsUnchanged(
 }
 
 /**
+ * 有効な参加者の集合が、memberIds（画面で見た集合）と同じであること（案件の再開の選び直しの前提）。
+ * ID は JSON の値1つで渡す（人数に比例して値の数を増やさない。D1 の1文あたりの上限のため）
+ */
+export function activeMembersEqual(
+  roomId: string | SQL,
+  memberIds: readonly string[],
+): SQL {
+  const ids = JSON.stringify(memberIds);
+  return sql`NOT EXISTS (SELECT 1 FROM channel_members em JOIN users eu ON eu.id = em.user_id AND eu.is_active = 1
+      WHERE em.channel_id = ${roomId} AND em.user_id NOT IN (SELECT value FROM json_each(${ids})))
+    AND NOT EXISTS (SELECT 1 FROM json_each(${ids}) ej WHERE NOT EXISTS (
+      SELECT 1 FROM channel_members em JOIN users eu ON eu.id = em.user_id AND eu.is_active = 1
+      WHERE em.channel_id = ${roomId} AND em.user_id = ej.value))`;
+}
+
+/**
  * channel_members を外部結合するときの結合の条件。結合した行があること＝閲覧者が有効な参加者であること（activeChannelMember と同じ規則）。
  * 利用者の有効性は主キーで1行を引く。
  */

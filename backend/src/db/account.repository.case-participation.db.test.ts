@@ -21,6 +21,10 @@ import {
 } from "../../test/case-fixtures";
 import { participantIdsOf } from "../../test/case-participant-fixtures";
 import {
+  activeParticipantIdsOf,
+  roomIdOf,
+} from "../../test/case-reopen-fixtures";
+import {
   casereqTraceId,
   setUserActive,
   setupCaseWorld,
@@ -537,7 +541,17 @@ describe("#150 150-A AC-15 と終了・再開", () => {
         recipientIds,
         traceId: casereqTraceId(),
       };
-      return kind === "close" ? r.closeCase(input) : r.reopenCase(input);
+      if (kind === "close") return r.closeCase(input);
+      // 150-B から再開は本文つき。ここでは選び直しなし（いまの有効な参加者・空の追加と除外）
+      const roomId = await roomIdOf(caseId);
+      return r.reopenCase({
+        ...input,
+        participantIds:
+          roomId === null ? [] : await activeParticipantIdsOf(roomId),
+        addUserIds: [],
+        removeUserIds: [],
+        readRecipientIds: recipientIds,
+      });
     });
 
   it("#150 AC-15・5-1 AC-9: 唯一の有効な参加者の進行中の案件を終了すると、その社員を無効化でき、参加の行は残る", async () => {

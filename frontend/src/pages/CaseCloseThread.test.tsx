@@ -173,6 +173,10 @@ describe("#150 150-A 6.6 スレッドを開いたまま終了・再開する", (
       const reopenDialog = await screen.findByRole("dialog", {
         name: "案件の再開",
       });
+      // 150-B：再開のダイアログは、参加者を選ぶ段階 →「確認へ」→ 確かめる段階 →「再開する」
+      await user.click(
+        within(reopenDialog).getByRole("button", { name: "確認へ" }),
+      );
       await user.click(
         within(reopenDialog).getByRole("button", { name: "再開する" }),
       );

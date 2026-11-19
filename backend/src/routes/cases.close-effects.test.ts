@@ -10,6 +10,7 @@ import { apiRequest } from "../../test/api-request";
 import { CASES_BASE } from "../../test/case-fixtures";
 import { closePath, reopenPath } from "../../test/case-close-fixtures";
 import { CASE_CONFLICT_REASONS } from "../../test/case-participant-fixtures";
+import { noReselectBody } from "../../test/case-reopen-fixtures";
 import { CASEREQ_NOW, TOMORROW_JST } from "../../test/case-request-fixtures";
 import {
   CASE_CLOSED_MESSAGES,
@@ -161,6 +162,7 @@ describe("#150 150-A 5-1 AC-11：本物の再開で、既存の守りが解け�
       (
         await apiRequest("POST", reopenPath(cw.open.id), {
           token: cw.w.memberD1.token,
+          body: await noReselectBody(cw.open.id),
         })
       ).status,
     ).toBe(200);
@@ -187,7 +189,12 @@ describe("#150 150-A 5-1 AC-11：本物の再開で、既存の守りが解け�
   it("#150 AC-11: シードで終了の案件も、API で再開すると投稿できる", async () => {
     const token = cw.w.memberD1.token;
     expect(
-      (await apiRequest("POST", reopenPath(cw.closed.id), { token })).status,
+      (
+        await apiRequest("POST", reopenPath(cw.closed.id), {
+          token,
+          body: await noReselectBody(cw.closed.id),
+        })
+      ).status,
     ).toBe(200);
     expect(
       (await postTo(cw.closed.roomId, token, "[UNIT_TEST]150再開後の投稿"))

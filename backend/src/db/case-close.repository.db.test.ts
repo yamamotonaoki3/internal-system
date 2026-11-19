@@ -9,7 +9,7 @@
 //   - 同時の2回の終了・再開では1回分だけ。参加者の追加・削除では版が変わらない（宛先の一致で検出する前提）
 // 判定の順・応答は Service・結合のテストで確かめ、ここでは重ねない。
 // 契約（実装前の仮置き。計画 150-A 6.3・8章。実装の担当へ）：backend/src/db/case.repository.ts の createCaseRepository に
-//   closeCase(input: CaseStatusWriteInput): Promise<void>・reopenCase(input: CaseStatusWriteInput): Promise<void>
+//   closeCase(input: CaseStatusWriteInput): Promise<void>・reopenCase(input: CaseReopenWriteInput): Promise<void>（150-B で本文つき。ここでは選び直しなしで呼ぶ）
 //     input = { caseId, actorId, version（最初の判定で読んだ版）, recipientIds（読んだ宛先）, traceId }。前提が崩れていたら CaseStateChangedError
 //   listCaseNotifyRecipients(caseId, actorId): Promise<string[]>（ID の昇順）
 //   findWriteFacts の結果に version（cases.version）を足す
@@ -36,6 +36,10 @@ import {
 } from "../../test/case-close-fixtures";
 import { parseDetail } from "../../test/case-participant-fixtures";
 import {
+  activeParticipantIdsOf,
+  roomIdOf,
+} from "../../test/case-reopen-fixtures";
+import {
   casereqTraceId,
   setUserActive,
   setupCaseWorld,
@@ -61,12 +65,33 @@ type WriteInput = {
   recipientIds: string[];
 };
 
-const write = (kind: Kind, input: WriteInput) =>
-  withCases(env, (r) =>
-    kind === "close"
-      ? r.closeCase({ ...input, traceId: casereqTraceId() })
-      : r.reopenCase({ ...input, traceId: casereqTraceId() }),
+type ReopenExtras = { participantIds?: string[] };
+
+/**
+ * 再開は 150-B から本文つき（CaseReopenWriteInput）。150-A のテストは選び直しなし（空の追加・除外）で呼ぶ。
+ * participantIds を渡さなければ、呼んだ時点のいまの有効な参加者（読んだ後に参加者を変える行は、変える前に読んだ値を渡す）
+ */
+const write = async (kind: Kind, input: WriteInput & ReopenExtras) => {
+  const { participantIds, ...base } = input;
+  if (kind === "close")
+    return withCases(env, (r) =>
+      r.closeCase({ ...base, traceId: casereqTraceId() }),
+    );
+  const roomId = await roomIdOf(base.caseId);
+  const seen =
+    participantIds ??
+    (roomId === null ? [] : await activeParticipantIdsOf(roomId));
+  return withCases(env, (r) =>
+    r.reopenCase({
+      ...base,
+      participantIds: seen,
+      addUserIds: [],
+      removeUserIds: [],
+      readRecipientIds: base.recipientIds,
+      traceId: casereqTraceId(),
+    }),
   );
+};
 
 const recipientsFor = (caseId: string, actorId: string) =>
   withCases(env, (r) => r.listCaseNotifyRecipients(caseId, actorId));
@@ -267,7 +292,7 @@ describe("#150 150-A 5-1 AC-8：終了しても、チャンネルと参加者を
 });
 
 describe("#150 150-A 5-1 AC-10（C-142(2)）：再開（参加者の選び直しなし）", () => {
-  it("#150 AC-10: 状態が active になり、版に1を足す。監査 case.reopen の detail は { caseId, notifiedCount }。通知 case.reopened は再開後の有効な参加者から本人を除いた人だけ", async () => {
+  it("#150 AC-10: 状態が active になり、版に1を足す。監査 case.reopen の detail は { caseId, notifiedCount, addedCount: 0, removedCount: 0 }（150-B で件数を足した）。通知 case.reopened は再開後の有効な参加者から本人を除いた人だけ", async () => {
     const before = await caseCloseSnapshot();
     await write("reopen", {
       caseId: closed.id,
@@ -292,6 +317,8 @@ describe("#150 150-A 5-1 AC-10（C-142(2)）：再開（参加者の選び直し
     expect(parseDetail(audits[0]?.detail ?? null)).toEqual({
       caseId: closed.id,
       notifiedCount: 3,
+      addedCount: 0,
+      removedCount: 0,
     });
     expect(await caseCloseNotifications()).toEqual(
       sorted([w.memberS1.id, w.ownerS.id, w.admin.id]).map((userId) => ({
@@ -314,7 +341,7 @@ describe("#150 150-A #196 の前提：崩れていたら何も残さない", () 
     name: string;
     kind: Kind;
     arrange?: () => Promise<void>;
-    input: () => Promise<WriteInput>;
+    input: () => Promise<WriteInput & ReopenExtras>;
   };
   // 表には関数だけを書く（beforeEach で代入する変数は、呼ばれた時点で読む）
   const CASES: Case[] = [
@@ -377,12 +404,14 @@ describe("#150 150-A #196 の前提：崩れていたら何も残さない", () 
       kind: "reopen",
       input: async () => {
         const recipientIds = await recipientsFor(closed.id, w.memberS1.id);
+        const participantIds = await activeParticipantIdsOf(closed.roomId);
         await removeCaseMember(closed.roomId, w.memberS1.id);
         return {
           caseId: closed.id,
           actorId: w.memberS1.id,
           version: 1,
           recipientIds,
+          participantIds,
         };
       },
     },
@@ -432,12 +461,14 @@ describe("#150 150-A #196 の前提：崩れていたら何も残さない", () 
       kind: "reopen",
       input: async () => {
         const recipientIds = await recipientsFor(closed.id, w.memberD1.id);
+        const participantIds = await activeParticipantIdsOf(closed.roomId);
         await removeCaseMember(closed.roomId, w.memberS1.id);
         return {
           caseId: closed.id,
           actorId: w.memberD1.id,
           version: 1,
           recipientIds,
+          participantIds,
         };
       },
     },
@@ -541,7 +572,7 @@ describe("#150 150-A D1 の上限：宛先が多い案件", () => {
     expect((await caseCloseAudits()).map((a) => parseDetail(a.detail))).toEqual(
       [
         { caseId: big.id, notifiedCount: 119 },
-        { caseId: big.id, notifiedCount: 119 },
+        { caseId: big.id, notifiedCount: 119, addedCount: 0, removedCount: 0 },
       ],
     );
   });

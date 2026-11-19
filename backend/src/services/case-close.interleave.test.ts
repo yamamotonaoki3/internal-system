@@ -11,7 +11,7 @@
 // 権限の判定は本物（createCaseService(repository, roles)）。別の要求は、包んでいない Service（withCaseService）で本物の操作として行う。
 // 契約（実装前の仮置き。計画 150-A。実装の担当へ）：backend/src/services/case.service.ts
 //   service.close(actor, caseId): Promise<{ caseId, status: "closed" }>
-//   service.reopen(actor, caseId): Promise<{ caseId, status: "active" }>
+//   service.reopen(actor, caseId, body): Promise<{ caseId, status: "active" }>（150-B で本文つき。ここでは選び直しなし）
 //   最初の判定の材料（findWriteFacts。版を含む）を、宛先の読み取り（listCaseNotifyRecipients）より先に読む（6.2 の順）。
 //   書き込みの関数の名前は closeCase・reopenCase（db/case-close.repository.db.test.ts と同じ）。
 // 時刻は CASEREQ_NOW に固定する。データは架空（testuser_casereq_・[UNIT_TEST]・@example.com）。
@@ -38,6 +38,11 @@ import {
   parseDetail,
   setCaseStatus,
 } from "../../test/case-participant-fixtures";
+import {
+  CASE_REOPEN_MESSAGES,
+  CASE_REOPEN_REASONS,
+  noReselectBody,
+} from "../../test/case-reopen-fixtures";
 import {
   CASEREQ_NOW,
   TOMORROW_JST,
@@ -160,8 +165,11 @@ const other = (run: (service: Service) => Promise<unknown>) => async () => {
 };
 const closeBy = (userId: string) =>
   other((s) => s.close(actorOf(userId), room.id));
+// 150-B から再開は本文つき。150-A の再開は選び直しなし（呼んだ時点のいまの有効な参加者・空の追加と除外）で送る
 const reopenBy = (userId: string) =>
-  other((s) => s.reopen(actorOf(userId), room.id));
+  other(async (s) =>
+    s.reopen(actorOf(userId), room.id, await noReselectBody(room.id)),
+  );
 
 /** 世界と案件を作り直す（書き込み・割り込みで変えた状態を、k ごとに元に戻す） */
 async function resetWorld(status: "active" | "closed") {
@@ -227,10 +235,11 @@ const close =
   (userId: string): Operation =>
   (s) =>
     s.close(actorOf(userId), room.id);
+/** 確認した参加者（participantIds）は、割り込みより前（Repository の読み取りより前）に読んで固定する */
 const reopen =
   (userId: string): Operation =>
-  (s) =>
-    s.reopen(actorOf(userId), room.id);
+  async (s) =>
+    s.reopen(actorOf(userId), room.id, await noReselectBody(room.id));
 
 // 表には関数だけを書く（resetWorld で代入する変数は、呼ばれた時点で読む）
 const REJECTS: RejectScenario[] = [
@@ -352,6 +361,19 @@ const REJECTS: RejectScenario[] = [
       message: CASE_CLOSE_MESSAGES.stale,
     },
   },
+  {
+    // 150-B の決定 Q8 に基づく期待の変更：150-A では「宛先を読み直して成功し、足した人にも通知が届く」だった。
+    // 確認の画面で見た参加者（participantIds）と、いまの有効な参加者が違うので、取り直して選び直してもらう
+    name: "再開と、参加者の追加 → 409 participants_changed（要求の側の状態・参加の行・監査・通知は増えない）",
+    status: "closed",
+    operation: (s) => reopen(w.memberS1.id)(s),
+    interrupt: () => addCaseMember(room.roomId, w.memberS2.id),
+    expected: {
+      code: "CONFLICT",
+      reason: CASE_REOPEN_REASONS.participantsChanged,
+      message: CASE_REOPEN_MESSAGES.participantsChanged,
+    },
+  },
   // ---- 逆の向き：元の要求は 147-B の操作、割り込みは本物の終了 ----
   {
     name: "参加者の追加と、ほかの参加者による本物の終了 → 409 closed",
@@ -428,14 +450,6 @@ const SUCCESSES: SuccessScenario[] = [
     },
     kind: "case.closed",
     recipients: () => [w.memberS2.id],
-  },
-  {
-    name: "再開と、参加者の追加 → 宛先を読み直して成功し、足した人にも通知が届く",
-    status: "closed",
-    operation: (s) => reopen(w.memberS1.id)(s),
-    interrupt: () => addCaseMember(room.roomId, w.memberS2.id),
-    kind: "case.reopened",
-    recipients: () => [w.memberD1.id, w.memberS2.id],
   },
 ];
 

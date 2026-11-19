@@ -1,14 +1,15 @@
 // #150（150-A）5-1 AC-9・AC-10（C-142(2)）、画面 S-17 の「案件を終了」「案件を再開」と確認のダイアログ。API は MSW で返す。データはすべて架空。
 // この層で確かめるもの（計画 150-A 10章の「画面」の行・6.6）：
 //   - 有効な参加者（概要の isParticipant）にだけ、進行中なら「案件を終了」、終了中なら「案件を再開」を出す。非参加者（管理の資格のある人を含む）には出さない（R-77）
-//   - 確認のダイアログの文言（再開は「いまの参加者のまま進行中に戻ります」。利用者の決定 Q1）。キャンセルでは送らない
+//   - 確認のダイアログの文言。キャンセルでは送らない（再開のダイアログは 150-B で参加者の選び直しになった。「確認へ」の後に確かめる段階の文言を出す。
+//     詳しくは CaseReopenReselect.test.tsx）
 //   - 送信中は確定もキャンセルも押せず、二重に送らない
 //   - 成功：ダイアログの外に「案件を終了しました」「案件を再開しました」を出し、概要を取り直してボタンが入れ替わる（文言は残る）
 //   - 409・403：サーバーの文言をダイアログの外に出し、概要を取り直す
 // 認可・判定の順はサーバー（backend の routes/cases.close.test.ts）で確かめ、ここでは重ねない。
 // 画面の契約（実装の担当へ。計画 150-A 6.6 から決めたもの）：
 //   ボタン「案件を終了」「案件を再開」。ダイアログの名前「案件の終了」「案件の再開」、確定「終了する」「再開する」、「キャンセル」。
-//   POST /api/cases/:caseId/close・/reopen（本文なし）。成功の応答は { caseId, status }。
+//   POST /api/cases/:caseId/close（本文なし）・/reopen（150-B から本文 { participantIds, addUserIds, removeUserIds }）。成功の応答は { caseId, status }。
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import { describe, expect, it } from "vitest";
@@ -32,7 +33,10 @@ const TEXTS = {
   reopenDialog: "案件の再開",
   closeBody:
     "終了すると、メッセージ・参加者・納期は読み取り専用になります。参加者は、いつでも再開できます。",
-  reopenBody: "再開すると、いまの参加者のまま進行中に戻ります。",
+  // 150-B（決定 Q5）で再開のダイアログは参加者の選び直しになり、確かめる段階の文言に置き換わった
+  reopenShare:
+    "再開すると、追加した人にも、これまでのメッセージ・TODO・添付が共有されます。外れた人は、この案件の内容を見られなくなります。",
+  reopenNext: "確認へ",
   closeConfirm: "終了する",
   reopenConfirm: "再開する",
   closed: "案件を終了しました",
@@ -178,14 +182,17 @@ describe("#150 150-A 確認のダイアログ", () => {
     expect(writes).toEqual([]);
   });
 
-  it("#150 5-1 AC-10・Q1: 「案件を再開」で確認のダイアログ「案件の再開」を開き、「いまの参加者のまま進行中に戻ります」を出す", async () => {
+  it("#150 5-1 AC-10・AC-16（150-B Q5）: 「案件を再開」で確認のダイアログ「案件の再開」を開き、「確認へ」の後に、過去の情報も共有される旨と「再開する」を出す", async () => {
     world(35, caseSummary(35, { status: "closed", canEditDueDate: false }));
     const { user } = renderPage(35);
     await user.click(await screen.findByRole("button", { name: TEXTS.reopen }));
     const dialog = await screen.findByRole("dialog", {
       name: TEXTS.reopenDialog,
     });
-    expect(within(dialog).getByText(TEXTS.reopenBody)).toBeTruthy();
+    await user.click(
+      within(dialog).getByRole("button", { name: TEXTS.reopenNext }),
+    );
+    expect(within(dialog).getByText(TEXTS.reopenShare)).toBeTruthy();
     expect(
       within(dialog).getByRole("button", { name: TEXTS.reopenConfirm }),
     ).toBeTruthy();
@@ -225,7 +232,7 @@ describe("#150 150-A 終了・再開の送信と結果", () => {
     expect(insideDialog(done)).toBe(false);
   });
 
-  it("#150 5-1 AC-10: 「再開する」で POST /reopen を1回送り、「案件を再開しました」を出し、取り直しで「案件を終了」に入れ替わる", async () => {
+  it("#150 5-1 AC-10: 「確認へ」→「再開する」で POST /reopen を1回送り、「案件を再開しました」を出し、取り直しで「案件を終了」に入れ替わる", async () => {
     const { writes } = world(
       37,
       caseSummary(37, { status: "closed", canEditDueDate: false }),
@@ -235,6 +242,9 @@ describe("#150 150-A 終了・再開の送信と結果", () => {
     const dialog = await screen.findByRole("dialog", {
       name: TEXTS.reopenDialog,
     });
+    await user.click(
+      within(dialog).getByRole("button", { name: TEXTS.reopenNext }),
+    );
     await user.click(
       within(dialog).getByRole("button", { name: TEXTS.reopenConfirm }),
     );

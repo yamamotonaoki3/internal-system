@@ -54,10 +54,24 @@ export const CASE_STATUS_CHANGE_TEXTS = {
   reopen: {
     button: "案件を再開",
     title: "案件の再開",
-    body: "再開すると、いまの参加者のまま進行中に戻ります。",
+    body: "再開すると、追加した人にも、これまでのメッセージ・TODO・添付が共有されます。外れた人は、この案件の内容を見られなくなります。",
     confirm: "再開する",
     done: "案件を再開しました",
   },
+} as const;
+
+/** S-17 の再開のダイアログ（#150 の 150-B）：参加者の選び直し（決定 Q2・Q5） */
+export const CASE_REOPEN_TEXTS = {
+  candidates: "再開の後も残す参加者",
+  self: "再開する本人",
+  searchHint: "名前で探して、再開と同時に参加者に追加できます",
+  addedList: "追加する社員",
+  next: "確認へ",
+  back: "戻る",
+  stay: "残る人",
+  add: "追加する人",
+  leave: "外れる人",
+  none: "なし",
 } as const;
 
 /** S-17 の TODO（#149） */
