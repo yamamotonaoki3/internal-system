@@ -10,7 +10,11 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { ATTACHMENT_KINDS } from "../../shared/attachment-rules";
+import {
+  ATTACHMENT_KINDS,
+  DEFAULT_PUBLICATION_VISIBILITY,
+  PUBLICATION_VISIBILITIES,
+} from "../../shared/attachment-rules";
 import { USER_STATUS_KINDS } from "../../shared/profile-rules";
 
 export const sampleUsers = sqliteTable("sample_users", {
@@ -482,6 +486,9 @@ export const messageReactions = sqliteTable(
 const ATTACHMENT_KIND_LIST = ATTACHMENT_KINDS.map((kind) => `'${kind}'`).join(
   ", ",
 );
+const PUBLICATION_VISIBILITY_LIST = PUBLICATION_VISIBILITIES.map(
+  (value) => `'${value}'`,
+).join(", ");
 
 export const messageAttachments = sqliteTable(
   "message_attachments",
@@ -501,6 +508,11 @@ export const messageAttachments = sqliteTable(
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     createdAt: text("created_at").notNull().default(nowUtc),
+    // 公開範囲（#148。要件 5-2 AC-8）。値の意味は案件の部屋の行だけで、ほかの部屋の行は既定値のまま
+    // （「案件の部屋だけ」はほかの表の情報なので CHECK に書けない）。読み取りの資格には使わない
+    publicationVisibility: text("publication_visibility")
+      .notNull()
+      .default(DEFAULT_PUBLICATION_VISIBILITY),
   },
   (t) => [
     index("message_attachments_message_id_idx").on(t.messageId),
@@ -520,6 +532,10 @@ export const messageAttachments = sqliteTable(
       sql`${t.kind} in (${sql.raw(ATTACHMENT_KIND_LIST)})`,
     ),
     check("message_attachments_size_bytes_check", sql`${t.sizeBytes} > 0`),
+    check(
+      "message_attachments_publication_visibility_check",
+      sql`${t.publicationVisibility} in (${sql.raw(PUBLICATION_VISIBILITY_LIST)})`,
+    ),
   ],
 );
 

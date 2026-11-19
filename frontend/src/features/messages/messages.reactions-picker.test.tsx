@@ -111,6 +111,7 @@ describe("#138 AC-2（1-4 AC-6）ThreadReplies：親の投稿でもピッカー�
       joined: true,
       roomWritable: true,
       replyBlockedReason: null,
+      caseRoom: false,
     });
     respondReactions({});
     return renderInApp(<ThreadReplies parentMessageId={parent.id} />);

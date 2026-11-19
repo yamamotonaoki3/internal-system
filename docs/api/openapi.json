@@ -47,6 +47,15 @@
               "maximum": 100000000
             },
             "description": "本文のバイト数。種類ごとの上限（画像10,000,000・文書25,000,000・動画100,000,000）を超えれば、本文を読まずに 422"
+          },
+          {
+            "name": "publicationVisibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PublicationVisibility"
+            },
+            "description": "公開範囲（任意。本文がバイト列のためクエリで送る）。案件の部屋だけで指定できる。一覧にない値、または案件でない部屋での指定は、部屋と権限の判定の後に 422（fields に publicationVisibility）"
           }
         ],
         "requestBody": {
@@ -66,7 +75,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttachmentItem"
+                  "$ref": "#/components/schemas/UploadedAttachmentItem"
                 }
               }
             }
@@ -145,6 +154,15 @@
               "maximum": 100000000
             },
             "description": "本文のバイト数。種類ごとの上限（画像10,000,000・文書25,000,000・動画100,000,000）を超えれば、本文を読まずに 422"
+          },
+          {
+            "name": "publicationVisibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PublicationVisibility"
+            },
+            "description": "公開範囲（任意。本文がバイト列のためクエリで送る）。案件の部屋だけで指定できる。一覧にない値、または案件でない部屋での指定は、部屋と権限の判定の後に 422（fields に publicationVisibility）"
           }
         ],
         "requestBody": {
@@ -164,7 +182,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttachmentItem"
+                  "$ref": "#/components/schemas/UploadedAttachmentItem"
                 }
               }
             }
@@ -351,6 +369,88 @@
           },
           "404": {
             "description": "添付が存在しない・見えない（区別しない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "changeAttachmentVisibility",
+        "summary": "案件の添付の公開範囲を変更する",
+        "description": "変更できるのは、添付した本人と、案件の参加者のうち担当部署のオーナー・全体管理者（どちらも有効な参加者であること）。再認証は求めない。判定の順は、見えない・存在しない・未投稿・有効な参加者でない（404「添付が見つかりません」。配信と同じ本文）→ 案件の添付でない（422。fields に attachmentId）→ 権限（403）→ 本人でも管理の資格もない（403）→ 本文（422。fields に publicationVisibility）→ 終了した案件（409）。今と同じ値なら何も書かずに 200。判定の後に状態が変わったら、同じ順で読み直した応答（どれにも当たらなければ 409）。監査 case.attachment.visibility.change を残す。",
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentVisibilityChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "変更した（同じ値なら何もしない）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentVisibilityChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "変更できない（FORBIDDEN「この添付の公開範囲は変更できません」。本人でも担当部署のオーナー・全体管理者でもない）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない・存在しない・未投稿の添付、または有効な参加者でない（NOT_FOUND「添付が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT「終了した案件の添付の公開範囲は変更できません」）、または判定の後に状態が変わった（CONFLICT「状態が変わったため、変更できませんでした。読み込み直してからお試しください」）",
             "content": {
               "application/json": {
                 "schema": {
@@ -7718,7 +7818,8 @@
           "joined",
           "roomWritable",
           "items",
-          "nextCursor"
+          "nextCursor",
+          "caseRoom"
         ],
         "additionalProperties": false,
         "properties": {
@@ -7759,6 +7860,10 @@
               "string",
               "null"
             ]
+          },
+          "caseRoom": {
+            "type": "boolean",
+            "description": "スレッドの部屋が案件専用チャンネルか（DM は偽）。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない"
           }
         }
       },
@@ -7770,7 +7875,8 @@
           "joined",
           "roomWritable",
           "items",
-          "hasMore"
+          "hasMore",
+          "caseRoom"
         ],
         "additionalProperties": false,
         "properties": {
@@ -7808,6 +7914,10 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "caseRoom": {
+            "type": "boolean",
+            "description": "スレッドの部屋が案件専用チャンネルか（DM は偽）。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない"
           }
         }
       },
@@ -11119,6 +11229,7 @@
               "case.due_date.change",
               "case.close",
               "case.reopen",
+              "case.attachment.visibility.change",
               "message.delete",
               "audit_log.view"
             ],
@@ -11136,6 +11247,7 @@
               "case",
               "retirement_request",
               "message",
+              "attachment",
               "source",
               "audit_log"
             ],
@@ -11231,6 +11343,7 @@
               "case.due_date.change",
               "case.close",
               "case.reopen",
+              "case.attachment.visibility.change",
               "message.delete",
               "audit_log.view"
             ]
@@ -12329,7 +12442,9 @@
           "uploadedAt",
           "messageId",
           "threadParentId",
-          "uploader"
+          "uploader",
+          "publicationVisibility",
+          "canChangeVisibility"
         ],
         "properties": {
           "id": {
@@ -12398,6 +12513,13 @@
                 "description": "無効（退職者）なら false"
               }
             }
+          },
+          "publicationVisibility": {
+            "$ref": "#/components/schemas/PublicationVisibility"
+          },
+          "canChangeVisibility": {
+            "type": "boolean",
+            "description": "閲覧者が公開範囲を変えられるか（本人か、担当部署のオーナー・全体管理者で、案件が進行中）。表示の制御だけで、認可は変更（PATCH）で改めて行う"
           }
         }
       },
@@ -12419,6 +12541,107 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PublicationVisibility": {
+        "type": "string",
+        "enum": [
+          "participants_only",
+          "public_archive"
+        ],
+        "description": "案件の添付の公開範囲。participants_only（参加者限定。既定）・public_archive（全社員公開アーカイブで公開できる）。公開できるの選択は即時公開を意味せず、全社員公開が承認されるまでは参加者だけが見られる"
+      },
+      "UploadedAttachmentItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "contentType",
+          "size",
+          "publicationVisibility"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "元のファイル名"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "document",
+              "video"
+            ]
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain; charset=utf-8",
+              "video/mp4",
+              "video/webm",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ],
+            "description": "サーバーが中身を検査して決めた種類（申告・拡張子からは決めない）。テキストと CSV は text/plain"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "保存したバイト数（画像は Exif を除いた後）"
+          },
+          "publicationVisibility": {
+            "description": "案件の部屋なら公開範囲（指定がなければ participants_only）、ほかの部屋は null",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicationVisibility"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AttachmentVisibilityChange": {
+        "type": "object",
+        "required": [
+          "publicationVisibility"
+        ],
+        "properties": {
+          "publicationVisibility": {
+            "$ref": "#/components/schemas/PublicationVisibility"
+          }
+        }
+      },
+      "AttachmentVisibilityChanged": {
+        "type": "object",
+        "required": [
+          "id",
+          "publicationVisibility"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "publicationVisibility": {
+            "$ref": "#/components/schemas/PublicationVisibility"
           }
         }
       }

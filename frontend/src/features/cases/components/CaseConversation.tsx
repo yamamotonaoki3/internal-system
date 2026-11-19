@@ -2,6 +2,7 @@
 // 終了した案件では、帯を出し、投稿・編集・リアクションの操作を出さない（読み取り専用。5-1 AC-11）。閲覧と既読はできる。
 // 開いている間にほかの人が案件を終了すると、投稿が 409 になる。理由を出し続け、概要・詳細を取り直して読み取り専用に切り替える。
 // 自分の投稿・返信と、その削除が成功したら、案件の添付の一覧を取り直す（添付つきの投稿の添付を一覧に出すため。#148）。
+// 部屋とスレッドの入力欄では、添付ごとに公開範囲を選べる（#148。5-2 AC-8）。
 // 利用者・案件が替われば、ページごと作り直す（pages/CaseDetailPage.tsx の key）。下書きは RoomMessages が部屋×利用者で持つ。
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -12,6 +13,7 @@ import { useMarkRoomRead } from "../../unread";
 import { caseKeys } from "../api/query-keys";
 import { describeError, isApiError } from "../describe-error";
 import {
+  CASE_ATTACHMENT_PUBLICATION,
   CASE_CANNOT_POST_TEXT,
   CASE_CLOSED_BANNER_TEXT,
   CONVERSATION_EMPTY_TEXT,
@@ -61,6 +63,7 @@ export function CaseConversation({
       roomId={roomId}
       onReplied={refetchAttachments}
       onDeleted={refetchAttachments}
+      publication={CASE_ATTACHMENT_PUBLICATION}
     >
       <section className="mt-6 min-w-0 flex-1">
         <h2 className="mb-2 text-lg font-bold">やり取り</h2>
@@ -84,6 +87,7 @@ export function CaseConversation({
           onPostError={handlePostError}
           onLatestMessageIdChange={read.markRead}
           onOpenThread={thread.open}
+          publication={CASE_ATTACHMENT_PUBLICATION}
         />
         {read.error !== null && (
           <Alert tone="error" role="alert">

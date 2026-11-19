@@ -129,6 +129,7 @@ describe("#137 AC-1（1-4 AC-3）S-05 から S-07 を開く", () => {
       parent: PARENT,
       replies: [REPLY],
       replyBlockedReason: "not_joined",
+      caseRoom: false,
       joined: false,
       roomWritable: false,
     });

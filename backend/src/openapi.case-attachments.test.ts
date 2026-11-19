@@ -127,6 +127,9 @@ describe("#148 148-B-1 API の仕様書：案件の添付の一覧（EP-5-19）"
       "messageId",
       "threadParentId",
       "uploader",
+      // #148（148-B-2）5-2 AC-7・AC-9 で加わる項目
+      "publicationVisibility",
+      "canChangeVisibility",
     ];
     expect(item().required).toEqual(expect.arrayContaining(keys));
     expect(Object.keys(item().properties ?? {}).sort()).toEqual(

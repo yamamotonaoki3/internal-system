@@ -211,6 +211,13 @@
       "when": 1795011994643,
       "tag": "0029_add_case_todos",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1795098007849,
+      "tag": "0030_add_attachment_publication_visibility",
+      "breakpoints": true
     }
   ]
 }

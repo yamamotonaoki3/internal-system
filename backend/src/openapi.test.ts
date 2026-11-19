@@ -1462,6 +1462,14 @@ describe("API の仕様書：リアクション（#138）", () => {
         "403",
         "404",
         "422",
+      ], // #148（148-B-2）EP-1-23：公開範囲の変更
+      "PATCH /api/attachments/{attachmentId}": [
+        "200",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
       ],
     };
     for (const [name, codes] of Object.entries(expected)) {

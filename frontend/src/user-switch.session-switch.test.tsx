@@ -220,6 +220,7 @@ function respondWorld(initialUser: TestUser | null): World {
           hasMore: false,
           parent,
           replyBlockedReason: null,
+          caseRoom: false,
           joined: true,
           roomWritable: true,
         };

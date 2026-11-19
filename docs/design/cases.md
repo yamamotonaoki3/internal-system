@@ -6,7 +6,7 @@
 
 Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設計書は 147-A（読み取りだけ）と 147-B（参加者の追加・削除・退出と、納期の変更。書き込み）の範囲を書く（147-B は「147-B の設計」の節）。147-C-1 は経路の資格の変更、147-C-2 は無効化・再有効化・オーナー交代・既存の案件の補完で、それぞれ「147-C-1 が広げた経路」「147-C-2 の設計」の節に書く。
 
-Issue #148（案件のやり取り）も「影響大」で、3つの子に分けた（C-184）。最初の子 148-A（案件の画面 S-17 に、案件専用チャンネルのやり取りを出す。既存のメッセージ・スレッド・添付・未読の経路に、案件の条件を足す）の設計は「148-A の設計」の節に書く。計画の段階で、148-B（添付の公開範囲と一覧）を 148-B-1（読み取りだけの添付の一覧。migration なし）と 148-B-2（公開範囲。migration あり）に分けた。148-B-1 の設計は「148-B-1 の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)）。148-C（S-16 の「最終更新」「未読」と、サイドバーの案件の未読の印）は 148-B-1 の後、148-B-2 の前に別の PR で実装した。設計は「148-C の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)(4)と[C-192](../requirements/decision-register.md)）。
+Issue #148（案件のやり取り）も「影響大」で、3つの子に分けた（C-184）。最初の子 148-A（案件の画面 S-17 に、案件専用チャンネルのやり取りを出す。既存のメッセージ・スレッド・添付・未読の経路に、案件の条件を足す）の設計は「148-A の設計」の節に書く。計画の段階で、148-B（添付の公開範囲と一覧）を 148-B-1（読み取りだけの添付の一覧。migration なし）と 148-B-2（公開範囲。migration あり）に分けた。148-B-1 の設計は「148-B-1 の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)）。148-C（S-16 の「最終更新」「未読」と、サイドバーの案件の未読の印）は 148-B-1 の後、148-B-2 の前に別の PR で実装した。設計は「148-C の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)(4)と[C-192](../requirements/decision-register.md)）。148-B-2（添付の公開範囲の選択・変更。migration あり）は 148-C の後に実装した。設計は「148-B-2 の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)(1)〜(3)と[C-195](../requirements/decision-register.md)）。
 
 Issue #149（案件の TODO）は「影響大」で、4つの子に分けた（149-A 追加・完了・取り消しと一覧・進捗、149-B 編集・削除、149-C 履歴・削除済みの一覧・復元、149-D 担当者が外れたときの処理）。最初の子 149-A の設計は「149-A の設計」の節に書く。
 
@@ -26,8 +26,9 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | 150-Bで作ったもの | 再開（EP-5-12）の本文（`participantIds`・`addUserIds`・`removeUserIds`。必須）と、参加者の選び直し（外す・追加。本人と自動参加の人は外せない）／409 `participants_changed`・`auto_participant`・`already_participant`／監査の`case.reopen`への`addedCount`・`removedCount`と、人ごとの`case.participant.add`・`remove`（`viaReopen`）／再開の通知の宛先を選び直しの後の参加者にしたこと／batch の件数の確認`guardChanges`を、案件の書き込みの共通の場所へ移したこと／S-17 の再開の2段階のダイアログ`CaseReopenDialog`（下の「150-B の設計」）。migration はない |
 | 148-B-1で作ったもの | 案件の添付の一覧（EP-5-19 `GET /api/cases/:caseId/attachments`。有効な参加者だけ。終了した案件でも読める）／S-17 の「添付ファイル」の区画（ファイル名のリンク・大きさ・投稿者・日時・「元のメッセージへ」・「次のページ」）と、添付つきの投稿・返信の成功の後の取り直し／大きさの整形を`features/messages/format-size.ts`に移して共通にしたこと／`ThreadLayout`・`ThreadPane`の省略できる props `onReplied`（下の「148-B-1 の設計」）。migration はない |
 | 148-Cで作ったもの | 案件の一覧（EP-5-06）・概要（EP-5-07）の応答（詳細 EP-5-08 も、概要の項目として同じ値を含む。詳細の`channelId`は以前からの項目）に`lastActivityAt`（案件の部屋の、削除されていない最新のメッセージ〔返信を含む〕の投稿の時刻。なければ`null`）と`channelId`（案件の部屋の ID）を足したこと（**どちらも有効な参加者にだけ値を返す**。`participantCount`とは条件が別）／S-16 の参加の行の「最終更新」と未読の数／サイドバーの案件の項目の未読の印（下の「148-C の設計」）。新しい API・migration・索引はない |
-| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：148-B-2（添付の公開範囲の選択・変更。migration を伴う）。149：149-B（TODO の編集・削除）、149-C（履歴・削除済みの一覧・復元）、149-D（担当者が外れたときの処理）。150：150-C（再編集。EP-5-20。件名・説明・取引先・担当部署）。150-B（再開時の参加者の選び直し。5-1 AC-16）は実装済み |
-| 他の Issue に回すもの | 添付の公開範囲（#148 の148-B-2）、TODO の編集・削除・履歴・復元・担当者が外れたときの処理（#149 の149-B・C・D）、再編集（#150 の150-C）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
+| 148-B-2で作ったもの | 案件の添付の公開範囲。`message_attachments.publication_visibility`（migration 0030。2値・既定は`participants_only`）／アップロードのクエリ`publicationVisibility`（案件の部屋だけ）／変更の API（EP-1-23 `PATCH /api/attachments/:attachmentId`。判定の順・書き込みの条件・監査`case.attachment.visibility.change`・対象の種類`attachment`）／EP-5-19 の各項目の`publicationVisibility`・`canChangeVisibility`／返信の取得の応答の`caseRoom`／アップロードの応答の定義の分離（`UploadedAttachmentItem`）／添付の入力欄のファイルごとの選択（S-17 の部屋・スレッド、S-35 の案件のスレッド）／S-17 の一覧の公開範囲の表示と「公開範囲を変更」のダイアログ／`insertPending`を列の名前を明示した INSERT に直したこと／`canManageSql`の`case-access.sql.ts`への移動（下の「148-B-2 の設計」）。**公開範囲の値は、いまは、どの読み取りの資格にも使わない**。migration 0030 は**本番に未適用** |
+| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：なし（148-A・148-B-1・148-C・148-B-2 が実装済み。承認済み公開アーカイブでの非参加者への表示などは 5-5・5-6 の Issue）。149：149-B（TODO の編集・削除）、149-C（履歴・削除済みの一覧・復元）、149-D（担当者が外れたときの処理）。150：150-C（再編集。EP-5-20。件名・説明・取引先・担当部署）。150-B（再開時の参加者の選び直し。5-1 AC-16）は実装済み |
+| 他の Issue に回すもの | 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・審査中の一時閲覧・審査中／承認済みの変更の 409。5-5・5-6）、TODO の編集・削除・履歴・復元・担当者が外れたときの処理（#149 の149-B・C・D）、再編集（#150 の150-C）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
 
@@ -39,7 +40,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | --- | --- |
 | `backend/src/routes/cases.ts` | Controller。`GET /api/cases`・`/:caseId`・`/:caseId/detail`。入力の形の確認（`scope`・`status`は必須、`limit`・`cursor`。`caseId`は ULID の形。いずれも`strict`）と応答だけ。全応答に`noStore`。認証と送信元の確認は`app.ts`が`/api/*`に一括で適用する。`backend/src/index.ts`で`/api/cases`に登録 |
 | `backend/src/services/case.service.ts` | Service。認可・判定の順・存在の非開示・監査用のログ（`logger.audit`）。Repository が返した結果（詳細は`not_found`・`not_visible`）を 404・403 に分ける。管理の資格は、Service では判定しない（Repository が読み取りの SQL の中で決める）。HTTP を知らない |
-| `backend/src/db/case.repository.ts` | Repository。`list`（一覧）・`findSummary`（概要1件）・`findDetailExtras`（詳細だけの項目。操作者の ID を受け取り、戻り値は詳細の項目か`not_visible`か`not_found`）。`list`・`findSummary`は操作者の ID だけを受け取る。見える範囲と資格は SQL で決める。読み取りだけで、監査・通知は書かない |
+| `backend/src/db/case.repository.ts` | Repository。`list`（一覧）・`findSummary`（概要1件）・`findDetailExtras`（詳細だけの項目。操作者の ID を受け取り、戻り値は詳細の項目か`not_visible`か`not_found`）。`list`・`findSummary`は操作者の ID だけを受け取る。見える範囲と資格は SQL で決める。読み取りだけで、監査・通知は書かない。管理の資格の SQL の条件`canManageSql`は、148-B-2 で`backend/src/db/case-access.sql.ts`に移した（中身は同じ。案件の添付の Repository と共用） |
 | `backend/src/db/channel-member.sql.ts` | 「有効な参加者」の共通の部品`activeChannelMember`（下の節） |
 | `docs/api/openapi.json` | 3つの API の契約（`backend/src/openapi.test.ts`が実装と照合する） |
 
@@ -594,6 +595,127 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - **最終更新の副問い合わせは、既存の索引（`messages_room_id_id_idx`）で足りる**。実行計画のテストで確かめたうえで、索引を足さない（migration を避ける）
 - 利用者の切り替えを見張る本番の組み立て（#284 の枠）と違う枠でテストすると、正しい実装が落ちる。枠を通すテスト（`CaseUnread.app.test.tsx`）は、本番と同じ組み立てを使う
 
+## 148-B-2 の設計（案件の添付の公開範囲：選択・変更・一覧の表示）
+
+決定は[C-195](../requirements/decision-register.md)（細部）と[C-191](../requirements/decision-register.md)(1)〜(3)（利用者の決定）。要件は 5-2 AC-8・AC-9（AC-7 の項目の部分）、R-85、S-17・S-35、EP-1-09・EP-1-23・EP-5-19。**migration あり（0030）**。コードは書き写さず、ファイル名・関数名で指す。
+
+### 範囲の要点
+
+- ファイルごとに、「参加者限定」（`participants_only`。既定）か「全社員公開アーカイブで公開できる」（`public_archive`）を選ぶ。選べるのは案件の部屋（S-17 の部屋・S-17 のスレッド・S-35 の案件のスレッド）への添付だけ。通常のチャンネル・DM の添付の画面・動作は変えない
+- **公開範囲の値は、いまは、どの読み取りの資格にも使わない**。配信（`GET /api/attachments/:id`）・EP-5-19・部屋のメッセージ・単体のメッセージ・返信・スレッド一覧（`GET /api/me/threads`）のどれも、値によらず従来の資格のまま（参加者だけ）。「承認されるまでは参加者だけが見られる」（5-2 AC-8・C-64）のとおり。値で非参加者に見せる読み取りは、公開申請の機能（5-5・5-6）で足す。そのため`attachmentVisible`・`loadMessageAttachments`・`bindAttachments`・メッセージの表示の添付の項目（`AttachmentView`）は変えていない（メッセージの表示に公開範囲を出さない）。この「使わない」ことは、非参加者（一般・参加していない担当部署のオーナー・参加していない全体管理者）に対する上の6経路のテストで固定した
+- 案件でない部屋の行も、列は`participants_only`を持つ（「案件の部屋だけ」はほかの表の情報なので CHECK に書けない。値の意味があるのは案件の部屋の行だけ）。値の定義元は`shared/attachment-rules.ts`の`PUBLICATION_VISIBILITIES`・`DEFAULT_PUBLICATION_VISIBILITY`で、schema の CHECK・API の検証・画面の選択肢が参照する
+
+### ファイルと役割
+
+バックエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/db/schema.ts`・`backend/db/migrations/0030_add_attachment_publication_visibility.sql` | `message_attachments`に`publication_visibility`（`text`・NOT NULL・既定`participants_only`・2値の CHECK`message_attachments_publication_visibility_check`）を足した。`db:generate`がテーブルの作り直しを生成したため、ADR-0024 に従って`ALTER TABLE … ADD`に書き換えた（先頭にコメント）。既存の行は既定値で埋まる（追加だけで破壊的でない）。索引は足さない（この列で絞る読み取りがない）。**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後） |
+| `shared/attachment-rules.ts` | 値の定義元（`PUBLICATION_VISIBILITIES`・型・`DEFAULT_PUBLICATION_VISIBILITY`） |
+| `backend/src/db/attachment.repository.ts` | `insertPending`を、列の名前を明示した INSERT に直し（位置合わせをやめた。表に列が足されても値がずれない）、`publication_visibility`を足した。`PendingAttachmentInsert.publicationVisibility`は**必須**（省略で既定値に落とさない）。`pendingInsertable`は、従来の資格（`roomInsertable`に分けた）に、「参加者限定以外は案件専用チャンネルだけ」を足した（Service の 422 と同じ範囲の二重の守り） |
+| `backend/src/services/message.service.ts` | `requirePostable`が`{ caseRoom }`を、`requireReplyable`が親に`caseRoom`を足した形を返す（新しい読み取りを増やさない）。返信の取得（`listReplies`）の応答に`caseRoom`（スレッドの部屋が案件専用チャンネルか。DM は偽）を足した。表示の制御だけに使い、認可には使わない |
+| `backend/src/services/attachment.service.ts` | アップロードの判定の順に「公開範囲の指定（422）」を、ヘッダーの確認の後・本文を読む前に足した（`checkPublication`）。`UploadedAttachment`に`publicationVisibility`（案件の部屋なら値、ほかの部屋は`null`） |
+| `backend/src/routes/attachments.ts` | アップロードのクエリ`publicationVisibility`を任意の文字列として受けて Service に渡す（値の確かめは、部屋と権限の判定の後に Service が行う。部屋に入れない人に入力の正しさを教えない）。`attachmentRoutes()`に`PATCH /:attachmentId`を足した（`noStore`・`validate("param")`〔ULID の形。誤りは配信と同じ 422〕・`validate("json")`〔封筒だけ。値の確かめは Service〕） |
+| `backend/src/db/case-access.sql.ts` | 新規。`canManageSql`（管理の資格＝有効な全体管理者、または担当部署のどれかの有効なオーナー）を`case.repository.ts`から移した。中身は変えていない。`case.repository.ts`と`case-attachment.repository.ts`が使う |
+| `backend/src/db/case-attachment.repository.ts` | `findVisibilityFacts`（変更の判定の材料を1文で読む）・`visibilityChangeCondition`（書き込みの条件。下の節）・`changeVisibility`（監査と更新を1つの`db.batch`で）・`AttachmentStateChangedError`。一覧の各項目に`publicationVisibility`・`canChangeVisibility`を足した |
+| `backend/src/services/case-attachment.service.ts` | `changeVisibility`。判定の順は下の表。先頭のコメントにも同じ順を書いてある |
+| `backend/src/lib/audit-actions.ts` | `AUDIT_ACTIONS`に`case.attachment.visibility.change`、`AUDIT_TARGET_TYPES`に`attachment`を足した。`AUDIT_TARGET_TYPES`は監査の検索の入力の検証の定義元なので、足さないと、記録された行を「この対象で絞り込む」が 422 になる |
+| `docs/api/openapi.json` | EP-1-23（`PATCH`）の追加／アップロードの 2 つの入口のクエリ`publicationVisibility`／アップロードの 201 を新しい定義`UploadedAttachmentItem`（`AttachmentItem`の項目＋`publicationVisibility`〔2値か`null`〕）に替えた（`AttachmentItem`はメッセージの表示と共用なので変えない）／`CaseAttachmentItem`に 2 項目／`ReplyLatestPage`・`ReplyAfterPage`に`caseRoom`／監査の`action`・`targetType`の列挙値 |
+| `vitest.config.ts` | テストだけで使う空の D1`MIGRATION_UPGRADE_DB`を足した（migration の更新の試験。`DB`とは別の識別子。`wrangler.jsonc`は変えない） |
+
+フロントエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `features/messages/components/AttachmentList.tsx` | 送信前の一覧に、任意の props`publication`（業務を知らない設定の型`AttachmentPublicationConfig`＝選択肢・既定値・案内の文）を足した。渡したときだけ、各行に選択欄（共通部品`SelectField`。名前「{ファイル名} の公開範囲」。送信中は無効）と、案内を 1 つ出す |
+| `features/messages/components/MessageComposer.tsx` | 任意の props`publication`。選んだファイルと選んだ値を、1 つの配列（`{ file, visibility }`）で持つ（並列の配列にしない。取り消しで一緒に消える）。送るときは値を`usePostMessage`に渡す |
+| `features/messages/hooks/usePostMessage.ts`・`api/message-api.ts` | `publicationVisibilities`（`files`と同じ順）を足した。`uploadAttachment`は値があるときだけクエリに付ける。アップロードの応答は新しい`uploadedAttachmentSchema`で検証する（メッセージの表示の`attachmentSchema`は変えない）。返信の取得の zod に`caseRoom` |
+| `features/messages/components/ThreadReplies.tsx`・`RoomMessages.tsx`、`features/threads/components/ThreadLayout.tsx`・`ThreadPane.tsx` | `publication`を通す。`ThreadReplies`は、応答の`caseRoom`が真のときだけ入力欄に渡す（S-35 は、どの部屋のスレッドも同じ部品で開くため） |
+| `frontend/src/pages/ThreadsPage.tsx`・`features/cases/components/CaseConversation.tsx` | 案件の設定`CASE_ATTACHMENT_PUBLICATION`（`features/cases/labels.ts`）を渡す。`features/messages`・`features/threads`から`features/cases`は参照しない（組み合わせは`pages/`と`features/cases`で行う）。チャンネル・DM の画面は何も渡さない |
+| `features/cases/labels.ts` | 選択肢の名前（`PUBLICATION_VISIBILITY_LABELS`。「参加者限定」「全社員公開アーカイブで公開できる」）・案内（`PUBLICATION_VISIBILITY_HINT`）・設定・ダイアログと完了の文言 |
+| `features/cases/api/case-api.ts` | 一覧の zod に 2 項目、`changeAttachmentVisibility`（`PATCH /attachments/:id`。応答を検証） |
+| `features/cases/components/CaseAttachments.tsx`・`CaseAttachmentVisibilityDialog.tsx` | 各行に公開範囲の名前。`canChangeVisibility`の行だけに「{ファイル名} の公開範囲を変更」。ダイアログは、いまの値を選んだ状態の 2 択（`RadioGroup`）と案内・「変更」「キャンセル」。二重の確認は作らない。結果の表示は下の「画面」 |
+| `features/cases/components/CaseDetailView.tsx` | 開いている変更の対象を持ち、資格を失ったときにほかのダイアログと一緒に閉じる |
+| `features/cases/hooks/useCaseWrites.ts`・`useCaseAccessLoss.ts` | `useChangeAttachmentVisibility`（成功しても失敗しても`caseKeys.all`を取り直す。1 行を書き換えず、ページと続きの位置を崩さない）。資格を失ったことの検出の対象（#308）に添付の一覧の取得（`caseKeys.attachments`）を足した |
+| `features/audit-logs/action-labels.ts` | 操作の名前「案件の添付の公開範囲の変更」と対象の名前「添付ファイル」。`AuditLogsPage.tsx`の名前を解決する対象には足さない（ファイル名を監査の画面に出さない） |
+
+### アップロード（EP-1-09 の拡張）
+
+- クエリ`?publicationVisibility=participants_only|public_archive`（任意。本文がバイト列のため）。判定の順：部屋（`requireRoom`。404・409）→ `perm.attachment.upload`（403）→ ヘッダー（422）→ **公開範囲（422）**→ 本文の検査（422）→ 保存 → `insertPending`
+- 公開範囲：指定なしは`participants_only`。一覧にない値は 422（`fields: ["publicationVisibility"]`）。**案件の部屋でない部屋での指定は、値によらず（`participants_only`でも）同じ 422**。部屋に入れない人には、値が不正でも 404 が先
+- 応答は`{ id, name, kind, contentType, size, publicationVisibility }`。案件の部屋なら値、ほかの部屋は`null`（通常のチャンネル・DM の応答は、項目が増えるだけで、画面・動作は変わらない）
+- `insertPending`の 0 行（受信中の状態変化）は従来どおり：実体を消し、部屋の判定を読み直して 404・403・409。公開範囲による 0 行は、Service の 422 に先に当たるため通常は起きない
+
+### 公開範囲の変更（EP-1-23 `PATCH /api/attachments/:attachmentId`）
+
+本文`{ publicationVisibility }`、応答`200 { id, publicationVisibility }`（`Cache-Control: no-store`）。
+
+| 順 | 判定 | 結果 |
+| --- | --- | --- |
+| 1 | 認証・送信元の確認（`app.ts`）、ID の形（ルート） | 401・403・422（形の誤りは存在を漏らさない） |
+| 2 | 材料の読み取り（`findVisibilityFacts`）：添付が存在し、`attachmentVisible`（配信と同じ規則）を満たす | 見えない・存在しない：404「添付が見つかりません」（配信と同じ本文） |
+| 3 | 投稿済み | 未投稿（自分のものも）：2 と同じ 404 |
+| 4 | 案件の部屋の添付 | 通常のチャンネル・DM の添付：422（`fields: ["attachmentId"]`）。見える添付なので存在は漏れない |
+| 5 | 有効な参加者 | 参加者でない（参加の行が残っても無効・外された人を含む）：2 と同じ 404 |
+| 6 | `perm.case.view` → `perm.case.attachment.visibility.change`（会社の範囲） | 403（拒否は`authorize`が記録） |
+| 7 | 添付した本人、または管理の資格（`canManageSql`）。**参加の資格（5）とは別に、両方を求める** | どちらでもない：403「この添付の公開範囲は変更できません」 |
+| 8 | 本文（必須・2 値） | 422（`fields: ["publicationVisibility"]`） |
+| 9 | 案件が進行中 | 終了：409「終了した案件の添付の公開範囲は変更できません」 |
+| 10 | 今と同じ値 | 書かずに 200（監査も書かない） |
+| 11 | 書き込み | 0 行なら 2 から読み直して 3〜9 と同じ順・同じ応答。読み直した値が求めた値なら 200（書かない）。どれにも当たらなければ 409「状態が変わったため、変更できませんでした。読み込み直してからお試しください」（成功にしない） |
+
+- 404・403（7）・409 の拒否は`logger.audit`（`case.attachment.visibility.change`。対象は添付の ID。reason を持つ。**ファイル名を入れない**）に残す。DB の監査ログには成功だけを書く
+- 審査中・承認済みの公開申請での 409 は、公開申請の機能（5-5）が未実装のため、まだ判定にない（「既知の差」）
+- **再認証は求めない**（利用者の決定。C-191(1)）
+
+### 書き込みの条件と監査（`visibilityChangeCondition`・`changeVisibility`）
+
+- 書き込みの条件は、最初の判定（上の 2〜9 のうち行で決まるもの）を、**外側の行に依存しない独立した`EXISTS`**にしたもの：添付の ID・投稿済み・`attachmentVisible`（配信と同じ関数）・案件専用チャンネルの案件が進行中・`activeChannelMember`（有効な参加者）・（本人か`canManageSql`）・いまの値が読んだ値のまま（`publication_visibility = before`。版の列の代わり）。外側の行に依存しないので、監査の`INSERT … SELECT`（FROM なし。`auditLogInsert`の`onlyWhen`）と、`UPDATE`の WHERE の両方に同じ条件をそのまま入れられる。`perm.*`はロールで決まり DB の行にないので入れない（ロールの変更は次の要求から。`changeDueDate`と同じ方針）
+- `changeVisibility`：1 つの`db.batch`に、監査（先）→ `UPDATE … RETURNING`を入れる。監査が先なので、両方が同じ「更新前」の時点の条件を見る（片方だけ書かれない）。`RETURNING`が 0 件なら`AttachmentStateChangedError`を投げ、Service が上の 11 へ進む。案件の`version`は上げない（同時の終了は条件の「進行中」で守る）
+- 監査：action`case.attachment.visibility.change`・`targetType: "attachment"`・`targetId`は添付の ID・`detail`は平らな`{ caseId, before, after }`（ファイル名・投稿者名を入れない）
+- `findVisibilityFacts`の副問い合わせは、#294 に従い、外側の列を入れ子の SQL で渡し、内側の表に別名を付ける（相関が常に真にならない）。相関の誤り（別の添付・別の案件の行で条件が真になる）は、DB のテストで確かめる
+
+### 一覧（EP-5-19）の項目
+
+各項目に`publicationVisibility`と`canChangeVisibility`を足した（どちらも必須）。`canChangeVisibility`は、一覧を読む同じ文の中で決める（案件が進行中、かつ添付した本人か管理の資格）。参加の資格は、一覧の WHERE の既存の資格が求めている。終了した案件では全員が偽。**表示の制御だけで、認可は変更の API が毎回行う**。非参加者には、いままでどおり一覧を返さない（403）
+
+### 画面
+
+- **入力欄（S-17 の部屋・S-17 のスレッド・S-35 の案件のスレッド）**：添付を選ぶと、ファイルごとに選択欄（初期値は参加者限定）が出て、選択肢の近くに案内「全社員公開が承認されるまでは、参加者だけが見られます」を 1 つ出す。選んだ値はファイルごとにクエリに乗る。ファイルを取り消すと選んだ値も消える。S-35 は、案件の部屋かどうかを返信の取得の応答の`caseRoom`で見分ける（通常のチャンネル・DM のスレッドには出ない）
+- **S-17 の「添付ファイル」**：各行に公開範囲の名前を出す。`canChangeVisibility`の行だけに「公開範囲を変更」（名前にファイル名を含む）。ダイアログで選んで「変更」。送信中は「変更」「キャンセル」と、ほかの行の「公開範囲を変更」を押せない
+- **結果の表示（区画の側）**：成功はダイアログを閉じて「公開範囲を変更しました」（`role="status"`）。409・404・403 はダイアログを閉じて、区画に文（`role="alert"`。サーバーの文言）。422 はダイアログの中。**成功の文は次の操作の開始で、失敗の文は次の結果で消す**。変更の後は一覧を取り直す（ポーリングはしない）
+- **資格を失ったとき**：変更の後の取り直しや一覧の取り直しが 403・404 になれば、概要を確かめ、非参加なら添付の一覧のキャッシュを取り除き、ダイアログを閉じる（#308 の仕組み）
+
+### 同時の操作
+
+| 起きること | 守り方 |
+| --- | --- |
+| 同じ前の値を読んだ 2 人が、同じ変更先に変更する | 2 値で、同じ値なら書かないため、同じ前の値からの実の変更は同じ変更先になる。後の人は 0 行になり、読み直した値が求めた値なので 200。監査は先の 1 件だけ |
+| 判定の後に、案件が終了する | 0 行 → 読み直して 409（終了の文）。行・監査は変わらない。変更が先なら、終了は影響を受けない |
+| 判定の後に、参加の削除・無効化・メッセージの削除 | 0 行 → 読み直して 404（見えなくなった人に 403・409 を出さない） |
+| 判定の後に、オーナーの交代（本人でない人が、担当部署のオーナーでなくなる） | 0 行 → 読み直して 403 |
+| 判定の後に、`perm.case.attachment.visibility.change`がロールから外れる | この要求は通る（次の要求から 403） |
+| アップロード（`public_archive`）の受信中に、案件の終了・参加の解除 | 148-A のとおり 0 行 → 実体を消し、読み直して 409・404 |
+| 未投稿の添付の変更 | 3 の 404。結び付けと競合しない |
+
+### テストの場所（148-B-2）
+
+- DB（隔離した D1）：`backend/src/db/attachment-publication.schema.db.test.ts`（列・既定値・CHECK が 2 値以外と NULL を拒否）、`attachment-publication.upgrade.db.test.ts`（既存の行がある DB への migration の更新。テスト専用の空の D1`MIGRATION_UPGRADE_DB`で、0030 の直前まで適用 → 通常のチャンネル・DM・案件の部屋の添付〔投稿済み・未投稿〕を入れる → 0030 だけを適用 → 件数・既存の列・結び付きが保たれ、新しい列がすべて`participants_only`）、`attachment.repository.pending.db.test.ts`（登録：`public_archive`は案件の部屋だけ 1 行、ほかは 0 行。列の名前を明示した INSERT への書き換えの退行も同じファイル）、`case-attachment.visibility.db.test.ts`（書き込みの条件を 1 つずつ崩すと 0 行・監査 0 件、満たせば 1 行・監査 1 件。同じ案件の別の添付・別の案件の行が条件を満たしていても対象が条件を崩せば 0 行〔相関〕）、`case-attachment.list-visibility.db.test.ts`・`case-attachment.repository.db.test.ts`（一覧の 2 項目）
+- Service・割り込み：`backend/src/services/case-attachment.visibility.test.ts`（判定の順・拒否の記録にファイル名がないこと）、`case-attachment.visibility-race.test.ts`（判定の後・書き込みの前の割り込み 6 件）、`attachment.service.test.ts`・`attachment.service.upload.test.ts`
+- 結合：`backend/src/routes/attachments.visibility.test.ts`（EP-1-23 の応答・エラー・非参加者の 404 が存在しない添付と同じ本文）、`attachments.visibility-reads.test.ts`（**公開範囲が`public_archive`でも、非参加者に 6 つの読み取りの経路で返さないこと**。参加者は対照）、`attachments.case-room.test.ts`（アップロードの指定・422・R2 に残らない）、`messages.replies.case-room.test.ts`（返信の取得の`caseRoom`）、`audit-logs.attachment.test.ts`（記録された行を`targetType=attachment`で絞り込める）、`cases.attachments.test.ts`・`attachments.test.ts`・`messages.replies.authz.test.ts`
+- 契約：`backend/src/openapi.attachment-visibility.test.ts`（EP-1-23・クエリ・`UploadedAttachmentItem`・`AttachmentItem`が変わっていないこと・`caseRoom`・監査の列挙値）、`openapi.case-attachments.test.ts`・`openapi.test.ts`・`lib/audit-actions.test.ts`・`audit-actions.case-attachment.test.ts`
+- 画面：`frontend/src/features/messages/components/MessageComposer.publication.test.tsx`、`api/message-api.publication.test.ts`、`frontend/src/pages/CaseDetailPage.publication.test.tsx`（S-17）、`ThreadsPage.publication.test.tsx`（S-35）、`CaseDetailPage.attachment-visibility.test.tsx`（一覧・ダイアログ・結果の表示）、`CaseAccessLoss.test.tsx`（添付の一覧の取り直しが 403 のとき）、`features/audit-logs/action-labels.attachment.test.ts`。MSW は`frontend/src/test/case-attachment-handlers.ts`・`attachment-handlers.ts`・`message-handlers.ts`
+- E2E：`e2e/case-attachment-visibility.spec.ts`（6 件。本人が全社員公開アーカイブで公開できるを選んで添付 → 一覧に表示 → 参加者限定に変更 → S-35 から案件のスレッドへ返信すると選択が出る → ほかの参加者にはボタンが出ない → 担当部署のオーナー〔参加者〕は変更できる → 非参加者の配信は 404。[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/case-attachment-visibility.sql`、後始末は`case-attachment-visibility-cleanup.sql`（実体は手元の R2 から先に消す）
+
+### 設計の判断（知見）
+
+- **既存の表に列を足すとき、位置合わせの`INSERT … SELECT`は壊れる**。列の名前を明示した INSERT に先に直し、退行のテストが通ることを確かめてから列を足した
+- **書き込みの条件は、外側の行に依存しない独立した`EXISTS`にする**。監査の`INSERT … SELECT`は FROM がなく、外側の添付の行の列を書けない。独立させれば、同じ条件を監査と更新の両方に入れられる。ただし、内側の表の解釈を誤ると別の添付の行で条件が真になるため、相関を DB のテストで確かめる
+- **管理の資格と、参加の資格は別**（148-B-1 と同じ）。変更は「有効な参加者」かつ「本人か管理の資格」の両方を求める（R-85）
+- **値を持つだけで、使わない**。公開範囲は、読み取りの資格に使う機能（5-5・5-6）の前に、値だけを先に持つ。使っていないことを、全部の読み取りの経路のテストで固定した
+- **既存のテスト・契約の期待を足したもの**：`openapi.case-attachments.test.ts`（一覧の項目の完全一致）、`lib/audit-actions.test.ts`（一覧の完全一致）、返信の取得の応答を見る既存のテスト・見本（`caseRoom`）、アップロードの応答を見る既存のテスト（`publicationVisibility`）
+
 ## 149-A の設計（案件の TODO：一覧・進捗・追加・完了・完了の取り消し）
 
 決定は[C-188](../requirements/decision-register.md)。要件は 5-4 AC-1〜AC-5、AC-6（選べるのは有効な参加者だけ、の部分）、AC-7（追加・完了・取り消しと進捗）、AC-9（追加・完了・取り消し）、AC-11（記録を残す。見せるのは 149-C）、1-9 AC-2、5-1 AC-2 の進捗。コードは書き写さず、ファイル名・関数名で指す。
@@ -957,14 +1079,21 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 既存の案件への自動参加の補完 SQL（`backfill-case-auto-participants.sql`） | 作成済み・**どの環境にも未実行**。本番への実行は、利用者の承認が別に必要 |
 | 異動・再有効化で案件の参加の行が変わらないこと／外れること | コードは変えず、テストで固定した（147-C-2） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
-| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029 は**本番に未適用**（適用は、利用者の承認の後） |
+| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029 と、148-B-2 の migration 0030 は**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後） |
 | API 仕様（`docs/api/openapi.json`）の ULID の`pattern` | 案件の経路だけ、実装の ULID の形と一致させた。ほかの経路を含む全体は Issue #289 |
 | 案件のやり取り（S-17）、終了した案件の読み取り専用、案件の権限の確認 | 148-A で実装済み（下の「148-A の設計」） |
 | 案件の添付の一覧と元の投稿への移動 | 148-B-1 で実装済み（下の「148-B-1 の設計」）。C-184(4) |
-| 添付の公開範囲の選択・変更（5-2 AC-8・AC-9。一覧の`publicationVisibility`の項目と「公開範囲を変更」） | 作らない。#148 の148-B-2（migration を伴う）。148-B-1 の一覧は、公開範囲の項目を持たず、参加者だけに返す（承認済みアーカイブでの非参加者の一覧・「参加者限定の添付」の表示は 5-5・5-6 の Issue） |
+| 添付の公開範囲の選択・変更（5-2 AC-8・AC-9。一覧の`publicationVisibility`の項目と「公開範囲を変更」） | 148-B-2 で実装済み（下の「148-B-2 の設計」。C-195）。148-B-1 の時点では、一覧は公開範囲の項目を持たなかった |
+| 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・一覧・「参加者限定の添付」の表示、審査中の承認権限者の一時閲覧） | 作らない。**公開範囲の値は、いまは、どの読み取りの資格にも使わない**（配信・一覧・メッセージ・返信・スレッド一覧は、値によらず参加者だけ。テストで固定済み）。5-5・5-6 の Issue |
+| 公開範囲の変更が、公開申請の審査中・承認済みで 409 になること（5-2 AC-9 の原文） | 作らない。公開申請（5-5）が未実装のため、変更の判定・書き込みの条件にまだない。5-5 の Issue で、`case-attachment.repository.ts`の`visibilityChangeCondition`と`case-attachment.service.ts`の`changeVisibility`に足す。再開後の承認済みの状態の扱いも 5-5 |
+| 公開範囲の往復の変更の検出 | しない。2 値で「同じ値なら書かない」ため、ほかの人が P→X→P と戻した後に、古い読み（P）で X を求めると通る（監査には 3 件残り経緯は分かる）。また、読んだ後にほかの人が求めた値に変えていれば、書かずに 200 を返す（応答は読んだ時点の値で、画面は取り直して実際の値を出す）。版の列は足さない（最後の操作が勝つ） |
+| 添付の一覧が、公開範囲の変更の後に自動では更新されないこと | ほかの人の変更は、開き直すか、自分の操作の後の取り直しで出る（ポーリングなし。#117 の既存の動き）。自分の変更は`caseKeys.all`の取り直しで出る |
+| メッセージの表示（S-05・S-06・S-07）の添付に公開範囲を出すこと | 出さない（要件の指定なし。公開範囲は S-17 の一覧と入力欄だけ） |
+| migration 0030（`message_attachments.publication_visibility`） | **本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後）。手元の DB には適用して確かめた |
 | 添付の一覧の自動の更新 | しない（ポーリングなし。#117 の既存の動き）。ほかの人の添付は、開き直すか、自分の添付つきの投稿・返信の成功の後に出る |
 | 添付の一覧の種類（`kind`）の表示 | 出さない（応答には含める）。画面は名前・大きさ・投稿者・日時だけ |
-| 添付の削除 | 作らない。#270（一覧の項目にも削除の操作はない） || 終了した案件の実際の状態 | 150-A で終了・再開の操作を実装した（解消。下の「150-A の設計」）。以前は、終了した案件はテストのデータ・シードにしか存在せず、書き込みの 409 は DB に直接`status`を書いて確かめていた |
+| 添付の削除 | 作らない。#270（一覧の項目にも削除の操作はない） |
+| 終了した案件の実際の状態 | 150-A で終了・再開の操作を実装した（解消。下の「150-A の設計」）。以前は、終了した案件はテストのデータ・シードにしか存在せず、書き込みの 409 は DB に直接`status`を書いて確かめていた |
 | 審査中の公開申請・再開申請の自動取消・取り下げ（5-1 AC-10 の原文、C-142 の案） | 作らない。申請の仕組み（5-5・5-6）が未実装。#153（後回し）・5-5 の Issue で扱う |
 | 再開時の参加者の選び直し（5-1 AC-16）と、確定前の確認の表示 | 150-B で実装済み（解消。下の「150-B の設計」。C-194）。150-A では、いまの参加者のまま再開していた。確定のボタンは「危険な操作」の見た目のまま（外れる人の内容が見えなくなる操作のため） |
 | 再開で外した人の TODO の担当（5-4 AC-6。「参加者削除・再開時の除外・無効化で担当者が外れた場合、未完了TODOは現在担当をなしにする」） | **150-B では実装しない**（未実装）。#149 の149-D が、参加者の削除・無効化・再開の除外の3経路をまとめて作る（C-188(1)・C-194(8)）。149-D まで、再開で外れた人が担当のままの TODO が残る（参加者の削除・退出・無効化と同じ既知の差）。`buildReopenStatements`に、149-D が文を差す位置（参加の行の削除の直前）を示してある |
@@ -999,7 +1128,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 
 - Issue #147：本Issue（4つの子に分ける。147-A が最初）。依存は#146（[case-requests.md](case-requests.md)）。参加の行を使う経路の変更は147-C-1、参加者・納期は147-B（実装済み）、無効化・異動・オーナー交代は147-C-2
 - [ADR-0006](../adr/0006-id-cursor-unread.md)：IDとカーソル／[ADR-0012](../adr/0012-zero-trust-principle.md)：サーバー側で毎回認可する／[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)：ミューテーション・E2Eの実行範囲
-- Issue #148：案件のやり取り（3つの子に分ける。148-A が最初。依存は #147・#284・#297・#294）。要件：5-2 AC-1〜AC-6（AC-3 は参加者の閲覧・取得の部分）・5-1 AC-11、R-62〜R-64、S-17・S-07・S-35。決定記録[C-184](../requirements/decision-register.md)。148-B-1（添付の一覧。5-2 AC-7 の参加者の部分、EP-5-19）の決定は[C-191](../requirements/decision-register.md)。148-C（S-16 の最終更新・未読、サイドバーの未読の印。5-1 AC-4 の残り）の決定は C-191(4)・[C-192](../requirements/decision-register.md)。関連する設計：[messages.md](messages.md)・[threads.md](threads.md)・[attachments.md](attachments.md)・[unread.md](unread.md)・[channels.md](channels.md)
+- Issue #148：案件のやり取り（3つの子に分ける。148-A が最初。依存は #147・#284・#297・#294）。要件：5-2 AC-1〜AC-6（AC-3 は参加者の閲覧・取得の部分）・5-1 AC-11、R-62〜R-64、S-17・S-07・S-35。決定記録[C-184](../requirements/decision-register.md)。148-B-1（添付の一覧。5-2 AC-7 の参加者の部分、EP-5-19）の決定は[C-191](../requirements/decision-register.md)。148-C（S-16 の最終更新・未読、サイドバーの未読の印。5-1 AC-4 の残り）の決定は C-191(4)・[C-192](../requirements/decision-register.md)。148-B-2（添付の公開範囲。5-2 AC-8・AC-9、R-85、EP-1-23。migration 0030）の決定は C-191(1)〜(3)・[C-195](../requirements/decision-register.md)、関連：[ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)（列の追加の migration の書き換え）。関連する設計：[messages.md](messages.md)・[threads.md](threads.md)・[attachments.md](attachments.md)・[unread.md](unread.md)・[channels.md](channels.md)
 - Issue #149：案件の TODO（4つの子に分ける。149-A が最初。依存は #148）。要件：5-4 AC-1〜AC-5・AC-6（選べる人の部分）・AC-7・AC-9・AC-11（記録）、1-9 AC-2、5-1 AC-2 の進捗、R-76・R-78、S-16・S-17、EP-5-13・14・17・18。決定記録[C-188](../requirements/decision-register.md)。関連：[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)
 - 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。147-B：5-1 AC-3・AC-7（外せない部分）・AC-11（終了中は不可）・AC-17（変更）・AC-21（納期の変更）、EP-5-09・EP-5-10。決定記録[C-182](../requirements/decision-register.md)
 - Issue #150：案件の終了・再開・再編集（3つの子に分ける。150-A が最初。依存は #148 の148-A）。要件：5-1 AC-8〜AC-11・AC-13、3-3 AC-1〜AC-3、R-77、S-17、EP-5-11・EP-5-12。決定記録[C-189](../requirements/decision-register.md)。150-B（再開のときの参加者の選び直し。5-1 AC-13・AC-16、3-3 AC-2・AC-3）の決定は[C-194](../requirements/decision-register.md)。依存は #149-A・#308

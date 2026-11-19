@@ -250,6 +250,8 @@ describe("#147 147-C-1 認証 → 無効化（参加の行は残す）→ 添付
     }).uploadToRoom(actor, room.roomId, {
       name: "[UNIT_TEST]memo.txt",
       contentLength: TEXT_BYTES.length,
+      // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+      publicationVisibility: undefined,
       body: new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(TEXT_BYTES);

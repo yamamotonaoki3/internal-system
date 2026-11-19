@@ -133,7 +133,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 
 | 関数 | 入力 | 出力 |
 | --- | --- | --- |
-| `createMessageService().listReplies` | 利用者・親ID・`after`または`cursor`と`limit` | `parent`・`replyBlockedReason`・`joined`・`roomWritable`・`items`（`after`なら`hasMore`、最新なら`nextCursor`）。見えなければ404（`AppError`） |
+| `createMessageService().listReplies` | 利用者・親ID・`after`または`cursor`と`limit` | `parent`・`replyBlockedReason`・`joined`・`roomWritable`・`caseRoom`（【#148の148-B-2】スレッドの部屋が案件専用チャンネルか。DMは偽。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない。[cases.md](cases.md)）・`items`（`after`なら`hasMore`、最新なら`nextCursor`）。見えなければ404（`AppError`） |
 | `createMessageService().postReply` | 利用者・親ID・本文 | `{ id, roomId, parentMessageId, createdAt }`。404・403・409・503（`AppError`）【Issue #140：入力に`attachmentIds`（任意）を足した。返信用にアップロードした、同じ親の添付だけを結び付けられる】 |
 | `insertReplyIfOrdered` | 返信の各値 | 挿入した行数（1か0） |
 | `createThreadService().list` | 利用者・`limit`・`cursor` | `{ items, nextCursor }`（`ThreadItem`） |

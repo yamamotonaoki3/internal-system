@@ -25,6 +25,18 @@ export const ATTACHMENT_CONTENT_TYPES = [
 ] as const;
 export type AttachmentContentType = (typeof ATTACHMENT_CONTENT_TYPES)[number];
 
+/**
+ * 案件の添付の公開範囲（要件 5-2 AC-8）。参加者限定と、全社員公開アーカイブで公開できる、の2値。
+ * 公開できるの選択は即時公開を意味せず、全社員公開が承認されるまでは参加者だけが見られる（読み取りの資格には使わない）。
+ */
+export const PUBLICATION_VISIBILITIES = [
+  "participants_only",
+  "public_archive",
+] as const;
+export type PublicationVisibility = (typeof PUBLICATION_VISIBILITIES)[number];
+export const DEFAULT_PUBLICATION_VISIBILITY: PublicationVisibility =
+  "participants_only";
+
 /** 1メッセージに付けられる添付の数 */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 

@@ -100,6 +100,8 @@ export function uploadFile(
     headers?: Record<string, string>;
     omit?: readonly string[];
     envOverrides?: Record<string, unknown>;
+    /** #148（148-B-2）：クエリ（例："?publicationVisibility=public_archive"） */
+    query?: string;
   } = {},
 ) {
   const headers: Record<string, string> = {
@@ -109,7 +111,7 @@ export function uploadFile(
     ...options.headers,
   };
   for (const key of options.omit ?? []) delete headers[key];
-  return rawRequest("POST", uploadPathOf(target), {
+  return rawRequest("POST", `${uploadPathOf(target)}${options.query ?? ""}`, {
     token,
     headers,
     body: new Uint8Array(bytes),

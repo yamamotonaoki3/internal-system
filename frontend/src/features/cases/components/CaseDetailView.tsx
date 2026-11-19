@@ -7,12 +7,13 @@
 // 結果（完了・失敗の文言）はダイアログの外に出す。送った後は結果によらずダイアログを閉じる（409 なら状態が変わっているので、同じ確認を出し続けない）。
 // 再開（150-B）は参加者の選び直しのダイアログ（CaseReopenDialog）。422 だけはダイアログを閉じず、選ぶ段階の欄（addUserIds は社員の検索）か、ダイアログの全体に出す。
 // 参加者の本文は、説明 → 参加者 → TODO（#149。CaseTodoSection）→ 添付ファイル（#148。CaseAttachments）→ やり取り（#148。CaseConversation）の順に見出しで縦に並べる（C-184(3)。タブは作らない）。
-// 表示中に外されたこと（#308）は useCaseAccessLoss が見つけ、非公開の表示（概要が非参加）・確かめられない表示（再試行）に切り替え、ダイアログを閉じる。
+// 表示中に外されたこと（#308）は useCaseAccessLoss が見つけ、非公開の表示（概要が非参加）・確かめられない表示（再試行）に切り替え、ダイアログ（添付の公開範囲の変更も）を閉じる。
 // TODO の一覧は、参加者が取る（詳細の失敗の間も、外されたことの検出の契機にする。#308）。添付の一覧は、詳細が取れた参加者だけが取る。参加者のヘッダーの進捗は、区画と同じ TODO の一覧の取得から出す（2秒ごとに両方が一致する。#149 計画 6.9(4)）。非参加者は概要の進捗。
 import { useCallback, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import type {
+  CaseAttachment,
   CaseReopenBody,
   CaseSummary,
   TodoProgress,
@@ -119,12 +120,17 @@ export function CaseDetailView({
     isParticipant && detail.isSuccess,
   );
   const [open, setOpen] = useState<OpenDialog>(null);
+  const [visibilityTarget, setVisibilityTarget] =
+    useState<CaseAttachment | null>(null);
   const writes = useParticipantWrites(caseId);
   const roomId = detail.data?.channelId ?? null;
   const statusChange = useCaseStatusChange(caseId, roomId);
   const [statusResult, setStatusResult] = useState<StatusChangeResult>();
   const [reopenInvalid, setReopenInvalid] = useState<ReopenInvalid>();
-  const closeDialog = useCallback(() => setOpen(null), []);
+  const closeDialog = useCallback(() => {
+    setOpen(null);
+    setVisibilityTarget(null);
+  }, []);
   const accessLoss = useCaseAccessLoss({
     caseId,
     userId: selfId,
@@ -306,7 +312,11 @@ export function CaseDetailView({
           participants={detail.data.participants}
           todos={todos}
         />
-        <CaseAttachments attachments={attachments} />
+        <CaseAttachments
+          attachments={attachments}
+          visibilityTarget={visibilityTarget}
+          onVisibilityTargetChange={setVisibilityTarget}
+        />
         <CaseConversation
           caseId={caseId}
           selfId={selfId}

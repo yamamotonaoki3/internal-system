@@ -15,6 +15,7 @@ API と DB・Workers の実行環境（wrangler）を組み合わせて確かめ
 1. `npm install`
 1. `.env.example` を `.env.test` にコピーし、`APP_ENV=test` と検証用の値を入れる
 1. テスト用の D1 は、`npm test` のときに一時的に作られ、マイグレーションが適用される（準備は不要）
+   - 別に、migration の更新の試験だけで使う空の D1（バインディング`MIGRATION_UPGRADE_DB`。`vitest.config.ts`で足してある）も、同じく一時的に作られる。準備は不要で、`DB`とは別の識別子。使い方は`docs/project-rules.md`の migration の決まり
 
 ## 3. 確認の方法
 

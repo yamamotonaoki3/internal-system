@@ -16,6 +16,7 @@ import {
 } from "../hooks/useThreadReplies";
 import type { RoomMessage } from "../api/message-api";
 import { isRetiredAuthor } from "../retired-author";
+import type { AttachmentPublicationConfig } from "./AttachmentList";
 import { MessageComposer } from "./MessageComposer";
 import { MessageItem } from "./MessageItem";
 import { MessageList } from "./MessageList";
@@ -43,6 +44,8 @@ type ThreadRepliesProps = {
   onReplied?: () => void;
   /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
   onDeleted?: () => void;
+  /** 案件のスレッド（応答の caseRoom が真）の入力欄で、添付ごとに公開範囲を選ばせる設定 */
+  publication?: AttachmentPublicationConfig;
 };
 
 function ReplyArea({
@@ -50,11 +53,13 @@ function ReplyArea({
   reason,
   userId,
   onReplied,
+  publication,
 }: {
   parent: RoomMessage;
   reason: ReplyBlockedReason | null;
   userId: string | undefined;
   onReplied?: () => void;
+  publication?: AttachmentPublicationConfig;
 }) {
   if (reason !== null) return <Alert tone="info">{BLOCKED_TEXT[reason]}</Alert>;
   return (
@@ -65,6 +70,7 @@ function ReplyArea({
       parentMessageId={parent.id}
       userId={userId}
       onPosted={onReplied}
+      publication={publication}
     />
   );
 }
@@ -87,6 +93,7 @@ export function ThreadReplies({
   onLatestReplyIdChange,
   onReplied,
   onDeleted,
+  publication,
 }: ThreadRepliesProps) {
   const thread = useThreadReplies(parentMessageId);
   // リアクションのピッカーは、親と返信を通して同時に1つだけ開く
@@ -148,6 +155,8 @@ export function ThreadReplies({
         reason={reason}
         userId={userId}
         onReplied={onReplied}
+        // 案件でない部屋のスレッドでは、渡されても出さない（スレッド一覧からは、どの部屋のスレッドも同じ部品で開く）
+        publication={data.caseRoom ? publication : undefined}
       />
     </div>
   );

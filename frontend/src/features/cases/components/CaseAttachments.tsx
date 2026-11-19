@@ -2,7 +2,11 @@
 // 4つの状態（読み込み中・エラーと再試行・0件・あり）を分ける。続きの失敗は、読み込み済みの行を残して区画の中に出す。取得は CaseDetailView が持つ（参加者で詳細が取れたときだけ）。
 // 「元のメッセージへ」は、スレッド（S-07）を ?thread= で開く。返信なら親の ID、トップレベルならそのメッセージの ID（C-184(4)）。
 // ファイルは元のメッセージに結び付いたまま、取得は配信（/api/attachments/{id}）が毎回判定する（C-62）。
-import { useId } from "react";
+// 各行に公開範囲を出し、変えられる行（canChangeVisibility）だけに「公開範囲を変更」を出す（5-2 AC-9。表示の制御だけで、認可はサーバー）。
+// 開いている変更の対象は CaseDetailView が持つ（外されたときに、ほかのダイアログと一緒に閉じるため）。結果は区画の中に出す：
+// 成功・422 以外の失敗はダイアログを閉じて区画に出し、422 はダイアログの中に出す。成功の文は次の変更の開始で、失敗の文は次の結果で消す。
+import { useId, useState } from "react";
+import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import {
@@ -12,15 +16,28 @@ import {
 } from "../../messages";
 import { useThreadParam } from "../../threads";
 import type { CaseAttachment } from "../api/case-api";
+import { describeError, isApiError } from "../describe-error";
 import type { useCaseAttachments } from "../hooks/useCaseAttachments";
-import { CASE_ATTACHMENTS_TEXTS, retiredName } from "../labels";
+import { useChangeAttachmentVisibility } from "../hooks/useCaseWrites";
+import {
+  CASE_ATTACHMENTS_TEXTS,
+  PUBLICATION_VISIBILITY_LABELS,
+  retiredName,
+} from "../labels";
+import { CaseAttachmentVisibilityDialog } from "./CaseAttachmentVisibilityDialog";
+
+type ChangeResult = { tone: "info" | "error"; text: string };
 
 function AttachmentRow({
   attachment,
+  changing,
   onJump,
+  onChangeVisibility,
 }: {
   attachment: CaseAttachment;
+  changing: boolean;
   onJump: (parentMessageId: string) => void;
+  onChangeVisibility: (attachment: CaseAttachment) => void;
 }) {
   const { uploader } = attachment;
   return (
@@ -43,6 +60,9 @@ function AttachmentRow({
       <time dateTime={attachment.uploadedAt} className="text-sm">
         {formatMessageTime(attachment.uploadedAt)}
       </time>
+      <span className="text-sm">
+        {PUBLICATION_VISIBILITY_LABELS[attachment.publicationVisibility]}
+      </span>
       <Button
         variant="ghost"
         onClick={() =>
@@ -51,17 +71,64 @@ function AttachmentRow({
       >
         {CASE_ATTACHMENTS_TEXTS.jump}
       </Button>
+      {attachment.canChangeVisibility && (
+        <Button
+          variant="ghost"
+          disabled={changing}
+          onClick={() => onChangeVisibility(attachment)}
+        >
+          {CASE_ATTACHMENTS_TEXTS.changeVisibility(attachment.name)}
+        </Button>
+      )}
     </li>
   );
 }
 
 export function CaseAttachments({
   attachments,
+  visibilityTarget,
+  onVisibilityTargetChange,
 }: {
   attachments: ReturnType<typeof useCaseAttachments>;
+  /** 公開範囲の変更のダイアログで開いている添付（閉じていれば null） */
+  visibilityTarget: CaseAttachment | null;
+  onVisibilityTargetChange: (attachment: CaseAttachment | null) => void;
 }) {
   const headingId = useId();
   const thread = useThreadParam();
+  const change = useChangeAttachmentVisibility();
+  const [result, setResult] = useState<ChangeResult>();
+  const [dialogError, setDialogError] = useState<string>();
+
+  function openDialog(attachment: CaseAttachment) {
+    setDialogError(undefined);
+    onVisibilityTargetChange(attachment);
+  }
+
+  function submit(attachmentId: string, value: PublicationVisibility) {
+    setDialogError(undefined);
+    if (result?.tone === "info") setResult(undefined);
+    change.mutate(
+      { attachmentId, publicationVisibility: value },
+      {
+        onSuccess: () => {
+          setResult({
+            tone: "info",
+            text: CASE_ATTACHMENTS_TEXTS.visibilityChanged,
+          });
+          onVisibilityTargetChange(null);
+        },
+        onError: (cause) => {
+          if (isApiError(cause) && cause.status === 422) {
+            setDialogError(cause.message);
+            return;
+          }
+          setResult({ tone: "error", text: describeError(cause) });
+          onVisibilityTargetChange(null);
+        },
+      },
+    );
+  }
 
   function renderBody() {
     // 続き（2ページ目以降）の失敗は、1ページ目の失敗と分ける（読み込み済みの行を隠さない）
@@ -88,7 +155,9 @@ export function CaseAttachments({
             <AttachmentRow
               key={attachment.id}
               attachment={attachment}
+              changing={change.isPending}
               onJump={thread.open}
+              onChangeVisibility={openDialog}
             />
           ))}
         </ul>
@@ -124,7 +193,26 @@ export function CaseAttachments({
       <h2 id={headingId} className="mb-2 text-lg font-bold">
         {CASE_ATTACHMENTS_TEXTS.heading}
       </h2>
+      {result !== undefined && (
+        <Alert
+          tone={result.tone}
+          role={result.tone === "error" ? "alert" : "status"}
+        >
+          {result.text}
+        </Alert>
+      )}
       {renderBody()}
+      {visibilityTarget !== null && (
+        <CaseAttachmentVisibilityDialog
+          // 別の添付を開いたら、選択を持ち越さない
+          key={visibilityTarget.id}
+          current={visibilityTarget.publicationVisibility}
+          pending={change.isPending}
+          error={dialogError}
+          onSubmit={(value) => submit(visibilityTarget.id, value)}
+          onClose={() => onVisibilityTargetChange(null)}
+        />
+      )}
     </section>
   );
 }

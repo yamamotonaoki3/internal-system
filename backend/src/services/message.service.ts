@@ -265,13 +265,14 @@ export function createMessageService(
   }
 
   // 新規投稿だけが、お知らせ専用の投稿権限を追加で要求する。
+  // 部屋が案件専用チャンネルかを返す（添付の公開範囲の確かめに使う。読み取りを増やさないため）
   async function requirePostable(
     roomId: string,
     actor: MessageActor,
     kind: RoomWriteKind,
-  ) {
+  ): Promise<{ caseRoom: boolean }> {
     const room = await requireParticipatingRoom(roomId, actor);
-    if (room.kind === "direct") return;
+    if (room.kind === "direct") return { caseRoom: false };
     await authorizeCase(actor, room, "perm.case.post");
     requireCaseOpen(
       actor,
@@ -290,9 +291,10 @@ export function createMessageService(
         "perm.announcement.post",
         { type: "department", departmentId: channel.departmentId },
       );
+    return { caseRoom: channel.caseId !== null };
   }
 
-  // 返信の ①〜⑥（上の判定の順）。親（と部屋）を返す
+  // 返信の ①〜⑥（上の判定の順）。親と、部屋が案件専用チャンネルかを返す
   async function requireReplyable(
     actor: MessageActor,
     parentId: string,
@@ -340,7 +342,10 @@ export function createMessageService(
         "CONFLICT",
         "部署が無効になっているため、返信できません",
       );
-    return parent;
+    return {
+      ...parent,
+      caseRoom: room.kind === "channel" && room.channel.caseId !== null,
+    };
   }
 
   // 返信の取得の ①②（親が見えるか・返信でないか）と、返信できない理由。理由は表示の制御だけで、認可は postReply が改めて行う
@@ -715,12 +720,13 @@ export function createMessageService(
               query.cursor,
               actor.userId,
             );
-      // joined・roomWritable は表示の制御用（認可は postReply が改めて行う）
+      // joined・roomWritable・caseRoom は表示の制御用（認可は postReply・アップロードが改めて行う）
       return {
         parent: parentItem,
         replyBlockedReason,
         joined: state.joined,
         roomWritable: state.roomWritable,
+        caseRoom: room.kind === "channel" && room.channel.caseId !== null,
         ...page,
       };
     },

@@ -340,6 +340,8 @@ describe("#137 AC-1（1-4 AC-1・コードレビュー）EP-1-07 の応答の jo
       expect(Object.keys(page).sort(), query).toEqual(
         query === ""
           ? [
+              // #148（148-B-2）caseRoom を足した
+              "caseRoom",
               "items",
               "joined",
               "nextCursor",
@@ -348,6 +350,7 @@ describe("#137 AC-1（1-4 AC-1・コードレビュー）EP-1-07 の応答の jo
               "roomWritable",
             ]
           : [
+              "caseRoom",
               "hasMore",
               "items",
               "joined",

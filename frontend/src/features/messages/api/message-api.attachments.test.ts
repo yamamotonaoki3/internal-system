@@ -20,6 +20,8 @@ const CREATED = {
   kind: "document",
   contentType: "application/pdf",
   size: 10,
+  // #148（148-B-2）アップロードの応答（UploadedAttachmentItem）に加わる項目。案件でない部屋は null
+  publicationVisibility: null,
 };
 
 let ejectId: number | null = null;

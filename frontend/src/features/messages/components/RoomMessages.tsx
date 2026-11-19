@@ -6,6 +6,7 @@ import { Alert } from "../../../components/Alert";
 import { useSignedInUserId } from "../../auth";
 import { isApiError } from "../describe-error";
 import { useRoomMessages } from "../hooks/useRoomMessages";
+import type { AttachmentPublicationConfig } from "./AttachmentList";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 
@@ -33,6 +34,8 @@ type RoomMessagesProps = {
   onLatestMessageIdChange?: (messageId: string) => void;
   /** スレッドを開く。あれば、各メッセージに「返信 n 件」のボタンを出す */
   onOpenThread?: (parentMessageId: string) => void;
+  /** 入力欄で、添付ごとに公開範囲を選ばせる設定（案件の部屋だけが渡す） */
+  publication?: AttachmentPublicationConfig;
 };
 
 export function RoomMessages({
@@ -49,6 +52,7 @@ export function RoomMessages({
   onPostError,
   onLatestMessageIdChange,
   onOpenThread,
+  publication,
 }: RoomMessagesProps) {
   const messages = useRoomMessages(roomId);
   const userId = useSignedInUserId();
@@ -83,6 +87,7 @@ export function RoomMessages({
             userId={userId}
             onPosted={onPosted}
             onPostError={onPostError}
+            publication={publication}
           />
         ) : (
           <Alert tone="info">{cannotPostText}</Alert>

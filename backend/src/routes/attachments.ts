@@ -4,12 +4,13 @@
 //     ヘッダーの中身の確かめ（422）は、部屋と権限の判定の後に Service が行う（本文は判定がすべて済むまで読まない）。
 //   GET /api/attachments/:attachmentId
 //     Content-Type はサーバーの検査の結果だけ。画像・動画は inline、それ以外は attachment。正しい単一の Range だけ 206 で返す。
+//   PATCH /api/attachments/:attachmentId（#148。案件の添付の公開範囲の変更。業務の判定は case-attachment.service.ts）
 // 認証と送信元の確認は app.ts が /api/* に一括で適用する。
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { AppError } from "../lib/app-error";
 import { contentDisposition } from "../lib/content-disposition";
-import { DOWNLOAD_CONTENT_SECURITY_POLICY } from "../lib/security";
+import { DOWNLOAD_CONTENT_SECURITY_POLICY, noStore } from "../lib/security";
 import { traceIdOf } from "../lib/trace-id";
 import { validate } from "../lib/validation";
 import {
@@ -17,6 +18,7 @@ import {
   type AttachmentActor,
   type AttachmentUpload,
 } from "../services/attachment.service";
+import { withCaseAttachmentService } from "../services/case-attachment.service";
 import { ULID_PATTERN } from "../../../shared/ulid-rules";
 
 const roomParamSchema = z.object({ roomId: z.string().min(1).max(64) });
@@ -24,6 +26,7 @@ const messageParamSchema = z.object({ messageId: z.string().min(1).max(64) });
 const attachmentParamSchema = z.object({
   attachmentId: z.string().regex(ULID_PATTERN),
 });
+const bodyEnvelopeSchema = z.looseObject({});
 
 function actorOf(c: Context<{ Bindings: Env }>): AttachmentActor {
   const principal = c.get("principal");
@@ -50,6 +53,8 @@ function uploadOf(c: Context<{ Bindings: Env }>): AttachmentUpload {
     contentLength:
       length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
     body: c.req.raw.body,
+    // 本文がバイト列なので、公開範囲はクエリで受ける。値の確かめは部屋と権限の判定の後に Service が行う（部屋に入れない人に入力の正しさを教えない）
+    publicationVisibility: c.req.query("publicationVisibility"),
   };
 }
 
@@ -87,40 +92,59 @@ export function replyAttachmentRoutes() {
   );
 }
 
-/** 配信（/api/attachments に組み込む） */
+/** 配信と、案件の添付の公開範囲の変更（/api/attachments に組み込む） */
 export function attachmentRoutes() {
-  return new Hono<{ Bindings: Env }>().get(
-    "/:attachmentId",
-    validate("param", attachmentParamSchema),
-    async (c) => {
-      const actor = actorOf(c);
-      const file = await withAttachmentService(c.env, actor, (service) =>
-        service.download(
-          actor,
-          c.req.valid("param").attachmentId,
-          c.req.header("Range") ?? null,
-        ),
-      );
-      const headers = new Headers({
-        "Content-Type": file.contentType,
-        "Content-Disposition": contentDisposition(
-          file.name,
-          file.kind === "document" ? "attachment" : "inline",
-        ),
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": DOWNLOAD_CONTENT_SECURITY_POLICY,
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "Cache-Control": "private, no-store",
-        "Accept-Ranges": "bytes",
-      });
-      if (file.range === null) {
-        headers.set("Content-Length", String(file.size));
-        return new Response(file.body, { status: 200, headers });
-      }
-      const { start, end } = file.range;
-      headers.set("Content-Length", String(end - start + 1));
-      headers.set("Content-Range", `bytes ${start}-${end}/${file.size}`);
-      return new Response(file.body, { status: 206, headers });
-    },
-  );
+  return new Hono<{ Bindings: Env }>()
+    .patch(
+      "/:attachmentId",
+      noStore,
+      validate("param", attachmentParamSchema),
+      // 本文の中身（公開範囲の値）は、存在と権限の判定の後に Service が確かめる
+      validate("json", bodyEnvelopeSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const changed = await withCaseAttachmentService(c.env, (service) =>
+          service.changeVisibility(
+            actor,
+            c.req.valid("param").attachmentId,
+            c.req.valid("json"),
+          ),
+        );
+        return c.json(changed);
+      },
+    )
+    .get(
+      "/:attachmentId",
+      validate("param", attachmentParamSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        const file = await withAttachmentService(c.env, actor, (service) =>
+          service.download(
+            actor,
+            c.req.valid("param").attachmentId,
+            c.req.header("Range") ?? null,
+          ),
+        );
+        const headers = new Headers({
+          "Content-Type": file.contentType,
+          "Content-Disposition": contentDisposition(
+            file.name,
+            file.kind === "document" ? "attachment" : "inline",
+          ),
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": DOWNLOAD_CONTENT_SECURITY_POLICY,
+          "Cross-Origin-Resource-Policy": "same-origin",
+          "Cache-Control": "private, no-store",
+          "Accept-Ranges": "bytes",
+        });
+        if (file.range === null) {
+          headers.set("Content-Length", String(file.size));
+          return new Response(file.body, { status: 200, headers });
+        }
+        const { start, end } = file.range;
+        headers.set("Content-Length", String(end - start + 1));
+        headers.set("Content-Range", `bytes ${start}-${end}/${file.size}`);
+        return new Response(file.body, { status: 206, headers });
+      },
+    );
 }

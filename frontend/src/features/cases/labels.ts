@@ -1,5 +1,11 @@
 // 案件の表示名（S-16・S-17）。
+import {
+  DEFAULT_PUBLICATION_VISIBILITY,
+  PUBLICATION_VISIBILITIES,
+  type PublicationVisibility,
+} from "../../../../shared/attachment-rules";
 import { CASE_TODO_TITLE_MAX_LENGTH } from "../../../../shared/case-todo-rules";
+import type { AttachmentPublicationConfig } from "../messages";
 import type { CaseAutoRole, CaseStatus } from "./api/case-api";
 
 export const STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
@@ -90,7 +96,36 @@ export const CASE_ATTACHMENTS_TEXTS = {
   retry: "再試行",
   jump: "元のメッセージへ",
   more: "次のページ",
+  changeVisibility: (name: string) => `${name} の公開範囲を変更`,
+  visibilityDialogTitle: "公開範囲を変更",
+  visibilityGroup: "公開範囲",
+  visibilitySubmit: "変更",
+  visibilityCancel: "キャンセル",
+  visibilityChanged: "公開範囲を変更しました",
 } as const;
+
+/** 案件の添付の公開範囲の名前（5-2 AC-8。添付するときの選択・一覧・変更で同じ名前） */
+export const PUBLICATION_VISIBILITY_LABELS: Readonly<
+  Record<PublicationVisibility, string>
+> = {
+  participants_only: "参加者限定",
+  public_archive: "全社員公開アーカイブで公開できる",
+};
+
+/** 公開範囲の選択肢の近くに出す案内（公開できるの選択は即時公開ではない） */
+export const PUBLICATION_VISIBILITY_HINT =
+  "全社員公開が承認されるまでは、参加者だけが見られます";
+
+export const PUBLICATION_VISIBILITY_OPTIONS = PUBLICATION_VISIBILITIES.map(
+  (value) => ({ value, label: PUBLICATION_VISIBILITY_LABELS[value] }),
+);
+
+/** 案件の部屋の入力欄に渡す、添付の公開範囲の選択の設定 */
+export const CASE_ATTACHMENT_PUBLICATION: AttachmentPublicationConfig = {
+  options: PUBLICATION_VISIBILITY_OPTIONS,
+  defaultValue: DEFAULT_PUBLICATION_VISIBILITY,
+  hint: PUBLICATION_VISIBILITY_HINT,
+};
 
 /** 進捗の読み上げ（パーセントは出さない。5-4 AC-4） */
 export const todoProgressLabel = (progress: { done: number; total: number }) =>

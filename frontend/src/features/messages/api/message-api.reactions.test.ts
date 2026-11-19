@@ -274,6 +274,7 @@ describe("#138 AC-1（1-7 AC-5）一覧の項目の reactions", () => {
           hasMore: false,
           parent: { ...parent, reactions: undefined },
           replyBlockedReason: null,
+          caseRoom: false,
           joined: true,
           roomWritable: true,
         }),

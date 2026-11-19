@@ -20,6 +20,10 @@ export type CaseAttachmentItem = {
   messageId: string;
   threadParentId: string | null;
   uploader: CaseAttachmentUploader;
+  /** #148（148-B-2）公開範囲（5-2 AC-8 の2値） */
+  publicationVisibility: "participants_only" | "public_archive";
+  /** #148（148-B-2）閲覧者が公開範囲を変えられるか（R-85・案件が進行中） */
+  canChangeVisibility: boolean;
 };
 
 /** 画面の文言（テストが決めたもの。計画 148-B-1「画面」と、既存の TODO の区画の文言の型に合わせる） */
@@ -62,6 +66,8 @@ export function caseAttachment(
     messageId: caseMessageId(n),
     threadParentId: null,
     uploader: { ...UPLOADER },
+    publicationVisibility: "participants_only",
+    canChangeVisibility: false,
     ...overrides,
   };
 }
@@ -75,6 +81,18 @@ export type CaseAttachmentServerState = {
   failWith: { status: number; code: string; message: string } | null;
   /** GET の記録（案件の ID と cursor） */
   requests: { caseId: string; cursor: string | null }[];
+  /** #148（148-B-2）PATCH /api/attachments/:id の記録（届いた順） */
+  patches: { attachmentId: string; body: unknown }[];
+  /** #148（148-B-2）PATCH の応答を差し替える（409・422 など）。1回使うと null に戻る */
+  patchFailWith: {
+    status: number;
+    code: string;
+    message: string;
+    fields?: string[];
+  } | null;
+  /** #148（148-B-2）true にすると、PATCH は releasePatch() まで応答しない */
+  holdPatch: boolean;
+  releasePatch: () => void;
 };
 
 /**
@@ -89,7 +107,16 @@ export function respondCaseAttachments(
     pageSize: options.pageSize ?? 50,
     failWith: options.failWith ?? null,
     requests: [],
+    patches: [],
+    patchFailWith: null,
+    holdPatch: false,
+    releasePatch: () => {},
   };
+  let releaseHeld: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    releaseHeld = resolve;
+  });
+  state.releasePatch = () => releaseHeld();
   server.use(
     http.get("/api/cases/:caseId/attachments", ({ request, params }) => {
       const cursor = new URL(request.url).searchParams.get("cursor");
@@ -108,6 +135,44 @@ export function respondCaseAttachments(
         nextCursor: hasMore ? `p${page + 1}` : null,
       });
     }),
+  );
+  server.use(
+    http.patch(
+      "/api/attachments/:attachmentId",
+      async ({ request, params }) => {
+        const attachmentId = String(params.attachmentId);
+        const body = (await request.json()) as {
+          publicationVisibility?: string;
+        };
+        state.patches.push({ attachmentId, body });
+        if (state.holdPatch) await held;
+        const failure = state.patchFailWith;
+        if (failure !== null) {
+          state.patchFailWith = null;
+          return HttpResponse.json(
+            {
+              code: failure.code,
+              message: failure.message,
+              ...(failure.fields === undefined
+                ? {}
+                : { fields: failure.fields }),
+            },
+            { status: failure.status },
+          );
+        }
+        const value = body.publicationVisibility as
+          "participants_only" | "public_archive";
+        state.items = state.items.map((item) =>
+          item.id === attachmentId
+            ? { ...item, publicationVisibility: value }
+            : item,
+        );
+        return HttpResponse.json({
+          id: attachmentId,
+          publicationVisibility: value,
+        });
+      },
+    ),
   );
   return state;
 }

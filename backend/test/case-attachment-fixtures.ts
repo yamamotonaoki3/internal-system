@@ -5,15 +5,19 @@
 // ID は決定的（同じ n には同じ ID。n が大きいほど新しい＝ID の降順は n の降順）。データは架空（testuser_casereq_・[UNIT_TEST]）。
 import { env } from "cloudflare:workers";
 import { createUlidFactory } from "../src/lib/ulid";
+import { apiRequest } from "./api-request";
 import { insertAttachmentRow } from "./attachment-fixtures";
 
 /** 一覧の項目のキー（計画 148-B-1「API」。保存キー・URL は含めない） */
+// #148（148-B-2）で canChangeVisibility・publicationVisibility を足した（応答に項目が加わる分）
 export const CASE_ATTACHMENT_ITEM_KEYS = [
+  "canChangeVisibility",
   "contentType",
   "id",
   "kind",
   "messageId",
   "name",
+  "publicationVisibility",
   "size",
   "threadParentId",
   "uploadedAt",
@@ -106,4 +110,82 @@ export async function markMessageDeleted(messageId: string, by: string) {
   )
     .bind("2026-11-17T04:00:00.000Z", by, messageId)
     .run();
+}
+
+// ---- #148（148-B-2）5-2 AC-8・AC-9：公開範囲 ----
+// 期待値は要件（5-2 AC-8 の2値。初期値は参加者限定）から直接書く（shared の定義から作らない）。
+
+/** 公開範囲の2値（D1） */
+export const PUBLICATION = {
+  participantsOnly: "participants_only",
+  publicArchive: "public_archive",
+} as const;
+export type PublicationValue = (typeof PUBLICATION)[keyof typeof PUBLICATION];
+
+/** EP-1-23 の文言（計画 6.4。画面はこの文言をそのまま出す） */
+export const VISIBILITY_MESSAGES = {
+  notFound: "添付が見つかりません",
+  forbidden: "この添付の公開範囲は変更できません",
+  closed: "終了した案件の添付の公開範囲は変更できません",
+  stateChanged:
+    "状態が変わったため、変更できませんでした。読み込み直してからお試しください",
+} as const;
+
+export const VISIBILITY_ACTION = "case.attachment.visibility.change";
+
+/** EP-1-23 PATCH /api/attachments/:attachmentId */
+export function changeVisibilityRequest(
+  attachmentId: string,
+  body: unknown,
+  token: string | null,
+  origin?: string,
+) {
+  return apiRequest("PATCH", `/api/attachments/${attachmentId}`, {
+    token,
+    body,
+    ...(origin === undefined ? {} : { origin }),
+  });
+}
+
+/** 公開範囲を直接変える（API を通さない。状態の準備・同時の変更の代わり） */
+export async function setPublicationVisibility(
+  attachmentId: string,
+  value: string,
+) {
+  await env.DB.prepare(
+    "UPDATE message_attachments SET publication_visibility = ? WHERE id = ?",
+  )
+    .bind(value, attachmentId)
+    .run();
+}
+
+export async function publicationVisibilityOf(
+  attachmentId: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    "SELECT publication_visibility AS v FROM message_attachments WHERE id = ?",
+  )
+    .bind(attachmentId)
+    .first<{ v: string }>();
+  return row?.v ?? null;
+}
+
+export type VisibilityAuditRow = {
+  actor_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  result: string;
+  detail: string | null;
+};
+
+/** 公開範囲の変更の監査（書かれた順） */
+export async function visibilityAudits(): Promise<VisibilityAuditRow[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT actor_id, action, target_type, target_id, result, detail FROM audit_logs
+     WHERE action = ? ORDER BY occurred_at, id`,
+  )
+    .bind(VISIBILITY_ACTION)
+    .all<VisibilityAuditRow>();
+  return results;
 }

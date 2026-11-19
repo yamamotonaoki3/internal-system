@@ -51,6 +51,7 @@ function setup() {
     parent: PARENT,
     replies: [],
     replyBlockedReason: null,
+    caseRoom: false,
     joined: true,
     roomWritable: true,
   };

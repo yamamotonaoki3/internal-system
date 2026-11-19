@@ -113,6 +113,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
     const common = {
       parent: PARENT,
       replyBlockedReason: null,
+      caseRoom: false,
       joined: true,
       roomWritable: true,
     };

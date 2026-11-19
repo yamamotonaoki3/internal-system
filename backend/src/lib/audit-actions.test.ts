@@ -29,6 +29,8 @@ describe("#156 0-6 AC-3: 対象の種類の一覧", () => {
         "case",
         "retirement_request",
         "message",
+        // #148（148-B-2）：案件の添付の公開範囲の変更（case.attachment.visibility.change）の対象
+        "attachment",
         "source",
         "audit_log",
       ].sort(),

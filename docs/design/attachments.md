@@ -7,20 +7,21 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 - 1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9と1-4 AC-5を実装する（C-137(1)(2)・C-153）。ファイルをアップロードし、中身を検査し、R2に保存し、投稿・返信に結び付け、見てよい人だけに配信する。
 - アップロードも配信も、すべてWorkers経由。署名付きURL・`r2.dev`は使わない（C-126）。保存先のキーは応答に出さない。
 - ライブラリは追加しない。zipの読み取りとExifの除去は、Workersの標準のAPI（`DecompressionStream`・`DataView`など）で自前で行う（ADR-0011）。
-- **作らないもの**：添付の削除（1-6 AC-4）と添付だけの投稿（C-137(3)）は #270（`message_attachments`に`deleted_at`・`deleted_by`は入れていない）。ウイルススキャンは #116。アバターは #141。ファイル名の検索は #155。1-6 AC-8（利用者ごとの容量・回数の制限）は未決定のまま。1-6 AC-10【案】と、公開可否の変更（案件の添付）は範囲外。編集で添付を足す・外すこと、下書きへの添付もしない。
+- **作らないもの**：添付の削除（1-6 AC-4）と添付だけの投稿（C-137(3)）は #270（`message_attachments`に`deleted_at`・`deleted_by`は入れていない）。ウイルススキャンは #116。アバターは #141。ファイル名の検索は #155。1-6 AC-8（利用者ごとの容量・回数の制限）は未決定のまま。1-6 AC-10【案】は範囲外。案件の添付の公開範囲の選択・変更は148-B-2で実装した（[cases.md](cases.md)）。編集で添付を足す・外すこと、下書きへの添付もしない。
 - **本番に出すときは利用者が行う**：R2バケット（`wrangler.jsonc`の名前は`internal-system-attachments`）の作成、migration 0023の適用、デプロイ、動画100MBの本番での通り方の確認。バインディング名`ATTACHMENTS`とバケット名は秘密情報ではない。`infra/`に`r2.tf`はまだない。
 
 ## データ
 
 | 対象 | 内容 |
 | --- | --- |
-| `message_attachments`（`backend/db/schema.ts`、migration `0023_add_message_attachments.sql`） | `id`（ULID）・`room_id`（`rooms`）・`thread_parent_id`（NULL可。アップロードの文脈）・`message_id`（NULL可。結び付く前は未投稿）・`uploader_id`・`storage_key`（一意）・`original_name`（1〜255文字のCHECK）・`kind`（`image`・`document`・`video`のCHECK）・`content_type`・`size_bytes`（0より大きいCHECK）・`created_at`。索引は`message_id`、（`uploader_id`, `message_id`）、`created_at`（`message_id IS NULL`の部分索引。掃除用） |
+| `message_attachments`（`backend/db/schema.ts`、migration `0023_add_message_attachments.sql`） | `id`（ULID）・`room_id`（`rooms`）・`thread_parent_id`（NULL可。アップロードの文脈）・`message_id`（NULL可。結び付く前は未投稿）・`uploader_id`・`storage_key`（一意）・`original_name`（1〜255文字のCHECK）・`kind`（`image`・`document`・`video`のCHECK）・`content_type`・`size_bytes`（0より大きいCHECK）・`created_at`。索引は`message_id`、（`uploader_id`, `message_id`）、`created_at`（`message_id IS NULL`の部分索引。掃除用）。【#148の148-B-2・migration `0030_add_attachment_publication_visibility.sql`】`publication_visibility`（NOT NULL・既定`participants_only`・`participants_only`／`public_archive`のCHECK。値の定義元は`shared/attachment-rules.ts`の`PUBLICATION_VISIBILITIES`）を足した。値の意味があるのは案件の部屋の行だけで、ほかの部屋の行は既定値のまま。**読み取りの資格には使わない**（配信・一覧・メッセージの表示は値によらず従来のまま。メッセージの表示の`attachments`にも出さない）。設計は[cases.md](cases.md)の「148-B-2 の設計」 |
 | `content_type`にCHECKを付けない理由 | 値`text/plain; charset=utf-8`の「;」でdrizzle-kitの生成が途中で切れ、壊れたmigrationができたため。値はTypeScriptの型と`shared/attachment-rules.ts`の`ATTACHMENT_CONTENT_TYPES`で守る（[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)） |
 | `messages` | 変えない。添付は`message_attachments`側から結び付ける |
 | R2のキー | `attachments/<ULID>`。名前・利用者を含まない。応答に出さない。バケットは非公開 |
 | 一覧の項目`attachments` | `{ id, name, kind, contentType, size }`の配列（ID昇順。キーは含めない）。親・返信・スレッドの親・スレッド一覧のすべての項目に含める。削除済みのメッセージは`[]` |
 
 - migration 0023は`db:generate`の生成物のまま（新しい表のため、ADR-0024の書き換えは起きない）。**本番のD1への適用は未実施**（利用者が行う）。
+- migration 0030（公開範囲の列）は、`db:generate`が作り直しを生成したため、ADR-0024に従って`ALTER TABLE … ADD`に書き換えた。**本番のD1への適用は未実施**（ほかのmigrationとまとめて、利用者の承認の後）。
 
 ## 受け付ける値（唯一の定義元）
 
@@ -88,8 +89,10 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 3. `perm.attachment.upload`の認可。拒否は403で、`authorize`が監査ログに残す。
 4. ヘッダーの確認（422）：`X-File-Name`が読めて有効な名前か、拡張子が許可されているか、`Content-Length`があるか、種類ごとの上限と1回の受信の上限を超えていないか。ここまでは**本文を1バイトも読まない**。
 5. 本文を読んで形式を検査し（422）、保存する。
-6. D1に未投稿の行（`message_id`がNULL）を登録する。応答は201で`{ id, name, kind, contentType, size }`。
+6. D1に未投稿の行（`message_id`がNULL）を登録する。応答は201で`{ id, name, kind, contentType, size, publicationVisibility }`（【#148の148-B-2】`publicationVisibility`は案件の部屋なら値、ほかの部屋は`null`。OpenAPIでは新しい定義`UploadedAttachmentItem`で、メッセージの表示の`AttachmentItem`とは分けた）。
+   - 【#148の148-B-2】4の後に**公開範囲の確認（422）**を足した（`attachment.service.ts`の`checkPublication`）。クエリ`publicationVisibility`は任意で、指定なしは`participants_only`。一覧にない値、または案件の部屋でない部屋での指定（`participants_only`でも）は422（`fields: ["publicationVisibility"]`）。部屋の判定（2）の後なので、部屋に入れない人には404が先。部屋が案件専用チャンネルかは、`requireRoom`が`message.service.ts`の`requirePostable`・`requireReplyable`の戻り値`caseRoom`から受け取る
    - 【#148】登録は**保存の時点の資格を条件にした`INSERT … SELECT … WHERE`**（`attachment.repository.ts`の`insertPending`。登録した行数を返す）。2の判定の後、ファイルの受信中に案件の終了・参加の解除・無効化があっても、未投稿の行を残さない。条件は部屋の種類によらない1つ：チャンネルは未アーカイブで、アップロードした人が有効な参加者、案件専用チャンネルなら案件が進行中（`caseRoomOpen`）／DMは当事者で、当事者に無効な社員がいない／返信への添付は、親が同じ部屋のトップレベルの投稿で削除されていない。通常のチャンネル・DMも同じ条件で登録する（行が残らないことの退行テストがある）
+   - 【#148の148-B-2】`insertPending`は、位置合わせの`INSERT … SELECT`をやめ、**列の名前を明示した`INSERT`**に直した（表に列が足されても値がずれない。`publication_visibility`を名前で足した）。`PendingAttachmentInsert.publicationVisibility`は必須。条件に「参加者限定以外は案件専用チャンネルだけ」を足した（Serviceの422との二重の守り）
    - 条件への追加（コードレビュー1回目の重大への対応）：部屋への添付は、お知らせ専用で部署のあるチャンネルなら、その部署のオーナーか全体管理者だけ（`channel-member.sql.ts`の`announcementPostable`。投稿と同じ）。返信への添付は、部屋の部署が有効なこと（部署なしは有効。返信と同じ）
    - **2の判定が見る、DBの行で決まる条件（部屋の存在と可視・未アーカイブ・閲覧者が有効・参加中・案件が進行中・DMの相手が有効・お知らせ専用の投稿の資格・返信の親〔存在・同じ部屋・トップレベル・未削除〕・返信先の部署の有効性）と、この登録の条件は一致させる**。ロールで決まる権限（`perm.*`）はDBの行にないので、2の判定だけ
    - 0行のときは、保存した実体を消し、2の判定（`requireRoom`。部屋の判定は事前と同じ関数）を読み直して404／403／409にする。どれにも当たらなければ成功にせず409
@@ -207,7 +210,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 
 | 処理 | 入力 | 出力 |
 | --- | --- | --- |
-| `createAttachmentService().uploadToRoom` | 操作者・部屋のID・`{ name, contentLength, body }` | `{ id, name, kind, contentType, size }`。404・403・409・422（`AppError`） |
+| `createAttachmentService().uploadToRoom` | 操作者・部屋のID・`{ name, contentLength, body, publicationVisibility }`（`publicationVisibility`はクエリの値。未確認の文字列か`undefined`） | `{ id, name, kind, contentType, size, publicationVisibility }`（案件の部屋以外は`null`）。404・403・409・422（`AppError`） |
 | `createAttachmentService().uploadToReply` | 操作者・親のメッセージのID・同上 | 同上。親が見えない・返信なら404、参加していなければ403 |
 | `createAttachmentService().download` | 操作者・添付のID・`Range`ヘッダーまたは`null` | `{ name, kind, contentType, size, range, body }`。見えない・存在しない・実体がないは404、権限なしは403 |
 | `createMessageService().post`・`postReply` | 既存の引数に`attachmentIds` | 既存の応答。404・409・422（結び付けの失敗） |
@@ -255,4 +258,5 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 - 関連する設計書：[messages.md](messages.md)・[threads.md](threads.md)・[reactions.md](reactions.md)。
 - 要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5、EP-1-09・EP-1-10、perm.attachment.upload・download（R-32・R-33）、S-05・S-06・S-07。
 - Issue #148の148-A：案件専用チャンネルの添付。登録を保存の時点の資格を条件にした条件つきの登録にした（部屋の種類によらない）、案件の終了中は409、配信に`perm.case.view`。公開範囲の選択・変更は148-B-2。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-2・AC-3（参加者の部分）
+- Issue #148の148-B-2：案件の添付の公開範囲（5-2 AC-8・AC-9、R-85）。列`publication_visibility`（migration 0030）、アップロードのクエリ`publicationVisibility`、`insertPending`の列の名前の明示、アップロードの応答の定義の分離、変更の API（EP-1-23 `PATCH /api/attachments/:attachmentId`。`attachmentRoutes()`に足した。業務の判定は`case-attachment.service.ts`）。**配信・結び付け・一覧の読み取りの資格は変えていない**（値は読み取りに使わない）。詳細は[cases.md](cases.md)の「148-B-2 の設計」。決定記録C-195。ADR-0024
 - Issue #148の148-B-1：案件の添付の一覧（EP-5-19 `GET /api/cases/:caseId/attachments`）。**アップロード・結び付け・配信の経路は変えていない**（migrationもない）。一覧は`backend/src/db/case-attachment.repository.ts`が、配信の`attachmentVisible`と同じ規則（部屋を見てよい・投稿済み・メッセージが削除されていない）で、資格を中身を読む文に入れて読む。どちらかの規則を変えるときは、両方を直す（`attachment-visibility.sql.ts`の先頭のコメントに書いた）。一覧に出ることは取得の許可ではなく、取得は従来どおり配信が毎回判定する。応答の項目名は、この設計書の「一覧の項目`attachments`」と同じ名前（`name`・`kind`・`contentType`・`size`）に合わせた。詳細は[cases.md](cases.md)の「148-B-1 の設計」。決定記録C-191

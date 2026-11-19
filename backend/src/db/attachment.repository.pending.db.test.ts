@@ -9,6 +9,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_PREFIX, attachmentRow } from "../../test/attachment-fixtures";
+import { publicationVisibilityOf } from "../../test/case-attachment-fixtures";
 import {
   cleanupCaseRoomWorld,
   insertCaseWorldDm,
@@ -36,6 +37,9 @@ async function register(
   roomId: string,
   uploaderId: string,
   threadParentId: string | null = null,
+  // #148（148-B-2）：公開範囲は必須の引数（省略で既定値に落ちる引数にしない）。既存のケースは参加者限定で登録する
+  publicationVisibility:
+    "participants_only" | "public_archive" = "participants_only",
 ) {
   counter += 1;
   const id = ulidAtMs(1_850_500_000_000 + counter);
@@ -50,9 +54,10 @@ async function register(
       kind: "document",
       contentType: "text/plain; charset=utf-8",
       sizeBytes: 10,
+      publicationVisibility,
     }),
   );
-  return { changes, row: await attachmentRow(id) };
+  return { changes, row: await attachmentRow(id), id };
 }
 
 beforeEach(async () => {
@@ -101,12 +106,12 @@ describe("#148 5-2 AC-2 未投稿の添付の登録：保存の時点の資格�
 
   it("#148 5-2 AC-3: 案件の部屋の非参加者（ほかの案件の参加者）は0行", async () => {
     const result = await register(cw.open.roomId, cw.w.memberS2.id);
-    expect(result).toEqual({ changes: 0, row: null });
+    expect(result).toMatchObject({ changes: 0, row: null });
   });
 
   it("#148 147-C-1: 参加の行が残った無効の利用者は0行", async () => {
     const result = await register(cw.open.roomId, cw.w.inactive.id);
-    expect(result).toEqual({ changes: 0, row: null });
+    expect(result).toMatchObject({ changes: 0, row: null });
   });
 
   it("#148 退行なし: 通常のチャンネルの未参加者・アーカイブ中の部屋は0行", async () => {
@@ -176,5 +181,121 @@ describe("#148 重大1 お知らせ専用の投稿の資格・返信先の部署
     expect((await register(room, cw.w.memberS1.id, parent)).changes).toBe(0);
     expect((await register(room, cw.w.memberS1.id)).changes).toBe(1);
     await setDepartmentActive(cw.w.deptS.id, true);
+  });
+});
+
+// #148（148-B-2）5-2 AC-8・計画 6.3：公開範囲つきの登録。全社員公開アーカイブで公開できる（public_archive）は案件の部屋だけ
+// （Service の 422 と突き合わせる二重の守り）。参加者限定（participants_only）はどの部屋でも登録できる。既存の資格の条件は値によらない。
+describe("#148 AC-8 未投稿の添付の登録：公開範囲", () => {
+  it("#148 AC-8: 案件の部屋（部屋・返信）では public_archive を1行登録し、その値が行に残る", async () => {
+    const parent = await seedRoomMessage(cw.open.roomId, cw.w.memberD1.id, 1);
+    const toRoom = await register(
+      cw.open.roomId,
+      cw.w.memberS1.id,
+      null,
+      "public_archive",
+    );
+    const toReply = await register(
+      cw.open.roomId,
+      cw.w.memberS1.id,
+      parent,
+      "public_archive",
+    );
+    expect([toRoom.changes, toReply.changes]).toEqual([1, 1]);
+    expect(await publicationVisibilityOf(toRoom.id)).toBe("public_archive");
+    expect(await publicationVisibilityOf(toReply.id)).toBe("public_archive");
+  });
+
+  it("#148 AC-8: 通常のチャンネル・DM（部屋・返信）では public_archive は0行（行が残らない）", async () => {
+    const dm = await insertCaseWorldDm(cw.w.memberS1.id, cw.w.memberD1.id);
+    const normalParent = await seedRoomMessage(cw.normal, cw.w.memberD1.id, 2);
+    const dmParent = await seedRoomMessage(dm, cw.w.memberD1.id, 3);
+    const results = [
+      await register(cw.normal, cw.w.memberD1.id, null, "public_archive"),
+      await register(
+        cw.normal,
+        cw.w.memberD1.id,
+        normalParent,
+        "public_archive",
+      ),
+      await register(dm, cw.w.memberS1.id, null, "public_archive"),
+      await register(dm, cw.w.memberS1.id, dmParent, "public_archive"),
+    ];
+    expect(results.map((r) => [r.changes, r.row])).toEqual([
+      [0, null],
+      [0, null],
+      [0, null],
+      [0, null],
+    ]);
+  });
+
+  it("#148 AC-8: participants_only はどの部屋でも1行で、その値が行に残る", async () => {
+    const dm = await insertCaseWorldDm(cw.w.memberS1.id, cw.w.memberD1.id);
+    const results = [
+      await register(cw.open.roomId, cw.w.memberS1.id),
+      await register(cw.normal, cw.w.memberD1.id),
+      await register(dm, cw.w.memberS1.id),
+    ];
+    expect(results.map((r) => r.changes)).toEqual([1, 1, 1]);
+    for (const r of results)
+      expect(await publicationVisibilityOf(r.id)).toBe("participants_only");
+  });
+
+  it("#148 AC-8: 既存の資格の条件（終了・非参加・無効）を外れれば、public_archive でも0行", async () => {
+    const results = [
+      await register(
+        cw.closed.roomId,
+        cw.w.memberS1.id,
+        null,
+        "public_archive",
+      ),
+      await register(cw.open.roomId, cw.w.memberS2.id, null, "public_archive"),
+      await register(cw.open.roomId, cw.w.inactive.id, null, "public_archive"),
+    ];
+    expect(results.map((r) => r.changes)).toEqual([0, 0, 0]);
+  });
+});
+
+// #148（148-B-2）計画 D5・手順0：insertPending の列の名前を明示する前後で、全部の部屋の行の各列が同じ値で入ること（列の取り違えの検出）
+describe("#148 D5 未投稿の添付の登録：各列の値（列の取り違えがない）", () => {
+  it.each([
+    ["案件の部屋", () => cw.open.roomId, () => cw.w.memberS1.id],
+    ["通常のチャンネル", () => cw.normal, () => cw.w.memberD1.id],
+  ])(
+    "#148 D5: %s の行の各列が、渡した値のまま入る",
+    async (_l, room, uploader) => {
+      const parent = await seedRoomMessage(room(), uploader(), 90);
+      const result = await register(room(), uploader(), parent);
+      expect(result.row).toEqual({
+        id: result.id,
+        room_id: room(),
+        thread_parent_id: parent,
+        message_id: null,
+        uploader_id: uploader(),
+        storage_key: `${STORAGE_PREFIX}${result.id}`,
+        original_name: "test148.txt",
+        kind: "document",
+        content_type: "text/plain; charset=utf-8",
+        size_bytes: 10,
+        created_at: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ) as unknown,
+      });
+    },
+  );
+
+  it("#148 D5: DM の行の各列が、渡した値のまま入る", async () => {
+    const dm = await insertCaseWorldDm(cw.w.memberS1.id, cw.w.memberD1.id);
+    const result = await register(dm, cw.w.memberS1.id);
+    expect(result.row).toMatchObject({
+      room_id: dm,
+      thread_parent_id: null,
+      message_id: null,
+      uploader_id: cw.w.memberS1.id,
+      original_name: "test148.txt",
+      kind: "document",
+      content_type: "text/plain; charset=utf-8",
+      size_bytes: 10,
+    });
   });
 });

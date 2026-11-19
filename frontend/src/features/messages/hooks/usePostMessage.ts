@@ -4,6 +4,7 @@
 // 取り直しが終わるまで送信中のままにして、二重に送らせない。
 // 添付があれば、先に1件ずつアップロードし、全部成功してから attachmentIds（選んだ順）を付けて投稿する。
 // どれかが失敗・取り消しになったら投稿せず、AttachmentUploadError（失敗したファイル名つき）で失敗にする。
+import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
 import type { Mention } from "../../../../../shared/message-rules";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,6 +20,8 @@ export type PostMessageInput = {
   body: string;
   mentions: readonly Mention[];
   files?: readonly File[];
+  /** 添付ごとの公開範囲（files と同じ順。案件の部屋だけ。なければ指定しない） */
+  publicationVisibilities?: readonly PublicationVisibility[];
   /** 添付のアップロードを取り消すための signal */
   signal?: AbortSignal;
   /** アップロードが全部終わり、投稿の要求を送る直前に呼ぶ（ここから先は取り消せない） */
@@ -38,12 +41,16 @@ export class AttachmentUploadError extends Error {
 async function uploadAll(
   target: AttachmentTarget,
   files: readonly File[],
+  publicationVisibilities: readonly PublicationVisibility[] | undefined,
   signal: AbortSignal | undefined,
 ): Promise<string[]> {
   const ids: string[] = [];
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
     try {
-      const uploaded = await uploadAttachment(target, file, { signal });
+      const uploaded = await uploadAttachment(target, file, {
+        signal,
+        publicationVisibility: publicationVisibilities?.[index],
+      });
       // 応答の後に取り消されていたら、投稿の要求を送らない
       signal?.throwIfAborted();
       ids.push(uploaded.id);
@@ -67,6 +74,7 @@ export function usePostMessage(roomId: string, parentMessageId?: string) {
       const attachmentIds = await uploadAll(
         target,
         content.files ?? [],
+        content.publicationVisibilities,
         content.signal,
       );
       content.onUploaded?.();

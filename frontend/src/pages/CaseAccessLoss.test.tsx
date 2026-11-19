@@ -156,6 +156,7 @@ function respondOtherCase() {
         hasMore: false,
         parent: otherParent,
         replyBlockedReason: null,
+        caseRoom: true,
         joined: true,
         roomWritable: true,
       });
@@ -289,6 +290,7 @@ function world(
         hasMore: false,
         parent: parentMessage,
         replyBlockedReason: closed() ? "case_closed" : null,
+        caseRoom: true,
         joined: true,
         roomWritable: !closed(),
       });
@@ -1049,5 +1051,51 @@ describe("#308 148-B-1 添付の一覧のキャッシュも、資格を失った
     expect(screen.queryByText(FILE)).toBeNull();
     hold.release();
     expect(await screen.findByRole("link", { name: FILE })).toBeTruthy();
+  });
+});
+
+// #148（148-B-2）5-2 AC-9・計画 6.8「資格を失ったとき」：公開範囲の変更の後の取り直しで、添付の一覧が 403 になったら、
+// 概要を確かめて非公開の表示に切り替え、ファイル名・ダイアログを残さない（useCaseAccessLoss の監視の対象に添付の一覧を足す）。
+// 注：変更の後は caseKeys.all を取り直すため、概要の取り直しでも切り替わりうる。ここでは利用者から見える結果（切り替わる・何も残らない）を固定する。
+describe("#148 AC-9 公開範囲の変更の後に、外されていたとき", () => {
+  it("#148 AC-9: 変更が 404 で、添付の一覧の取り直しが 403 なら、非公開の表示に切り替わり、ファイル名もダイアログも出ない", async () => {
+    const w = world();
+    const attachments = respondCaseAttachments([
+      caseAttachment(1, { canChangeVisibility: true }),
+    ]);
+    const { user } = renderPage();
+    await waitForFullView();
+    const region = await screen.findByRole("region", {
+      name: CASE_ATTACHMENT_TEXTS.heading,
+    });
+    await within(region).findByText(caseAttachmentName(1));
+    w.participant = false;
+    attachments.failWith = {
+      status: 403,
+      code: "FORBIDDEN",
+      message: PRIVATE_TEXT,
+    };
+    attachments.patchFailWith = {
+      status: 404,
+      code: "NOT_FOUND",
+      message: "添付が見つかりません",
+    };
+    await user.click(
+      within(region).getByRole("button", {
+        name: `${caseAttachmentName(1)} の公開範囲を変更`,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "公開範囲を変更",
+    });
+    await user.click(
+      within(dialog).getByRole("radio", {
+        name: "全社員公開アーカイブで公開できる",
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "変更" }));
+    await waitForSwitched();
+    expect(screen.queryByText(caseAttachmentName(1))).toBeNull();
+    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
   });
 });

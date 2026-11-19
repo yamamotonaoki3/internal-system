@@ -1,4 +1,5 @@
-// S-17 を開いたまま、ほかの参加者に外されたことを、自動の更新（部屋のメッセージ・TODO の取り直し）の 403・404 から見つける（#308）。
+// S-17 を開いたまま、ほかの参加者に外されたことを、自動の更新（部屋のメッセージ・TODO の取り直し）と、
+// 添付の一覧の取り直し（公開範囲の変更の後など。#148）の 403・404 から見つける（#308）。
 // 403・404 は参加者のままでも起こりうる（perm.case.view がない等）ので、それだけで決めず、概要を取り直した結果で決める。
 // 401 は共通の処理（セッション切れ）に、5xx・通信の失敗は既存の表示とポーリングの続きに任せる（AC-3）。
 // 部屋・TODO のポーリングは 403・404 で止まるため、概要の取り直しが失敗したときは次の契機がない。中身を隠して再試行を出す（安全な側）。
@@ -108,6 +109,7 @@ export function useCaseAccessLoss({
     const summaryKey = caseKeys.summary(userId, caseId);
     const watched = [
       caseKeys.todos(userId, caseId),
+      caseKeys.attachments(userId, caseId),
       ...(roomId === null ? [] : [messageKeys.room(roomId)]),
     ];
     return queryClient.getQueryCache().subscribe((event) => {

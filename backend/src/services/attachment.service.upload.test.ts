@@ -91,7 +91,8 @@ async function upload(
     const result = await service.uploadToRoom(
       { userId: world.alice.userId, traceId: modifyTraceId() },
       world.channel,
-      { name, contentLength, body },
+      // #148（148-B-2）公開範囲の指定（クエリ）なし＝既定の参加者限定
+      { name, contentLength, body, publicationVisibility: undefined },
     );
     return { error: null, result };
   } catch (error) {
