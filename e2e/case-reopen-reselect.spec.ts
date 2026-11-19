@@ -171,12 +171,14 @@ test("#150 5-1 AC-16・3-3 AC-2: A が再開で B を外し C を足すと、B �
     await expect(main.getByText("案件を再開しました")).toBeVisible();
 
     // ---- B：開き直さずに、非公開の表示に切り替わる ----
-    await expect(
-      removedMain.getByText(PRIVATE_TEXT, { exact: true }),
-    ).toBeVisible({ timeout: SWITCH_TIMEOUT_MS });
+    // 切り替えの途中は、TODO・やり取りの区画がそれぞれ拒否の文言を出すため、同じ文言が一時的に2つ出る（正しい途中の状態）。
+    // 先に説明が消える（切り替わった）のを待ち、その後に、非公開の文言が最終的にちょうど1つ（概要の側だけ）になることを確かめる
     await expect(
       removedMain.getByText(CASE_DESCRIPTION, { exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(0, { timeout: SWITCH_TIMEOUT_MS });
+    await expect(
+      removedMain.getByText(PRIVATE_TEXT, { exact: true }),
+    ).toHaveCount(1, { timeout: SWITCH_TIMEOUT_MS });
     await expect(removed.page).toHaveURL(new RegExp(`/cases/${CASE_ID}$`));
 
     // ---- C：再開の通知から開き、過去のやり取りが見える ----
