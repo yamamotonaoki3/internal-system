@@ -10408,7 +10408,9 @@
           "canManage",
           "canEditDueDate",
           "participantCount",
-          "progress"
+          "progress",
+          "lastActivityAt",
+          "channelId"
         ],
         "properties": {
           "id": {
@@ -10511,6 +10513,22 @@
                 "$ref": "#/components/schemas/CaseTodoProgress"
               }
             ]
+          },
+          "lastActivityAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "案件の部屋の、削除されていない最新のメッセージ（返信を含む）の投稿の時刻。有効な参加者だけ。メッセージがない場合と、参加者でない人（管理の資格だけの人を含む）には null"
+          },
+          "channelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "案件専用チャンネルの部屋の ID（未読の数を引くため）。有効な参加者だけ。参加者でない人（管理の資格だけの人を含む）には null"
           }
         }
       },
@@ -10549,6 +10567,8 @@
           "canManage",
           "canEditDueDate",
           "participantCount",
+          "progress",
+          "lastActivityAt",
           "description",
           "channelId",
           "createdBy",
@@ -10644,6 +10664,25 @@
               "null"
             ],
             "description": "参加の行の数（退職者を含む）。有効な参加者か管理の資格のある人だけ。ほかは null"
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null。数だけなので全員に返す（R-78）",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
+          },
+          "lastActivityAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "案件の部屋の、削除されていない最新のメッセージ（返信を含む）の投稿の時刻。有効な参加者だけ。メッセージがない場合と、参加者でない人（管理の資格だけの人を含む）には null"
           },
           "description": {
             "type": "string"

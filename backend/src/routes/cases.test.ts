@@ -71,23 +71,30 @@ const SUMMARY_KEYS = [
   "canEditDueDate",
   "canManage",
   "caseNumber",
+  // #148（148-C）：案件の部屋の ID（有効な参加者だけ値。ほかは null）
+  "channelId",
   "client",
   "departments",
   "dueDate",
   "id",
   "isParticipant",
+  // #148（148-C）：最終更新（有効な参加者だけ値。ほかは null）
+  "lastActivityAt",
   "participantCount",
   // #149（149-A）：TODO の進捗（R-78。全員に返す）
   "progress",
   "status",
   "title",
 ];
+// #148（148-C）：channelId は概要の項目にも入ったため、重ねない
 const DETAIL_KEYS = [
-  ...SUMMARY_KEYS,
-  "channelId",
-  "createdBy",
-  "description",
-  "participants",
+  ...new Set([
+    ...SUMMARY_KEYS,
+    "channelId",
+    "createdBy",
+    "description",
+    "participants",
+  ]),
 ].sort();
 const PARTICIPANT_KEYS = [
   "autoRole",
@@ -227,7 +234,7 @@ describe("#147 147-A 共通：認証・入力の形・no-store", () => {
 });
 
 describe("#147 5-1 AC-4 一覧（EP-5-06）", () => {
-  it("#147 5-1 AC-4: joined は参加している案件だけで、項目のキーは決めたものだけ（説明・参加者・チャンネルの ID を持たない）", async () => {
+  it("#147 5-1 AC-4: joined は参加している案件だけで、項目のキーは決めたものだけ（説明・参加者を持たない。チャンネルの ID は #148 148-C で参加者だけに返す）", async () => {
     const res = await listOf(w.memberS1.token, "scope=joined&status=active");
     expect(res.status).toBe(200);
     const page = (await res.json()) as Page;

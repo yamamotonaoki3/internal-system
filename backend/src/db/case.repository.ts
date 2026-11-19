@@ -40,7 +40,7 @@ export const CASE_STATUSES = ["active", "closed"] as const;
 export type CaseListScope = (typeof CASE_LIST_SCOPES)[number];
 export type CaseStatus = (typeof CASE_STATUSES)[number];
 
-/** 一覧・概要の項目。説明・参加者・チャンネル ID は持たない */
+/** 一覧・概要の項目。説明・参加者は持たない。チャンネル ID・最終更新は有効な参加者にだけ返す */
 export type CaseSummary = {
   id: string;
   caseNumber: string;
@@ -57,6 +57,10 @@ export type CaseSummary = {
   participantCount: number | null;
   /** TODO の進捗（削除済みを除く。0件は null）。数だけなので全員に返す（R-78） */
   progress: { done: number; total: number } | null;
+  /** 部屋の、削除されていない最新のメッセージ（返信を含む）の投稿の時刻。有効な参加者だけ（C-191(4)） */
+  lastActivityAt: string | null;
+  /** 未読の対応表を引くための部屋の ID。有効な参加者だけ（5-1 AC-2） */
+  channelId: string | null;
 };
 
 export type CaseParticipant = {
@@ -299,6 +303,13 @@ export function createCaseRepository(db: Database) {
         participantCount: sql<
           number | null
         >`CASE WHEN ${isParticipant} OR ${canManage} THEN (SELECT COUNT(*) FROM channel_members pc WHERE pc.channel_id = ${cases.channelId}) ELSE NULL END`,
+        // 管理の資格だけの人には、部屋の ID・やり取りの時刻を見せないため、参加者の条件だけで決める
+        lastActivityAt: sql<
+          string | null
+        >`CASE WHEN ${isParticipant} THEN (SELECT lm.created_at FROM messages lm WHERE lm.room_id = ${sql`${cases.channelId}`} AND lm.deleted_at IS NULL ORDER BY lm.id DESC LIMIT 1) ELSE NULL END`,
+        channelId: sql<
+          string | null
+        >`CASE WHEN ${isParticipant} THEN ${cases.channelId} ELSE NULL END`,
         todoTotal: sql<number>`(SELECT COUNT(*) ${todosOfCase})`,
         todoDone: sql<number>`(SELECT COALESCE(SUM(pt.is_done), 0) ${todosOfCase})`,
       })
@@ -348,6 +359,8 @@ export function createCaseRepository(db: Database) {
         row.todoTotal === 0
           ? null
           : { done: row.todoDone, total: row.todoTotal },
+      lastActivityAt: row.lastActivityAt,
+      channelId: row.channelId,
     }));
   }
 

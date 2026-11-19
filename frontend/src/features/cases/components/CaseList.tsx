@@ -5,6 +5,8 @@ import { Link } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { RadioGroup } from "../../../components/RadioGroup";
+import { formatMessageTime } from "../../messages";
+import { UnreadCountBadge, useUnreadCounts } from "../../unread";
 import {
   CASE_LIST_SCOPES,
   CASE_STATUSES,
@@ -35,6 +37,9 @@ export function CaseList() {
   const [scope, setScope] = useState<CaseListScope>("joined");
   const [status, setStatus] = useState<CaseStatus>("active");
   const cases = useCases(scope, status);
+  const unread = useUnreadCounts();
+  // 取得に失敗している間は、件数を出さない（古い件数を出し続けない）
+  const counts = unread.isError ? undefined : unread.data;
 
   function renderItems() {
     if (cases.isPending) return <p role="status">読み込み中です</p>;
@@ -57,7 +62,23 @@ export function CaseList() {
               >
                 {item.title}
               </Link>
+              {/* 件名のリンクの名前を件名のまま保つため、印はリンクの外に置く */}
+              {item.channelId !== null && (
+                <UnreadCountBadge count={counts?.get(item.channelId)} />
+              )}
               <CaseSummaryFacts item={item} progress={item.progress} />
+              {item.isParticipant && (
+                <p className="text-sm">
+                  最終更新：
+                  {item.lastActivityAt === null ? (
+                    "—"
+                  ) : (
+                    <time dateTime={item.lastActivityAt}>
+                      {formatMessageTime(item.lastActivityAt)}
+                    </time>
+                  )}
+                </p>
+              )}
             </li>
           ))}
         </ul>
