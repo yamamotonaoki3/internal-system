@@ -27,6 +27,11 @@ export const server = setupServer(
   http.get("/api/cases/:caseId/todos", () =>
     HttpResponse.json({ items: [], nextCursor: null, progress: null }),
   ),
+  // #148（148-B-1）：S-17 の「添付ファイル」の区画が、参加者のとき案件の添付の一覧（GET /api/cases/:caseId/attachments）を取るため、
+  // S-17 を描画する全テストで「未処理の通信」にならないよう、0件を既定の応答にする。個別のテストは test/case-attachment-handlers.ts の respondCaseAttachments で上書きする。
+  http.get("/api/cases/:caseId/attachments", () =>
+    HttpResponse.json({ items: [], nextCursor: null }),
+  ),
   // #124：ヘッダーの通知（NotificationBell）が未読数（GET /api/me/notifications/unread-count）を 2 秒ごとに取るため、枠（App・Header）を描画する
   // 全テストで「未処理の通信」にならないよう、未読 0 件を既定の応答にする。個別のテストは test/notification-handlers.ts の respondNotifications で上書きする。
   http.get("/api/me/notifications/unread-count", () =>
