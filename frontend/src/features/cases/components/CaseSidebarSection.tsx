@@ -2,6 +2,7 @@
 // リンクの見た目は、枠（app-shell）が決める。機能から枠を参照しないよう、呼び出し側から受け取る。
 // 取得に失敗しても、この部品の中にエラーを出す（0件とは出さず、枠全体は壊さない）。
 import { NavLink } from "react-router";
+import { RoomLinkLabel, useUnreadCounts } from "../../unread";
 import { describeError } from "../describe-error";
 import { useCases } from "../hooks/useCases";
 
@@ -16,6 +17,9 @@ export function CaseSidebarSection({
 }: CaseSidebarSectionProps) {
   const cases = useCases("joined", "active");
   const items = cases.data?.pages[0]?.items ?? [];
+  const unread = useUnreadCounts();
+  // 取得に失敗している間は、件数を出さない。失敗の文は、参加中のチャンネルの欄が出すので重ねない
+  const counts = unread.isError ? undefined : unread.data;
   return (
     <div className="mb-4">
       <p className="mb-2 px-3 text-xs font-bold text-text-muted">案件</p>
@@ -40,7 +44,14 @@ export function CaseSidebarSection({
               onClick={onNavigate}
               className={linkClassName}
             >
-              {item.title}
+              <RoomLinkLabel
+                name={item.title}
+                count={
+                  item.channelId === null
+                    ? undefined
+                    : counts?.get(item.channelId)
+                }
+              />
             </NavLink>
           </li>
         ))}
