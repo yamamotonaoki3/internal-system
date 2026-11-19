@@ -11,6 +11,8 @@ type ThreadLayoutProps = {
   retiredAuthorIds?: readonly string[];
   /** 自分の返信が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
   onReplied?: () => void;
+  /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
   children: ReactNode;
 };
 
@@ -18,6 +20,7 @@ export function ThreadLayout({
   roomId,
   retiredAuthorIds,
   onReplied,
+  onDeleted,
   children,
 }: ThreadLayoutProps) {
   const { parentMessageId } = useThreadParam();
@@ -31,6 +34,7 @@ export function ThreadLayout({
           roomId={roomId}
           retiredAuthorIds={retiredAuthorIds}
           onReplied={onReplied}
+          onDeleted={onDeleted}
         />
       )}
     </div>

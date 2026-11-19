@@ -69,6 +69,7 @@ export const CASE_ATTACHMENTS_TEXTS = {
   loading: "添付ファイルを読み込み中です",
   empty: "添付ファイルはありません",
   loadError: "添付ファイルを読み込めませんでした",
+  moreError: "添付ファイルの続きを読み込めませんでした",
   retry: "再試行",
   jump: "元のメッセージへ",
   more: "次のページ",

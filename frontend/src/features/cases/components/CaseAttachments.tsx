@@ -1,5 +1,5 @@
 // S-17 の添付ファイルの区画（#148。5-2 AC-7）。見出し「添付ファイル」と、案件のメッセージの添付の一覧（新しい順）。
-// 4つの状態（読み込み中・エラーと再試行・0件・あり）を分ける。取得は CaseDetailView が持つ（参加者で詳細が取れたときだけ）。
+// 4つの状態（読み込み中・エラーと再試行・0件・あり）を分ける。続きの失敗は、読み込み済みの行を残して区画の中に出す。取得は CaseDetailView が持つ（参加者で詳細が取れたときだけ）。
 // 「元のメッセージへ」は、スレッド（S-07）を ?thread= で開く。返信なら親の ID、トップレベルならそのメッセージの ID（C-184(4)）。
 // ファイルは元のメッセージに結び付いたまま、取得は配信（/api/attachments/{id}）が毎回判定する（C-62）。
 import { useId } from "react";
@@ -64,7 +64,8 @@ export function CaseAttachments({
   const thread = useThreadParam();
 
   function renderBody() {
-    if (attachments.isError)
+    // 続き（2ページ目以降）の失敗は、1ページ目の失敗と分ける（読み込み済みの行を隠さない）
+    if (attachments.isError && !attachments.isFetchNextPageError)
       return (
         <Alert tone="error">
           <p>{CASE_ATTACHMENTS_TEXTS.loadError}</p>
@@ -91,6 +92,18 @@ export function CaseAttachments({
             />
           ))}
         </ul>
+        {attachments.isFetchNextPageError && (
+          <Alert tone="error" role="alert">
+            <p>{CASE_ATTACHMENTS_TEXTS.moreError}</p>
+            <Button
+              variant="secondary"
+              disabled={attachments.isFetchingNextPage}
+              onClick={() => void attachments.fetchNextPage()}
+            >
+              {CASE_ATTACHMENTS_TEXTS.retry}
+            </Button>
+          </Alert>
+        )}
         {attachments.hasNextPage && (
           <div className="mt-2">
             <Button

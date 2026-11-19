@@ -17,6 +17,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse, type HttpResponseResolver } from "msw";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authKeys } from "../features/auth";
+import { ReauthProvider } from "../features/auth/ReauthProvider";
 import { installDomStubs, type DomStubs } from "../test/app-shell-harness";
 import {
   CASE_ATTACHMENT_TEXTS,
@@ -44,6 +45,13 @@ import {
 } from "../test/user-switch-harness";
 import { CaseDetailPage } from "./CaseDetailPage";
 
+// 削除・編集のダイアログが再認証の提供元を使うため、ページを ReauthProvider の中に描画する
+const withReauth = (
+  <ReauthProvider>
+    <CaseDetailPage />
+  </ReauthProvider>
+);
+
 function renderPage(
   n: number,
   options: { status?: "active" | "closed"; outsider?: boolean } = {},
@@ -57,7 +65,7 @@ function renderPage(
   });
   return {
     cases,
-    ...renderCaseRequestScreen(<CaseDetailPage />, {
+    ...renderCaseRequestScreen(withReauth, {
       at: `/cases/${caseId(n)}`,
       path: "/cases/:caseId",
     }),
@@ -338,7 +346,7 @@ describe("#148 AC-7 R-62 参加者でなければ、添付の一覧を取得し�
   it("#148 AC-7 147-A: 詳細が 403（外された後）なら、区画を出さず、添付の一覧の要求が飛ばない", async () => {
     const state = respondCaseAttachments([caseAttachment(1)]);
     respondCases({ summaries: [caseSummary(13)], denied: [caseId(13)] });
-    renderCaseRequestScreen(<CaseDetailPage />, {
+    renderCaseRequestScreen(withReauth, {
       at: `/cases/${caseId(13)}`,
       path: "/cases/:caseId",
     });
@@ -439,7 +447,7 @@ describe("#148 AC-7 計画「取り直し」 スレッドでの添付つきの�
       }),
     );
     respondCases({ summaries: [caseSummary(15)], details: [caseDetail(15)] });
-    const { user } = renderCaseRequestScreen(<CaseDetailPage />, {
+    const { user } = renderCaseRequestScreen(withReauth, {
       at: `/cases/${caseId(15)}?thread=${caseMessageId(41)}`,
       path: "/cases/:caseId",
     });
@@ -469,6 +477,262 @@ describe("#148 AC-7 計画「取り直し」 スレッドでの添付つきの�
       expect(thread.requested.every((id) => id === caseMessageId(41))).toBe(
         true,
       ),
+    );
+  });
+});
+
+// ---- コードレビュー1回目の軽微：削除・編集の後の一覧 ----
+
+const SELF = { id: "01JTESTUSER000000000000001", displayName: "テスト太郎" };
+const fileOf = (n: number) => ({
+  id: caseAttachmentId(n),
+  name: caseAttachmentName(n),
+  kind: "document" as const,
+  contentType: "text/plain; charset=utf-8",
+  size: 13,
+});
+
+/** 案件の部屋のメッセージ（自分の投稿）。削除は 204、編集は 200 */
+function respondOwnRoom(items: ReturnType<typeof message>[]) {
+  const deletes: string[] = [];
+  server.use(
+    http.get("/api/rooms/:roomId/messages", ({ request }) => {
+      const after = new URL(request.url).searchParams.get("after");
+      return HttpResponse.json({
+        items: after === null ? [...items].reverse() : [],
+        nextCursor: null,
+        hasMore: false,
+      });
+    }),
+    http.delete("/api/messages/:messageId", ({ params }) => {
+      deletes.push(String(params.messageId));
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.patch("/api/messages/:messageId", async ({ request, params }) => {
+      const { body } = (await request.json()) as { body: string };
+      return HttpResponse.json({
+        id: String(params.messageId),
+        body,
+        editedAt: "2026-11-18T02:00:00.000Z",
+        mentions: [],
+      });
+    }),
+  );
+  return { deletes };
+}
+
+type Rendered = ReturnType<typeof renderCaseRequestScreen>;
+
+async function deleteIn(
+  scope: HTMLElement,
+  text: string,
+  { user, client }: Pick<Rendered, "user" | "client">,
+) {
+  // 直前に再認証した状態にする（削除は再認証の有効期間の中なら、そのまま送る）
+  client.setQueryData(authKeys.session, (session: object | undefined) => ({
+    ...session,
+    reauthenticatedAt: new Date().toISOString(),
+  }));
+  const row = within(scope)
+    .getAllByRole("listitem")
+    .find((item) => item.textContent?.includes(text));
+  if (row === undefined) throw new Error(`${text} の行がありません`);
+  await user.click(within(row).getByRole("button", { name: "削除" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "メッセージの削除",
+  });
+  await user.click(within(dialog).getByRole("button", { name: "削除する" }));
+}
+
+describe("#148 AC-7 コードレビュー1回目（軽微） 削除・編集の後の添付の一覧", () => {
+  it("#148 AC-7: 添付つきの投稿を削除すると、添付の一覧を取り直し、その行が消える", async () => {
+    const posted = message(51, {
+      id: caseMessageId(51),
+      roomId: caseRoomId(16),
+      body: "[E2E_TEST]148B削除する投稿",
+      author: SELF,
+      attachments: [fileOf(1)],
+    });
+    const room = respondOwnRoom([posted]);
+    const state = respondCaseAttachments([
+      caseAttachment(1, { messageId: caseMessageId(51) }),
+    ]);
+    const rendered = renderPage(16);
+    const region = await section();
+    await within(region).findByText(caseAttachmentName(1));
+    const log = await screen.findByRole("log", { name: "メッセージ一覧" });
+    await within(log).findByText("[E2E_TEST]148B削除する投稿");
+    state.items = [];
+    await deleteIn(log, "[E2E_TEST]148B削除する投稿", rendered);
+    await waitFor(() => expect(room.deletes).toEqual([caseMessageId(51)]));
+    await waitFor(() =>
+      expect(within(region).queryByText(caseAttachmentName(1))).toBeNull(),
+    );
+  });
+
+  it("#148 AC-7: スレッドで添付つきの返信を削除すると、その行が消える", async () => {
+    const state = respondCaseAttachments([
+      caseAttachment(2, {
+        messageId: caseMessageId(62),
+        threadParentId: caseMessageId(61),
+      }),
+    ]);
+    const deletes: string[] = [];
+    server.use(
+      http.get("/api/messages/:messageId/replies", () =>
+        HttpResponse.json({
+          items: [
+            message(62, {
+              id: caseMessageId(62),
+              roomId: caseRoomId(17),
+              parentMessageId: caseMessageId(61),
+              body: "[E2E_TEST]148B削除する返信",
+              author: SELF,
+              attachments: [fileOf(2)],
+            }),
+          ],
+          nextCursor: null,
+          hasMore: false,
+          parent: message(61, {
+            id: caseMessageId(61),
+            roomId: caseRoomId(17),
+            body: "[E2E_TEST]148B親61",
+            replyCount: 1,
+          }),
+          replyBlockedReason: null,
+          joined: true,
+          roomWritable: true,
+        }),
+      ),
+      http.put(
+        "/api/messages/:messageId/thread-read-position",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+      http.delete("/api/messages/:messageId", ({ params }) => {
+        deletes.push(String(params.messageId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    respondCases({ summaries: [caseSummary(17)], details: [caseDetail(17)] });
+    const rendered = renderCaseRequestScreen(withReauth, {
+      at: `/cases/${caseId(17)}?thread=${caseMessageId(61)}`,
+      path: "/cases/:caseId",
+    });
+    const region = await section();
+    await within(region).findByText(caseAttachmentName(2));
+    const pane = await screen.findByRole("region", { name: "スレッド" });
+    await within(pane).findByText("[E2E_TEST]148B削除する返信");
+    state.items = [];
+    await deleteIn(pane, "[E2E_TEST]148B削除する返信", rendered);
+    await waitFor(() => expect(deletes).toEqual([caseMessageId(62)]));
+    await waitFor(() =>
+      expect(within(region).queryByText(caseAttachmentName(2))).toBeNull(),
+    );
+  });
+
+  it("#148 AC-7 計画（削除済みの親）: 親だけを削除しても、残っている返信の添付の行は残る（取り直しの応答も返信の添付を返す）", async () => {
+    const parent = message(71, {
+      id: caseMessageId(71),
+      roomId: caseRoomId(18),
+      body: "[E2E_TEST]148B削除する親",
+      author: SELF,
+      replyCount: 1,
+    });
+    const room = respondOwnRoom([parent]);
+    respondCaseAttachments([
+      caseAttachment(3, {
+        messageId: caseMessageId(72),
+        threadParentId: caseMessageId(71),
+      }),
+    ]);
+    const rendered = renderPage(18);
+    const region = await section();
+    await within(region).findByText(caseAttachmentName(3));
+    const log = await screen.findByRole("log", { name: "メッセージ一覧" });
+    await within(log).findByText("[E2E_TEST]148B削除する親");
+    await deleteIn(log, "[E2E_TEST]148B削除する親", rendered);
+    await waitFor(() => expect(room.deletes).toEqual([caseMessageId(71)]));
+    await within(log).findByText("このメッセージは削除されました");
+    expect(within(region).getByText(caseAttachmentName(3))).toBeTruthy();
+  });
+
+  it("#148 AC-7: 本文だけの編集では、添付の一覧の中身は変わらない", async () => {
+    const posted = message(81, {
+      id: caseMessageId(81),
+      roomId: caseRoomId(19),
+      body: "[E2E_TEST]148B編集する投稿",
+      author: SELF,
+      attachments: [fileOf(4)],
+    });
+    respondOwnRoom([posted]);
+    respondCaseAttachments([
+      caseAttachment(4, { messageId: caseMessageId(81) }),
+    ]);
+    const { user } = renderPage(19);
+    const region = await section();
+    await within(region).findByText(caseAttachmentName(4));
+    const log = await screen.findByRole("log", { name: "メッセージ一覧" });
+    const text = await within(log).findByText("[E2E_TEST]148B編集する投稿");
+    const row = text.closest("li");
+    if (row === null) throw new Error("投稿の行がありません");
+    await user.click(within(row).getByRole("button", { name: "編集" }));
+    const input = await within(log).findByRole("textbox", {
+      name: "メッセージの編集",
+    });
+    await user.clear(input);
+    await user.type(input, "148B編集後");
+    await user.click(within(log).getByRole("button", { name: "保存" }));
+    await within(log).findByText("148B編集後");
+    expect(within(region).getByText(caseAttachmentName(4))).toBeTruthy();
+    expect(within(region).getAllByRole("listitem")).toHaveLength(1);
+  });
+});
+
+// ---- 文書の担当の気づき：「次のページ」の失敗 ----
+
+const MORE_ERROR = "添付ファイルの続きを読み込めませんでした";
+
+describe("#148 AC-7 「次のページ」の読み込みの失敗", () => {
+  it("#148 AC-7: 「次のページ」が 500 でも読み込み済みの行は残り、続きの失敗（role=alert）と「再試行」を出す。再試行が成功すると続きの行が足される", async () => {
+    const items = Array.from({ length: 3 }, (_, i) => caseAttachment(i + 1));
+    const server500 = { failNext: true };
+    server.use(
+      http.get("/api/cases/:caseId/attachments", ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        if (cursor === null)
+          return HttpResponse.json({
+            items: items.slice(0, 2),
+            nextCursor: "p2",
+          });
+        if (server500.failNext)
+          return HttpResponse.json(
+            { code: "INTERNAL_ERROR", message: "x" },
+            { status: 500 },
+          );
+        return HttpResponse.json({ items: items.slice(2), nextCursor: null });
+      }),
+    );
+    const { user } = renderPage(20);
+    const region = await section();
+    await within(region).findByText(caseAttachmentName(2));
+    await user.click(
+      within(region).getByRole("button", { name: CASE_ATTACHMENT_TEXTS.more }),
+    );
+    const alert = await within(region).findByRole("alert");
+    expect(alert.textContent).toContain(MORE_ERROR);
+    expect(within(region).getByText(caseAttachmentName(1))).toBeTruthy();
+    expect(within(region).getByText(caseAttachmentName(2))).toBeTruthy();
+    expect(
+      within(region).queryByText(CASE_ATTACHMENT_TEXTS.loadError),
+    ).toBeNull();
+    server500.failNext = false;
+    await user.click(
+      within(region).getByRole("button", { name: CASE_ATTACHMENT_TEXTS.retry }),
+    );
+    expect(await within(region).findByText(caseAttachmentName(3))).toBeTruthy();
+    expect(within(region).getByText(caseAttachmentName(1))).toBeTruthy();
+    await waitFor(() =>
+      expect(within(region).queryByText(MORE_ERROR)).toBeNull(),
     );
   });
 });

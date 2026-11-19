@@ -12,6 +12,8 @@ type DeleteMessageDialogProps = {
   parentMessageId?: string | null;
   messageId: string;
   onClose: () => void;
+  /** 削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
 };
 
 export function DeleteMessageDialog({
@@ -19,6 +21,7 @@ export function DeleteMessageDialog({
   parentMessageId,
   messageId,
   onClose,
+  onDeleted,
 }: DeleteMessageDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const remove = useDeleteMessage(roomId, parentMessageId);
@@ -54,7 +57,7 @@ export function DeleteMessageDialog({
           <Button
             variant="danger"
             disabled={remove.isPending}
-            onClick={() => remove.mutate(messageId)}
+            onClick={() => remove.mutate(messageId, { onSuccess: onDeleted })}
           >
             削除する
           </Button>

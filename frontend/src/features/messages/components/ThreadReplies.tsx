@@ -41,6 +41,8 @@ type ThreadRepliesProps = {
   onLatestReplyIdChange?: (replyId: string) => void;
   /** 返信の投稿が成功したあとに呼ぶ（使う側の一覧の取り直しなど） */
   onReplied?: () => void;
+  /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
 };
 
 function ReplyArea({
@@ -84,6 +86,7 @@ export function ThreadReplies({
   retiredAuthorIds = [],
   onLatestReplyIdChange,
   onReplied,
+  onDeleted,
 }: ThreadRepliesProps) {
   const thread = useThreadReplies(parentMessageId);
   // リアクションのピッカーは、親と返信を通して同時に1つだけ開く
@@ -138,6 +141,7 @@ export function ThreadReplies({
         canReact={canModifyOwn}
         pickerOpenId={pickerOpenId}
         onPickerOpenIdChange={setPickerOpenId}
+        onDeleted={onDeleted}
       />
       <ReplyArea
         parent={data.parent}
