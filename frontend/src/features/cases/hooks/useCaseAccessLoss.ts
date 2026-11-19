@@ -79,10 +79,10 @@ export function useCaseAccessLoss({
   useEffect(() => {
     settle.current = (verdict, retried) => {
       if (!mounted.current) {
-        // 元の案件の詳細・TODO だけを取り除く（戻ったときに古い内容を出さない。AC-2）。部屋・スレッドは、表示していないので残らない
+        // 非参加・404・確かめられないときは、元の案件の詳細・TODO だけを取り除く（戻ったときに古い内容を出さない。AC-2）。部屋・スレッドは、表示していないので残らない
         if (verdict === "lost")
           void forgetCaseAfterLeave(queryClient, userId, caseId);
-        else if (verdict === "notFound")
+        else if (verdict !== "participant")
           void forgetCaseContent(queryClient, userId, caseId);
         return;
       }

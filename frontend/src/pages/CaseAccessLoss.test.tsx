@@ -183,6 +183,8 @@ type World = {
   gate: Promise<void> | null;
   /** 概要だけの応答の保留（詳細は保留しない） */
   summaryGate: Promise<void> | null;
+  /** 詳細だけの応答の保留（概要は保留しない） */
+  detailGate: Promise<void> | null;
   messages: ReturnType<typeof message>[];
   calls: { summary: number; detail: number; room: number };
   todos: TodoServerState;
@@ -206,6 +208,7 @@ function world(
     detailFail: null,
     gate: null,
     summaryGate: null,
+    detailGate: null,
     messages: options.messages === false ? [] : [parentMessage],
     calls: { summary: 0, detail: 0, room: 0 },
     todos,
@@ -246,6 +249,7 @@ function world(
     http.get("/api/cases/:caseId/detail", async () => {
       w.calls.detail += 1;
       if (w.gate !== null) await w.gate;
+      if (w.detailGate !== null) await w.detailGate;
       if (w.detailFail !== null) return failureResponse(w.detailFail);
       if (!w.participant) return failureResponse({ status: 403 });
       return HttpResponse.json(
@@ -322,6 +326,7 @@ function renderPage(options: { thread?: boolean } = {}) {
         <Link to={`/cases/${caseId(OTHER_N)}?thread=${otherParent.id}`}>
           別の案件へ移る
         </Link>
+        <Link to={`/cases/${caseId(N)}`}>元の案件へ戻る</Link>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -891,4 +896,69 @@ describe("#308 コードレビュー1回目 軽微3 参加者のままなら、�
     expect(w.calls.summary).toBe(base + 1);
     expect(screen.getByText(SECRET)).toBeTruthy();
   });
+});
+
+describe("#308 コードレビュー2回目 重大 離れた後の確認が失敗で終わっても、元の案件の詳細・TODO を残さない", () => {
+  it.each([
+    ["500", { status: 500 }, "参加者に戻った", true],
+    ["500", { status: 500 }, "非参加の", false],
+    ["通信の失敗", "network", "参加者に戻った", true],
+    ["通信の失敗", "network", "非参加の", false],
+  ] as const)(
+    "#308 AC-2: A の確認を保留して B へ移り、確認が%sで終わった後、%s A を開き直しても、詳細の応答を待つ間に古い説明・参加者・TODO が出ず、詳細を新しく取りにいく。B は影響を受けない",
+    async (_name, failure, _state, returns) => {
+      const w = world();
+      const other = respondOtherCase();
+      const { user } = renderPage();
+      await waitForFullView();
+      const gate = deferred();
+      w.summaryGate = gate.promise;
+      const summaryBefore = w.calls.summary;
+      w.revoke();
+      await advance(POLL_MS);
+      await waitFor(() =>
+        expect(w.calls.summary).toBeGreaterThan(summaryBefore),
+      );
+      await user.click(screen.getByRole("link", { name: "別の案件へ移る" }));
+      await screen.findByText(OTHER_SECRET);
+      await screen.findByText(OTHER_REPLY);
+      const before = { ...other };
+
+      // A の確認が、B を表示している間に失敗で終わる
+      w.summaryFail = failure;
+      w.summaryGate = null;
+      gate.release();
+      await advance(500);
+      expect(screen.getByText(OTHER_SECRET)).toBeTruthy();
+      expect(screen.getByText(OTHER_REPLY)).toBeTruthy();
+      expect(other).toEqual(before);
+
+      // A を開き直す：概要は成功し、詳細の応答は保留する
+      w.summaryFail = null;
+      if (returns) w.restore();
+      const detailGate = deferred();
+      w.detailGate = detailGate.promise;
+      const detailBefore = w.calls.detail;
+      const summaryAtReopen = w.calls.summary;
+      await user.click(screen.getByRole("link", { name: "元の案件へ戻る" }));
+      await waitFor(() =>
+        expect(w.calls.summary).toBeGreaterThan(summaryAtReopen),
+      );
+      if (returns)
+        await waitFor(() =>
+          expect(w.calls.detail).toBeGreaterThan(detailBefore),
+        );
+      await advance(300);
+      expect(screen.queryByText(SECRET)).toBeNull();
+      expect(screen.queryByRole("list", { name: "参加者" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "TODO" })).toBeNull();
+      expect(screen.queryByText(todoTitle(1))).toBeNull();
+      expect(screen.queryByText(PARTICIPANT_CREATOR.displayName)).toBeNull();
+
+      w.detailGate = null;
+      detailGate.release();
+      if (returns) expect(await screen.findByText(SECRET)).toBeTruthy();
+      else await waitForSwitched();
+    },
+  );
 });
