@@ -36,6 +36,21 @@ export const CASE_TODO_TEXTS = {
   participantsOnlyEdit: "参加者だけが操作できます",
   closed: "終了した案件は変更できません",
   assigneeInvalid: "担当者は、この案件の参加者から選んでください",
+  // ---- 149-B（編集・削除。計画 6.2.5。画面の契約は CaseTodos.edit.test.tsx の冒頭） ----
+  editDialog: "TODOの編集",
+  save: "保存する",
+  cancel: "キャンセル",
+  updated: "TODOを更新しました",
+  deleteDialog: "TODOの削除",
+  deleteConfirm: "削除する",
+  deleted: "TODOを削除しました",
+  todoDeleted: "このTODOは削除されています",
+  todoChanged:
+    "ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください",
+  latestLoadFailed: "最新の内容を読み込めませんでした",
+  latestOutOfPage:
+    "最新の内容を読み込めませんでした。閉じてから、一覧で確かめてください",
+  latestPrefix: "最新の内容：",
 } as const;
 
 /** TODO の ID（ULID の形。n は 1〜99999） */
@@ -80,8 +95,12 @@ export type TodoServerState = {
   /** GET の記録（cursor） */
   requests: (string | null)[];
   writes: TodoWrite[];
-  /** 書き込みの応答を差し替える。undefined なら既定（追加は 201、完了・取り消しは 200） */
+  /** 書き込みの応答を差し替える。undefined なら既定（追加は 201、完了・取り消し・編集は 200、削除は 204） */
   respond?: (write: TodoWrite) => Response | Promise<Response>;
+  /** 149-B：編集で assigneeUserId から担当（Person）を引くための人（既定は空。いなければ担当なし） */
+  people: TodoPerson[];
+  /** 149-B：一覧の取得を保留する（取り直しの間の画面を確かめる）。null なら保留しない */
+  hold: Promise<void> | null;
 };
 
 /**
@@ -100,6 +119,8 @@ export function respondTodos(
     requests: [],
     writes: [],
     respond: options.respond,
+    people: options.people ?? [],
+    hold: options.hold ?? null,
   };
   async function record(request: {
     method: string;
@@ -128,9 +149,10 @@ export function respondTodos(
     });
   };
   server.use(
-    http.get("/api/cases/:caseId/todos", ({ request }) => {
+    http.get("/api/cases/:caseId/todos", async ({ request }) => {
       const cursor = new URL(request.url).searchParams.get("cursor");
       state.requests.push(cursor);
+      if (state.hold !== null) await state.hold;
       if (state.failWith !== null)
         return HttpResponse.json(
           { code: state.failWith.code, message: state.failWith.message },
@@ -173,6 +195,55 @@ export function respondTodos(
         const write = await record(request);
         if (state.respond !== undefined) return state.respond(write);
         return setCompleted(String(params.todoId), false);
+      },
+    ),
+    // 149-B：編集（PATCH）。既定は、本文の title・assigneeUserId を反映して版を1進め、項目と進捗を返す
+    http.patch(
+      "/api/cases/:caseId/todos/:todoId",
+      async ({ request, params }) => {
+        const write = await record(request);
+        if (state.respond !== undefined) return state.respond(write);
+        const id = String(params.todoId);
+        const body = write.body as {
+          title?: string;
+          assigneeUserId?: string | null;
+        };
+        state.items = state.items.map((item) => {
+          if (item.id !== id) return item;
+          const assignee =
+            body.assigneeUserId === undefined
+              ? item.assignee
+              : body.assigneeUserId === null
+                ? null
+                : (state.people.find(
+                    (person) => person.userId === body.assigneeUserId,
+                  ) ?? null);
+          return {
+            ...item,
+            title: body.title ?? item.title,
+            assignee,
+            previousAssignee:
+              body.assigneeUserId === undefined ? item.previousAssignee : null,
+            version: item.version + 1,
+          };
+        });
+        const found = state.items.find((item) => item.id === id);
+        return HttpResponse.json({
+          ...(found ?? todoItem(0)),
+          progress: progressOf(state.items),
+        });
+      },
+    ),
+    // 149-B：削除（DELETE）。既定は、一覧から除いて 204
+    http.delete(
+      "/api/cases/:caseId/todos/:todoId",
+      async ({ request, params }) => {
+        const write = await record(request);
+        if (state.respond !== undefined) return state.respond(write);
+        state.items = state.items.filter(
+          (item) => item.id !== String(params.todoId),
+        );
+        return new HttpResponse(null, { status: 204 });
       },
     ),
   );

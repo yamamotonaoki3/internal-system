@@ -1,4 +1,4 @@
-// API 層：案件の TODO（#149。EP-5-13・14・17・18）の通信はここに書く。共通の apiClient を使い、応答は Zod で検証する。
+// API 層：案件の TODO（#149。EP-5-13〜18）の通信はここに書く。共通の apiClient を使い、応答は Zod で検証する。
 import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
 import { todoProgressSchema } from "./case-api";
@@ -30,6 +30,7 @@ const stateChangedSchema = z.object({
   progress: todoProgressSchema,
 });
 
+export type CaseTodoWithProgress = z.infer<typeof addedSchema>;
 export type TodoPerson = z.infer<typeof personSchema>;
 export type CaseTodo = z.infer<typeof itemSchema>;
 export type CaseTodoPage = z.infer<typeof pageSchema>;
@@ -51,7 +52,7 @@ export async function fetchCaseTodos(
 export async function addCaseTodo(
   caseId: string,
   input: { title: string; assigneeUserId: string | null },
-): Promise<z.infer<typeof addedSchema>> {
+): Promise<CaseTodoWithProgress> {
   const response = await apiClient.post(todosPath(caseId), input);
   return addedSchema.parse(response.data);
 }
@@ -66,4 +67,31 @@ export async function setCaseTodoCompleted(
     `${todosPath(caseId)}/${encodeURIComponent(todoId)}/${completed ? "complete" : "uncomplete"}`,
   );
   return stateChangedSchema.parse(response.data);
+}
+
+/** 編集の本文：画面が読んだ版と、変える項目だけ（assigneeUserId が null なら担当なし） */
+export type CaseTodoEdit = {
+  version: number;
+  title?: string;
+  assigneeUserId?: string | null;
+};
+
+export async function editCaseTodo(
+  caseId: string,
+  todoId: string,
+  input: CaseTodoEdit,
+): Promise<CaseTodoWithProgress> {
+  const response = await apiClient.patch(
+    `${todosPath(caseId)}/${encodeURIComponent(todoId)}`,
+    input,
+  );
+  return addedSchema.parse(response.data);
+}
+
+/** 削除（204。本文なし） */
+export async function deleteCaseTodo(
+  caseId: string,
+  todoId: string,
+): Promise<void> {
+  await apiClient.delete(`${todosPath(caseId)}/${encodeURIComponent(todoId)}`);
 }

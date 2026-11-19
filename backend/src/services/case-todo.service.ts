@@ -5,9 +5,14 @@
 //     → 終了中（409 closed）→ batch
 //   完了・取り消し：404 → 403 → perm.case.todo.edit → TODO がない・ほかの案件の TODO（404）→ 削除済み（409 todo_deleted）
 //     → 終了中（409 closed）→ すでにその状態なら何も書かずに 200（決定 Q3）→ batch
+//   編集（149-B 計画 6.2.2）：404 → 403 → perm.case.todo.edit → 本文の形・題名・版（422）→ TODO がない（404）→ 削除済み（409 todo_deleted）
+//     → 完了済みで担当を指定（409 todo_completed）→ 担当を変えるときだけ、新しい担当が有効な参加者でない（422）→ 終了中（409 closed）
+//     → 版が違う（409 todo_changed）→ いまと同じ値なら何も書かずに 200 → batch
+//   削除（149-B）：404 → 403 → perm.case.todo.edit → TODO がない（404）→ 終了中（409 closed）→ すでに削除済みなら何も書かずに 204 → batch
 // 非参加者（全体管理者・担当部署のオーナーを含む。R-76）には、TODO の有無・本文の誤り・案件の状態を区別させない（403 が先）。
 // batch が取り消されたら（CaseStateChangedError）、最初と同じ判定で読み直す。理由に当たればそれを返し、すでにその状態なら 200。
 // どれにも当たらなければ ID の順の逆転とみなし、確定済みの最大より大きい ID で作り直して batch 全体をやり直す（計画 6.9(3)・6.10）。
+// 記録の ID は、記録の表の全体の最大より大きい ID で作り直す（149-B 計画 6.1）。
 // TODO の操作は監査ログに残さない（決定 Q2。TODO の記録の表に残す）。404・403 の拒否は logger.audit に残す。再認証は求めない。
 import { z } from "zod";
 import { caseTodoTitleSchema } from "../../../shared/case-todo-rules";
@@ -15,6 +20,7 @@ import { CaseStateChangedError } from "../db/case.repository";
 import {
   withCaseTodos,
   type CaseTodoRepository,
+  type TodoItem,
   type TodoProgress,
   type TodoWriteFacts,
 } from "../db/case-todo.repository";
@@ -40,18 +46,25 @@ const VALIDATION_MESSAGE = "入力内容を確かめてください";
 const ASSIGNEE_INVALID_MESSAGE = "担当者は、この案件の参加者から選んでください";
 const BUSY_MESSAGE = "混み合っています。しばらくしてからもう一度お試しください";
 
-export type CaseTodoConflictReason = "closed" | "todo_deleted";
+export type CaseTodoConflictReason =
+  "closed" | "todo_deleted" | "todo_changed" | "todo_completed";
 
 const CONFLICT_MESSAGES: Record<CaseTodoConflictReason, string> = {
   closed: "終了した案件は変更できません",
   todo_deleted: "このTODOは削除されています",
+  todo_changed:
+    "ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください",
+  todo_completed:
+    "完了したTODOは、題名だけを編集できます（担当者を変えるときは、未完了に戻してください）",
 };
 
 type TodoAction =
   | "case.todo.view"
   | "case.todo.add"
   | "case.todo.complete"
-  | "case.todo.uncomplete";
+  | "case.todo.uncomplete"
+  | "case.todo.edit"
+  | "case.todo.delete";
 
 const addBodySchema = z
   .object({
@@ -59,6 +72,30 @@ const addBodySchema = z
     assigneeUserId: z.string().refine(isUlid).nullable().optional(),
   })
   .strict();
+
+const editBodySchema = z
+  .object({
+    version: z.number().int().min(1),
+    title: caseTodoTitleSchema.optional(),
+    assigneeUserId: z.string().refine(isUlid).nullable().optional(),
+  })
+  .strict()
+  .superRefine((body, context) => {
+    if (body.title !== undefined || body.assigneeUserId !== undefined) return;
+    for (const path of ["title", "assigneeUserId"])
+      context.addIssue({
+        code: "custom",
+        path: [path],
+        message: "題名か担当者のどちらかを指定してください",
+      });
+  });
+
+/** 編集の要求（整形の後）。undefined の項目は変えない */
+export type TodoEditRequest = {
+  version: number;
+  title?: string;
+  assigneeId?: string | null;
+};
 
 /** 判定の結果。deny は logger.audit に残す（404・403）。null は通ること */
 type Decision =
@@ -101,15 +138,22 @@ function present(facts: TodoWriteFacts | null): TodoWriteFacts {
   return facts;
 }
 
+const assigneeInvalid = (): Decision => ({
+  kind: "error",
+  error: new AppError("VALIDATION_ERROR", ASSIGNEE_INVALID_MESSAGE, {
+    fields: ["assigneeUserId"],
+  }),
+});
+
+const todoNotFound = (): Decision => ({
+  kind: "deny",
+  reason: "todo_not_found",
+  error: new AppError("NOT_FOUND", TODO_NOT_FOUND_MESSAGE),
+});
+
 /** 追加の、本文の検証の後の判定 */
 function decideAdd(facts: TodoWriteFacts): Decision {
-  if (facts.assigneeIsParticipant === false)
-    return {
-      kind: "error",
-      error: new AppError("VALIDATION_ERROR", ASSIGNEE_INVALID_MESSAGE, {
-        fields: ["assigneeUserId"],
-      }),
-    };
+  if (facts.assigneeIsParticipant === false) return assigneeInvalid();
   return facts.status === "active" ? null : conflict("closed");
 }
 
@@ -121,12 +165,7 @@ function decideState(
   completed: boolean,
 ): Decision | { result: StateResult } {
   const todo = facts.todo;
-  if (todo === null)
-    return {
-      kind: "deny",
-      reason: "todo_not_found",
-      error: new AppError("NOT_FOUND", TODO_NOT_FOUND_MESSAGE),
-    };
+  if (todo === null) return todoNotFound();
   if (todo.deleted) return conflict("todo_deleted");
   if (facts.status !== "active") return conflict("closed");
   if (todo.completed === completed)
@@ -134,14 +173,84 @@ function decideState(
   return null;
 }
 
+type EditResult = TodoItem & { progress: TodoProgress };
+
+/** 編集で、いまの値と違う項目（版が一致すれば、batch の時点でも同じ） */
+function editChanges(
+  todo: NonNullable<TodoWriteFacts["todo"]>,
+  request: TodoEditRequest,
+) {
+  return {
+    title:
+      request.title !== undefined && request.title !== todo.title
+        ? request.title
+        : undefined,
+    assignee:
+      request.assigneeId !== undefined && request.assigneeId !== todo.assigneeId
+        ? { id: request.assigneeId }
+        : undefined,
+  };
+}
+
+/** 編集の、本文の検証の後の判定（計画 6.2.2）。いまと同じ値なら、何も書かずにいまの項目と進捗を結果にする */
+export function decideEdit(
+  facts: TodoWriteFacts,
+  request: TodoEditRequest,
+): Decision | { result: EditResult } {
+  const todo = facts.todo;
+  if (todo === null) return todoNotFound();
+  if (todo.deleted) return conflict("todo_deleted");
+  // 完了済みは題名だけを編集できる（決定 Q1）。いまと同じ担当の指定でも、担当の変更の要求として扱う
+  if (todo.completed && request.assigneeId !== undefined)
+    return conflict("todo_completed");
+  const changes = editChanges(todo, request);
+  // いまと同じ担当なら、その人がいま参加者でなくても 422 にしない（外しは 149-D）
+  if (
+    changes.assignee !== undefined &&
+    changes.assignee.id !== null &&
+    facts.assigneeIsParticipant === false
+  )
+    return assigneeInvalid();
+  if (facts.status !== "active") return conflict("closed");
+  if (todo.version !== request.version) return conflict("todo_changed");
+  if (changes.title === undefined && changes.assignee === undefined)
+    return { result: { ...todo.item, progress: facts.progress } };
+  return null;
+}
+
+/** 削除の、認可の後の判定。すでに削除済みなら何も書かない（決定 Q2） */
+export function decideDelete(
+  facts: TodoWriteFacts,
+): Decision | { result: null } {
+  const todo = facts.todo;
+  if (todo === null) return todoNotFound();
+  if (facts.status !== "active") return conflict("closed");
+  if (todo.deleted) return { result: null };
+  return null;
+}
+
+/** 本文の誤り（fields は重ねない） */
+function validationError(issues: { path: PropertyKey[] }[]): AppError {
+  return new AppError("VALIDATION_ERROR", VALIDATION_MESSAGE, {
+    fields: [...new Set(issues.map((issue) => issue.path.join(".")))],
+  });
+}
+
+function parseEditBody(body: unknown): TodoEditRequest {
+  const parsed = editBodySchema.safeParse(body);
+  if (!parsed.success) throw validationError(parsed.error.issues);
+  return {
+    version: parsed.data.version,
+    ...(parsed.data.title === undefined ? {} : { title: parsed.data.title }),
+    ...(parsed.data.assigneeUserId === undefined
+      ? {}
+      : { assigneeId: parsed.data.assigneeUserId }),
+  };
+}
+
 function parseAddBody(body: unknown) {
   const parsed = addBodySchema.safeParse(body);
-  if (!parsed.success)
-    throw new AppError("VALIDATION_ERROR", VALIDATION_MESSAGE, {
-      fields: [
-        ...new Set(parsed.error.issues.map((issue) => issue.path.join("."))),
-      ],
-    });
+  if (!parsed.success) throw validationError(parsed.error.issues);
   return {
     title: parsed.data.title,
     assigneeId: parsed.data.assigneeUserId ?? null,
@@ -285,7 +394,7 @@ export function createCaseTodoService(
             }),
       decide,
       async () => {
-        autoUnassignEventId = idAfter(await repository.maxEventId(todoId));
+        autoUnassignEventId = idAfter(await repository.maxEventIdOverall());
         eventId = ulidAfter(autoUnassignEventId);
       },
     );
@@ -373,10 +482,119 @@ export function createCaseTodoService(
         decide,
         async () => {
           todoId = idAfter(await repository.maxTodoId(caseId));
-          eventId = newUlid();
+          eventId = idAfter(await repository.maxEventIdOverall());
         },
       );
       return { ...added.item, progress: added.progress };
+    },
+
+    /** 編集（EP-5-15）。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示） */
+    async editTodo(
+      actor: CaseTodoActor,
+      caseId: string,
+      todoId: string,
+      body: unknown,
+    ): Promise<EditResult> {
+      const action = "case.todo.edit";
+      const gate = await repository.findTodoWriteFacts({
+        caseId,
+        actorId: actor.userId,
+      });
+      raiseIf(actor, action, caseId, decideWriteGate(gate));
+      await authorize(actor, "perm.case.todo.edit");
+      const request = parseEditBody(body);
+      const newAssignee = request.assigneeId ?? null;
+      const readFacts = () =>
+        repository.findTodoWriteFacts({
+          caseId,
+          actorId: actor.userId,
+          todoId,
+          ...(newAssignee === null ? {} : { assigneeId: newAssignee }),
+        });
+      const decide = async () => {
+        const facts = await readFacts();
+        return decideWriteGate(facts) ?? decideEdit(present(facts), request);
+      };
+      const first = await readFacts();
+      raiseIf(actor, action, caseId, decideWriteGate(first));
+      const facts = present(first);
+      const decision = decideEdit(facts, request);
+      if (decision !== null && "result" in decision) return decision.result;
+      raiseIf(actor, action, caseId, decision);
+      // 判定を通れば TODO はある。版が一致する間は、変える項目は読んだ値から決まる
+      const todo = facts.todo;
+      if (todo === null) throw new Error("TODO の材料がありません");
+      const changes = editChanges(todo, request);
+      const firstEventId = newUlid();
+      let eventIds = [firstEventId, ulidAfter(firstEventId)];
+      return writeWithRetry(
+        actor,
+        action,
+        caseId,
+        async () => {
+          const edited = await repository.editTodo({
+            caseId,
+            actorId: actor.userId,
+            todoId,
+            version: request.version,
+            eventIds,
+            ...(changes.title === undefined ? {} : { title: changes.title }),
+            ...(changes.assignee === undefined
+              ? {}
+              : { assignee: changes.assignee }),
+          });
+          return { ...edited.item, progress: edited.progress };
+        },
+        decide,
+        async () => {
+          const next = idAfter(await repository.maxEventIdOverall());
+          eventIds = [next, ulidAfter(next)];
+        },
+      );
+    },
+
+    /** 削除（EP-5-16。論理削除）。版は見ない（決定 Q2） */
+    async deleteTodo(
+      actor: CaseTodoActor,
+      caseId: string,
+      todoId: string,
+    ): Promise<void> {
+      const action = "case.todo.delete";
+      const decide = async () => {
+        const facts = await repository.findTodoWriteFacts({
+          caseId,
+          actorId: actor.userId,
+          todoId,
+        });
+        return decideWriteGate(facts) ?? decideDelete(present(facts));
+      };
+      const first = await repository.findTodoWriteFacts({
+        caseId,
+        actorId: actor.userId,
+        todoId,
+      });
+      raiseIf(actor, action, caseId, decideWriteGate(first));
+      await authorize(actor, "perm.case.todo.edit");
+      const decision = decideDelete(present(first));
+      if (decision !== null && "result" in decision) return;
+      raiseIf(actor, action, caseId, decision);
+      let eventId = newUlid();
+      await writeWithRetry(
+        actor,
+        action,
+        caseId,
+        () =>
+          repository.deleteTodo({
+            caseId,
+            actorId: actor.userId,
+            todoId,
+            eventId,
+          }),
+        decide,
+        async () => {
+          eventId = idAfter(await repository.maxEventIdOverall());
+        },
+      );
     },
 
     /** 完了（EP-5-17） */

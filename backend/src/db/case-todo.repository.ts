@@ -1,10 +1,13 @@
 // Repository：案件の TODO（#149 の 149-A）。一覧・進捗と、追加・完了・完了の取り消し。DB へのアクセスはこの層に閉じ込める。
+// 149-B：編集・削除（論理削除）。編集は画面が読んだ版を前提に入れ、ほかの人の変更と重なったら取り消す。
 // 読み取り：中身（項目・進捗・担当の名前）を読む文に、その時点の閲覧の資格（閲覧者が有効な参加者）を入れる。確かめてから別の文で読まない。
 // 書き込み：1操作＝1回の db.batch。先頭の前提（#196 の方式。案件が進行中・操作者が有効な参加者・対象の TODO の状態・担当者が有効な参加者）を
 // cases.version を「そのままか NULL」にする UPDATE で確かめ、業務の文・記録の文にも同じ条件を付ける。
 // 必須の行を書く文の直後には changes() の確認を置き、0行なら同じく NOT NULL 違反で batch 全体を取り消す（計画 6.10。先例：message-mentions.sql.ts）。
 // どちらも CaseStateChangedError になり、Service が最初と同じ判定で読み直す（理由・すでにその状態・ID の順の逆転を読み分ける）。
 // ID は外から渡す。同じ案件の TODO・同じ TODO の記録に、渡した ID 以上がすでにあれば書かない（ID の順＝確定の順にするため。計画 6.9(3)）。
+// 記録の ID は、加えて記録の表の「全体」に、最初の ID 以上がないことを先頭の前提で確かめる（149-B 計画 6.1）。
+// 時計が戻って ulidAfter が「前＋1」を返しても、別の TODO の記録と主キーで衝突させないため。
 import { and, asc, eq, gt, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { cases, caseTodoEvents, caseTodos, users } from "../../db/schema";
@@ -61,6 +64,10 @@ export type TodoWriteFacts = {
     deleted: boolean;
     completed: boolean;
     version: number;
+    title: string;
+    assigneeId: string | null;
+    /** 画面に返す形（すでに求める状態のときの応答に使う） */
+    item: TodoItem;
   } | null;
   /** 担当者がその案件の有効な参加者か（指定したときだけ。指定しなければ null） */
   assigneeIsParticipant: boolean | null;
@@ -84,6 +91,20 @@ export type TodoStateInput = {
   eventId: string;
 };
 
+export type TodoEditInput = {
+  caseId: string;
+  actorId: string;
+  todoId: string;
+  /** 画面が読んだ版。いまの版と違えば書かない */
+  version: number;
+  /** 昇順の記録の ID。作る記録の数だけ前から使う（題名の変更 → 担当の変更の順） */
+  eventIds: readonly string[];
+  /** 整形の後の題名。undefined なら変えない */
+  title?: string;
+  /** 新しい担当（null は担当なし）。undefined なら変えない */
+  assignee?: { id: string | null };
+};
+
 export type TodoUncompleteInput = TodoStateInput & {
   /** 担当者が外れていたときだけ使う記録 auto_unassign の ID。eventId より小さくする */
   autoUnassignEventId: string;
@@ -102,6 +123,16 @@ function liveTodoWith(todoId: string, extra: SQL): SQL {
 }
 
 const ONE = sql`1`;
+const ZERO = sql`0`;
+
+/** 記録の表の全体に、firstId 以上の ID がないこと（計画 6.1。主キーの索引で探す） */
+function eventIdsFreshSql(firstId: string): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM case_todo_events fe WHERE fe.id >= ${firstId})`;
+}
+
+/** 利用者のいまの表示名（記録の時点の名前を残すため） */
+const displayNameOf = (userId: SQL | string) =>
+  sql`(SELECT dn.display_name FROM users dn WHERE dn.id = ${userId})`;
 
 function toProgress(row: { total: number; done: number } | undefined) {
   if (row === undefined || row.total === 0) return null;
@@ -121,6 +152,7 @@ export function createCaseTodoRepository(db: Database) {
         title: caseTodos.title,
         isDone: caseTodos.isDone,
         version: caseTodos.version,
+        deletedAt: caseTodos.deletedAt,
         assigneeId: caseTodos.assigneeId,
         // 同じ表を3回結合するので、同じ名前の列が重ならないよう、選択項目に別名を付ける
         assigneeName: sql<string | null>`${currentUser.displayName}`.as(
@@ -292,23 +324,15 @@ export function createCaseTodoRepository(db: Database) {
           .from(cases)
           .where(eq(cases.id, input.caseId))
           .limit(1),
-        db
-          .select({
-            deletedAt: caseTodos.deletedAt,
-            isDone: caseTodos.isDone,
-            version: caseTodos.version,
-          })
-          .from(caseTodos)
-          .where(
-            and(
-              input.todoId === undefined
-                ? sql`0 = 1`
-                : eq(caseTodos.id, input.todoId),
-              eq(caseTodos.caseId, input.caseId),
-              visible,
-            ),
-          )
-          .limit(1),
+        itemRows(
+          and(
+            input.todoId === undefined
+              ? sql`0 = 1`
+              : eq(caseTodos.id, input.todoId),
+            eq(caseTodos.caseId, input.caseId),
+            visible,
+          ),
+        ).limit(1),
         progressQuery(input.caseId, input.actorId),
       ]);
       const [found] = caseRows;
@@ -324,6 +348,9 @@ export function createCaseTodoRepository(db: Database) {
                 deleted: todo.deletedAt !== null,
                 completed: todo.isDone === 1,
                 version: todo.version,
+                title: todo.title,
+                assigneeId: todo.assigneeId,
+                item: toItem(todo),
               },
         assigneeIsParticipant:
           found.assigneeIsParticipant === null
@@ -343,13 +370,12 @@ export function createCaseTodoRepository(db: Database) {
       );
     },
 
-    /** TODO の記録の最大の ID */
-    maxEventId(todoId: string): Promise<string | null> {
+    /** 記録の表の全体の最大の ID（記録の ID の作り直しの基準。計画 6.1） */
+    maxEventIdOverall(): Promise<string | null> {
       return maxIdOf(
         db
           .select({ id: sql<string | null>`MAX(${caseTodoEvents.id})` })
-          .from(caseTodoEvents)
-          .where(eq(caseTodoEvents.todoId, todoId)),
+          .from(caseTodoEvents),
       );
     },
 
@@ -375,7 +401,11 @@ export function createCaseTodoRepository(db: Database) {
       const now = new Date().toISOString();
       const [, , , , , rows, progressRows] = await runWriteBatch(() =>
         db.batch([
-          assertStatement(db, input.caseId, condition),
+          assertStatement(
+            db,
+            input.caseId,
+            sql`${condition} AND ${eventIdsFreshSql(input.eventId)}`,
+          ),
           db.insert(caseTodos).select(
             sql`SELECT ${input.todoId}, ${input.caseId}, ${input.title}, ${input.assigneeId}, ${input.assigneeId}, ${assigneeName},
                 NULL, NULL, 0, 1, ${input.actorId}, ${now}, ${now}, NULL, NULL
@@ -419,7 +449,11 @@ export function createCaseTodoRepository(db: Database) {
       const now = new Date().toISOString();
       const [, , , updated, , progressRows] = await runWriteBatch(() =>
         db.batch([
-          assertStatement(db, input.caseId, condition),
+          assertStatement(
+            db,
+            input.caseId,
+            sql`${condition} AND ${eventIdsFreshSql(input.eventId)}`,
+          ),
           db.insert(caseTodoEvents).select(
             sql`SELECT ${input.eventId}, ct.id, ct.case_id, 'complete', ${input.actorId}, NULL, NULL,
                 ct.assignee_id, (SELECT cn.display_name FROM users cn WHERE cn.id = ct.assignee_id), NULL, NULL, ${now}
@@ -465,9 +499,11 @@ export function createCaseTodoRepository(db: Database) {
       const noLaterEvent = (eventId: string) =>
         sql`NOT EXISTS (SELECT 1 FROM case_todo_events oe WHERE oe.todo_id = ${input.todoId} AND oe.id >= ${eventId})`;
       const now = new Date().toISOString();
+      // 記録の ID の全体の新しさは、2つの ID の両方で確かめる（どちらを使うかは担当者の状態で決まるため）
+      const fresh = sql`${eventIdsFreshSql(input.autoUnassignEventId)} AND ${eventIdsFreshSql(input.eventId)}`;
       const [, , , , , updated, , progressRows] = await runWriteBatch(() =>
         db.batch([
-          assertStatement(db, input.caseId, condition),
+          assertStatement(db, input.caseId, sql`${condition} AND ${fresh}`),
           db.insert(caseTodoEvents).select(
             sql`SELECT ${input.autoUnassignEventId}, ct.id, ct.case_id, 'auto_unassign', ${input.actorId}, NULL, NULL,
                 ct.assignee_id, ct.recorded_assignee_name, NULL, NULL, ${now}
@@ -505,7 +541,139 @@ export function createCaseTodoRepository(db: Database) {
       if (row === undefined) throw new CaseStateChangedError();
       return { version: row.version, progress: toProgress(progressRows[0]) };
     },
+
+    /**
+     * 編集（149-B 計画 6.2.3）：前提 → 記録 title_change → 確認 → 記録 assignee_change → 確認 → TODO の更新 → 確認 → 項目と進捗。
+     * 記録を先に置くのは、版の条件が更新の後には偽になるため。変えない項目の記録の文は0行の条件で置き、確認の件数も0にする（文の位置を固定する）。
+     * 前提：進行中・操作者が有効な参加者・TODO がその案件の未削除で版が一致・（担当を変えるとき）未完了で、新しい担当が有効な参加者
+     */
+    async editTodo(
+      input: TodoEditInput,
+    ): Promise<{ item: TodoItem; progress: TodoProgress }> {
+      const titleChanges = input.title !== undefined;
+      const assignee = input.assignee;
+      const todoState =
+        assignee === undefined
+          ? sql`t.version = ${input.version}`
+          : sql`t.version = ${input.version} AND t.is_done = 0`;
+      const assigneeOk =
+        assignee === undefined || assignee.id === null
+          ? sql`1 = 1`
+          : activeChannelMember(K_ROOM, assignee.id);
+      const condition = activeCaseWith(
+        input.caseId,
+        sql`${activeChannelMember(K_ROOM, input.actorId)}
+          AND ${liveTodoWith(input.todoId, todoState)} AND ${assigneeOk}`,
+      );
+      const titleEventId = eventIdAt(input.eventIds, 0);
+      const assigneeEventId = eventIdAt(input.eventIds, titleChanges ? 1 : 0);
+      const newAssigneeId = assignee?.id ?? null;
+      const newAssigneeName =
+        newAssigneeId === null ? sql`NULL` : displayNameOf(newAssigneeId);
+      const titleWanted = titleChanges ? ONE : ZERO;
+      const assigneeWanted = assignee === undefined ? ZERO : ONE;
+      const now = new Date().toISOString();
+      const [, , , , , updated, , rows, progressRows] = await runWriteBatch(
+        () =>
+          db.batch([
+            assertStatement(
+              db,
+              input.caseId,
+              sql`${condition} AND ${eventIdsFreshSql(titleEventId)}`,
+            ),
+            db.insert(caseTodoEvents).select(
+              sql`SELECT ${titleEventId}, ct.id, ct.case_id, 'title_change', ${input.actorId}, ${input.title ?? null}, ct.title,
+                  NULL, NULL, NULL, NULL, ${now}
+                  FROM case_todos ct WHERE ct.id = ${input.todoId} AND ${titleWanted} = 1 AND ${condition}`,
+            ),
+            guardChanges(db, input.caseId, titleWanted),
+            db.insert(caseTodoEvents).select(
+              sql`SELECT ${assigneeEventId}, ct.id, ct.case_id, 'assignee_change', ${input.actorId}, NULL, NULL,
+                  ${newAssigneeId}, ${newAssigneeName}, ct.assignee_id, ${displayNameOf(sql`ct.assignee_id`)}, ${now}
+                  FROM case_todos ct WHERE ct.id = ${input.todoId} AND ${assigneeWanted} = 1 AND ${condition}`,
+            ),
+            guardChanges(db, input.caseId, assigneeWanted),
+            db
+              .update(caseTodos)
+              .set({
+                title: input.title,
+                // 手で担当を変えたら、担当した時点の人と名前も新しい担当にする（担当なしなら残さない。決定 Q3）
+                ...(assignee === undefined
+                  ? {}
+                  : {
+                      assigneeId: newAssigneeId,
+                      recordedAssigneeId: newAssigneeId,
+                      recordedAssigneeName: newAssigneeName,
+                    }),
+                version: sql`${caseTodos.version} + 1`,
+                updatedAt: now,
+              })
+              .where(and(eq(caseTodos.id, input.todoId), condition))
+              .returning({ id: caseTodos.id }),
+            guardChanges(db, input.caseId, ONE),
+            itemRows(
+              and(
+                eq(caseTodos.id, input.todoId),
+                visibleTo(input.caseId, input.actorId),
+              ),
+            ).limit(1),
+            progressQuery(input.caseId, input.actorId),
+          ]),
+      );
+      const [row] = rows;
+      // 案件の行がないと、前提・確認の UPDATE は0行で失敗しないため、結果の行で確かめる
+      if (updated.length === 0 || row === undefined)
+        throw new CaseStateChangedError();
+      return { item: toItem(row), progress: toProgress(progressRows[0]) };
+    },
+
+    /**
+     * 削除（149-B 計画 6.2.4。論理削除）：前提 → 記録 delete（その時点の題名）→ 確認 → TODO の更新 → 確認。
+     * 前提：進行中・操作者が有効な参加者・TODO がその案件の未削除。版は見ない（決定 Q2）。担当・完了の列は変えない（復元で引き継ぐ）
+     */
+    async deleteTodo(input: TodoStateInput): Promise<void> {
+      const condition = activeCaseWith(
+        input.caseId,
+        sql`${activeChannelMember(K_ROOM, input.actorId)}
+          AND ${liveTodoWith(input.todoId, ONE)}`,
+      );
+      const now = new Date().toISOString();
+      const [, , , updated] = await runWriteBatch(() =>
+        db.batch([
+          assertStatement(
+            db,
+            input.caseId,
+            sql`${condition} AND ${eventIdsFreshSql(input.eventId)}`,
+          ),
+          db.insert(caseTodoEvents).select(
+            sql`SELECT ${input.eventId}, ct.id, ct.case_id, 'delete', ${input.actorId}, ct.title, NULL,
+                NULL, NULL, NULL, NULL, ${now}
+                FROM case_todos ct WHERE ct.id = ${input.todoId} AND ${condition}`,
+          ),
+          guardChanges(db, input.caseId, ONE),
+          db
+            .update(caseTodos)
+            .set({
+              deletedAt: now,
+              deletedBy: input.actorId,
+              version: sql`${caseTodos.version} + 1`,
+              updatedAt: now,
+            })
+            .where(and(eq(caseTodos.id, input.todoId), condition))
+            .returning({ id: caseTodos.id }),
+          guardChanges(db, input.caseId, ONE),
+        ]),
+      );
+      if (updated.length === 0) throw new CaseStateChangedError();
+    },
   };
+}
+
+/** 記録の ID の列から index 番目を取る。足りないのは呼び出し側の誤り */
+function eventIdAt(ids: readonly string[], index: number): string {
+  const id = ids[index];
+  if (id === undefined) throw new Error("記録の ID が足りません");
+  return id;
 }
 
 /** 担当の名前の列は、CHECK で ID と対になっている。ないのは表の不変条件が崩れたとき */

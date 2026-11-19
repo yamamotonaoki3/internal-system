@@ -6650,6 +6650,171 @@
         }
       }
     },
+    "/api/cases/{caseId}/todos/{todoId}": {
+      "patch": {
+        "operationId": "editCaseTodo",
+        "summary": "TODO の題名・担当者を編集する（EP-5-15）",
+        "description": "有効な参加者なら誰でもできる。再認証は求めない。本文には画面が読んだ版（version）と、変える項目だけを入れる。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → 本文の形・題名・版（422。title も assigneeUserId もなければ fields に両方）→ TODO がない・ほかの案件の TODO（404）→ 削除済み（409 todo_deleted）→ 完了済みで担当を指定（409 todo_completed。完了済みは題名だけ編集できる）→ 担当を変えるときだけ、新しい担当がその案件の有効な参加者でない（422。fields に assigneeUserId）→ 終了中（409 closed）→ 版が違う（409 todo_changed）。いまと同じ値なら、何も書かずにいまの項目と進捗を返す。題名の変更は記録 title_change、担当の変更は記録 assignee_change を残し、版を 1 足す。担当を「なし」にしたときは、担当した時点の人と名前も残さない。監査ログには残さない。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseTodoEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "編集した（いまと同じ値なら何もしない）。一覧の項目と同じ形と進捗。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoAdded"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、完了した TODO の担当の変更（reason: todo_completed）、終了した案件（reason: closed「終了した案件は変更できません」）、または版が違う（reason: todo_changed「ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteCaseTodo",
+        "summary": "TODO を削除する（EP-5-16。論理削除）",
+        "description": "有効な参加者なら誰でもできる。完了済みも削除できる。本文は受け取らない（版は送らない）。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → TODO がない・ほかの案件の TODO（404）→ 終了中（409 closed）。すでに削除済みなら何も書かずに 204。削除した TODO は一覧・進捗から除く。記録 delete を残す。監査ログには残さない。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "削除した（すでに削除済みなら何もしない）。本文なし"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
     "/api/cases/{caseId}/todos/{todoId}/complete": {
       "post": {
         "operationId": "completeCaseTodo",
@@ -12268,6 +12433,46 @@
             ],
             "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
             "description": "担当者（その案件の有効な参加者）。省略・null は担当なし"
+          }
+        }
+      },
+      "CaseTodoEdit": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "title"
+            ]
+          },
+          {
+            "required": [
+              "assigneeUserId"
+            ]
+          }
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "画面が読んだ版。いまの版と違えば 409 todo_changed"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "新しい題名。追加と同じ整形の後に 1〜100 文字（UTF-16 の単位）。省略は変えない"
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "新しい担当者（その案件の有効な参加者）。null は担当なし、省略は変えない。完了済みの TODO では指定できない"
           }
         }
       },

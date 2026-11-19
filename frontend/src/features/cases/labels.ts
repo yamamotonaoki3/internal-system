@@ -86,6 +86,30 @@ export const CASE_TODO_NO_ASSIGNEE_TEXT = "担当なし";
 export const CASE_TODO_MORE_TEXT = "さらに表示";
 export const CASE_TODO_TITLE_ERROR = `題名は1〜${CASE_TODO_TITLE_MAX_LENGTH}文字で入力してください`;
 
+/** S-17 の TODO の編集・削除（#149 の 149-B）。409 の文言はサーバーと同じ（画面は理由を文言で見分ける） */
+export const CASE_TODO_EDIT_TEXTS = {
+  edit: "編集",
+  delete: "削除",
+  editTitle: "TODOの編集",
+  save: "保存する",
+  cancel: "キャンセル",
+  updated: "TODOを更新しました",
+  deleteTitle: "TODOの削除",
+  deleteConfirm: "削除する",
+  deleted: "TODOを削除しました",
+  deleteBody: (title: string) => `「${title}」を削除します。`,
+  todoDeleted: "このTODOは削除されています",
+  todoChanged:
+    "ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください",
+  latestLoading: "最新の内容を読み込み中です",
+  latestLoadFailed: "最新の内容を読み込めませんでした",
+  latestOutOfPage:
+    "最新の内容を読み込めませんでした。閉じてから、一覧で確かめてください",
+  latest: (title: string, assignee: string) =>
+    `最新の内容：${title}／担当：${assignee}`,
+  retry: "再試行",
+} as const;
+
 /** S-17 の添付ファイル（#148） */
 export const CASE_ATTACHMENTS_TEXTS = {
   heading: "添付ファイル",

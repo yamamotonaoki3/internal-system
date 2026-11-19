@@ -278,3 +278,132 @@ describe("#149 149-A API の仕様書：TODO", () => {
     expectProgress("CaseSummary.progress", summary.properties?.progress);
   });
 });
+
+// #149（149-B）EP-5-15（PATCH 編集）・EP-5-16（DELETE 削除）、計画 6.2.1・10節「契約」、決定 Q1・Q2
+const TODO_ITEM = "/api/cases/{caseId}/todos/{todoId}";
+
+type Numeric = Schema & {
+  minLength?: number;
+  maxLength?: number;
+};
+
+describe("#149 149-B API の仕様書：TODO の編集・削除", () => {
+  it.each([
+    {
+      method: "patch",
+      codes: ["200", "401", "403", "404", "409", "422", "503"],
+    },
+    {
+      method: "delete",
+      codes: ["204", "401", "403", "404", "409", "422", "503"],
+    },
+  ])(
+    "#149 AC-1（EP-5-15・16）: $method の応答コードが書かれている",
+    ({ method, codes }) => {
+      const operation = paths[TODO_ITEM]?.[method];
+      expect(operation, `${method} ${TODO_ITEM}`).toBeDefined();
+      for (const code of codes)
+        expect(Object.keys(operation?.responses ?? {}), code).toContain(code);
+    },
+  );
+
+  it("#149 AC-1: 編集・削除のパスの caseId・todoId の pattern は ULID_PATTERN と同じ判定", () => {
+    const checked: string[] = [];
+    for (const method of ["patch", "delete"]) {
+      for (const parameter of paths[TODO_ITEM]?.[method]?.parameters ?? []) {
+        if (parameter.in !== "path") continue;
+        expectUlidPattern(
+          `${method} ${parameter.name}`,
+          resolve(parameter.schema).pattern,
+        );
+        checked.push(`${method}:${parameter.name}`);
+      }
+    }
+    expect(checked.sort()).toEqual(
+      ["delete:caseId", "delete:todoId", "patch:caseId", "patch:todoId"].sort(),
+    );
+  });
+
+  it("#149 AC-1 5-4 AC-8 決定 Q1: 編集の本文は strict で、version（必須・整数・最小1）・title（任意・1〜100文字）・assigneeUserId（任意・ULID か null）だけ", () => {
+    const body = resolve(
+      paths[TODO_ITEM]?.patch?.requestBody?.content?.["application/json"]
+        ?.schema,
+    );
+    expect(body.additionalProperties).toBe(false);
+    expect(body.required).toEqual(["version"]);
+    expect(Object.keys(body.properties ?? {}).sort()).toEqual(
+      ["assigneeUserId", "title", "version"].sort(),
+    );
+    const version = resolve(body.properties?.version);
+    expect(version.type).toBe("integer");
+    expect(version.minimum).toBe(1);
+    const title = resolve(body.properties?.title) as Numeric;
+    expect(title.minLength).toBe(1);
+    expect(title.maxLength).toBe(100);
+    const assignee = resolve(body.properties?.assigneeUserId);
+    expect(allowsNull(assignee)).toBe(true);
+    expectUlidPattern(
+      "編集の本文 assigneeUserId",
+      resolve(nonNull(assignee)).pattern ?? assignee.pattern,
+    );
+  });
+
+  it("#149 AC-1 計画 6.2.1: 編集の本文は、title か assigneeUserId の少なくとも一方が必須（anyOf）で、版だけの本文は定義に合わない", () => {
+    const body = resolve(
+      paths[TODO_ITEM]?.patch?.requestBody?.content?.["application/json"]
+        ?.schema,
+    );
+    const alternatives = (body.anyOf ?? []).map(resolve);
+    expect(alternatives.map((a) => a.required)).toEqual(
+      expect.arrayContaining([["title"], ["assigneeUserId"]]),
+    );
+    // 版だけの本文（{ version: 1 }）は、どの選択肢の必須も満たさない
+    const versionOnly = new Set(["version"]);
+    const satisfiedBy = alternatives.filter((a) =>
+      (a.required ?? []).every((name) => versionOnly.has(name)),
+    );
+    expect(satisfiedBy).toEqual([]);
+    expect(alternatives.length).toBeGreaterThan(0);
+  });
+
+  it("#149 AC-1 5-4 AC-8: 編集の 200 は、一覧の項目と同じ項目（id・title・completed・version・assignee・previousAssignee・completedAssignee）と progress を持つ", () => {
+    const edited = json(paths[TODO_ITEM]?.patch, "200");
+    expect(edited.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "title",
+        "completed",
+        "version",
+        "assignee",
+        "previousAssignee",
+        "completedAssignee",
+        "progress",
+      ]),
+    );
+    expectProgress("編集の progress", edited.properties?.progress);
+  });
+
+  it("#149 AC-1 決定 Q2 計画 10節 #27: 削除は本文を受け取らず（requestBody がない）、204 は本文なし", () => {
+    const operation = paths[TODO_ITEM]?.delete;
+    expect(operation?.requestBody).toBeUndefined();
+    expect(operation?.responses?.["204"]?.content).toBeUndefined();
+  });
+
+  it("#149 AC-1 5-4 AC-9 決定 Q1: 編集の 409 の reason に closed・todo_deleted・todo_changed・todo_completed、削除の 409 に closed が書かれている", () => {
+    const editConflict = JSON.stringify(
+      paths[TODO_ITEM]?.patch?.responses?.["409"] ?? {},
+    );
+    const resolvedEdit = JSON.stringify(json(paths[TODO_ITEM]?.patch, "409"));
+    for (const reason of [
+      "closed",
+      "todo_deleted",
+      "todo_changed",
+      "todo_completed",
+    ])
+      expect(`${editConflict}${resolvedEdit}`, reason).toContain(reason);
+    const deleteConflict = `${JSON.stringify(
+      paths[TODO_ITEM]?.delete?.responses?.["409"] ?? {},
+    )}${JSON.stringify(json(paths[TODO_ITEM]?.delete, "409"))}`;
+    expect(deleteConflict).toContain("closed");
+  });
+});

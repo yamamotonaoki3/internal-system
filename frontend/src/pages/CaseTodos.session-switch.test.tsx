@@ -1,7 +1,7 @@
 // #149（149-A）#284（ADR-0030）・計画 6.6：S-17 の TODO の区画を開いたまま利用者が A → B に替わると、A の TODO（題名・担当・進捗）が一度も描画されないこと。
 // 枠（App）と描画の見張り（render-watch）は test/user-switch-harness の部品を使う（先例：CaseDetailPage.conversation.test.tsx の #148 #284）。
 // API は MSW。データはすべて架空（testuser_case149_・[E2E_TEST]）。
-import { act, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authKeys } from "../features/auth";
@@ -166,5 +166,36 @@ describe("#149 #284 S-17 の TODO を開いたまま利用者が替わる", () =
     await waitFor(() => expect(shows(`${B_MARK}のTODO`)).toBe(true));
     expect(app.watch.hits).toEqual([]);
     expect(shows(`${A_MARK}の未完了`)).toBe(false);
+  });
+
+  // #149（149-B）計画 10節（利用者の切り替え）：編集のダイアログ（dialog「TODOの編集」。画面の契約は CaseTodos.edit.test.tsx の冒頭）を
+  // 開いて入力したまま B に替わると、A の TODO の題名・A の入力がどの確定にも出ない
+  it("#149 AC-1 149-B #284: A が TODO の編集のダイアログを開いて入力したまま B に替わると、A の TODO と入力が一度も描画されず、B の TODO が出る", async () => {
+    const world = respondSwitchWorld();
+    const app = renderUserSwitchApp(`/cases/${caseId(N)}`, {
+      needles: [A_MARK],
+    });
+    await waitFor(() => expect(shows(`${A_MARK}の未完了`)).toBe(true));
+    await app.user.click(
+      await screen.findByRole("button", { name: `${A_MARK}の未完了を編集` }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "TODOの編集" });
+    const title = within(dialog).getByRole("textbox", { name: "題名" });
+    await app.user.clear(title);
+    await app.user.type(title, `${A_MARK}の入力中`);
+
+    const gate = deferred();
+    world.user = USER_B;
+    world.hold = gate.promise;
+    app.watch.arm();
+    act(() => {
+      app.client.setQueryData(authKeys.session, sessionOf(USER_B));
+    });
+    expect(app.watch.hits).toEqual([]);
+    gate.release();
+    await waitFor(() => expect(shows(`${B_MARK}のTODO`)).toBe(true));
+    expect(app.watch.hits).toEqual([]);
+    expect(shows(`${A_MARK}の入力中`)).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "TODOの編集" })).toBeNull();
   });
 });
