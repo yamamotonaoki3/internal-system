@@ -82,5 +82,9 @@ export const CASE_ATTACHMENTS_TEXTS = {
 export const todoProgressLabel = (progress: { done: number; total: number }) =>
   `${progress.total}項目中${progress.done}項目が完了`;
 
+/** 終了の確認に出す、未完了の TODO の件数の警告（#309） */
+export const closeTodoWarning = (count: number) =>
+  `未完了の TODO が ${count} 件あります`;
+
 /** 無効な人（退職者）の名前。リンクは付けない（5-4 AC-6・C-75） */
 export const retiredName = (name: string) => `${name}（退職者）`;

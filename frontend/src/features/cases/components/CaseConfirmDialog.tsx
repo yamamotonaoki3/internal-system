@@ -7,6 +7,8 @@ type Props = {
   confirmLabel: string;
   pending: boolean;
   children: ReactNode;
+  /** 本文の後ろに別の要素として出す注意書き */
+  notice?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -16,6 +18,7 @@ export function CaseConfirmDialog({
   confirmLabel,
   pending,
   children,
+  notice,
   onConfirm,
   onClose,
 }: Props) {
@@ -38,6 +41,7 @@ export function CaseConfirmDialog({
       <section>
         <h2 className="mb-4 text-xl font-bold">{title}</h2>
         <p className="mb-4">{children}</p>
+        {notice}
         <div className="flex gap-2">
           <Button variant="danger" disabled={pending} onClick={onConfirm}>
             {confirmLabel}
