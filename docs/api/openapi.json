@@ -6711,6 +6711,90 @@
           }
         }
       }
+    },
+    "/api/cases/{caseId}/attachments": {
+      "get": {
+        "operationId": "listCaseAttachments",
+        "summary": "案件の添付ファイルの一覧を取得する（EP-5-19）",
+        "description": "有効な参加者だけが見られる（全体管理者・担当部署のオーナーでも、参加していなければ 403）。終了した案件でも見られる。判定の順は、クエリの形（422）→ 案件がない（404）→ 参加者でない（403）→ 権限。その案件の部屋の、投稿済みで削除されていないメッセージ（トップレベル・返信）の添付だけを、添付の ID の降順（新しい順）で返す。未投稿の添付は出さない。保存先のキー・URL は返さない（取得は GET /api/attachments/{attachmentId}）。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": "件数。既定は 50"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "添付の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAttachmentPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -12140,6 +12224,110 @@
               {
                 "$ref": "#/components/schemas/CaseTodoProgress"
               }
+            ]
+          }
+        }
+      },
+      "CaseAttachmentItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "contentType",
+          "size",
+          "uploadedAt",
+          "messageId",
+          "threadParentId",
+          "uploader"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "元のファイル名"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "document",
+              "video"
+            ]
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "バイト数"
+          },
+          "uploadedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "添付（アップロード）の時刻"
+          },
+          "messageId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "元のメッセージ"
+          },
+          "threadParentId": {
+            "description": "元のメッセージが返信なら親の ID、トップレベルなら null。画面はスレッド（?thread=）を threadParentId ?? messageId で開く",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              }
+            ]
+          },
+          "uploader": {
+            "type": "object",
+            "required": [
+              "id",
+              "displayName",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "displayName": {
+                "type": "string",
+                "description": "いまの表示名"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "無効（退職者）なら false"
+              }
+            }
+          }
+        }
+      },
+      "CaseAttachmentPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseAttachmentItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
             ]
           }
         }

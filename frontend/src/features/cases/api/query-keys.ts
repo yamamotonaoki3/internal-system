@@ -13,7 +13,10 @@ export const caseKeys = {
   /** 案件の TODO の一覧（#149）。all の下なので、参加者の変更などの後の取り直しにも含まれる */
   todos: (userId: string, caseId: string) =>
     ["cases", "todos", userId, caseId] as const,
+  /** 案件の添付の一覧（#148）。all の下なので、参加者の変更などの後の取り直しにも含まれる */
+  attachments: (userId: string, caseId: string) =>
+    ["cases", "attachments", userId, caseId] as const,
 };
 
-/** list・summary・detail・todos のキーで、利用者の ID がある位置 */
+/** list・summary・detail・todos・attachments のキーで、利用者の ID がある位置 */
 export const CASE_KEY_USER_ID_INDEX = 2;

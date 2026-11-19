@@ -59,8 +59,8 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | ファイル | 役割 |
 | --- | --- |
 | `features/threads/`（`index.ts`） | 公開は`ThreadLayout`・`ThreadList`・`ThreadPane`・`useThreadParam` |
-| `features/threads/components/ThreadLayout.tsx` | チャンネル詳細・DM詳細の枠。`?thread=`があるとき、本体の隣（スマートフォンでは全画面）に`ThreadPane`を出す。**開いていても閉じていても同じ構造を返す**（下の「画面」） |
-| `features/threads/components/ThreadPane.tsx` | S-07の領域。見出し「スレッド」・閉じる・`ThreadReplies`・既読の失敗の表示。参加者として最新の返信が表示されたら既読を送る。閉じたら、開いた要素へフォーカスを戻す |
+| `features/threads/components/ThreadLayout.tsx` | チャンネル詳細・DM詳細の枠。`?thread=`があるとき、本体の隣（スマートフォンでは全画面）に`ThreadPane`を出す。**開いていても閉じていても同じ構造を返す**（下の「画面」）。省略できる props `onReplied`を`ThreadPane`へ通す（【#148の148-B-1】） |
+| `features/threads/components/ThreadPane.tsx` | S-07の領域。見出し「スレッド」・閉じる・`ThreadReplies`・既読の失敗の表示。参加者として最新の返信が表示されたら既読を送る。閉じたら、開いた要素へフォーカスを戻す。自分の返信が成功したら、スレッド一覧を取り直し、渡されていれば`onReplied`も呼ぶ（案件の画面が、案件の添付の一覧を取り直すために渡す。チャンネル・DMは渡さず、動きは変わらない） |
 | `features/threads/components/ThreadList.tsx` | S-35の一覧部分（4状態・未読の印・「さらに表示」・100件の案内） |
 | `features/threads/hooks/useThreadParam.ts` | URLのクエリ`?thread=<親ID>`の読み書き（ほかのクエリを残す） |
 | `features/threads/hooks/useMyThreads.ts` | `useInfiniteQuery`。先頭から最大5ページまで。2秒ごとの取り直し（`pollIntervalUnlessDenied`。権限がない・見つからないときは止める） |

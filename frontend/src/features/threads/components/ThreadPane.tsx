@@ -17,12 +17,18 @@ type ThreadPaneProps = {
   roomId?: string;
   /** 表示名に「退職者」を併記する投稿者の利用者ID（DM の相手が無効のとき） */
   retiredAuthorIds?: readonly string[];
+  /** 自分の返信が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onReplied?: () => void;
+  /** 返信の削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
 };
 
 function OpenThreadPane({
   parentMessageId,
   roomId,
   retiredAuthorIds,
+  onReplied,
+  onDeleted,
 }: ThreadPaneProps) {
   const { close } = useThreadParam();
   const queryClient = useQueryClient();
@@ -70,10 +76,12 @@ function OpenThreadPane({
         roomId={roomId}
         retiredAuthorIds={retiredAuthorIds}
         onLatestReplyIdChange={read.markRead}
+        onDeleted={onDeleted}
         // 自分の返信で、スレッド一覧（件数・並び）をすぐ取り直す
-        onReplied={() =>
-          void queryClient.invalidateQueries({ queryKey: threadKeys.all })
-        }
+        onReplied={() => {
+          void queryClient.invalidateQueries({ queryKey: threadKeys.all });
+          onReplied?.();
+        }}
       />
       {read.error !== null && (
         <Alert tone="error" role="alert">

@@ -1,6 +1,7 @@
 // DAO：添付を見てよいかの条件（#140。配信のたびに使う）。メッセージ一覧と同じ規則を SQL にしたもの。
 // 一覧の側の規則は services/message.service.ts の requireVisible（lib/channel-rules.ts の canViewChannel と、DM の当事者の確認）。
 // どちらかを変えるときは、両方を直す（一覧で見えないメッセージの添付を、配信で返さないため）。
+// 案件の添付の一覧（case-attachment.repository.ts の listCaseAttachments）も同じ規則で読む。どちらかを変えるときは、両方を直す。
 //   部屋：room-visibility.sql の roomViewableBy（見る人が有効で、チャンネルは未アーカイブの公開か参加中の非公開／DM は当事者）
 //   かつ、次のどちらか
 //     投稿に結び付いた添付：メッセージが削除されていない

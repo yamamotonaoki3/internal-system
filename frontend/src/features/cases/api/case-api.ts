@@ -1,7 +1,8 @@
 // API 層：案件の一覧・概要・詳細（#147。EP-5-06〜08。概要の進捗は #149）と、参加者の追加・削除・納期の変更（147-B。EP-5-09・10）、
-// 終了・再開（#150。EP-5-11・12）の通信はここに書く。
+// 終了・再開（#150。EP-5-11・12）、添付の一覧（#148。EP-5-19）の通信はここに書く。
 // 共通の apiClient（services/）を使い、応答は Zod で検証する。
 import { z } from "zod";
+import { ATTACHMENT_KINDS } from "../../../../../shared/attachment-rules";
 import { apiClient } from "../../../services/api-client";
 
 export const CASE_LIST_SCOPES = ["joined", "all"] as const;
@@ -146,4 +147,38 @@ export async function changeCaseDueDate(
     { dueDate },
   );
   return dueDateChangedSchema.parse(response.data);
+}
+
+const attachmentItemSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  kind: z.enum(ATTACHMENT_KINDS),
+  contentType: z.string(),
+  size: z.number().int(),
+  uploadedAt: z.string(),
+  messageId: z.string().min(1),
+  threadParentId: z.string().min(1).nullable(),
+  uploader: z.object({
+    id: z.string().min(1),
+    displayName: z.string(),
+    isActive: z.boolean(),
+  }),
+});
+const attachmentPageSchema = z.object({
+  items: z.array(attachmentItemSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export type CaseAttachment = z.infer<typeof attachmentItemSchema>;
+export type CaseAttachmentPage = z.infer<typeof attachmentPageSchema>;
+
+export async function fetchCaseAttachments(
+  caseId: string,
+  cursor?: string,
+): Promise<CaseAttachmentPage> {
+  const response = await apiClient.get(
+    `/cases/${encodeURIComponent(caseId)}/attachments`,
+    { params: { cursor } },
+  );
+  return attachmentPageSchema.parse(response.data);
 }

@@ -27,6 +27,8 @@ type MessageListProps = {
   /** リアクションのピッカーを開いている投稿の ID。別の一覧（スレッドの親など）と合わせて同時に1つにするとき、呼び出し側が持つ */
   pickerOpenId?: string | null;
   onPickerOpenIdChange?: (messageId: string | null) => void;
+  /** 削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
 };
 
 export function MessageList({
@@ -42,6 +44,7 @@ export function MessageList({
   canReact = false,
   pickerOpenId: controlledOpenId,
   onPickerOpenIdChange,
+  onDeleted,
 }: MessageListProps) {
   const [localOpenId, setLocalOpenId] = useState<string | null>(null);
   const pickerOpenId =
@@ -85,6 +88,7 @@ export function MessageList({
                 onPickerOpenChange={(open) =>
                   setPickerOpenId(open ? message.id : null)
                 }
+                onDeleted={onDeleted}
               />
             ))}
           </ul>
