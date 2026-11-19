@@ -26,6 +26,7 @@ import {
 } from "./routes/attachments";
 import { authRoutes } from "./routes/auth";
 import { caseRequestRoutes } from "./routes/case-requests";
+import { caseTodoRoutes } from "./routes/case-todos";
 import { caseRoutes } from "./routes/cases";
 import { channelRequestRoutes } from "./routes/channel-requests";
 import { channelRoutes } from "./routes/channels";
@@ -100,6 +101,8 @@ const app = createApp({
     { path: "/api/case-requests", app: caseRequestRoutes() },
     // #147：案件の一覧・概要・詳細（EP-5-06〜08）。index.ts と同じパスに組み込む
     { path: "/api/cases", app: caseRoutes() },
+    // #149：案件の TODO（EP-5-13・14・17・18）。index.ts と同じく caseRoutes の後に組み込む
+    { path: "/api/cases", app: caseTodoRoutes() },
     // #156：監査ログの閲覧（EP-0-19）。index.ts と同じパスに組み込む
     { path: "/api/admin/audit-logs", app: adminAuditLogRoutes() },
     // #143-b：チャンネル管理（EP-2-42・EP-2-43）とアーカイブの一覧（EP-2-40）。index.ts と同じパスに組み込む

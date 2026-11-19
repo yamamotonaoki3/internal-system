@@ -587,3 +587,47 @@ describe("#147 147-B 5-1 AC-3: 本人の退出", () => {
     expect(screen.queryByText("テスト用のS-16")).toBeNull();
   });
 });
+
+describe("#149（149-A）計画 6.6 退出の後の TODO", () => {
+  it("#149 AC-1 R-76: 退出に成功したら、その案件の TODO のキャッシュ（cases・todos・利用者・案件）を残さない", async () => {
+    respondCaseWrites();
+    server.use(
+      http.get("/api/cases/:caseId/todos", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "01JTESTTODO149A00000000001",
+              title: "[UNIT_TEST]149A退出前のTODO",
+              completed: false,
+              version: 1,
+              assignee: null,
+              previousAssignee: null,
+              completedAssignee: null,
+            },
+          ],
+          nextCursor: null,
+          progress: { done: 0, total: 1 },
+        }),
+      ),
+    );
+    const { user, client } = renderPage();
+    expect(await screen.findByText("[UNIT_TEST]149A退出前のTODO")).toBeTruthy();
+    const todoQueries = () =>
+      client
+        .getQueryCache()
+        .findAll({ queryKey: ["cases", "todos", TEST_USER.id, caseId(N)] });
+    expect(todoQueries().length).toBeGreaterThan(0);
+    const manager = await openManager(user);
+    await user.click(
+      within(rowOf(manager, SELF.displayName)).getByRole("button", {
+        name: "退出する",
+      }),
+    );
+    const confirm = await screen.findByRole("dialog", {
+      name: "案件からの退出",
+    });
+    await user.click(within(confirm).getByRole("button", { name: "退出する" }));
+    expect(await screen.findByText("テスト用のS-16")).toBeTruthy();
+    expect(todoQueries()).toEqual([]);
+  });
+});

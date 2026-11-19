@@ -57,7 +57,7 @@ export function CaseList() {
               >
                 {item.title}
               </Link>
-              <CaseSummaryFacts item={item} />
+              <CaseSummaryFacts item={item} progress={item.progress} />
             </li>
           ))}
         </ul>

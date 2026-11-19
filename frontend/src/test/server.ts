@@ -22,6 +22,11 @@ export const server = setupServer(
   http.get("/api/cases", () =>
     HttpResponse.json({ items: [], nextCursor: null }),
   ),
+  // #149：S-17 の TODO の区画（CaseTodoSection）が、参加者のとき TODO の一覧（GET /api/cases/:caseId/todos）を 2 秒ごとに取るため、
+  // S-17 を描画する全テストで「未処理の通信」にならないよう、0件を既定の応答にする。個別のテストは test/case-todo-handlers.ts の respondTodos で上書きする。
+  http.get("/api/cases/:caseId/todos", () =>
+    HttpResponse.json({ items: [], nextCursor: null, progress: null }),
+  ),
   // #124：ヘッダーの通知（NotificationBell）が未読数（GET /api/me/notifications/unread-count）を 2 秒ごとに取るため、枠（App・Header）を描画する
   // 全テストで「未処理の通信」にならないよう、未読 0 件を既定の応答にする。個別のテストは test/notification-handlers.ts の respondNotifications で上書きする。
   http.get("/api/me/notifications/unread-count", () =>

@@ -30,6 +30,17 @@ WHERE case_id IN (
     WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]')
        OR number_client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]'))
    OR department_id IN (SELECT id FROM departments WHERE substr(name, 1, 16) = '[E2E_TEST]部署146B');
+-- #149（149-A）：案件の TODO の記録 → TODO を、案件より先に消す（外部キーの順。ほかの spec・手での操作で TODO が作られた場合に備える）
+DELETE FROM case_todo_events
+WHERE case_id IN (
+    SELECT id FROM cases
+    WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]')
+       OR number_client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]'));
+DELETE FROM case_todos
+WHERE case_id IN (
+    SELECT id FROM cases
+    WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]')
+       OR number_client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]'));
 DELETE FROM cases
 WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]')
    OR number_client_id IN (SELECT id FROM clients WHERE name = 'テスト商事承認 [E2E_TEST]');

@@ -19,6 +19,8 @@ export type CaseSummary = {
   participantCount: number | null;
   /** #147（147-B）：納期を変えられるか（表示の制御。認可はサーバー） */
   canEditDueDate: boolean;
+  /** #149（149-A）：TODO の進捗（削除済みを除く。0件は null）。R-78 で非参加者にも返る */
+  progress: { done: number; total: number } | null;
 };
 
 export type CaseParticipant = {
@@ -88,6 +90,7 @@ export function caseSummary(
     canManage: false,
     participantCount: 2,
     canEditDueDate: true,
+    progress: null,
     ...overrides,
   };
 }

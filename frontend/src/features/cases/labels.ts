@@ -1,4 +1,5 @@
 // 案件の表示名（S-16・S-17）。
+import { CASE_TODO_TITLE_MAX_LENGTH } from "../../../../shared/case-todo-rules";
 import type { CaseAutoRole, CaseStatus } from "./api/case-api";
 
 export const STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
@@ -49,3 +50,22 @@ export const CASE_STATUS_CHANGE_TEXTS = {
     done: "案件を再開しました",
   },
 } as const;
+
+/** S-17 の TODO（#149） */
+export const CASE_TODO_HEADING = "TODO";
+export const CASE_TODO_EMPTY_TEXT = "項目なし";
+export const CASE_TODO_DONE_TEXT = "完了";
+export const CASE_TODO_LOAD_ERROR_TEXT = "TODOを読み込めませんでした";
+export const CASE_TODO_ADDED_TEXT = "TODOを追加しました";
+export const CASE_TODO_READ_ONLY_TEXT =
+  "終了した案件のため、閲覧のみです（追加・完了・取り消しはできません）";
+export const CASE_TODO_NO_ASSIGNEE_TEXT = "担当なし";
+export const CASE_TODO_MORE_TEXT = "さらに表示";
+export const CASE_TODO_TITLE_ERROR = `題名は1〜${CASE_TODO_TITLE_MAX_LENGTH}文字で入力してください`;
+
+/** 進捗の読み上げ（パーセントは出さない。5-4 AC-4） */
+export const todoProgressLabel = (progress: { done: number; total: number }) =>
+  `${progress.total}項目中${progress.done}項目が完了`;
+
+/** 無効な人（退職者）の名前。リンクは付けない（5-4 AC-6・C-75） */
+export const retiredName = (name: string) => `${name}（退職者）`;

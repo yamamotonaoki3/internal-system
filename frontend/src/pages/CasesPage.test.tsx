@@ -300,3 +300,47 @@ describe("#147 S-16 続きと申請の入口", () => {
     expect(link.getAttribute("href")).toBe("/case-requests");
   });
 });
+
+describe("#149（149-A）5-1 AC-2・R-78・5-4 AC-4 S-16 の行の進捗", () => {
+  it("#149 AC-1 5-4 AC-4: 行に「完了数/全体数」とバー（読み上げ「3項目中1項目が完了」）を出す。パーセントは出さない", async () => {
+    respondCases({
+      lists: {
+        "joined:active": [caseSummary(1, { progress: { done: 1, total: 3 } })],
+      },
+    });
+    renderPage();
+    const card = await findCard(caseTitle(1));
+    expect(within(card).getByText("1/3")).toBeTruthy();
+    expect(
+      within(card).getByRole("progressbar", { name: "3項目中1項目が完了" }),
+    ).toBeTruthy();
+    expect(card.textContent ?? "").not.toMatch(/%|％/);
+  });
+
+  it("#149 AC-1 5-4 AC-4: 進捗が null（TODO が0件）の行は「項目なし」で、バーを出さない", async () => {
+    respondCases({
+      lists: { "joined:active": [caseSummary(2, { progress: null })] },
+    });
+    renderPage();
+    const card = await findCard(caseTitle(2));
+    expect(within(card).getByText("項目なし")).toBeTruthy();
+    expect(within(card).queryByRole("progressbar")).toBeNull();
+    expect(within(card).queryByText("0/0")).toBeNull();
+  });
+
+  it("#149 AC-1 R-78: 参加していない行（すべての案件）にも進捗を出す", async () => {
+    respondCases({
+      lists: {
+        "joined:active": [],
+        "all:active": [outsiderSummary(3, { progress: { done: 2, total: 2 } })],
+      },
+    });
+    const { user } = renderPage();
+    await user.click(radio("すべての案件"));
+    const card = await findCard(caseTitle(3));
+    expect(within(card).getByText("2/2")).toBeTruthy();
+    expect(
+      within(card).getByRole("progressbar", { name: "2項目中2項目が完了" }),
+    ).toBeTruthy();
+  });
+});

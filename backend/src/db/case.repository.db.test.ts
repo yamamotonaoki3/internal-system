@@ -31,6 +31,7 @@ import {
   setupCaseWorld,
   type CaseWorld,
 } from "../../test/case-request-fixtures";
+import { insertTodo, todoIdAt } from "../../test/case-todo-fixtures";
 import { makeOwner } from "../../test/department-fixtures";
 import { decodeCursor } from "../lib/cursor";
 import { withCases } from "./case.repository";
@@ -52,6 +53,8 @@ type ListItem = {
   isParticipant: boolean;
   canManage: boolean;
   participantCount: number | null;
+  /** #149（149-A）：TODO の進捗（削除済みを除く。0件は null）。R-78 で全員に返す */
+  progress: { done: number; total: number } | null;
 };
 
 const ITEM_KEYS = [
@@ -64,6 +67,7 @@ const ITEM_KEYS = [
   "id",
   "isParticipant",
   "participantCount",
+  "progress",
   "status",
   "title",
 ];
@@ -475,5 +479,69 @@ describe("#147 コードレビュー1回目（重大1）：詳細の読み取り
 
   it("#147 判定の順: 存在しない案件は not_found（not_visible と区別する）", async () => {
     expect(await detailOf(w.memberS1.id, caseIdOf(99))).toBe("not_found");
+  });
+});
+
+describe("#149 AC-1 5-1 AC-2・R-78・C-182 Q7 概要・一覧の進捗（progress）", () => {
+  /** 案件 n に TODO を入れる（todoN は TODO の ID の番号） */
+  const todo = (
+    n: number,
+    todoN: number,
+    options: { done?: boolean; deleted?: boolean } = {},
+  ) =>
+    insertTodo({
+      id: todoIdAt(todoN),
+      caseId: caseIdOf(n),
+      title: `[UNIT_TEST]149A進捗${todoN}`,
+      createdBy: w.memberS1.id,
+      isDone: options.done === true,
+      deletedBy: options.deleted === true ? w.memberS1.id : null,
+    });
+
+  beforeEach(async () => {
+    // 案件1：完了1・未完了2・削除済み（完了・未完了）各1 → 1/3
+    await todo(1, 1, { done: true });
+    await todo(1, 2);
+    await todo(1, 3);
+    await todo(1, 4, { done: true, deleted: true });
+    await todo(1, 5, { deleted: true });
+    // 案件2：全部完了 2/2（相関の条件が常に真なら、案件1の数に混ざる。#294）
+    await todo(2, 6, { done: true });
+    await todo(2, 7, { done: true });
+    // 案件6：削除済みだけ → null
+    await todo(6, 8, { deleted: true });
+  });
+
+  it("#149 AC-1 5-1 AC-2・5-4 AC-4（C-84）: 参加者の概要の進捗は、削除済みを除いた完了数と全体数", async () => {
+    expect((await summaryOf(w.memberS1.id, 1))?.progress).toEqual({
+      done: 1,
+      total: 3,
+    });
+  });
+
+  it("#149 AC-1 R-78: 非参加者（一般社員・全体管理者・担当部署のオーナー）の概要にも、進捗の数を返す", async () => {
+    for (const actorId of [w.memberS2.id, w.admin.id, w.ownerS.id])
+      expect((await summaryOf(actorId, 1))?.progress, actorId).toEqual({
+        done: 1,
+        total: 3,
+      });
+  });
+
+  it("#149 AC-1 5-4 AC-4: TODO が0件・削除済みだけの案件の進捗は null", async () => {
+    expect((await summaryOf(w.memberS1.id, 4))?.progress).toBeNull();
+    expect((await summaryOf(w.memberS1.id, 6))?.progress).toBeNull();
+  });
+
+  it("#149 AC-1 #294: 一覧の各行の進捗は、その案件の TODO だけを数える（ほかの案件の TODO が混ざらない）", async () => {
+    const items = await listAll({ actorId: w.memberS2.id }, "all", "active", 2);
+    expect(byId(items, 1).progress).toEqual({ done: 1, total: 3 });
+    expect(byId(items, 2).progress).toEqual({ done: 2, total: 2 });
+    expect(byId(items, 4).progress).toBeNull();
+    expect(byId(items, 6).progress).toBeNull();
+  });
+
+  it("#149 AC-1 5-1 AC-2: joined の一覧の行にも進捗がある", async () => {
+    const page = await list({ actorId: w.memberS1.id }, "joined", "active");
+    expect(byId(page.items, 1).progress).toEqual({ done: 1, total: 3 });
   });
 });

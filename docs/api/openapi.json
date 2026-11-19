@@ -6370,6 +6370,347 @@
           }
         }
       }
+    },
+    "/api/cases/{caseId}/todos": {
+      "get": {
+        "operationId": "listCaseTodos",
+        "summary": "案件の TODO の一覧と進捗を取得する（EP-5-13）",
+        "description": "有効な参加者だけが見られる（全体管理者・担当部署のオーナーでも、参加していなければ 403）。終了した案件でも見られる。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限。追加した順（TODO の ID の昇順）で、完了しても位置は変わらない。削除済みは出さない。progress は削除済みを除いた全体から数え、0件は null。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "description": "件数。既定は 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TODO の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "addCaseTodo",
+        "summary": "案件に TODO を追加する（EP-5-14）",
+        "description": "有効な参加者だけが追加できる。再認証は求めない。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → 本文の形・題名（422。fields に title。題名は件名と同じ整形の後に 1〜100 文字）→ 担当者がその案件の有効な参加者でない・いない（422。fields に assigneeUserId。同じ本文）→ 終了中（409 closed）。未完了・版 1 で追加し、記録 create を残す。監査ログには残さない（TODO の記録の表に残す）。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseTodoAdd"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "追加した。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoAdded"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/todos/{todoId}/complete": {
+      "post": {
+        "operationId": "completeCaseTodo",
+        "summary": "TODO を完了にする（EP-5-17）",
+        "description": "有効な参加者なら誰でもできる。再認証は求めない。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → TODO がない・ほかの案件の TODO（404「TODOが見つかりません」）→ 削除済み（409 todo_deleted）→ 終了中（409 closed）。すでに完了なら、何も書かずにその時点の状態と進捗を返す（200。記録も足さない）。完了の時点の担当と表示名を記録に残す。監査ログには残さない（TODO の記録の表に残す）。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "完了にした（すでに完了なら何もしない）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoStateChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/todos/{todoId}/uncomplete": {
+      "post": {
+        "operationId": "uncompleteCaseTodo",
+        "summary": "TODO の完了を取り消す（EP-5-18）",
+        "description": "有効な参加者なら誰でもできる。再認証は求めない。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → TODO がない・ほかの案件の TODO（404「TODOが見つかりません」）→ 削除済み（409 todo_deleted）→ 終了中（409 closed）。すでに未完了なら、何も書かずにその時点の状態と進捗を返す（200。記録も足さない）。担当者がいまその案件の有効な参加者でなければ、現在の担当を外し、記録 auto_unassign を残す。監査ログには残さない（TODO の記録の表に残す）。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "未完了に戻した（すでに未完了なら何もしない）。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoStateChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・本文・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9982,7 +10323,8 @@
           "isParticipant",
           "canManage",
           "canEditDueDate",
-          "participantCount"
+          "participantCount",
+          "progress"
         ],
         "properties": {
           "id": {
@@ -10074,6 +10416,17 @@
               "null"
             ],
             "description": "参加の行の数（退職者を含む）。有効な参加者か管理の資格のある人だけ。ほかは null"
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null。数だけなので全員に返す（R-78）",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
           }
         }
       },
@@ -11441,6 +11794,353 @@
           "status": {
             "type": "string",
             "const": "active"
+          }
+        }
+      },
+      "CaseTodoProgress": {
+        "type": "object",
+        "required": [
+          "done",
+          "total"
+        ],
+        "properties": {
+          "done": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "CaseTodoItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "completed",
+          "version",
+          "assignee",
+          "previousAssignee",
+          "completedAssignee"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "title": {
+            "type": "string",
+            "description": "整形した後の題名（1〜100 文字）"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "description": "版（変更のたびに 1 足す）"
+          },
+          "assignee": {
+            "description": "現在の担当。有効な人はいまの表示名、無効な人は担当した時点の表示名。なしは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          },
+          "previousAssignee": {
+            "description": "現在の担当がなく、担当した時点の人が残っているときだけ（以前の担当）。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          },
+          "completedAssignee": {
+            "description": "完了しているときだけ、完了した時の担当と、その時点の表示名。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "CaseTodoPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor",
+          "progress"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseTodoItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
+          }
+        }
+      },
+      "CaseTodoAdd": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "題名。全角の英数字を半角に、ハイフン類を「-」に、連続する空白を1つにし、前後の空白を除いた後に 1〜100 文字（UTF-16 の単位）"
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "担当者（その案件の有効な参加者）。省略・null は担当なし"
+          }
+        }
+      },
+      "CaseTodoAdded": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "completed",
+          "version",
+          "assignee",
+          "previousAssignee",
+          "completedAssignee",
+          "progress"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "title": {
+            "type": "string",
+            "description": "整形した後の題名（1〜100 文字）"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "description": "版（変更のたびに 1 足す）"
+          },
+          "assignee": {
+            "description": "現在の担当。有効な人はいまの表示名、無効な人は担当した時点の表示名。なしは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          },
+          "previousAssignee": {
+            "description": "現在の担当がなく、担当した時点の人が残っているときだけ（以前の担当）。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          },
+          "completedAssignee": {
+            "description": "完了しているときだけ、完了した時の担当と、その時点の表示名。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "displayName",
+                  "isActive"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+                  }
+                }
+              }
+            ]
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
+          }
+        }
+      },
+      "CaseTodoStateChanged": {
+        "type": "object",
+        "required": [
+          "id",
+          "completed",
+          "version",
+          "progress"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
           }
         }
       }
