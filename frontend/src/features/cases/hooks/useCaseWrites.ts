@@ -15,6 +15,7 @@ import {
   removeCaseParticipant,
   reopenCase,
   type CasePage,
+  type CaseReopenBody,
   type CaseSummary,
 } from "../api/case-api";
 import { CASE_KEY_USER_ID_INDEX, caseKeys } from "../api/query-keys";
@@ -173,14 +174,18 @@ export function useChangeCaseDueDate(caseId: string) {
 }
 
 /**
- * 終了・再開。成功しても失敗しても、案件と、その案件の部屋のメッセージ・開いているスレッドを取り直す。
+ * 終了・再開（再開は参加者の選び直しの本文つき）。成功しても失敗しても、案件と、その案件の部屋のメッセージ・開いているスレッドを取り直す。
  * スレッドの返信の可否は返信のキャッシュで決まるため、ポーリングを待たずに切り替える（スレッドのキーは部屋で絞れないので前方一致）
  */
 export function useCaseStatusChange(caseId: string, roomId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (to: "close" | "reopen") =>
-      to === "close" ? closeCase(caseId) : reopenCase(caseId),
+    mutationFn: (
+      change: { to: "close" } | { to: "reopen"; body: CaseReopenBody },
+    ) =>
+      change.to === "close"
+        ? closeCase(caseId)
+        : reopenCase(caseId, change.body),
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: caseKeys.all }),

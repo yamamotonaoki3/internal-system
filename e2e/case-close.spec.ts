@@ -70,6 +70,9 @@ async function confirmStatusChange(
     .click();
   const dialog = page.getByRole("dialog", { name: labels.dialog });
   await expect(dialog).toBeVisible();
+  // 150-B：再開のダイアログは、参加者を選ぶ段階 →「確認へ」→ 確かめる段階 →「再開する」（ここでは選び直さない）
+  if (kind === "reopen")
+    await dialog.getByRole("button", { name: "確認へ", exact: true }).click();
   const saved = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" &&

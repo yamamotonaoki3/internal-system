@@ -79,6 +79,33 @@ export function auditLogInsertWithDetailSql(
 }
 
 /**
+ * 同じ操作者・対象の監査を、1文で複数行書く（行の数に比例して文・束縛値の数を増やさない。D1 の1文あたりの上限のため）。
+ * 行ごとに違う ID・操作名・detail は、JSON の値1つ（[id, action, detail の JSON 文字列] の配列）で渡す。onlyWhen が偽なら1行も書かない
+ */
+export function auditLogInsertRows(
+  db: Pick<DrizzleD1Database<Record<string, never>>, "insert">,
+  input: Omit<AuditLogInput, "action" | "detail"> & {
+    rows: readonly { action: AuditAction; detail: AuditDetail }[];
+  },
+  deps: { newId?: () => Ulid; onlyWhen: SQL },
+) {
+  const rows = JSON.stringify(
+    input.rows.map((row) => [
+      (deps.newId ?? newUlid)(),
+      row.action,
+      JSON.stringify(redact(row.detail)),
+    ]),
+  );
+  // 列は audit_logs の定義の順（id, occurred_at, actor_id, action, target_type, target_id, result, trace_id, detail）
+  return db.insert(auditLogs).select(sql`
+    SELECT json_extract(r.value, '$[0]'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+      ${input.actorId}, json_extract(r.value, '$[1]'), ${input.targetType}, ${input.targetId},
+      ${input.result}, ${input.traceId}, json_extract(r.value, '$[2]')
+    FROM json_each(${rows}) r
+    WHERE ${deps.onlyWhen}`);
+}
+
+/**
  * セッションの利用者を操作者・対象として記録する、条件付きの書き込み（ログインの成功・ログアウト）。
  * 該当するセッションがあるときだけ書く（requireActive のときは、失効前のセッションだけ）。
  * セッションの作成・失効と同じ db.batch に入れると、セッションが変わったときだけ監査が残る。

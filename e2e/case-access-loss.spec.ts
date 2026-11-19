@@ -147,12 +147,14 @@ test("#308 AC-1・AC-3 5-1 AC-2・AC-3: 参加者に外された人の画面は�
     ).toHaveCount(0);
 
     // 外された人の画面：再読み込み・移動をしないまま、非公開の表示に切り替わり、説明・やり取りが消える
-    await expect(
-      removedMain.getByText(PRIVATE_TEXT, { exact: true }),
-    ).toBeVisible({ timeout: SWITCH_TIMEOUT_MS });
+    // 切り替えの途中は、TODO・やり取りの区画がそれぞれ拒否の文言を出すため、同じ文言が一時的に2つ出る（正しい途中の状態）。
+    // 先に説明が消える（切り替わった）のを待ち、その後に、非公開の文言が最終的にちょうど1つ（概要の側だけ）になることを確かめる
     await expect(
       removedMain.getByText(CASE_DESCRIPTION, { exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(0, { timeout: SWITCH_TIMEOUT_MS });
+    await expect(
+      removedMain.getByText(PRIVATE_TEXT, { exact: true }),
+    ).toHaveCount(1, { timeout: SWITCH_TIMEOUT_MS });
     await expect(
       removedMain.getByRole("heading", { name: "やり取り" }),
     ).toHaveCount(0);

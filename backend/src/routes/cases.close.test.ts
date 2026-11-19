@@ -7,7 +7,7 @@
 // batch の前提・監査と通知の中身・同時の操作は、DB（db/case-close.repository.db.test.ts）と割り込み（services/case-close.interleave.test.ts）で確かめ、ここでは重ねない。
 // 契約（実装前の仮置き。計画 150-A 6.1。実装の担当へ）：
 //   成功は 200 で、本文はちょうど { caseId, status: "closed" }（終了）・{ caseId, status: "active" }（再開）。closedAt・reopenedAt は返さない。
-//   本文は送られても読まない。409 の本文は { code: "CONFLICT", message, reason }。拒否（404・403）は logger.audit に操作 case.close／case.reopen で残す。
+//   終了の本文は送られても読まない（再開の本文は 150-B で必須。routes/cases.reopen-reselect.test.ts）。409 の本文は { code: "CONFLICT", message, reason }。拒否（404・403）は logger.audit に操作 case.close／case.reopen で残す。
 // データは架空（testuser_casereq_・[UNIT_TEST]・@example.com）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest } from "../../test/api-request";
@@ -27,6 +27,7 @@ import {
   closePath,
   reopenPath,
 } from "../../test/case-close-fixtures";
+import { noReselectBody } from "../../test/case-reopen-fixtures";
 import {
   BAD_ORIGIN,
   CASEREQ_NOW,
@@ -50,8 +51,16 @@ let closed: SeededCase;
 
 const closeCase = (caseId: string, token: string | null, body?: unknown) =>
   apiRequest("POST", closePath(caseId), { token, body });
-const reopenCase = (caseId: string, token: string | null, body?: unknown) =>
-  apiRequest("POST", reopenPath(caseId), { token, body });
+/** 150-B から再開の本文は必須。本文を渡さなければ、選び直しなし（呼んだ時点のいまの有効な参加者・空の追加と除外）を送る */
+const reopenCase = async (
+  caseId: string,
+  token: string | null,
+  body?: unknown,
+) =>
+  apiRequest("POST", reopenPath(caseId), {
+    token,
+    body: body ?? (await noReselectBody(caseId)),
+  });
 const summaryOf = (caseId: string, token: string) =>
   apiRequest("GET", `${CASES_BASE}/${caseId}`, { token });
 
@@ -179,6 +188,7 @@ describe("#150 150-A 判定の順（計画 6.2）", () => {
       const res = await apiRequest("POST", path(main.id), {
         token: w.memberS1.token,
         origin: BAD_ORIGIN,
+        body: await noReselectBody(main.id),
       });
       // 送信元の確認は app.ts の一括で、no-store を付ける処理より前に動く（既存の経路のテストと同じく、no-store は確かめない）
       expect(res.status).toBe(403);

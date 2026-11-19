@@ -6301,7 +6301,7 @@
       "post": {
         "operationId": "reopenCase",
         "summary": "案件を再開する",
-        "description": "有効な参加者が、終了した案件を申請なしで再開する（いまの参加者のまま）。本文は持たない（送られても読まない）。再認証は求めない。判定の順は、案件がない（404）→ 有効な参加者でない（403。状態より先）→ 権限 perm.case.close → 状態（409）。操作した本人を除く有効な参加者に通知 case.reopened（target_id は案件の ID）、監査 case.reopen（detail は caseId・notifiedCount）を同じ batch で確定する。",
+        "description": "有効な参加者が、終了した案件を申請なしで再開する。本文で参加者を選び直せる（追加・除外。選び直さないときは空の配列）。再認証は求めない。判定の順は、案件がない（404）→ 有効な参加者でない（403。状態・参加者より先）→ 権限 perm.case.close → 本文の形（422）→ 状態（409 already_active）→ 参加者が画面で見たまま（409 participants_changed）→ 本人を外す（422）→ 自動参加の人を外す（409 auto_participant）→ 追加の社員がいない・無効（422）→ 追加の社員がすでに参加の行を持つ（409 already_participant）。選び直しの後の有効な参加者から本人を除いた人に通知 case.reopened（target_id は案件の ID。追加・除外の個別の通知はない）、監査 case.reopen（detail は caseId・notifiedCount・addedCount・removedCount）と、人ごとの case.participant.add／case.participant.remove（detail に viaReopen: true）を同じ batch で確定する。",
         "parameters": [
           {
             "name": "caseId",
@@ -6313,6 +6313,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseReopenBody"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "再開した。Cache-Control: no-store",
@@ -6356,7 +6366,7 @@
             }
           },
           "409": {
-            "description": "すでに進行中（CONFLICT。reason: already_active）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
+            "description": "すでに進行中（CONFLICT。reason: already_active）、参加者がほかの操作で変わった（reason: participants_changed）、自動参加の人（全体管理者・担当部署のオーナー）を外そうとした（reason: auto_participant）、追加の社員がすでに参加者（reason: already_participant）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
             "content": {
               "application/json": {
                 "schema": {
@@ -11917,6 +11927,47 @@
           "status": {
             "type": "string",
             "const": "active"
+          }
+        }
+      },
+      "CaseReopenBody": {
+        "type": "object",
+        "description": "再開のときの参加者の選び直し（5-1 AC-16）。選び直さない場合は、追加・除外を空の配列にする",
+        "required": [
+          "participantIds",
+          "addUserIds",
+          "removeUserIds"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "participantIds": {
+            "type": "array",
+            "description": "確認の画面で見た、いまの有効な参加者（本人を含む）。いまの有効な参加者の集合と違えば 409 participants_changed。上限なし",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "uniqueItems": true
+          },
+          "addUserIds": {
+            "type": "array",
+            "description": "追加する社員（有効な社員で、参加の行がない人）。participantIds・removeUserIds と重ならない",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "removeUserIds": {
+            "type": "array",
+            "description": "外す社員。participantIds に含まれる人だけ。本人・自動参加の人（全体管理者・担当部署のオーナー）は外せない",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
           }
         }
       },
