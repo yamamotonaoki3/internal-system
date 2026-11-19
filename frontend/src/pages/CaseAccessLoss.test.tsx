@@ -96,6 +96,68 @@ const SELF: CaseParticipant = {
   removable: true,
 };
 
+/** 別の案件 B（参加者のまま。スレッドを開く）。A の遅れた確認の結果で、B の表示が変わらないことの確認に使う */
+const OTHER_N = 309;
+const OTHER_SECRET = "[UNIT_TEST]308別の案件Bの説明";
+const OTHER_REPLY = "[UNIT_TEST]308別の案件Bのスレッドの返信";
+const otherParent = message(11, {
+  roomId: caseRoomId(OTHER_N),
+  body: "[UNIT_TEST]308別の案件Bの本文",
+  replyCount: 1,
+});
+const otherReply = message(12, {
+  roomId: caseRoomId(OTHER_N),
+  parentMessageId: otherParent.id,
+  body: OTHER_REPLY,
+});
+
+/** 案件 B の応答（world の後に登録し、B の要求だけを受ける）。最初の取得（after なし）の回数を数える：取り除かれると増える */
+function respondOtherCase() {
+  const calls = { detail: 0, roomInitial: 0, repliesInitial: 0 };
+  server.use(
+    http.get("/api/cases/:caseId", ({ params }) =>
+      params.caseId === caseId(OTHER_N)
+        ? HttpResponse.json(caseSummary(OTHER_N))
+        : undefined,
+    ),
+    http.get("/api/cases/:caseId/detail", ({ params }) => {
+      if (params.caseId !== caseId(OTHER_N)) return undefined;
+      calls.detail += 1;
+      return HttpResponse.json(
+        caseDetail(OTHER_N, {
+          description: OTHER_SECRET,
+          participants: [PARTICIPANT_CREATOR, SELF],
+        }),
+      );
+    }),
+    http.get("/api/rooms/:roomId/messages", ({ params, request }) => {
+      if (params.roomId !== caseRoomId(OTHER_N)) return undefined;
+      const after = new URL(request.url).searchParams.get("after");
+      if (after === null) calls.roomInitial += 1;
+      return HttpResponse.json({
+        items: after === null ? [otherParent] : [],
+        nextCursor: null,
+        hasMore: false,
+      });
+    }),
+    http.get("/api/messages/:messageId/replies", ({ params, request }) => {
+      if (params.messageId !== otherParent.id) return undefined;
+      const after = new URL(request.url).searchParams.get("after");
+      if (after === null) calls.repliesInitial += 1;
+      return HttpResponse.json({
+        items: after === null ? [otherReply] : [],
+        nextCursor: null,
+        hasMore: false,
+        parent: otherParent,
+        replyBlockedReason: null,
+        joined: true,
+        roomWritable: true,
+      });
+    }),
+  );
+  return calls;
+}
+
 const parentMessage = message(1, {
   roomId: caseRoomId(N),
   body: MESSAGE_TEXT,
@@ -115,8 +177,12 @@ type World = {
   summaryFail: Failure | null;
   /** 部屋のメッセージの取得の失敗 */
   roomFail: Failure | null;
+  /** 詳細の取得の失敗（null なら通常） */
+  detailFail: Failure | null;
   /** 概要・詳細の応答の保留 */
   gate: Promise<void> | null;
+  /** 概要だけの応答の保留（詳細は保留しない） */
+  summaryGate: Promise<void> | null;
   messages: ReturnType<typeof message>[];
   calls: { summary: number; detail: number; room: number };
   todos: TodoServerState;
@@ -137,7 +203,9 @@ function world(
     status: options.status ?? "active",
     summaryFail: null,
     roomFail: null,
+    detailFail: null,
     gate: null,
+    summaryGate: null,
     messages: options.messages === false ? [] : [parentMessage],
     calls: { summary: 0, detail: 0, room: 0 },
     todos,
@@ -164,6 +232,7 @@ function world(
     http.get("/api/cases/:caseId", async () => {
       w.calls.summary += 1;
       if (w.gate !== null) await w.gate;
+      if (w.summaryGate !== null) await w.summaryGate;
       if (w.summaryFail !== null) return failureResponse(w.summaryFail);
       return HttpResponse.json(
         w.participant
@@ -177,6 +246,7 @@ function world(
     http.get("/api/cases/:caseId/detail", async () => {
       w.calls.detail += 1;
       if (w.gate !== null) await w.gate;
+      if (w.detailFail !== null) return failureResponse(w.detailFail);
       if (!w.participant) return failureResponse({ status: 403 });
       return HttpResponse.json(
         caseDetail(N, {
@@ -249,6 +319,9 @@ function renderPage(options: { thread?: boolean } = {}) {
           />
         </Routes>
         <Link to="/cases">一覧へ移る</Link>
+        <Link to={`/cases/${caseId(OTHER_N)}?thread=${otherParent.id}`}>
+          別の案件へ移る
+        </Link>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -550,8 +623,8 @@ describe("#308 AC-3 参加者のままの人の画面は変わらない", () => 
     await advance(POLL_MS);
     expect(screen.getByText(SECRET)).toBeTruthy();
     expect(screen.getByRole("list", { name: "参加者" })).toBeTruthy();
-    // 概要の取り直しは、検出の1回（TODO の欄の既存の取り直しと重なっても数回）に収まる
-    expect(w.calls.summary).toBeLessThanOrEqual(summaryBefore + 2);
+    // 概要の取り直しは、検出の1回だけ（TODO・部屋が同時に 403 でも重ねない）
+    expect(w.calls.summary).toBe(summaryBefore + 1);
     const settled = {
       summary: w.calls.summary,
       detail: w.calls.detail,
@@ -672,5 +745,150 @@ describe("#308 本人の退出との関係（既存の動きを変えない）",
     await advance(POLL_MS * 3);
     await waitForSwitched();
     expect(w.calls.summary).toBe(summaryBefore);
+  });
+});
+
+describe("#308 コードレビュー1回目 重大1 画面を離れた後の確認の結果は、移動先の画面に影響しない", () => {
+  it.each([
+    ["非参加", "lost"],
+    ["失敗（500）", "failed"],
+  ] as const)(
+    "#308 AC-1: 案件 A の概要の取り直しを保留したまま案件 B のスレッドへ移り、A の結果が%sで返っても、B のスレッド・詳細・TODO・やり取りは消えず、取り直されない",
+    async (_name, outcome) => {
+      const w = world();
+      const other = respondOtherCase();
+      const { user } = renderPage();
+      await waitForFullView();
+      const gate = deferred();
+      w.summaryGate = gate.promise;
+      const summaryBefore = w.calls.summary;
+      w.revoke();
+      await advance(POLL_MS);
+      await waitFor(() =>
+        expect(w.calls.summary).toBeGreaterThan(summaryBefore),
+      );
+
+      await user.click(screen.getByRole("link", { name: "別の案件へ移る" }));
+      await screen.findByText(OTHER_SECRET);
+      await screen.findByText(OTHER_REPLY);
+      const before = { ...other };
+
+      // A の結果が、B を表示している間に返る
+      if (outcome === "failed") w.summaryFail = { status: 500 };
+      w.summaryGate = null;
+      gate.release();
+      await advance(500);
+
+      expect(screen.getByText(OTHER_SECRET)).toBeTruthy();
+      expect(screen.getByText(OTHER_REPLY)).toBeTruthy();
+      expect(screen.getByRole("region", { name: "TODO" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "やり取り" })).toBeTruthy();
+      expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+      expect(screen.queryByText(PRIVATE_TEXT)).toBeNull();
+      expect(other).toEqual(before);
+    },
+  );
+
+  it.each([
+    ["非参加", "lost"],
+    ["失敗（500）", "failed"],
+  ] as const)(
+    "#308 AC-1: 概要の取り直しを保留したまま一覧へ移り、結果が%sで返っても、例外・エラーの出力なしで、一覧側の表示は変わらない",
+    async (_name, outcome) => {
+      const w = world();
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { user } = renderPage();
+      await waitForFullView();
+      const gate = deferred();
+      w.summaryGate = gate.promise;
+      const summaryBefore = w.calls.summary;
+      w.revoke();
+      await advance(POLL_MS);
+      await waitFor(() =>
+        expect(w.calls.summary).toBeGreaterThan(summaryBefore),
+      );
+      await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+      await screen.findByRole("link", { name: "案件に戻る" });
+      if (outcome === "failed") w.summaryFail = { status: 500 };
+      w.summaryGate = null;
+      gate.release();
+      await advance(500);
+      expect(screen.getByRole("link", { name: "案件に戻る" })).toBeTruthy();
+      expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+      expect(errors).not.toHaveBeenCalled();
+      errors.mockRestore();
+    },
+  );
+});
+
+describe("#308 コードレビュー1回目 重大2 詳細の読み込みに失敗した状態でも、外されたら切り替わる", () => {
+  const DETAIL_ERROR_TEXT = MESSAGES[500] ?? "";
+
+  it("#308 AC-1: 概要は参加者で詳細が 500（エラーの表示）のまま外されたら、自動の更新と概要の取り直しの後に、非公開の表示に切り替わる", async () => {
+    const w = world();
+    w.detailFail = { status: 500 };
+    renderPage();
+    expect(await screen.findByText(DETAIL_ERROR_TEXT)).toBeTruthy();
+    w.revokeAll();
+    await advance(POLL_MS);
+    await waitFor(() => {
+      expect(screen.queryByText(DETAIL_ERROR_TEXT)).toBeNull();
+      expect(screen.getByText(PRIVATE_TEXT)).toBeTruthy();
+    });
+    expectNothingShown();
+  });
+
+  it("#308 AC-3: 詳細が 500 のままで、参加者のままの人には、TODO が 403 を返し続けても、要求が増え続けず、エラーの表示のまま", async () => {
+    const w = world();
+    w.detailFail = { status: 500 };
+    renderPage();
+    expect(await screen.findByText(DETAIL_ERROR_TEXT)).toBeTruthy();
+    const summaryBefore = w.calls.summary;
+    w.todos.failWith = {
+      status: 403,
+      code: "FORBIDDEN",
+      message: PRIVATE_TEXT,
+    };
+    await advance(POLL_MS * 3);
+    const settled = {
+      summary: w.calls.summary,
+      detail: w.calls.detail,
+      todo: w.todos.requests.length,
+      room: w.calls.room,
+    };
+    expect(settled.summary).toBeLessThanOrEqual(summaryBefore + 1);
+    for (let i = 0; i < 15; i += 1) await advance(POLL_MS);
+    expect(w.calls.summary).toBe(settled.summary);
+    expect(w.calls.detail).toBe(settled.detail);
+    expect(w.todos.requests.length).toBe(settled.todo);
+    expect(w.calls.room).toBe(settled.room);
+    expect(screen.getByText(DETAIL_ERROR_TEXT)).toBeTruthy();
+    expect(screen.queryByText(PRIVATE_TEXT)).toBeNull();
+  });
+});
+
+describe("#308 コードレビュー1回目 軽微3 参加者のままなら、重ねない印を残す", () => {
+  it("#308 AC-3: TODO の 403 → 概要は参加者のまま → 遅れて部屋の 403 が届いても、概要の追加の取得は起きない（印を残す）", async () => {
+    const w = world();
+    renderPage();
+    await waitForFullView();
+    const base = w.calls.summary;
+    w.todos.failWith = {
+      status: 403,
+      code: "FORBIDDEN",
+      message: PRIVATE_TEXT,
+    };
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.summary).toBe(base + 1));
+    await advance(300);
+    expect(w.calls.summary).toBe(base + 1);
+    // ずれて、部屋も 403 を返し始める
+    const roomBefore = w.calls.room;
+    w.roomFail = { status: 403 };
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.room).toBeGreaterThan(roomBefore));
+    for (let i = 0; i < 5; i += 1) await advance(POLL_MS);
+    expect(w.calls.summary).toBe(base + 1);
+    expect(screen.getByText(SECRET)).toBeTruthy();
   });
 });

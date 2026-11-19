@@ -64,11 +64,31 @@ export function useCaseAccessLoss({
     previousParticipant.current = isParticipant;
   }, [isParticipant]);
 
-  const settle = useRef<(verdict: Verdict) => void>(() => undefined);
+  // 画面を離れた後に届いた結果で、表示（状態・ダイアログ）や、移動先の部屋・スレッドのキャッシュに触れないため
+  const mounted = useRef(false);
   useEffect(() => {
-    settle.current = (verdict) => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const settle = useRef<(verdict: Verdict, retried: boolean) => void>(
+    () => undefined,
+  );
+  useEffect(() => {
+    settle.current = (verdict, retried) => {
+      if (!mounted.current) {
+        // 元の案件の詳細・TODO だけを取り除く（戻ったときに古い内容を出さない。AC-2）。部屋・スレッドは、表示していないので残らない
+        if (verdict === "lost")
+          void forgetCaseAfterLeave(queryClient, userId, caseId);
+        else if (verdict === "notFound")
+          void forgetCaseContent(queryClient, userId, caseId);
+        return;
+      }
       if (verdict === "participant") {
-        handling.current = false;
+        // 通常の確かめで参加者のままなら、印を残す（参加者のままの 403 が続いても、確かめを重ねない）
+        if (retried) handling.current = false;
         setUnverified(false);
         return;
       }
@@ -106,7 +126,7 @@ export function useCaseAccessLoss({
         return;
       handling.current = true;
       void verifyParticipant(queryClient, summaryKey).then((verdict) =>
-        settle.current(verdict),
+        settle.current(verdict, false),
       );
     });
   }, [queryClient, userId, caseId, roomId]);
@@ -117,7 +137,7 @@ export function useCaseAccessLoss({
       void verifyParticipant(
         queryClient,
         caseKeys.summary(userId, caseId),
-      ).then((verdict) => settle.current(verdict));
+      ).then((verdict) => settle.current(verdict, true));
     },
   };
 }

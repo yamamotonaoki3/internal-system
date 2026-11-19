@@ -42,11 +42,32 @@ async function login(page: Page, loginId: string) {
   await expect(page).toHaveURL(/\/$/);
 }
 
+/**
+ * 外される人 B のページ（自分で作ったページには console-guard の監視が付かないため、ここで同じ監視を付ける）。
+ * 許すのは、仕様どおりの拒否の応答だけ：ログイン前のセッションの確認（401）と、外された後の部屋・TODO・詳細の取得（403）。
+ * それ以外のコンソールのエラー・処理されなかった例外は、終了時の照合（expectNoErrors）で失敗にする。
+ */
+const INTENDED_REJECTION =
+  /Failed to load resource: the server responded with a status of (401|403)/;
+
 async function newPage(browser: Browser, baseURL: string | undefined) {
   const context = await browser.newContext({ baseURL });
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 800 });
-  return { context, page };
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" && !INTENDED_REJECTION.test(m.text()))
+      errors.push(m.text());
+  });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  return {
+    context,
+    page,
+    expectNoErrors: () =>
+      expect(errors, "B のコンソールのエラー・処理されなかった例外").toEqual(
+        [],
+      ),
+  };
 }
 
 test.describe.configure({ mode: "serial" });
@@ -119,6 +140,7 @@ test("#308 AC-1・AC-3 5-1 AC-2・AC-3: 参加者に外された人の画面は�
       main.getByText(CASE_DESCRIPTION, { exact: true }),
     ).toBeVisible();
     await expect(main.getByText(PRIVATE_TEXT, { exact: true })).toHaveCount(0);
+    removed.expectNoErrors();
   } finally {
     await removed.context.close();
   }
