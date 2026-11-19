@@ -166,12 +166,16 @@ test.beforeAll(async ({ browser, baseURL }) => {
   outsider = await signIn(browser, baseURL, "e2euser_case148b2_outsider");
 });
 
+// 後始末（ブラウザを閉じる・R2 と D1 の後始末）を先に必ず行い、コンソールの検証はその後にする（検証の失敗で後始末が飛ばされないように）
 test.afterAll(async () => {
-  for (const opened of [uploader, member, owner, outsider]) {
-    opened?.expectNoErrors();
-    await opened?.context.close();
+  const opened = [uploader, member, owner, outsider];
+  let output = "";
+  try {
+    for (const signed of opened) await signed?.context.close();
+  } finally {
+    output = await cleanup();
   }
-  const output = await cleanup();
+  for (const signed of opened) signed?.expectNoErrors();
   expect(output).toContain("remaining_users");
   expect(output).not.toMatch(/"remaining_\w+":\s*[1-9]/);
 });
