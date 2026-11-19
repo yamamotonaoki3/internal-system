@@ -4,6 +4,7 @@ import {
   useMutation,
   useQueryClient,
   type QueryClient,
+  type QueryFilters,
 } from "@tanstack/react-query";
 import { messageKeys } from "../../messages";
 import {
@@ -25,24 +26,47 @@ export function useAddCaseParticipant(caseId: string) {
 }
 
 /**
- * 退出の後に、閲覧の資格を失った案件のキャッシュを片付ける：詳細と TODO の一覧を取り除き（進行中の取得も取り消す）、概要を非参加に書き換え、
- * ほかには古い印だけを付ける。開き直したとき、再取得の応答を待つ間に前の説明・参加者を出さないため（コードレビュー1回目の重大1）。
- * 画面を離れた後（この案件を表示する部品がない状態）で呼ぶ：表示中に取り除くと、表示している部品が空の詳細を作り直し、印のない詳細が残るため
+ * 閲覧の資格を失った（または確かめられない）案件の中身のキャッシュを取り除く（進行中の取得も取り消す）：詳細・TODO の一覧と、
+ * 部屋が分かっていれば、その部屋のメッセージとスレッド（スレッドのキーは部屋で絞れないので前方一致。表示中のものしか残らない）。
+ * 開き直したとき、再取得の応答を待つ間に前の説明・参加者・やり取りを出さないため（コードレビュー1回目の重大1・#308 AC-2）
+ */
+export function forgetCaseContent(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+  roomId: string | null = null,
+): Promise<void> {
+  // 取り除きは、この呼び出しの中で（同期に）済ませる。取り消しの完了は待たない
+  const exactKeys: QueryFilters[] = [
+    caseKeys.detail(userId, caseId),
+    caseKeys.todos(userId, caseId),
+  ].map((queryKey) => ({ queryKey, exact: true }));
+  const roomFilters: QueryFilters[] =
+    roomId === null
+      ? []
+      : [
+          { queryKey: messageKeys.room(roomId) },
+          { queryKey: ["messages", "thread"] },
+        ];
+  const cancelled = [...exactKeys, ...roomFilters].map((filters) => {
+    const cancelling = queryClient.cancelQueries(filters);
+    queryClient.removeQueries(filters);
+    return cancelling;
+  });
+  return Promise.all(cancelled).then(() => undefined);
+}
+
+/**
+ * 閲覧の資格を失った案件のキャッシュを片付ける：概要を非参加に書き換えてから、中身を取り除き（forgetCaseContent）、ほかには古い印だけを付ける。
+ * 本人の退出（画面を離れた後に呼ぶ）と、表示中に外されたことを見つけたとき（#308。useCaseAccessLoss）の両方が使う。
+ * 概要の書き換えを先にする：表示中でも、表示の部品が非参加の概要で描き、詳細を取りにいかない（空の入れ物は作られうるが、データはない）
  */
 export function forgetCaseAfterLeave(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
+  roomId: string | null = null,
 ): Promise<void> {
-  // 印と取り除きは、この呼び出しの中で（同期に）済ませる。取り消しの完了・取り直しは待たない
-  const cancelled = [
-    caseKeys.detail(userId, caseId),
-    caseKeys.todos(userId, caseId),
-  ].map((queryKey) => {
-    const cancelling = queryClient.cancelQueries({ queryKey, exact: true });
-    queryClient.removeQueries({ queryKey, exact: true });
-    return cancelling;
-  });
   queryClient.setQueryData<CaseSummary>(
     caseKeys.summary(userId, caseId),
     (previous) =>
@@ -57,11 +81,12 @@ export function forgetCaseAfterLeave(
             canEditDueDate: previous.canManage && previous.canEditDueDate,
           },
   );
+  const removed = forgetCaseContent(queryClient, userId, caseId, roomId);
   const invalidated = queryClient.invalidateQueries({
     queryKey: caseKeys.all,
     refetchType: "none",
   });
-  return Promise.all([...cancelled, invalidated]).then(() => undefined);
+  return Promise.all([removed, invalidated]).then(() => undefined);
 }
 
 /**

@@ -1,15 +1,13 @@
 // S-17 の TODO の区画（#149。5-4 AC-1〜AC-4・AC-6・AC-8・AC-9）。見出し「TODO」、進捗、追加の欄（進行中だけ）、項目の一覧。
 // 4つの状態（読み込み中・エラーと再試行・0件「項目なし」・あり）を分ける。一覧は 2 秒ごとに取り直す（useCaseTodos。取得は CaseDetailView が持つ）。
 // 操作の結果（追加の完了・エラー）は、この部品（行の外）で持つ：取り直しで行が消えても残す。
-// 取得が 403（外された）になったら、前の TODO を出さずに非公開の表示にし、概要・詳細を取り直す（ヘッダー・本文も非参加に切り替えるため）。
+// 取得が 403 になったら、前の TODO を出さずに非公開の表示にする。外されたかの確かめ（概要の取り直し）は useCaseAccessLoss（#308）が行う。
 // 終了した案件では「閲覧のみ」を示し、追加・完了・取り消しを出さない（表示の制御。認可はサーバー）。
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import type { CaseParticipant } from "../api/case-api";
 import type { CaseTodo } from "../api/case-todo-api";
-import { caseKeys } from "../api/query-keys";
 import { describeError, isApiError } from "../describe-error";
 import type { useCaseTodos } from "../hooks/useCaseTodos";
 import { useSetCaseTodoCompleted } from "../hooks/useCaseTodoWrites";
@@ -27,7 +25,6 @@ import { CaseTodoProgress } from "./CaseTodoProgress";
 
 type Props = {
   caseId: string;
-  selfId: string;
   closed: boolean;
   participants: CaseParticipant[];
   todos: ReturnType<typeof useCaseTodos>;
@@ -35,29 +32,17 @@ type Props = {
 
 export function CaseTodoSection({
   caseId,
-  selfId,
   closed,
   participants,
   todos,
 }: Props) {
   const headingId = useId();
-  const queryClient = useQueryClient();
   const [added, setAdded] = useState(false);
   const [error, setError] = useState<string>();
   const toggle = useSetCaseTodoCompleted(caseId, (cause) =>
     setError(describeError(cause)),
   );
   const forbidden = isApiError(todos.error) && todos.error.status === 403;
-
-  useEffect(() => {
-    if (!forbidden) return;
-    void queryClient.invalidateQueries({
-      queryKey: caseKeys.summary(selfId, caseId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: caseKeys.detail(selfId, caseId),
-    });
-  }, [forbidden, queryClient, selfId, caseId]);
 
   function start() {
     setAdded(false);

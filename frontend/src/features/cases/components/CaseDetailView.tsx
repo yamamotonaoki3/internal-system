@@ -6,17 +6,23 @@
 // 「案件を終了」「案件を再開」（#150）は有効な参加者だけに出す（R-77。非参加の管理者にも出さない）。確認のダイアログと結果はこの部品で持ち、
 // 結果（完了・失敗の文言）はダイアログの外に出す。送った後は結果によらずダイアログを閉じる（409 なら状態が変わっているので、同じ確認を出し続けない）。
 // 参加者の本文は、説明 → 参加者 → TODO（#149。CaseTodoSection）→ やり取り（#148。CaseConversation）の順に見出しで縦に並べる（C-184(3)。タブは作らない）。添付の一覧は後続（#148）で足す。
+// 表示中に外されたこと（#308）は useCaseAccessLoss が見つけ、非公開の表示（概要が非参加）・確かめられない表示（再試行）に切り替え、ダイアログを閉じる。
 // TODO の一覧は、詳細が取れた参加者だけが取る。参加者のヘッダーの進捗は、区画と同じ TODO の一覧の取得から出す（2秒ごとに両方が一致する。#149 計画 6.9(4)）。非参加者は概要の進捗。
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import type { CaseSummary, TodoProgress } from "../api/case-api";
 import { describeError, isApiError } from "../describe-error";
+import { useCaseAccessLoss } from "../hooks/useCaseAccessLoss";
 import { useCaseStatusChange } from "../hooks/useCaseWrites";
 import { useCaseDetail, useCaseSummary } from "../hooks/useCases";
 import { useCaseTodos } from "../hooks/useCaseTodos";
 import { useParticipantWrites } from "../hooks/useParticipantWrites";
-import { CASE_STATUS_CHANGE_TEXTS, PARTICIPANTS_ONLY_TEXT } from "../labels";
+import {
+  CASE_ACCESS_UNVERIFIED_TEXT,
+  CASE_STATUS_CHANGE_TEXTS,
+  PARTICIPANTS_ONLY_TEXT,
+} from "../labels";
 import { CaseConfirmDialog } from "./CaseConfirmDialog";
 import { CaseConversation } from "./CaseConversation";
 import { CaseDueDateDialog } from "./CaseDueDateDialog";
@@ -40,6 +46,23 @@ function headerProgressOf(
     : undefined;
 }
 
+/** 概要の取り直しが失敗している間（前の値が残っていても）は、参加者として取りにいかない */
+function isParticipantOf(summary: ReturnType<typeof useCaseSummary>): boolean {
+  return summary.isSuccess && summary.data.isParticipant;
+}
+
+/** 外されたかを確かめられないとき（#308）：中身を描かず、失敗の表示と再試行だけを出す */
+function UnverifiedAlert({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert tone="error" role="alert">
+      <p>{CASE_ACCESS_UNVERIFIED_TEXT}</p>
+      <Button variant="secondary" onClick={onRetry}>
+        再試行
+      </Button>
+    </Alert>
+  );
+}
+
 export function CaseDetailView({
   caseId,
   selfId,
@@ -48,17 +71,25 @@ export function CaseDetailView({
   selfId: string;
 }) {
   const summary = useCaseSummary(caseId);
-  const isParticipant = summary.data?.isParticipant === true;
+  const isParticipant = isParticipantOf(summary);
   const detail = useCaseDetail(caseId, isParticipant);
   const todos = useCaseTodos(caseId, isParticipant && detail.isSuccess);
   const [open, setOpen] = useState<OpenDialog>(null);
   const writes = useParticipantWrites(caseId);
-  const statusChange = useCaseStatusChange(
-    caseId,
-    detail.data?.channelId ?? null,
-  );
+  const roomId = detail.data?.channelId ?? null;
+  const statusChange = useCaseStatusChange(caseId, roomId);
   const [statusResult, setStatusResult] = useState<StatusChangeResult>();
+  const closeDialog = useCallback(() => setOpen(null), []);
+  const accessLoss = useCaseAccessLoss({
+    caseId,
+    userId: selfId,
+    roomId,
+    isParticipant,
+    onLost: closeDialog,
+  });
 
+  if (accessLoss.unverified)
+    return <UnverifiedAlert onRetry={accessLoss.retry} />;
   if (summary.isPending) return <p role="status">読み込み中です</p>;
   if (summary.isError)
     return (
@@ -69,7 +100,7 @@ export function CaseDetailView({
 
   const item = summary.data;
   const headerProgress = headerProgressOf(item, isParticipant, todos);
-  const close = () => setOpen(null);
+  const close = closeDialog;
   const managerShown =
     open === "participants" &&
     isParticipant &&
@@ -168,7 +199,6 @@ export function CaseDetailView({
         )}
         <CaseTodoSection
           caseId={caseId}
-          selfId={selfId}
           closed={item.status === "closed"}
           participants={detail.data.participants}
           todos={todos}
