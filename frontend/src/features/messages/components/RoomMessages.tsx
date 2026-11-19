@@ -25,6 +25,8 @@ type RoomMessagesProps = {
   canModifyOwn?: boolean;
   /** 投稿が成功したあとに呼ぶ */
   onPosted?: () => void;
+  /** 削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
   /** 投稿が失敗したときに、エラーのまま呼ぶ */
   onPostError?: (error: unknown) => void;
   /** 表示している最新のメッセージの ID が変わったときに呼ぶ（既読のため）。0件・取得失敗では呼ばない */
@@ -43,6 +45,7 @@ export function RoomMessages({
   retiredAuthorIds,
   canModifyOwn = false,
   onPosted,
+  onDeleted,
   onPostError,
   onLatestMessageIdChange,
   onOpenThread,
@@ -69,6 +72,7 @@ export function RoomMessages({
         canModifyOwn={canModifyOwn}
         canReact={canModifyOwn}
         onOpenThread={onOpenThread}
+        onDeleted={onDeleted}
       />
       {joined &&
         (canPost ? (

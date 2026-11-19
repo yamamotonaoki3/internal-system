@@ -66,6 +66,18 @@ export const CASE_TODO_NO_ASSIGNEE_TEXT = "担当なし";
 export const CASE_TODO_MORE_TEXT = "さらに表示";
 export const CASE_TODO_TITLE_ERROR = `題名は1〜${CASE_TODO_TITLE_MAX_LENGTH}文字で入力してください`;
 
+/** S-17 の添付ファイル（#148） */
+export const CASE_ATTACHMENTS_TEXTS = {
+  heading: "添付ファイル",
+  loading: "添付ファイルを読み込み中です",
+  empty: "添付ファイルはありません",
+  loadError: "添付ファイルを読み込めませんでした",
+  moreError: "添付ファイルの続きを読み込めませんでした",
+  retry: "再試行",
+  jump: "元のメッセージへ",
+  more: "次のページ",
+} as const;
+
 /** 進捗の読み上げ（パーセントは出さない。5-4 AC-4） */
 export const todoProgressLabel = (progress: { done: number; total: number }) =>
   `${progress.total}項目中${progress.done}項目が完了`;

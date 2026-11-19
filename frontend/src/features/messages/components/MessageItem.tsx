@@ -26,6 +26,8 @@ type MessageItemProps = {
   /** リアクションのピッカーが開いているか。開くのは同時に1つだけにするため、呼び出し側が持つ。なければこの行だけで持つ */
   pickerOpen?: boolean;
   onPickerOpenChange?: (open: boolean) => void;
+  /** 削除が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onDeleted?: () => void;
 };
 
 function ThreadButton({
@@ -105,6 +107,7 @@ export function MessageItem({
   canReact = false,
   pickerOpen,
   onPickerOpenChange,
+  onDeleted,
 }: MessageItemProps) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [localPickerOpen, setLocalPickerOpen] = useState(false);
@@ -160,6 +163,7 @@ export function MessageItem({
           parentMessageId={message.parentMessageId}
           messageId={message.id}
           onClose={close}
+          onDeleted={onDeleted}
         />
       )}
     </li>

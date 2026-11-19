@@ -63,7 +63,8 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 | --- | --- |
 | `frontend/src/components/FileInput.tsx` | 共通のファイル選択欄。ラベルを結び付け、選んだ後に値を空に戻す（同じファイルを続けて選べる）。形式の確認は使う側が行う |
 | `components/AttachmentPicker.tsx` | 選択の窓口。選んだ直後に`validateAttachmentCandidate`で確かめ、受け付けたものだけを一覧に渡す。拒否したファイルは名前と理由を出す |
-| `components/AttachmentList.tsx` | 送信前の一覧。元の名前・サイズ（MB）・取り消すボタン |
+| `components/AttachmentList.tsx` | 送信前の一覧。元の名前・サイズ（MB）・取り消すボタン。サイズの整形は`format-size.ts`を使う |
+| `format-size.ts` | `formatAttachmentSize`。大きさをMB（10^6バイト・小数1桁）で整形する。送信前の一覧と、案件の添付の一覧（`features/cases`の`CaseAttachments.tsx`。`index.ts`経由）で同じ形にそろえるため、`AttachmentList.tsx`の中から移した（【#148の148-B-1】）。`index.ts`は`attachmentUrl`・`formatAttachmentSize`も公開する |
 | `components/MessageAttachments.tsx` | メッセージの添付の表示。画像は`<img>`、動画は`<video controls>`、そのほかはダウンロードのリンク。URLはIDから`attachmentUrl`で組み立てる |
 | `components/MessageComposer.tsx` | 投稿欄・返信欄。添付を選んだ順に持ち、送信時に`usePostMessage`へ渡す。送信中は「送信を取り消す」で`AbortController`を中断する。失敗・取り消しでは投稿せず、一覧と本文を残す。添付は下書き（`features/drafts`）に保存しない |
 | `components/MessageItem.tsx` | 本文の下に`MessageAttachments`を置く |
@@ -253,4 +254,5 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 - [ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)（検査の方式）・[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)（配信のヘッダーの扱い・`content_type`のCHECKをやめた理由）・[ADR-0012](../adr/0012-zero-trust-principle.md)（毎回認可する）・[ADR-0015](../adr/0015-style-foundation.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)（ミューテーションの範囲）。
 - 関連する設計書：[messages.md](messages.md)・[threads.md](threads.md)・[reactions.md](reactions.md)。
 - 要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5、EP-1-09・EP-1-10、perm.attachment.upload・download（R-32・R-33）、S-05・S-06・S-07。
-- Issue #148の148-A：案件専用チャンネルの添付。登録を保存の時点の資格を条件にした条件つきの登録にした（部屋の種類によらない）、案件の終了中は409、配信に`perm.case.view`。公開範囲の選択・変更と添付の一覧は148-B。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-2・AC-3（参加者の部分）
+- Issue #148の148-A：案件専用チャンネルの添付。登録を保存の時点の資格を条件にした条件つきの登録にした（部屋の種類によらない）、案件の終了中は409、配信に`perm.case.view`。公開範囲の選択・変更は148-B-2。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-2・AC-3（参加者の部分）
+- Issue #148の148-B-1：案件の添付の一覧（EP-5-19 `GET /api/cases/:caseId/attachments`）。**アップロード・結び付け・配信の経路は変えていない**（migrationもない）。一覧は`backend/src/db/case-attachment.repository.ts`が、配信の`attachmentVisible`と同じ規則（部屋を見てよい・投稿済み・メッセージが削除されていない）で、資格を中身を読む文に入れて読む。どちらかの規則を変えるときは、両方を直す（`attachment-visibility.sql.ts`の先頭のコメントに書いた）。一覧に出ることは取得の許可ではなく、取得は従来どおり配信が毎回判定する。応答の項目名は、この設計書の「一覧の項目`attachments`」と同じ名前（`name`・`kind`・`contentType`・`size`）に合わせた。詳細は[cases.md](cases.md)の「148-B-1 の設計」。決定記録C-191

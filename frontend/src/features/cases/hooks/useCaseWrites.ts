@@ -26,7 +26,7 @@ export function useAddCaseParticipant(caseId: string) {
 }
 
 /**
- * 閲覧の資格を失った（または確かめられない）案件の中身のキャッシュを取り除く（進行中の取得も取り消す）：詳細・TODO の一覧と、
+ * 閲覧の資格を失った（または確かめられない）案件の中身のキャッシュを取り除く（進行中の取得も取り消す）：詳細・TODO・添付の一覧（外された人にファイル名を残さない）と、
  * 部屋が分かっていれば、その部屋のメッセージとスレッド（スレッドのキーは部屋で絞れないので前方一致。表示中のものしか残らない）。
  * 開き直したとき、再取得の応答を待つ間に前の説明・参加者・やり取りを出さないため（コードレビュー1回目の重大1・#308 AC-2）
  */
@@ -40,6 +40,7 @@ export function forgetCaseContent(
   const exactKeys: QueryFilters[] = [
     caseKeys.detail(userId, caseId),
     caseKeys.todos(userId, caseId),
+    caseKeys.attachments(userId, caseId),
   ].map((queryKey) => ({ queryKey, exact: true }));
   const roomFilters: QueryFilters[] =
     roomId === null
