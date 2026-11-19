@@ -19,6 +19,12 @@ import { authKeys } from "../features/auth";
 import { caseKeys } from "../features/cases";
 import { TEST_USER } from "../test/auth-handlers";
 import {
+  CASE_ATTACHMENT_TEXTS,
+  caseAttachment,
+  caseAttachmentName,
+  respondCaseAttachments,
+} from "../test/case-attachment-handlers";
+import {
   CASE_TEXTS,
   PARTICIPANT_CREATOR,
   caseDetail,
@@ -961,4 +967,87 @@ describe("#308 コードレビュー2回目 重大 離れた後の確認が失�
       else await waitForSwitched();
     },
   );
+});
+
+describe("#308 148-B-1 添付の一覧のキャッシュも、資格を失ったときに取り除く", () => {
+  const FILE = caseAttachmentName(1);
+  const attachmentsRegion = () =>
+    screen.queryByRole("region", { name: CASE_ATTACHMENT_TEXTS.heading });
+
+  /** 添付の一覧の応答を、手で解放するまで保留する（respondCaseAttachments の応答の前に差し込む） */
+  function holdAttachments() {
+    const gate = deferred();
+    let holding = true;
+    const arrived = { count: 0 };
+    server.use(
+      http.get("/api/cases/:caseId/attachments", async () => {
+        arrived.count += 1;
+        if (holding) await gate.promise;
+        return undefined;
+      }),
+    );
+    return {
+      arrived,
+      release() {
+        holding = false;
+        gate.release();
+      },
+    };
+  }
+
+  it("#308 AC-1・AC-2: 添付の一覧を表示中に外されたら、区画・ファイル名が出ず、参加者に戻って開き直すと、応答を保留している間に古いファイル名が出ず、一覧を新しく取りにいく", async () => {
+    const w = world();
+    respondCaseAttachments([caseAttachment(1)]);
+    const { user } = renderPage();
+    await waitForFullView();
+    expect(await screen.findByRole("link", { name: FILE })).toBeTruthy();
+    w.revoke();
+    await advance(POLL_MS);
+    await waitForSwitched();
+    expect(attachmentsRegion()).toBeNull();
+    expect(screen.queryByText(FILE)).toBeNull();
+
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    const back = await screen.findByRole("link", { name: "案件に戻る" });
+    w.restore();
+    const hold = holdAttachments();
+    await user.click(back);
+    expect(await screen.findByText(SECRET)).toBeTruthy();
+    // 一覧を新しく取りにいく（キャッシュを使わない）。応答は保留中
+    await waitFor(() => expect(hold.arrived.count).toBeGreaterThan(0));
+    await advance(300);
+    expect(screen.queryByText(FILE)).toBeNull();
+    hold.release();
+    expect(await screen.findByRole("link", { name: FILE })).toBeTruthy();
+  });
+
+  it("#308 AC-2: 画面を離れた後に確認の結果が返った場合も、元の案件の添付の一覧のキャッシュを取り除き、開き直した間に古いファイル名が出ない", async () => {
+    const w = world();
+    respondCaseAttachments([caseAttachment(1)]);
+    respondOtherCase();
+    const { user } = renderPage();
+    await waitForFullView();
+    await screen.findByRole("link", { name: FILE });
+    const gate = deferred();
+    w.summaryGate = gate.promise;
+    const summaryBefore = w.calls.summary;
+    w.revoke();
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.summary).toBeGreaterThan(summaryBefore));
+    await user.click(screen.getByRole("link", { name: "別の案件へ移る" }));
+    await screen.findByText(OTHER_SECRET);
+    w.summaryGate = null;
+    gate.release();
+    await advance(500);
+
+    w.restore();
+    const hold = holdAttachments();
+    await user.click(screen.getByRole("link", { name: "元の案件へ戻る" }));
+    expect(await screen.findByText(SECRET)).toBeTruthy();
+    await waitFor(() => expect(hold.arrived.count).toBeGreaterThan(0));
+    await advance(300);
+    expect(screen.queryByText(FILE)).toBeNull();
+    hold.release();
+    expect(await screen.findByRole("link", { name: FILE })).toBeTruthy();
+  });
 });

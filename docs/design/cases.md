@@ -752,7 +752,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | ファイル | 役割 |
 | --- | --- |
 | `frontend/src/features/cases/hooks/useCaseAccessLoss.ts` | 新規。資格を失ったことの検出と判定を1か所に持つ部品。部屋のメッセージ（`messageKeys.room`）と TODO の取得のエラーを、クエリのキャッシュの購読で見る。`unverified`（確かめられない状態）と`retry`を返す |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・部屋のメッセージ・スレッド〕の取り消しと取り除き）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・部屋のメッセージ・スレッド〕の取り消しと取り除き）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる |
 | `frontend/src/features/cases/components/CaseDetailView.tsx` | 部品を呼び、`isParticipantOf`で概要から参加者かを決める。確かめられないときは`UnverifiedAlert`（「案件の情報を確かめられませんでした」と「再試行」）を出し、中身を描かない。ダイアログは部品の`onLost`で閉じる |
 | `frontend/src/features/cases/components/CaseTodoSection.tsx` | TODO が 403 のときに概要・詳細を取り直す処理（#149-A）を消した（部品に一本化） |
 | `frontend/src/features/cases/labels.ts` | 確かめられない表示の文言 |
