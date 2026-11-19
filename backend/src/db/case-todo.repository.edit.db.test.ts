@@ -432,6 +432,30 @@ describe("#149 AC-1 計画 10節 #18 編集の前提を1つずつ崩すと、何
   });
 });
 
+describe("#149 AC-1 計画 6.2.3・6.2.4 案件の行がないとき、前提・確認の UPDATE は0行で失敗しないため、結果の行で止まる", () => {
+  const MISSING_CASE_ID = "01JTESTCASE149B000000000099";
+
+  it.each([
+    ["題名だけ", { title: "[UNIT_TEST]149B案件なし" }],
+    ["担当だけ", { assignee: { id: null } }],
+    [
+      "題名と担当",
+      { title: "[UNIT_TEST]149B案件なし", assignee: { id: null } },
+    ],
+  ])(
+    "#149 AC-1 計画 6.2.3: ない案件の ID での編集（%s）は、CaseStateChangedError で、何も残さない",
+    async (_l, input) => {
+      await expectNothingChanged(() =>
+        edit({ caseId: MISSING_CASE_ID, ...input }),
+      );
+    },
+  );
+
+  it("#149 AC-1 計画 6.2.4: ない案件の ID での削除は、CaseStateChangedError で、何も残さない", async () => {
+    await expectNothingChanged(() => remove({ caseId: MISSING_CASE_ID }));
+  });
+});
+
 describe("#149 AC-1 計画 6.1・10節 #19 記録の ID は、記録の表の全体より大きいこと（重大3）", () => {
   it("#149 AC-1 計画 6.1: 別の TODO（T2）に、渡す最初の ID 以上の記録があれば、編集の batch 全体が取り消される", async () => {
     await insertTodoEvent({

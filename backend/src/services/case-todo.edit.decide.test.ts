@@ -177,6 +177,23 @@ describe("#149 AC-1 149-B decideEdit（計画 6.2.2・10節 #4〜#10）", () => 
     ).toEqual({ kind: "pass" });
   });
 
+  it.each([
+    ["担当の資格を読んでいない（null）", null],
+    ["いまの担当が参加者でない（false）", false],
+  ])(
+    "#149 AC-1 5-4 AC-6 決定 Q3 計画 10節 #7: 担当を「なし」（null）にする編集は、新しい担当の材料が %s でも 422 にならず通る",
+    (_l, assigneeIsParticipant) => {
+      expect(
+        outcomeOf(
+          decideEdit(factsOf({}, { assigneeIsParticipant }), {
+            version: 1,
+            assigneeId: null,
+          }),
+        ),
+      ).toEqual({ kind: "pass" });
+    },
+  );
+
   it("#149 AC-1 5-4 AC-9 計画 10節 #8: 終了中なら、版が古くても 409 closed（todo_changed より先）", () => {
     expect(
       outcomeOf(

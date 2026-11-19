@@ -469,3 +469,240 @@ describe("#149 AC-1 149-B 計画 7章 判定の後・書き込みの前の割り
     ).toEqual([["title_change", w.memberD1.id]]);
   });
 });
+
+// 割り込みのない通常の操作で、Service が Repository の書き込みの関数を呼ぶかどうかと、渡す入力（ミューテーション診断の生き残りの対策）。
+// 結果の応答は、書き込みを試みて失敗して読み直しても同じになるため、応答だけでは「判定の段階で止まったこと」を確かめられない。
+// そこで、Repository の呼び出しを記録し、呼ばれた関数と渡された入力の形を確かめる。
+type Call = { name: string; args: unknown[] };
+
+function spied(repository: CaseTodoRepository, calls: Call[]) {
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        calls.push({ name: String(property), args });
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  }) as CaseTodoRepository;
+}
+
+async function runSpied(
+  operation: Operation,
+): Promise<{ result: Result; calls: Call[] }> {
+  const calls: Call[] = [];
+  try {
+    const value = await withCaseTodos(env, (repository, roles) =>
+      operation(createCaseTodoService(spied(repository, calls), roles)),
+    );
+    return { result: { ok: true, value }, calls };
+  } catch (error) {
+    return { result: { ok: false, error }, calls };
+  }
+}
+
+const writesOf = (calls: Call[]) => calls.filter((c) => WRITES.has(c.name));
+const callsOf = (calls: Call[], name: string) =>
+  calls.filter((c) => c.name === name).map((c) => c.args[0]);
+
+describe("#149 AC-1 5-4 AC-8・AC-9・AC-12 削除の拒否は、判定の段階で止まり、書き込みの関数まで進まない（計画 10節 #21〜#27）", () => {
+  it.each([
+    [
+      "ない TODO は 404",
+      () => todoIdAt(9),
+      async () => {},
+      () => w.memberS1.id,
+      { code: "NOT_FOUND" } as Expected,
+    ],
+    [
+      "終了中の案件は 409 closed",
+      () => todoIdAt(1),
+      () => setCaseStatus(room.id, "closed"),
+      () => w.memberS1.id,
+      { code: "CONFLICT", reason: CASE_TODO_REASONS.closed } as Expected,
+    ],
+    [
+      "非参加者は 403",
+      () => todoIdAt(1),
+      async () => {},
+      () => w.memberS2.id,
+      { code: "FORBIDDEN" } as Expected,
+    ],
+    [
+      "終了中の案件の非参加者も、終了を漏らさず 403",
+      () => todoIdAt(1),
+      () => setCaseStatus(room.id, "closed"),
+      () => w.memberS2.id,
+      { code: "FORBIDDEN" } as Expected,
+    ],
+  ])(
+    "#149 AC-1 5-4 AC-9 計画 10節 #26 計画 7章: %s で、Repository の deleteTodo を呼ばず、何も書かない",
+    async (_label, todoId, prepare, actorId, expected) => {
+      await resetWorld();
+      await prepare();
+      const before = await todoSnapshot();
+      const { result, calls } = await runSpied((s) =>
+        s.deleteTodo(actorOf(actorId()), room.id, todoId()),
+      );
+      expect(matches(result, expected), describeResult(result)).toBe(true);
+      expect(writesOf(calls)).toEqual([]);
+      expect(await todoSnapshot()).toEqual(before);
+    },
+  );
+
+  it("#149 AC-1 決定 Q2 計画 10節 #24: 進行中で削除済みの TODO の削除は、成功（何も書かない）で、deleteTodo を呼ばない", async () => {
+    await resetWorld();
+    await env.DB.prepare(
+      "UPDATE case_todos SET deleted_at = ?, deleted_by = ? WHERE id = ?",
+    )
+      .bind(CASEREQ_NOW, w.memberD1.id, todoIdAt(1))
+      .run();
+    const before = await todoSnapshot();
+    const { result, calls } = await runSpied(deleteOne);
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(writesOf(calls)).toEqual([]);
+    expect(await todoSnapshot()).toEqual(before);
+  });
+});
+
+describe("#149 AC-1 5-4 AC-8・AC-10 決定 Q3 編集：いまと同じ題名だけなら、何も書かずに 200（計画 10節 #10）", () => {
+  it("#149 AC-1 決定 Q3 計画 10節 #10: いまと同じ題名だけを送ると、editTodo を呼ばず、版・updated_at・記録の件数が変わらず、いまの項目を返す", async () => {
+    await resetWorld();
+    const before = await todoSnapshot();
+    const { result, calls } = await runSpied((s) =>
+      s.editTodo(actorOf(w.memberS1.id), room.id, todoIdAt(1), {
+        version: 1,
+        title: "[UNIT_TEST]149B未完了",
+      }),
+    );
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(result.ok && result.value).toMatchObject({
+      id: todoIdAt(1),
+      title: "[UNIT_TEST]149B未完了",
+      version: 1,
+    });
+    expect(writesOf(calls)).toEqual([]);
+    expect(await todoSnapshot()).toEqual(before);
+    expect(await todoEventsOf(todoIdAt(1))).toEqual([]);
+  });
+});
+
+describe("#149 AC-1 5-4 AC-6 決定 Q3 編集：担当を「なし」にするときは、新しい担当の資格を見ない（計画 10節 #7・#16）", () => {
+  it.each([
+    [
+      "いまの担当 B が参加者から外れている",
+      () => removeCaseMember(room.roomId, w.memberD1.id),
+    ],
+    [
+      "いまの担当 B が無効になっている",
+      () => setUserActive(w.memberD1.id, false),
+    ],
+  ])(
+    "#149 AC-1 5-4 AC-6 計画 10節 #7: %s でも、担当なしへの編集は成功し、担当が NULL・記録 assignee_change が1件（後＝NULL）",
+    async (_label, breakIt) => {
+      await resetWorld();
+      await breakIt();
+      const { result, calls } = await runSpied((s) =>
+        s.editTodo(actorOf(w.memberS1.id), room.id, todoIdAt(1), {
+          version: 1,
+          assigneeUserId: null,
+        }),
+      );
+      expect(result.ok, describeResult(result)).toBe(true);
+      expect(await todoRow(todoIdAt(1))).toMatchObject({
+        title: "[UNIT_TEST]149B未完了",
+        assignee_id: null,
+        recorded_assignee_id: null,
+        recorded_assignee_name: null,
+        version: 2,
+      });
+      const events = await todoEventsOf(todoIdAt(1));
+      expect(events.map((e) => e.kind)).toEqual(["assignee_change"]);
+      expect(events[0]).toMatchObject({
+        assignee_id: null,
+        assignee_name: null,
+        previous_assignee_id: w.memberD1.id,
+      });
+      // 担当を外すだけなので、新しい担当の資格は読まない（担当の ID を材料の読み取りに渡さない）
+      for (const input of callsOf(calls, "findTodoWriteFacts"))
+        expect(input).not.toHaveProperty("assigneeId");
+    },
+  );
+});
+
+describe("#149 AC-1 5-4 AC-8・AC-10 編集：指定した項目だけを変え、もう片方は変えない（計画 6.2・10節 #13〜#16）", () => {
+  it("#149 AC-1 5-4 AC-10 計画 10節 #13: 題名だけを送ると、担当は元のまま・担当の記録は増えず、Repository には題名だけを渡す", async () => {
+    await resetWorld();
+    const { result, calls } = await runSpied((s) =>
+      s.editTodo(actorOf(w.memberS1.id), room.id, todoIdAt(1), {
+        version: 1,
+        title: "[UNIT_TEST]149B題名だけ",
+      }),
+    );
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(await todoRow(todoIdAt(1))).toMatchObject({
+      title: "[UNIT_TEST]149B題名だけ",
+      assignee_id: w.memberD1.id,
+      recorded_assignee_id: w.memberD1.id,
+      recorded_assignee_name: "テスト担当149B",
+      version: 2,
+    });
+    expect((await todoEventsOf(todoIdAt(1))).map((e) => e.kind)).toEqual([
+      "title_change",
+    ]);
+    const [input] = callsOf(calls, "editTodo");
+    expect(input).toMatchObject({ title: "[UNIT_TEST]149B題名だけ" });
+    expect(input).not.toHaveProperty("assignee");
+    for (const facts of callsOf(calls, "findTodoWriteFacts"))
+      expect(facts).not.toHaveProperty("assigneeId");
+  });
+
+  it("#149 AC-1 5-4 AC-10 計画 10節 #14: 担当だけを送ると、題名は元のまま・題名の記録は増えず、Repository には担当だけを渡す", async () => {
+    await resetWorld();
+    const { result, calls } = await runSpied((s) =>
+      s.editTodo(actorOf(w.memberS1.id), room.id, todoIdAt(1), {
+        version: 1,
+        assigneeUserId: w.ownerD.id,
+      }),
+    );
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(await todoRow(todoIdAt(1))).toMatchObject({
+      title: "[UNIT_TEST]149B未完了",
+      assignee_id: w.ownerD.id,
+      version: 2,
+    });
+    expect((await todoEventsOf(todoIdAt(1))).map((e) => e.kind)).toEqual([
+      "assignee_change",
+    ]);
+    const [input] = callsOf(calls, "editTodo");
+    expect(input).toMatchObject({ assignee: { id: w.ownerD.id } });
+    expect(input).not.toHaveProperty("title");
+    // 担当を変えるときは、判定の材料の読み取りで、新しい担当の資格も確かめる
+    expect(callsOf(calls, "findTodoWriteFacts")).toContainEqual(
+      expect.objectContaining({ assigneeId: w.ownerD.id }),
+    );
+  });
+
+  it("#149 AC-1 決定 Q3 計画 10節 #16: 担当を外す編集は、担当が NULL になり、記録 assignee_change が1件だけ（題名の記録なし）で、Repository には担当（id: null）だけを渡す", async () => {
+    await resetWorld();
+    const { result, calls } = await runSpied((s) =>
+      s.editTodo(actorOf(w.memberS1.id), room.id, todoIdAt(1), {
+        version: 1,
+        assigneeUserId: null,
+      }),
+    );
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(await todoRow(todoIdAt(1))).toMatchObject({
+      title: "[UNIT_TEST]149B未完了",
+      assignee_id: null,
+      version: 2,
+    });
+    expect((await todoEventsOf(todoIdAt(1))).map((e) => e.kind)).toEqual([
+      "assignee_change",
+    ]);
+    const [input] = callsOf(calls, "editTodo");
+    expect(input).toMatchObject({ assignee: { id: null } });
+    expect(input).not.toHaveProperty("title");
+  });
+});
