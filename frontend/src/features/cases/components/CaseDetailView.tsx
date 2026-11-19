@@ -5,13 +5,18 @@
 // 操作のエラー（「参加者だけが操作できます」など）を、非公開の表示とあわせて出し続ける（コードレビュー1回目の軽微）。利用者が替わったときは、ページごと作り直して残さない（pages/CaseDetailPage.tsx）。
 // 「案件を終了」「案件を再開」（#150）は有効な参加者だけに出す（R-77。非参加の管理者にも出さない）。確認のダイアログと結果はこの部品で持ち、
 // 結果（完了・失敗の文言）はダイアログの外に出す。送った後は結果によらずダイアログを閉じる（409 なら状態が変わっているので、同じ確認を出し続けない）。
+// 再開（150-B）は参加者の選び直しのダイアログ（CaseReopenDialog）。422 だけはダイアログを閉じず、選ぶ段階の欄（addUserIds は社員の検索）か、ダイアログの全体に出す。
 // 参加者の本文は、説明 → 参加者 → TODO（#149。CaseTodoSection）→ 添付ファイル（#148。CaseAttachments）→ やり取り（#148。CaseConversation）の順に見出しで縦に並べる（C-184(3)。タブは作らない）。
 // 表示中に外されたこと（#308）は useCaseAccessLoss が見つけ、非公開の表示（概要が非参加）・確かめられない表示（再試行）に切り替え、ダイアログを閉じる。
 // TODO の一覧は、参加者が取る（詳細の失敗の間も、外されたことの検出の契機にする。#308）。添付の一覧は、詳細が取れた参加者だけが取る。参加者のヘッダーの進捗は、区画と同じ TODO の一覧の取得から出す（2秒ごとに両方が一致する。#149 計画 6.9(4)）。非参加者は概要の進捗。
 import { useCallback, useState } from "react";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
-import type { CaseSummary, TodoProgress } from "../api/case-api";
+import type {
+  CaseReopenBody,
+  CaseSummary,
+  TodoProgress,
+} from "../api/case-api";
 import { describeError, isApiError } from "../describe-error";
 import { useCaseAccessLoss } from "../hooks/useCaseAccessLoss";
 import { useCaseStatusChange } from "../hooks/useCaseWrites";
@@ -32,10 +37,13 @@ import { CaseDueDateDialog } from "./CaseDueDateDialog";
 import { CaseHeader } from "./CaseHeader";
 import { CaseParticipantList } from "./CaseParticipantList";
 import { CaseParticipantManager } from "./CaseParticipantManager";
+import { CaseReopenDialog } from "./CaseReopenDialog";
 import { CaseTodoSection } from "./CaseTodoSection";
 
 type OpenDialog = "participants" | "dueDate" | "close" | "reopen" | null;
 type StatusChangeResult = { tone: "info" | "error"; text: string };
+/** 再開の 422（ダイアログの中に出す）。field は欄に結び付ける項目 */
+type ReopenInvalid = { field: string | undefined; text: string };
 
 /** ヘッダーの進捗：参加者は TODO の一覧の取得（最後に取得したページ）の値、取れていなければ出さない。非参加者は概要の値 */
 function headerProgressOf(
@@ -115,6 +123,7 @@ export function CaseDetailView({
   const roomId = detail.data?.channelId ?? null;
   const statusChange = useCaseStatusChange(caseId, roomId);
   const [statusResult, setStatusResult] = useState<StatusChangeResult>();
+  const [reopenInvalid, setReopenInvalid] = useState<ReopenInvalid>();
   const closeDialog = useCallback(() => setOpen(null), []);
   const accessLoss = useCaseAccessLoss({
     caseId,
@@ -143,18 +152,55 @@ export function CaseDetailView({
     detail.isSuccess &&
     item.status === "active";
 
-  function changeStatus(to: "close" | "reopen") {
+  function closeCase() {
     setStatusResult(undefined);
-    statusChange.mutate(to, {
-      onSuccess: () =>
-        setStatusResult({
-          tone: "info",
-          text: CASE_STATUS_CHANGE_TEXTS[to].done,
-        }),
-      onError: (cause) =>
-        setStatusResult({ tone: "error", text: describeError(cause) }),
-      onSettled: close,
-    });
+    statusChange.mutate(
+      { to: "close" },
+      {
+        onSuccess: () =>
+          setStatusResult({
+            tone: "info",
+            text: CASE_STATUS_CHANGE_TEXTS.close.done,
+          }),
+        onError: (cause) =>
+          setStatusResult({ tone: "error", text: describeError(cause) }),
+        onSettled: close,
+      },
+    );
+  }
+
+  function reopenCase(body: CaseReopenBody, invalid: () => void) {
+    setStatusResult(undefined);
+    setReopenInvalid(undefined);
+    statusChange.mutate(
+      { to: "reopen", body },
+      {
+        onSuccess: () => {
+          setStatusResult({
+            tone: "info",
+            text: CASE_STATUS_CHANGE_TEXTS.reopen.done,
+          });
+          close();
+        },
+        onError: (cause) => {
+          if (isApiError(cause) && cause.status === 422) {
+            setReopenInvalid({
+              field: cause.fields?.[0],
+              text: describeError(cause),
+            });
+            invalid();
+            return;
+          }
+          setStatusResult({ tone: "error", text: describeError(cause) });
+          close();
+        },
+      },
+    );
+  }
+
+  function closeReopenDialog() {
+    setReopenInvalid(undefined);
+    close();
   }
 
   const statusAction = item.status === "active" ? "close" : "reopen";
@@ -177,17 +223,37 @@ export function CaseDetailView({
             )}
           </div>
         )}
-        {(open === "close" || open === "reopen") && (
+        {open === "close" && (
           <CaseConfirmDialog
-            title={CASE_STATUS_CHANGE_TEXTS[open].title}
-            confirmLabel={CASE_STATUS_CHANGE_TEXTS[open].confirm}
+            title={CASE_STATUS_CHANGE_TEXTS.close.title}
+            confirmLabel={CASE_STATUS_CHANGE_TEXTS.close.confirm}
             pending={statusChange.isPending}
-            notice={open === "close" && <CloseTodoWarning todos={todos} />}
-            onConfirm={() => changeStatus(open)}
+            notice={<CloseTodoWarning todos={todos} />}
+            onConfirm={closeCase}
             onClose={close}
           >
-            {CASE_STATUS_CHANGE_TEXTS[open].body}
+            {CASE_STATUS_CHANGE_TEXTS.close.body}
           </CaseConfirmDialog>
+        )}
+        {open === "reopen" && (
+          <CaseReopenDialog
+            selfId={selfId}
+            participants={detail.data?.participants}
+            pending={statusChange.isPending}
+            searchError={
+              reopenInvalid?.field === "addUserIds"
+                ? reopenInvalid.text
+                : undefined
+            }
+            error={
+              reopenInvalid !== undefined &&
+              reopenInvalid.field !== "addUserIds"
+                ? reopenInvalid.text
+                : undefined
+            }
+            onConfirm={reopenCase}
+            onClose={closeReopenDialog}
+          />
         )}
         {statusResult !== undefined && (
           <Alert

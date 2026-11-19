@@ -15,6 +15,7 @@ import {
   type SeededCase,
 } from "../../test/case-fixtures";
 import { closePath, reopenPath } from "../../test/case-close-fixtures";
+import { noReselectBody } from "../../test/case-reopen-fixtures";
 import {
   CASEREQ_NOW,
   setupCaseWorld,
@@ -110,6 +111,7 @@ describe("#150 150-A 3-3 AC-1・AC-2 終了・再開の通知の一覧", () => {
     await apiRequest("POST", closePath(room.id), { token: w.memberS1.token });
     const res = await apiRequest("POST", reopenPath(room.id), {
       token: w.memberD1.token,
+      body: await noReselectBody(room.id),
     });
     expect(res.status).toBe(200);
     expect(caseItems(await itemsOf(w.memberS1.token))).toEqual([

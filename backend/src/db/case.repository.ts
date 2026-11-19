@@ -27,9 +27,13 @@ import {
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid, newUlid } from "../lib/ulid";
-import { auditLogInsert } from "./audit-log.repository";
-import { activeChannelMember, recipientsUnchanged } from "./channel-member.sql";
-import { withDatabase, type Database } from "./database";
+import { auditLogInsert, auditLogInsertRows } from "./audit-log.repository";
+import {
+  activeChannelMember,
+  activeMembersEqual,
+  recipientsUnchanged,
+} from "./channel-member.sql";
+import { withDatabase, type BatchItem, type Database } from "./database";
 import {
   createRoleAssignmentRepository,
   type RoleAssignmentRepository,
@@ -85,7 +89,7 @@ const jsonIds = (ids: readonly string[]) => JSON.stringify(ids);
  * 管理の資格＝有効な全体管理者、または、その案件の担当部署のどれかの有効なオーナー。
  * 先に読んだ割り当てに頼ると、交代・無効化の後の要求に参加者数が返るため、読み取りの SQL の中で決める
  */
-function canManageSql(actorId: string, caseId: SQL): SQL {
+function canManageSql(actorId: string | SQL, caseId: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM users mu WHERE mu.id = ${actorId} AND mu.is_active = 1 AND (
     EXISTS (SELECT 1 FROM user_role_assignments ga
       WHERE ga.user_id = mu.id AND ga.role_id = ${ROLE_IDS.globalAdmin} AND ga.scope_type = 'company')
@@ -191,7 +195,7 @@ export function activeCaseWith(caseId: string, extra: SQL): SQL {
 }
 
 /** 参加の行があること（有効性は問わない。退職者の行も含む） */
-function hasMembershipRow(userId: string): SQL {
+function hasMembershipRow(userId: string | SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM channel_members tm WHERE tm.channel_id = ${K_ROOM} AND tm.user_id = ${userId})`;
 }
 
@@ -199,7 +203,7 @@ function hasMembershipRow(userId: string): SQL {
  * 自動参加の人＝有効で、全体管理者か、案件の担当部署のどれかのオーナー（autoRoleOf と同じ意味。いまの割り当て）。
  * 管理の資格（canManageSql）と同じ条件になるため、それを使う
  */
-const autoParticipantSql = (userId: string) => canManageSql(userId, K_ID);
+const autoParticipantSql = (userId: string | SQL) => canManageSql(userId, K_ID);
 
 /** 前提の確認：条件が崩れていたら cases.version を NULL にして NOT NULL 違反で batch 全体を取り消す */
 export function assertStatement(db: Database, caseId: string, condition: SQL) {
@@ -209,6 +213,23 @@ export function assertStatement(db: Database, caseId: string, condition: SQL) {
       version: sql`CASE WHEN ${condition} THEN ${cases.version} ELSE NULL END`,
     })
     .where(eq(cases.id, caseId));
+}
+
+/** 必須の行を書いた直後に置く：直前の文の件数が expected でなければ、cases.version を NULL にして batch 全体を取り消す */
+export function guardChanges(db: Database, caseId: string, expected: SQL) {
+  return db
+    .update(cases)
+    .set({
+      version: sql`CASE WHEN changes() = ${expected} THEN ${cases.version} ELSE NULL END`,
+    })
+    .where(eq(cases.id, caseId));
+}
+
+/** 末尾の不変条件：案件の有効な参加者が1人以上いること */
+function atLeastOneActive(caseId: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM cases k WHERE k.id = ${caseId}
+    AND EXISTS (SELECT 1 FROM channel_members m JOIN users u ON u.id = m.user_id AND u.is_active = 1
+      WHERE m.channel_id = k.channel_id))`;
 }
 
 /** 最初の判定の材料（Service が判定の関数に渡す）。案件がなければ null */
@@ -247,11 +268,46 @@ export type CaseDueDateWriteInput = {
   traceId: string;
 };
 
-/** 終了・再開の入力。version と recipientIds は最初の判定で読んだ値 */
+/** 終了の入力。version と recipientIds は最初の判定で読んだ値 */
 export type CaseStatusWriteInput = {
   caseId: string;
   actorId: string;
   version: number;
+  recipientIds: readonly string[];
+  traceId: string;
+};
+
+/** 再開（選び直しつき）の判定の材料。案件がなければ null */
+export type CaseReopenFacts = {
+  status: CaseStatus;
+  version: number;
+  actorIsParticipant: boolean;
+  actorCanManage: boolean;
+  caseDepartmentIds: string[];
+  /** いまの有効な参加者（無効な人の行は含まない） */
+  activeParticipantIds: string[];
+  /** 追加・除外に出た社員のうち、存在する人だけ */
+  targets: {
+    userId: string;
+    isActive: boolean;
+    hasMembershipRow: boolean;
+    isGlobalAdmin: boolean;
+    ownedDepartmentIds: string[];
+  }[];
+};
+
+/**
+ * 再開（選び直しつき）の入力。どれも省略できない（前提の条件を省けないようにする）。
+ * participantIds は画面で見た有効な参加者、readRecipientIds は読んだ宛先、recipientIds は選び直しの後の宛先
+ */
+export type CaseReopenWriteInput = {
+  caseId: string;
+  actorId: string;
+  version: number;
+  participantIds: readonly string[];
+  addUserIds: readonly string[];
+  removeUserIds: readonly string[];
+  readRecipientIds: readonly string[];
   recipientIds: readonly string[];
   traceId: string;
 };
@@ -270,6 +326,149 @@ const STATUS_CHANGES = {
     kind: "case.reopened",
   },
 } as const;
+
+/** 再開の batch の文と、案件の更新（RETURNING）の位置 */
+function composeReopen(db: Database, input: CaseReopenWriteInput) {
+  const { caseId, actorId } = input;
+  const change = STATUS_CHANGES.reopen;
+  const addJson = JSON.stringify(input.addUserIds);
+  const removeJson = JSON.stringify(input.removeUserIds);
+  const condition = sql`EXISTS (SELECT 1 FROM cases k WHERE k.id = ${caseId}
+    AND k.status = ${change.from} AND k.version = ${input.version}
+    AND ${activeChannelMember(K_ROOM, actorId)}
+    AND ${recipientsUnchanged(K_ROOM, actorId, input.readRecipientIds)}
+    AND ${activeMembersEqual(K_ROOM, input.participantIds)}
+    AND NOT EXISTS (SELECT 1 FROM json_each(${addJson}) aj
+      WHERE NOT EXISTS (SELECT 1 FROM users t WHERE t.id = aj.value AND t.is_active = 1)
+        OR ${hasMembershipRow(sql`aj.value`)})
+    AND NOT EXISTS (SELECT 1 FROM json_each(${removeJson}) rj
+      WHERE rj.value = ${actorId} OR NOT ${hasMembershipRow(sql`rj.value`)}
+        OR ${autoParticipantSql(sql`rj.value`)}))`;
+  // 先頭の前提を通った後は、削除で「参加者の集合が一致」が崩れるため、後ろの文はこの batch がまだ状態を変えていないことだけを見る
+  // （D1 の batch は1つのトランザクションなので、先頭を通れば後ろの文の時点でも前提は保たれる）
+  const stillClosed = sql`EXISTS (SELECT 1 FROM cases k WHERE k.id = ${caseId}
+    AND k.status = ${change.from} AND k.version = ${input.version})`;
+  const guard = (expected: number) =>
+    guardChanges(db, caseId, sql`${expected}`);
+  const recipientIds = [...new Set(input.recipientIds)];
+  const now = new Date().toISOString();
+  const audit = {
+    actorId,
+    targetType: "case",
+    targetId: caseId,
+    result: "success",
+    traceId: input.traceId,
+  } as const;
+
+  const statements: BatchItem[] = [
+    assertStatement(db, caseId, condition),
+    auditLogInsert(
+      db,
+      {
+        ...audit,
+        action: change.action,
+        detail: {
+          caseId,
+          notifiedCount: recipientIds.length,
+          addedCount: input.addUserIds.length,
+          removedCount: input.removeUserIds.length,
+        },
+      },
+      { onlyWhen: condition },
+    ),
+    guard(1),
+  ];
+  const changedCount = input.addUserIds.length + input.removeUserIds.length;
+  if (changedCount > 0)
+    statements.push(
+      auditLogInsertRows(
+        db,
+        {
+          ...audit,
+          rows: [
+            ...input.addUserIds.map((userId) => ({
+              action: "case.participant.add" as const,
+              detail: { caseId, userId, viaReopen: true },
+            })),
+            ...input.removeUserIds.map((userId) => ({
+              action: "case.participant.remove" as const,
+              detail: { caseId, userId, self: false, viaReopen: true },
+            })),
+          ],
+        },
+        { onlyWhen: condition },
+      ),
+      guard(changedCount),
+    );
+  // 149-D が、外す人の TODO の担当の書き換えを、この削除の直前に差す（計画 150-B 6.8）
+  if (input.removeUserIds.length > 0)
+    statements.push(
+      db
+        .delete(channelMembers)
+        .where(
+          and(
+            sql`${channelMembers.channelId} = (SELECT c.channel_id FROM cases c WHERE c.id = ${caseId})`,
+            sql`${channelMembers.userId} IN (SELECT value FROM json_each(${removeJson}))`,
+            stillClosed,
+          ),
+        ),
+      guard(input.removeUserIds.length),
+    );
+  if (input.addUserIds.length > 0)
+    statements.push(
+      db.insert(channelMembers).select(
+        sql`SELECT c.channel_id, aj.value, ${now} FROM cases c, json_each(${addJson}) aj
+            WHERE c.id = ${caseId} AND ${stillClosed}`,
+      ),
+      guard(input.addUserIds.length),
+    );
+  if (recipientIds.length > 0) {
+    // ID と宛先の組を JSON の値1つで渡す。直後に、今回の組の行がすべてあることを確かめる（時刻では今回の通知を識別できないため）
+    const rows = JSON.stringify(
+      recipientIds.map((userId) => [newUlid(), userId]),
+    );
+    statements.push(
+      db.insert(notifications).select(sql`
+        SELECT json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), ${change.kind}, NULL, NULL, ${caseId}, ${now}, NULL
+        FROM json_each(${rows}) j
+        WHERE ${stillClosed}`),
+      guard(recipientIds.length),
+      assertStatement(
+        db,
+        caseId,
+        sql`NOT EXISTS (SELECT 1 FROM json_each(${rows}) nj WHERE NOT EXISTS (
+          SELECT 1 FROM notifications n WHERE n.id = json_extract(nj.value, '$[0]')
+            AND n.user_id = json_extract(nj.value, '$[1]') AND n.kind = ${change.kind} AND n.target_id = ${caseId}))`,
+      ),
+    );
+  }
+  const updateAt = statements.length;
+  statements.push(
+    db
+      .update(cases)
+      .set({
+        status: change.to,
+        version: sql`${cases.version} + 1`,
+        updatedAt: now,
+      })
+      .where(and(eq(cases.id, caseId), stillClosed))
+      .returning({ id: cases.id }),
+    guard(1),
+    assertStatement(db, caseId, atLeastOneActive(caseId)),
+  );
+  return { statements, updateAt };
+}
+
+/**
+ * 再開（選び直しつき）の batch の文（計画 150-B 6.3 の順）：前提 → 再開の監査 → 人ごとの監査 → 参加の行の削除 → 追加
+ * → 通知 → 案件の更新 → 不変条件。条件つきの文は0行でも失敗しないため、必須の文の直後に件数の確認を置く
+ */
+export function buildReopenStatements(
+  db: Database,
+  input: CaseReopenWriteInput,
+): BatchItem[] {
+  return composeReopen(db, input).statements;
+}
 
 function cursorFor(row: { id: string }) {
   if (!isUlid(row.id)) throw new Error("案件IDが不正です");
@@ -352,7 +551,7 @@ export function createCaseRepository(db: Database) {
   }
 
   /**
-   * 終了・再開：前提 → 監査 → 通知 → 案件の行の更新（版に1を足す）。チャンネル・参加の行には触れない（AC-8）。
+   * 終了：前提 → 監査 → 通知 → 案件の行の更新（版に1を足す）。チャンネル・参加の行には触れない（AC-8）。
    * 前提：案件があり、状態が from で、版が読んだ値のまま、操作者が有効な参加者、宛先が読んだまま。崩れたら CaseStateChangedError
    */
   async function changeStatus(
@@ -402,7 +601,90 @@ export function createCaseRepository(db: Database) {
     if (updated.length === 0) throw new CaseStateChangedError();
   }
 
+  /** 書き込みの判定の材料の、案件の行と操作者の資格（同じ文の中で決める） */
+  const caseFactsQuery = (caseId: string, actorId: string) =>
+    db
+      .select({
+        status: cases.status,
+        dueDate: cases.dueDate,
+        version: cases.version,
+        actorIsParticipant: sql<number>`CASE WHEN ${activeChannelMember(sql`"cases"."channel_id"`, actorId)} THEN 1 ELSE 0 END`,
+        actorCanManage: sql<number>`CASE WHEN ${canManageSql(actorId, sql`"cases"."id"`)} THEN 1 ELSE 0 END`,
+        activeParticipantCount: sql<number>`(SELECT COUNT(*) FROM channel_members am
+            JOIN users au ON au.id = am.user_id AND au.is_active = 1
+            WHERE am.channel_id = "cases"."channel_id")`,
+      })
+      .from(cases)
+      .where(eq(cases.id, caseId))
+      .limit(1);
+
+  const departmentIdsQuery = (caseId: string) =>
+    db
+      .select({ departmentId: caseDepartments.departmentId })
+      .from(caseDepartments)
+      .where(eq(caseDepartments.caseId, caseId));
+
   return {
+    /**
+     * 再開（選び直しつき）の判定の材料を、同じ時点（1つの batch）で読む。案件がなければ null。
+     * 追加・除外の対象は、ID を JSON の値1つで渡して読む（人数に比例して値の数を増やさない）
+     */
+    async findReopenFacts(input: {
+      caseId: string;
+      actorId: string;
+      addUserIds: readonly string[];
+      removeUserIds: readonly string[];
+    }): Promise<CaseReopenFacts | null> {
+      const targetIds = JSON.stringify([
+        ...new Set([...input.addUserIds, ...input.removeUserIds]),
+      ]);
+      const [caseRows, departmentRows, memberRows, targetRows, roleRows] =
+        await db.batch([
+          caseFactsQuery(input.caseId, input.actorId),
+          departmentIdsQuery(input.caseId),
+          db
+            .select({ userId: users.id })
+            .from(channelMembers)
+            .innerJoin(cases, eq(cases.channelId, channelMembers.channelId))
+            .innerJoin(users, eq(users.id, channelMembers.userId))
+            .where(and(eq(cases.id, input.caseId), eq(users.isActive, true)))
+            .orderBy(asc(users.id)),
+          db
+            .select({
+              userId: users.id,
+              isActive: users.isActive,
+              // 外側の利用者の ID は表の名前つきで渡し、内側の表には別名を付ける（#294）
+              hasMembershipRow: sql<number>`CASE WHEN EXISTS (SELECT 1 FROM channel_members tm
+                JOIN cases tc ON tc.channel_id = tm.channel_id
+                WHERE tc.id = ${input.caseId} AND tm.user_id = ${sql`${users.id}`}) THEN 1 ELSE 0 END`,
+            })
+            .from(users)
+            .where(
+              sql`${users.id} IN (SELECT value FROM json_each(${targetIds}))`,
+            ),
+          roleRowsQuery(
+            db,
+            sql`${userRoleAssignments.userId} IN (SELECT value FROM json_each(${targetIds}))`,
+          ),
+        ]);
+      const [row] = caseRows;
+      if (row === undefined) return null;
+      return {
+        status: row.status,
+        version: row.version,
+        actorIsParticipant: row.actorIsParticipant === 1,
+        actorCanManage: row.actorCanManage === 1,
+        caseDepartmentIds: departmentRows.map((d) => d.departmentId),
+        activeParticipantIds: memberRows.map((m) => m.userId),
+        targets: targetRows.map((t) => ({
+          userId: t.userId,
+          isActive: t.isActive,
+          hasMembershipRow: t.hasMembershipRow === 1,
+          ...rolesOf(roleRows, t.userId),
+        })),
+      };
+    },
+
     /** 一覧：案件 ID の降順。joined は有効な参加者の案件だけ */
     async list(input: {
       actorId: string;
@@ -521,24 +803,8 @@ export function createCaseRepository(db: Database) {
       actorId: string;
       targetId?: string;
     }): Promise<CaseWriteFacts | null> {
-      const caseQuery = db
-        .select({
-          status: cases.status,
-          dueDate: cases.dueDate,
-          version: cases.version,
-          actorIsParticipant: sql<number>`CASE WHEN ${activeChannelMember(sql`"cases"."channel_id"`, input.actorId)} THEN 1 ELSE 0 END`,
-          actorCanManage: sql<number>`CASE WHEN ${canManageSql(input.actorId, sql`"cases"."id"`)} THEN 1 ELSE 0 END`,
-          activeParticipantCount: sql<number>`(SELECT COUNT(*) FROM channel_members am
-            JOIN users au ON au.id = am.user_id AND au.is_active = 1
-            WHERE am.channel_id = "cases"."channel_id")`,
-        })
-        .from(cases)
-        .where(eq(cases.id, input.caseId))
-        .limit(1);
-      const departmentQuery = db
-        .select({ departmentId: caseDepartments.departmentId })
-        .from(caseDepartments)
-        .where(eq(caseDepartments.caseId, input.caseId));
+      const caseQuery = caseFactsQuery(input.caseId, input.actorId);
+      const departmentQuery = departmentIdsQuery(input.caseId);
       type CaseRow = Awaited<typeof caseQuery>[number];
       const toFacts = (
         row: CaseRow | undefined,
@@ -642,9 +908,6 @@ export function createCaseRepository(db: Database) {
           AND ${hasMembershipRow(input.userId)}
           AND NOT ${autoParticipantSql(input.userId)}`,
       );
-      const atLeastOneActive = sql`EXISTS (SELECT 1 FROM cases k WHERE k.id = ${input.caseId}
-        AND EXISTS (SELECT 1 FROM channel_members m JOIN users u ON u.id = m.user_id AND u.is_active = 1
-          WHERE m.channel_id = k.channel_id))`;
       const [, , removed] = await runWriteBatch(() =>
         db.batch([
           assertStatement(db, input.caseId, condition),
@@ -675,7 +938,7 @@ export function createCaseRepository(db: Database) {
               ),
             )
             .returning({ userId: channelMembers.userId }),
-          assertStatement(db, input.caseId, atLeastOneActive),
+          assertStatement(db, input.caseId, atLeastOneActive(input.caseId)),
         ]),
       );
       if (removed.length === 0) throw new CaseStateChangedError();
@@ -751,9 +1014,16 @@ export function createCaseRepository(db: Database) {
       return changeStatus(input, STATUS_CHANGES.close);
     },
 
-    /** 再開（EP-5-12。参加者は選び直さない） */
-    reopenCase(input: CaseStatusWriteInput): Promise<void> {
-      return changeStatus(input, STATUS_CHANGES.reopen);
+    /** 再開（EP-5-12。参加者の選び直しつき）。前提が崩れていたら CaseStateChangedError で、何も残さない */
+    async reopenCase(input: CaseReopenWriteInput): Promise<void> {
+      const { statements, updateAt } = composeReopen(db, input);
+      const results = await runWriteBatch(() =>
+        db.batch(statements as [BatchItem, ...BatchItem[]]),
+      );
+      // 件数の確認の文が働いていれば0行にはならない（前提と書き込みの条件がずれたときの二重の守り）
+      const updated = results[updateAt] as unknown[] | undefined;
+      if (updated === undefined || updated.length === 0)
+        throw new CaseStateChangedError();
     },
   };
 }

@@ -18,6 +18,9 @@
 //   → 状態（409 already_closed／already_active）→ batch。再認証は求めない（C-81）。
 //   前提が崩れたら読み直し、理由に当たればそれを返す。版だけが変わっていれば 409 stale（状態が一度変わって戻った場合）。
 //   どれにも当たらなければ宛先が変わったとみて、最初の版のまま宛先を読み直して1回だけやり直し、それでも崩れたら 409 retry。
+// 再開の選び直し（150-B。計画 6.1。変えない）：404 → 403 → perm.case.close → 本文の形（422）→ 409 already_active
+//   → 409 participants_changed（画面で見た参加者といまの有効な参加者が違う）→ 422 本人を外す → 409 auto_participant
+//   → 422 追加の人がいない・無効（同じ本文）→ 409 already_participant → batch。読み直しと版・やり直しの扱いは終了と同じ。
 import { z } from "zod";
 import {
   caseDueDateSchema,
@@ -29,6 +32,8 @@ import {
   type CaseListScope,
   type CaseRepository,
   type CaseStatus,
+  type CaseReopenFacts,
+  type CaseStatus as Status,
   type CaseWriteFacts,
 } from "../db/case.repository";
 import type { RoleAssignmentRepository } from "../db/role-assignment.repository";
@@ -59,6 +64,11 @@ const DUE_DATE_FORBIDDEN_MESSAGE =
 const VALIDATION_MESSAGE = "入力内容を確かめてください";
 /** 対象の社員がいない・無効のどちらでも同じ本文にする（社員の有無・状態を本文の違いで明かさない） */
 const TARGET_INVALID_MESSAGE = "追加できる社員を選んでください";
+const CANNOT_REMOVE_SELF_MESSAGE = "再開する本人は外せません";
+
+/** 再開の選び直しの上限（決定 Q4。画面で見た参加者には上限を置かない） */
+export const REOPEN_ADD_LIMIT = 100;
+export const REOPEN_REMOVE_LIMIT = 100;
 
 export type CaseConflictReason =
   | "closed"
@@ -67,6 +77,7 @@ export type CaseConflictReason =
   | "last_active_participant"
   | "already_closed"
   | "already_active"
+  | "participants_changed"
   | "stale"
   | "retry";
 
@@ -78,6 +89,8 @@ const CONFLICT_MESSAGES: Record<CaseConflictReason, string> = {
     "最後の参加者は外せません。先にほかの社員を追加してください",
   already_closed: "この案件はすでに終了しています",
   already_active: "この案件はすでに進行中です",
+  participants_changed:
+    "参加者がほかの操作で変わりました。画面を確かめてから、もう一度操作してください",
   stale:
     "ほかの人が先にこの案件を変更しました。画面を確かめてから、もう一度操作してください",
   retry: RETRY_CONFLICT_MESSAGE,
@@ -95,6 +108,39 @@ const addBodySchema = z.object({ userId: z.string().refine(isUlid) }).strict();
 const dueDateBodySchema = z
   .object({ dueDate: caseDueDateSchema.nullable() })
   .strict();
+
+const ulidListSchema = z.array(z.string().refine(isUlid));
+const hasDuplicates = (ids: readonly string[]) =>
+  new Set(ids).size !== ids.length;
+
+const reopenBodySchema = z
+  .object({
+    participantIds: ulidListSchema,
+    addUserIds: ulidListSchema.max(REOPEN_ADD_LIMIT),
+    removeUserIds: ulidListSchema.max(REOPEN_REMOVE_LIMIT),
+  })
+  .strict()
+  .superRefine((body, context) => {
+    const invalid = (field: keyof typeof body) =>
+      context.addIssue({ code: "custom", path: [field], message: "" });
+    for (const field of [
+      "participantIds",
+      "addUserIds",
+      "removeUserIds",
+    ] as const)
+      if (hasDuplicates(body[field])) invalid(field);
+    const seen = new Set(body.participantIds);
+    if (body.removeUserIds.some((id) => !seen.has(id)))
+      invalid("removeUserIds");
+    if (
+      body.addUserIds.some(
+        (id) => seen.has(id) || body.removeUserIds.includes(id),
+      )
+    )
+      invalid("addUserIds");
+  });
+
+export type CaseReopenBody = z.infer<typeof reopenBodySchema>;
 
 const validationError = (fields: string[], message = VALIDATION_MESSAGE) =>
   new AppError("VALIDATION_ERROR", message, { fields });
@@ -126,8 +172,10 @@ const notFound = (): Decision => ({
   error: new AppError("NOT_FOUND", NOT_FOUND_MESSAGE),
 });
 
-/** 追加・削除の 403 までの判定 */
-function decideParticipantGate(facts: CaseWriteFacts | null): Decision {
+/** 追加・削除・終了・再開の 403 までの判定 */
+function decideParticipantGate(
+  facts: { actorIsParticipant: boolean } | null,
+): Decision {
   if (facts === null) return notFound();
   if (!facts.actorIsParticipant)
     return {
@@ -188,7 +236,7 @@ function decideDueDateGate(facts: CaseWriteFacts | null): Decision {
 }
 
 /** 403 までの判定を通った材料（案件がある）。判定で null を除いた後にだけ呼ぶ */
-function present(facts: CaseWriteFacts | null): CaseWriteFacts {
+function present<T>(facts: T | null): T {
   if (facts === null)
     throw new Error("案件の材料がありません（404 の判定の前に呼ばれました）");
   return facts;
@@ -208,11 +256,60 @@ export function decideClose(facts: CaseWriteFacts | null): Decision {
 }
 
 /** 再開の判定（最初の判定と読み直しで同じ）：404 → 403 → 409 already_active */
-export function decideReopen(facts: CaseWriteFacts | null): Decision {
+export function decideReopen(
+  facts: { actorIsParticipant: boolean; status: Status } | null,
+): Decision {
   return (
     decideParticipantGate(facts) ??
     (present(facts).status === "active" ? conflict("already_active") : null)
   );
+}
+
+const sameMembers = (a: readonly string[], b: readonly string[]) => {
+  const set = new Set(a);
+  return set.size === new Set(b).size && b.every((id) => set.has(id));
+};
+
+/**
+ * 再開の選び直しの判定（最初の判定と読み直しで同じ）。body は形の検証を通った後のもの。
+ * 404 → 403 → already_active → participants_changed → 本人を外す（422）→ auto_participant → 追加の人が無効（422）→ already_participant
+ */
+export function decideReopenReselect(
+  facts: CaseReopenFacts | null,
+  body: CaseReopenBody,
+  actorId: string,
+): Decision {
+  const head = decideReopen(facts);
+  if (head !== null) return head;
+  const current = present(facts);
+  if (!sameMembers(current.activeParticipantIds, body.participantIds))
+    return conflict("participants_changed");
+  if (body.removeUserIds.includes(actorId))
+    return {
+      kind: "error",
+      error: validationError(["removeUserIds"], CANNOT_REMOVE_SELF_MESSAGE),
+    };
+  const targetOf = (userId: string) =>
+    current.targets.find((t) => t.userId === userId);
+  const isAuto = (userId: string) => {
+    const target = targetOf(userId);
+    return (
+      target !== undefined &&
+      autoRoleOf({
+        ...target,
+        caseDepartmentIds: current.caseDepartmentIds,
+      }) !== null
+    );
+  };
+  if (body.removeUserIds.some(isAuto)) return conflict("auto_participant");
+  if (body.addUserIds.some((id) => targetOf(id)?.isActive !== true))
+    return {
+      kind: "error",
+      error: validationError(["addUserIds"], TARGET_INVALID_MESSAGE),
+    };
+  if (body.addUserIds.some((id) => targetOf(id)?.hasMembershipRow === true))
+    return conflict("already_participant");
+  return null;
 }
 
 const STATUS_OPERATIONS = {
@@ -221,12 +318,6 @@ const STATUS_OPERATIONS = {
     decide: decideClose,
     write: "closeCase",
     status: "closed",
-  },
-  reopen: {
-    action: "case.reopen",
-    decide: decideReopen,
-    write: "reopenCase",
-    status: "active",
   },
 } as const;
 
@@ -421,9 +512,69 @@ export function createCaseService(
       return changeStatus(actor, caseId, STATUS_OPERATIONS.close);
     },
 
-    /** 再開（EP-5-12。150-A は参加者を選び直さない） */
-    reopen(actor: CaseActor, caseId: string) {
-      return changeStatus(actor, caseId, STATUS_OPERATIONS.reopen);
+    /**
+     * 再開（EP-5-12）と参加者の選び直し。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示）。
+     * 版は最初に読んだものを使い続ける。宛先は、読んだ宛先から外す人を除き、追加の人を足したもの（3-3 AC-2）
+     */
+    async reopen(
+      actor: CaseActor,
+      caseId: string,
+      body: unknown,
+    ): Promise<{ caseId: string; status: "active" }> {
+      const action = "case.reopen";
+      const first = await repository.findReopenFacts({
+        caseId,
+        actorId: actor.userId,
+        addUserIds: [],
+        removeUserIds: [],
+      });
+      raiseIf(actor, action, caseId, decideParticipantGate(first));
+      await authorize(actor, "perm.case.close");
+      const reselect = parseBody(reopenBodySchema, body);
+      const { version } = present(first);
+      const decide = async () => {
+        const facts = await repository.findReopenFacts({
+          caseId,
+          actorId: actor.userId,
+          addUserIds: reselect.addUserIds,
+          removeUserIds: reselect.removeUserIds,
+        });
+        return {
+          facts,
+          decision: decideReopenReselect(facts, reselect, actor.userId),
+        };
+      };
+      raiseIf(actor, action, caseId, (await decide()).decision);
+      const removed = new Set(reselect.removeUserIds);
+      for (let attempt = 0; ; attempt += 1) {
+        const readRecipientIds = await repository.listCaseNotifyRecipients(
+          caseId,
+          actor.userId,
+        );
+        const recipientIds = [
+          ...readRecipientIds.filter((id) => !removed.has(id)),
+          ...reselect.addUserIds,
+        ].sort();
+        try {
+          await repository.reopenCase({
+            caseId,
+            actorId: actor.userId,
+            version,
+            ...reselect,
+            readRecipientIds,
+            recipientIds,
+            traceId: actor.traceId,
+          });
+          return { caseId, status: "active" };
+        } catch (error) {
+          if (!(error instanceof CaseStateChangedError)) throw error;
+          const again = await decide();
+          raiseIf(actor, action, caseId, again.decision);
+          if (present(again.facts).version !== version)
+            throw conflictError("stale");
+          if (attempt >= 1) throw conflictError("retry");
+        }
+      }
     },
 
     /** 参加者の追加（EP-5-09）。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示） */

@@ -13,6 +13,7 @@ import {
   activeCaseWith,
   assertStatement,
   CaseStateChangedError,
+  guardChanges,
   K_ROOM,
   runWriteBatch,
   type CaseStatus,
@@ -98,16 +99,6 @@ function visibleTo(caseId: string, viewerId: string): SQL {
 function liveTodoWith(todoId: string, extra: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM case_todos t WHERE t.id = ${todoId} AND t.case_id = k.id
     AND t.deleted_at IS NULL AND ${extra})`;
-}
-
-/** 必須の行を書いた直後に置く：直前の文の件数が expected でなければ、cases.version を NULL にして batch 全体を取り消す */
-function guardChanges(db: Database, caseId: string, expected: SQL) {
-  return db
-    .update(cases)
-    .set({
-      version: sql`CASE WHEN changes() = ${expected} THEN ${cases.version} ELSE NULL END`,
-    })
-    .where(eq(cases.id, caseId));
 }
 
 const ONE = sql`1`;

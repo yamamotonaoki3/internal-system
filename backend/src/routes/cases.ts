@@ -148,7 +148,7 @@ export function caseRoutes() {
           return c.json(changed);
         },
       )
-      // 終了・再開は本文を持たない（送られても読まない）
+      // 終了は本文を持たない（送られても読まない）
       .post(
         "/:caseId/close",
         noStore,
@@ -161,14 +161,20 @@ export function caseRoutes() {
           return c.json(closed);
         },
       )
+      // 再開は参加者の選び直しの本文を持つ（項目の形は Service が 403 までの判定の後に確かめる）
       .post(
         "/:caseId/reopen",
         noStore,
         validate("param", caseParamSchema),
+        validate("json", bodyEnvelopeSchema),
         async (c) => {
           const actor = actorOf(c);
           const reopened = await withCaseService(c.env, (service) =>
-            service.reopen(actor, c.req.valid("param").caseId),
+            service.reopen(
+              actor,
+              c.req.valid("param").caseId,
+              c.req.valid("json"),
+            ),
           );
           return c.json(reopened);
         },

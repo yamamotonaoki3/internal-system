@@ -129,10 +129,21 @@ export async function closeCase(caseId: string): Promise<CaseStatusChanged> {
   return statusChangedSchema.parse(response.data);
 }
 
-/** 再開（本文なし。参加者は選び直さない） */
-export async function reopenCase(caseId: string): Promise<CaseStatusChanged> {
+/** 再開のときの参加者の選び直し。participantIds は確認の画面で見た有効な参加者（選び直さないときは、追加・除外を空にする） */
+export type CaseReopenBody = {
+  participantIds: string[];
+  addUserIds: string[];
+  removeUserIds: string[];
+};
+
+/** 再開（参加者の選び直しつき） */
+export async function reopenCase(
+  caseId: string,
+  body: CaseReopenBody,
+): Promise<CaseStatusChanged> {
   const response = await apiClient.post(
     `/cases/${encodeURIComponent(caseId)}/reopen`,
+    body,
   );
   return statusChangedSchema.parse(response.data);
 }
