@@ -482,7 +482,7 @@ export function createCaseTodoService(
         decide,
         async () => {
           todoId = idAfter(await repository.maxTodoId(caseId));
-          eventId = newUlid();
+          eventId = idAfter(await repository.maxEventIdOverall());
         },
       );
       return { ...added.item, progress: added.progress };

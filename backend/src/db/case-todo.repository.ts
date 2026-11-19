@@ -401,7 +401,11 @@ export function createCaseTodoRepository(db: Database) {
       const now = new Date().toISOString();
       const [, , , , , rows, progressRows] = await runWriteBatch(() =>
         db.batch([
-          assertStatement(db, input.caseId, condition),
+          assertStatement(
+            db,
+            input.caseId,
+            sql`${condition} AND ${eventIdsFreshSql(input.eventId)}`,
+          ),
           db.insert(caseTodos).select(
             sql`SELECT ${input.todoId}, ${input.caseId}, ${input.title}, ${input.assigneeId}, ${input.assigneeId}, ${assigneeName},
                 NULL, NULL, 0, 1, ${input.actorId}, ${now}, ${now}, NULL, NULL

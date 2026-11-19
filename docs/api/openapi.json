@@ -12441,6 +12441,18 @@
         "required": [
           "version"
         ],
+        "anyOf": [
+          {
+            "required": [
+              "title"
+            ]
+          },
+          {
+            "required": [
+              "assigneeUserId"
+            ]
+          }
+        ],
         "additionalProperties": false,
         "properties": {
           "version": {

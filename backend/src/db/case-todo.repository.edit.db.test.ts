@@ -489,6 +489,42 @@ describe("#149 AC-1 計画 6.1・10節 #19 記録の ID は、記録の表の全
   });
 });
 
+describe("#149 AC-1 計画 6.1 コードレビュー1回目（重大）追加の記録 create の ID も、記録の表の全体より大きいこと", () => {
+  const add = (eventId: string) =>
+    withCaseTodos(env, (r) =>
+      r.addTodo({
+        caseId: room.id,
+        actorId: w.memberS1.id,
+        todoId: todoIdAt(5),
+        eventId,
+        title: "[UNIT_TEST]149B追加",
+        assigneeId: null,
+      }),
+    );
+
+  it("#149 AC-1 計画 6.1: 追加の記録の ID が、別の TODO の記録の ID と等しいとき、主キーの違反（500）ではなく CaseStateChangedError で、何も残さない", async () => {
+    await insertTodoEvent({
+      id: eventIdAt(1),
+      todoId: todoIdAt(2),
+      caseId: room.id,
+      kind: "create",
+      actorId: w.memberS1.id,
+    });
+    await expectNothingChanged(() => add(eventIdAt(1)));
+  });
+
+  it("#149 AC-1 計画 6.1: 追加の記録の ID が、別の TODO の記録の ID より小さいとき、CaseStateChangedError で、何も残さない", async () => {
+    await insertTodoEvent({
+      id: futureIdAt(1),
+      todoId: todoIdAt(2),
+      caseId: room.id,
+      kind: "create",
+      actorId: w.memberS1.id,
+    });
+    await expectNothingChanged(() => add(eventIdAt(1)));
+  });
+});
+
 describe("#149 AC-1 5-4 AC-8・AC-12 削除の書き込みの結果（計画 10節 #21・#25）", () => {
   it("#149 AC-1 5-4 AC-12 計画 10節 #21: 削除すると、deleted_at・deleted_by＝A・版+1・updated_at。記録 delete（題名＝その時点の題名）。担当・完了の列は変わらない", async () => {
     vi.setSystemTime(new Date(LATER));

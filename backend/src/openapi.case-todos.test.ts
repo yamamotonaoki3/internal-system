@@ -348,6 +348,24 @@ describe("#149 149-B API の仕様書：TODO の編集・削除", () => {
     );
   });
 
+  it("#149 AC-1 計画 6.2.1: 編集の本文は、title か assigneeUserId の少なくとも一方が必須（anyOf）で、版だけの本文は定義に合わない", () => {
+    const body = resolve(
+      paths[TODO_ITEM]?.patch?.requestBody?.content?.["application/json"]
+        ?.schema,
+    );
+    const alternatives = (body.anyOf ?? []).map(resolve);
+    expect(alternatives.map((a) => a.required)).toEqual(
+      expect.arrayContaining([["title"], ["assigneeUserId"]]),
+    );
+    // 版だけの本文（{ version: 1 }）は、どの選択肢の必須も満たさない
+    const versionOnly = new Set(["version"]);
+    const satisfiedBy = alternatives.filter((a) =>
+      (a.required ?? []).every((name) => versionOnly.has(name)),
+    );
+    expect(satisfiedBy).toEqual([]);
+    expect(alternatives.length).toBeGreaterThan(0);
+  });
+
   it("#149 AC-1 5-4 AC-8: 編集の 200 は、一覧の項目と同じ項目（id・title・completed・version・assignee・previousAssignee・completedAssignee）と progress を持つ", () => {
     const edited = json(paths[TODO_ITEM]?.patch, "200");
     expect(edited.required).toEqual(
