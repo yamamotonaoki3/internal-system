@@ -10,6 +10,9 @@ export const STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
 /** 非参加者に出す文（サーバーの 403 の文言と同じ） */
 export const PARTICIPANTS_ONLY_TEXT = "参加者だけが見られます（非公開）";
 
+/** 表示中に外されたかを確かめる概要の取り直しが失敗したとき（#308）。中身を隠して再試行を出す */
+export const CASE_ACCESS_UNVERIFIED_TEXT = "案件の情報を確かめられませんでした";
+
 const INACTIVE_MARK = "（無効）";
 
 export const nameWithMark = (item: { name: string; isActive: boolean }) =>
