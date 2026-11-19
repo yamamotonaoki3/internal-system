@@ -3,6 +3,7 @@
 import {
   useMutation,
   useQueryClient,
+  type InfiniteData,
   type QueryClient,
   type QueryFilters,
 } from "@tanstack/react-query";
@@ -13,10 +14,11 @@ import {
   closeCase,
   removeCaseParticipant,
   reopenCase,
+  type CasePage,
   type CaseReopenBody,
   type CaseSummary,
 } from "../api/case-api";
-import { caseKeys } from "../api/query-keys";
+import { CASE_KEY_USER_ID_INDEX, caseKeys } from "../api/query-keys";
 
 export function useAddCaseParticipant(caseId: string) {
   const queryClient = useQueryClient();
@@ -75,20 +77,71 @@ export function forgetCaseAfterLeave(
       previous === undefined
         ? undefined
         : {
-            ...previous,
-            isParticipant: false,
+            ...asOutsider(previous),
             participantCount: previous.canManage
               ? previous.participantCount
               : null,
             canEditDueDate: previous.canManage && previous.canEditDueDate,
           },
   );
+  const listsCancelled = forgetCaseInLists(queryClient, userId, caseId);
   const removed = forgetCaseContent(queryClient, userId, caseId, roomId);
   const invalidated = queryClient.invalidateQueries({
     queryKey: caseKeys.all,
     refetchType: "none",
   });
-  return Promise.all([removed, invalidated]).then(() => undefined);
+  return Promise.all([listsCancelled, removed, invalidated]).then(
+    () => undefined,
+  );
+}
+
+/** サーバーが非参加者に返す形に合わせ、参加者だけの値（最終更新・部屋の ID）を消す */
+function asOutsider(item: CaseSummary): CaseSummary {
+  return {
+    ...item,
+    isParticipant: false,
+    lastActivityAt: null,
+    channelId: null,
+  };
+}
+
+/**
+ * その利用者の一覧のキャッシュから、資格を失った案件の参加者だけの値を、同期で消す：「参加中」の一覧（サイドバーも同じ一覧）からは行を除き、
+ * 「すべての案件」の一覧では非参加の形にする。進行中の取得は先に取り消す（後から古い行を書き戻させないため）。取り直しは古い印に任せる
+ */
+function forgetCaseInLists(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+): Promise<void> {
+  const filters: QueryFilters = { queryKey: ["cases", "list", userId] };
+  // まだデータのない一覧は、取り消すと読み込み中のまま止まるので、表示中なら取り直す（取り消した古い応答は書き戻されない）
+  const cancelling = queryClient.cancelQueries(filters).then(() =>
+    queryClient.refetchQueries({
+      ...filters,
+      predicate: (query) =>
+        query.state.data === undefined && query.getObserversCount() > 0,
+    }),
+  );
+  for (const [queryKey] of queryClient.getQueriesData(filters)) {
+    const joined = queryKey[CASE_KEY_USER_ID_INDEX + 1] === "joined";
+    queryClient.setQueryData<InfiniteData<CasePage>>(queryKey, (previous) =>
+      previous === undefined
+        ? undefined
+        : {
+            ...previous,
+            pages: previous.pages.map((page) => ({
+              ...page,
+              items: joined
+                ? page.items.filter((item) => item.id !== caseId)
+                : page.items.map((item) =>
+                    item.id === caseId ? asOutsider(item) : item,
+                  ),
+            })),
+          },
+    );
+  }
+  return cancelling;
 }
 
 /**

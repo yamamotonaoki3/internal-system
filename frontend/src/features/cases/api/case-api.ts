@@ -31,6 +31,9 @@ const summarySchema = z.object({
   participantCount: z.number().int().nullable(),
   canEditDueDate: z.boolean(),
   progress: todoProgressSchema,
+  // 有効な参加者だけ値。ほかは null
+  lastActivityAt: z.string().nullable(),
+  channelId: z.string().min(1).nullable(),
 });
 const pageSchema = z.object({
   items: z.array(summarySchema),
