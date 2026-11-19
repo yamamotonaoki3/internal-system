@@ -44,29 +44,52 @@ async function login(page: Page, loginId: string) {
 
 /**
  * 外される人 B のページ（自分で作ったページには console-guard の監視が付かないため、ここで同じ監視を付ける）。
- * 許すのは、仕様どおりの拒否の応答だけ：ログイン前のセッションの確認（401）と、外された後の部屋・TODO・詳細の取得（403）。
+ * 許すのは、仕様どおりの拒否の応答だけ。コンソールの文言には URL がないので、メッセージの位置（location().url）で応答の URL を確かめ、
+ * 状態と URL の組で限定する：
+ *   401：ログイン前のセッションの確認
+ *   404：外された後の、この案件の部屋のメッセージの取得（非参加者には部屋の存在を明かさない設計。docs/design/messages.md の「見えるか」）。ポーリングは止まるので1回だけ
+ *   403：外された後の、この案件の TODO・詳細の取得
  * それ以外のコンソールのエラー・処理されなかった例外は、終了時の照合（expectNoErrors）で失敗にする。
  */
-const INTENDED_REJECTION =
-  /Failed to load resource: the server responded with a status of (401|403)/;
+const ROOM_ID = "01JTE2E00000000000Q0010308";
+const INTENDED_REJECTIONS: { status: number; url: RegExp }[] = [
+  { status: 401, url: /\/api\/auth\/session$/ },
+  { status: 404, url: new RegExp(`/api/rooms/${ROOM_ID}/messages([?]|$)`) },
+  {
+    status: 403,
+    url: new RegExp(`/api/cases/${CASE_ID}/(todos|detail)([?]|$)`),
+  },
+];
+const REJECTION_TEXT =
+  /Failed to load resource: the server responded with a status of (\d+)/;
 
 async function newPage(browser: Browser, baseURL: string | undefined) {
   const context = await browser.newContext({ baseURL });
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 800 });
   const errors: string[] = [];
+  let roomRejections = 0;
   page.on("console", (m) => {
-    if (m.type() === "error" && !INTENDED_REJECTION.test(m.text()))
-      errors.push(m.text());
+    if (m.type() !== "error") return;
+    const status = Number(REJECTION_TEXT.exec(m.text())?.[1]);
+    const url = m.location().url;
+    const intended = INTENDED_REJECTIONS.find(
+      (rule) => rule.status === status && rule.url.test(url),
+    );
+    if (intended === undefined) errors.push(`${m.text()} (${url})`);
+    else if (intended.status === 404) roomRejections += 1;
   });
   page.on("pageerror", (e) => errors.push(String(e)));
   return {
     context,
     page,
-    expectNoErrors: () =>
+    expectNoErrors: () => {
       expect(errors, "B のコンソールのエラー・処理されなかった例外").toEqual(
         [],
-      ),
+      );
+      // 部屋の取得の拒否でポーリングが止まる（要求が増え続けない）
+      expect(roomRejections).toBeLessThanOrEqual(1);
+    },
   };
 }
 
