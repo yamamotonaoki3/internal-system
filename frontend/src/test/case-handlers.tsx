@@ -21,6 +21,10 @@ export type CaseSummary = {
   canEditDueDate: boolean;
   /** #149（149-A）：TODO の進捗（削除済みを除く。0件は null）。R-78 で非参加者にも返る */
   progress: { done: number; total: number } | null;
+  /** #148（148-C）：最終更新（案件の部屋の、削除されていない最新のメッセージの時刻）。有効な参加者だけ値、ほかは null */
+  lastActivityAt: string | null;
+  /** #148（148-C）：案件専用チャンネルの部屋の ID（未読の対応表を引くため）。有効な参加者だけ値、ほかは null */
+  channelId: string | null;
 };
 
 export type CaseParticipant = {
@@ -35,7 +39,7 @@ export type CaseParticipant = {
   removable: boolean;
 };
 
-export type CaseDetail = CaseSummary & {
+export type CaseDetail = Omit<CaseSummary, "channelId"> & {
   description: string;
   channelId: string;
   createdBy: string;
@@ -91,6 +95,8 @@ export function caseSummary(
     participantCount: 2,
     canEditDueDate: true,
     progress: null,
+    lastActivityAt: null,
+    channelId: caseRoomId(n),
     ...overrides,
   };
 }
@@ -105,6 +111,8 @@ export function outsiderSummary(
     canManage: false,
     participantCount: null,
     canEditDueDate: false,
+    lastActivityAt: null,
+    channelId: null,
     ...overrides,
   });
 }
@@ -128,17 +136,24 @@ export const PARTICIPANT_RETIRED: CaseParticipant = {
   removable: true,
 };
 
+/**
+ * 詳細の応答。overrides には概要（CaseSummary）をそのまま渡せる。
+ * #148（148-C）：概要の channelId は null を許すが、詳細は参加者だけが見るので必ず部屋の ID にする（null なら既定の部屋の ID）
+ */
 export function caseDetail(
   n: number,
-  overrides: Partial<CaseDetail> = {},
+  overrides: Partial<Omit<CaseDetail, "channelId">> & {
+    channelId?: string | null;
+  } = {},
 ): CaseDetail {
+  const { channelId, ...rest } = overrides;
   return {
     ...caseSummary(n),
     description: `[UNIT_TEST]147A案件${n}の説明`,
-    channelId: caseRoomId(n),
     createdBy: PARTICIPANT_CREATOR.userId,
     participants: [PARTICIPANT_CREATOR, PARTICIPANT_RETIRED],
-    ...overrides,
+    ...rest,
+    channelId: channelId ?? caseRoomId(n),
   };
 }
 
