@@ -1,6 +1,6 @@
 // TODO の追加の欄（5-4 AC-2・AC-6）。題名は送る前に shared の規則で確かめ、欄にエラーを出す（サーバーも同じ規則で確かめる）。
 // 担当者の候補は「担当なし」と、有効な参加者だけ。サーバーの 422 は fields に応じて各欄に、それ以外（409・403 など）は onError で欄の外に出す。
-// 成功したら題名を空にする。送信中は「追加する」を押せない。
+// 成功したら題名を空にする。区画のどれかの操作の送信中は「追加する」を押せない。
 import { useState, type FormEvent } from "react";
 import { caseTodoTitleSchema } from "../../../../../shared/case-todo-rules";
 import { Button } from "../../../components/Button";
@@ -9,11 +9,14 @@ import { TextField } from "../../../components/TextField";
 import type { CaseParticipant } from "../api/case-api";
 import { isApiError } from "../describe-error";
 import { useAddCaseTodo } from "../hooks/useCaseTodoWrites";
-import { CASE_TODO_NO_ASSIGNEE_TEXT, CASE_TODO_TITLE_ERROR } from "../labels";
+import { CASE_TODO_TITLE_ERROR } from "../labels";
+import { CaseTodoAssigneeOptions } from "./CaseTodoAssigneeOptions";
 
 type Props = {
   caseId: string;
   participants: CaseParticipant[];
+  /** 区画のどれかの操作が送信中なら押せない */
+  busy: boolean;
   onAdded: () => void;
   onStart: () => void;
   onError: (cause: unknown) => void;
@@ -22,6 +25,7 @@ type Props = {
 export function CaseTodoAddForm({
   caseId,
   participants,
+  busy,
   onAdded,
   onStart,
   onError,
@@ -31,11 +35,10 @@ export function CaseTodoAddForm({
   const [assigneeUserId, setAssigneeUserId] = useState("");
   const [titleError, setTitleError] = useState<string>();
   const [assigneeError, setAssigneeError] = useState<string>();
-  const candidates = participants.filter((p) => p.isActive);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (add.isPending) return;
+    if (busy) return;
     onStart();
     setTitleError(undefined);
     setAssigneeError(undefined);
@@ -81,16 +84,9 @@ export function CaseTodoAddForm({
         error={assigneeError}
         onChange={(event) => setAssigneeUserId(event.target.value)}
       >
-        <option value="">{CASE_TODO_NO_ASSIGNEE_TEXT}</option>
-        {candidates.map((p) => (
-          <option key={p.userId} value={p.userId}>
-            {p.departmentName === null
-              ? p.displayName
-              : `${p.displayName}（${p.departmentName}）`}
-          </option>
-        ))}
+        <CaseTodoAssigneeOptions participants={participants} />
       </SelectField>
-      <Button type="submit" disabled={add.isPending}>
+      <Button type="submit" disabled={busy}>
         追加する
       </Button>
     </form>

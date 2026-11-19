@@ -20,12 +20,17 @@ export const CASE_TODO_MESSAGES = {
   todoDeleted: "このTODOは削除されています",
   closed: "終了した案件は変更できません",
   assigneeInvalid: "担当者は、この案件の参加者から選んでください",
+  /** 149-B（統括の決定）：版が違うときの 409 todo_changed */
+  todoChanged:
+    "ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください",
 } as const;
 
-/** 計画 149-A の 409 の reason */
+/** 計画 149-A・149-B の 409 の reason（todo_completed の文言は計画で決まっていないため、テストは reason だけを確かめる） */
 export const CASE_TODO_REASONS = {
   closed: "closed",
   todoDeleted: "todo_deleted",
+  todoChanged: "todo_changed",
+  todoCompleted: "todo_completed",
 } as const;
 
 export const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

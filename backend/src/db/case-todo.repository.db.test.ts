@@ -584,7 +584,7 @@ describe("#149 AC-1 計画 6.9(2) 完了の取り消しのときの担当者の�
   });
 });
 
-describe("#149 AC-1 計画 6.10 必須の行が0行なら batch 全体を取り消す（ID の順の逆転を強制する）", () => {
+describe("#149 AC-1 計画 6.10・149-B 計画 6.1 必須の行が0行なら batch 全体を取り消す（ID の順の逆転を強制する）", () => {
   it("#149 AC-1 計画 6.9(3)・6.10: 追加：同じ案件に、より大きい ID の TODO があれば、TODO も記録も案件の版も残らない", async () => {
     await seedOpenTodo(1, { id: futureIdAt(1) });
     await expectNothingChanged(() =>
@@ -617,7 +617,9 @@ describe("#149 AC-1 計画 6.10 必須の行が0行なら batch 全体を取り�
     );
   });
 
-  it("#149 AC-1 計画 6.10: 完了：ほかの TODO の、より大きい ID の記録は妨げない（条件は TODO ごと）", async () => {
+  // 149-B 計画 6.1（計画レビュー1回目の重大3・2回目の軽微1）で期待を変えた：記録の ID は、記録の表の「全体」に渡した ID 以上がないことを確かめる。
+  // 旧：ほかの TODO の記録は妨げない（条件は TODO ごと）→ 新：取り消され、何も変わらない（Service が全体の最大より大きい ID で作り直す）
+  it("#149 AC-1 149-B 計画 6.1: 完了：ほかの TODO の、より大きい ID の記録があっても、取り消され、何も変わらない（条件は記録の表の全体）", async () => {
     await seedOpenTodo(1);
     await seedOpenTodo(2);
     await insertTodoEvent({
@@ -627,8 +629,34 @@ describe("#149 AC-1 計画 6.10 必須の行が0行なら batch 全体を取り�
       kind: "create",
       actorId: w.memberS1.id,
     });
+    await expectNothingChanged(() =>
+      complete({ todoId: todoIdAt(1), eventId: eventIdAt(1) }),
+    );
+  });
+
+  it("#149 AC-1 149-B 計画 6.1: 取り消し：ほかの案件の TODO に、より大きい ID の記録があっても、取り消され、何も変わらない", async () => {
+    await seedOpenTodo(1);
     await complete({ todoId: todoIdAt(1), eventId: eventIdAt(1) });
-    expect((await todoRow(todoIdAt(1))).is_done).toBe(1);
+    await insertTodo({
+      id: todoIdAt(5),
+      caseId: other.id,
+      title: "[UNIT_TEST]149A別案件の項目",
+      createdBy: w.memberS2.id,
+    });
+    await insertTodoEvent({
+      id: futureIdAt(1),
+      todoId: todoIdAt(5),
+      caseId: other.id,
+      kind: "create",
+      actorId: w.memberS2.id,
+    });
+    await expectNothingChanged(() =>
+      uncomplete({
+        todoId: todoIdAt(1),
+        eventId: eventIdAt(3),
+        autoUnassignEventId: eventIdAt(2),
+      }),
+    );
   });
 
   it("#149 AC-1 計画 6.10: 取り消し（記録1件）：同じ TODO に、より大きい ID の記録があれば、何も変わらない", async () => {

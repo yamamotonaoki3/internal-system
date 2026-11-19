@@ -235,6 +235,28 @@ describe("#309 AC-3 警告が出ていても終了できる", () => {
   });
 });
 
+// #149（149-B）計画 10節 #46-2・#46-3（計画レビュー1回目の軽微2）：削除した TODO は、終了の確認の警告の件数に入らない（削除済みを数えない）。
+// 画面の契約は CaseTodos.edit.test.tsx の冒頭と同じ（行のボタン「{題名}を削除」・確認の dialog「TODOの削除」・button「削除する」）。
+describe("#149 AC-1 149-B 削除した TODO は、終了の確認の警告に数えない", () => {
+  it("#149 AC-1 5-4 AC-12 計画 10節 #46-2: 未完了が T1 だけの案件で T1 を削除してから「案件を終了」を押すと、未完了の TODO の警告が出ない", async () => {
+    respondTodos([todoItem(1), todoItem(2, { completed: true })]);
+    const { user } = renderPage(20);
+    await waitForProgress("1/2");
+    await user.click(
+      await screen.findByRole("button", { name: `${todoItem(1).title}を削除` }),
+    );
+    const confirm = await screen.findByRole("dialog", { name: "TODOの削除" });
+    await user.click(within(confirm).getByRole("button", { name: "削除する" }));
+    // 取り直しの後の進捗（前の「1/2」が消えてから確かめる）
+    await waitForProgress("1/1");
+    const dialog = await openCloseDialog(user);
+    expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: TEXTS.closeConfirm }),
+    ).toBeTruthy();
+  });
+});
+
 describe("#309 AC-1 ポーリングで進捗が変わったとき", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -257,6 +279,18 @@ describe("#309 AC-1 ポーリングで進捗が変わったとき", () => {
     await waitFor(() =>
       expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull(),
     );
+  });
+
+  it("#149 AC-1 149-B 計画 10節 #46-3: 警告が出る状態（未完了 T1 あり）で、別の参加者が T1 を削除し、2秒進めてから「案件を終了」を押すと、警告が出ない（取り直しで反映）", async () => {
+    const state = respondTodos([todoItem(1), todoItem(2, { completed: true })]);
+    const { user } = renderPage(21);
+    await waitForProgress("1/2");
+    // 別の参加者の削除（一覧と進捗から除かれる）
+    state.items = [todoItem(2, { completed: true })];
+    await advance(POLL_MS);
+    await waitForProgress("1/1");
+    const dialog = await openCloseDialog(user);
+    expect(within(dialog).queryByText(WARNING_PATTERN)).toBeNull();
   });
 
   it("#309 AC-2: 取得に成功して警告が出た後、ポーリングの取得が失敗したら、取得のエラーの表示に合わせて警告が消える（開いているダイアログでも、開き直しても）", async () => {

@@ -125,7 +125,11 @@ describe("#238 AC-1・AC-2 S-05 の一覧の退職者", () => {
     expect(retiredRow.textContent).not.toMatch(ANY_DM_BUTTON);
     expect(retiredRow.querySelector("[popover]")).toBeNull();
     expect(
-      document.querySelector(`[aria-controls="profile-card-${RETIRED.id}"]`),
+      // カードの ID は「profile-card-{ID}-{useId}」なので、前方一致で確かめる（ID だけの完全一致では常に通る）
+      document.querySelector(`[aria-controls^="profile-card-${RETIRED.id}"]`),
+    ).toBeNull();
+    expect(
+      retiredRow.querySelector(`[aria-controls^="profile-card-"]`),
     ).toBeNull();
     // 参加者の一覧は変わらない（他の有効な参加者に「DMを送る」）
     const section = await participantsSection();

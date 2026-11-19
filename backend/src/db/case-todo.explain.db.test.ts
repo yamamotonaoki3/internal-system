@@ -198,7 +198,7 @@ describe("#149 計画 6.9(6) 実行計画（EXPLAIN QUERY PLAN）", () => {
     await expectIndexed(statements, "case_todos", "case_todos_case_id_id_idx");
   });
 
-  it("#149 AC-1 計画 6.9(3): 完了・取り消しの記録の順の条件と、記録の最大の ID は、case_todo_events_todo_id_id_idx を使い、case_todo_events を全件走査しない", async () => {
+  it("#149 AC-1 計画 6.9(3): 完了・取り消しの記録の順の条件は、case_todo_events_todo_id_id_idx を使い、case_todo_events を全件走査しない", async () => {
     const statements: Recorded[] = [];
     const repository = createCaseTodoRepository(dbOf(statements));
     await repository.completeTodo({
@@ -214,11 +214,31 @@ describe("#149 計画 6.9(6) 実行計画（EXPLAIN QUERY PLAN）", () => {
       eventId: eventIdAt(3),
       autoUnassignEventId: eventIdAt(2),
     });
-    await repository.maxEventId(todoIdAt(1));
     await expectIndexed(
       statements,
       "case_todo_events",
       "case_todo_events_todo_id_id_idx",
     );
+  });
+
+  it("#149 AC-1 計画 6.1: 記録の ID の作り直しの基準（記録の表の全体の最大の ID）は、索引を使い、case_todo_events を全件走査しない", async () => {
+    const statements: Recorded[] = [];
+    const repository = createCaseTodoRepository(dbOf(statements));
+    await repository.maxEventIdOverall();
+    const reading = statements.filter((s) =>
+      /\bcase_todo_events\b/i.test(s.sql),
+    );
+    expect(reading.length, "case_todo_events を読む文がない").toBe(1);
+    const plan = await planOf(reading[0]!);
+    // 実測：SEARCH case_todo_events USING COVERING INDEX sqlite_autoindex_case_todo_events_1（主キー ID の索引で最大を読む）
+    expect(plan.length, plan.join(" / ")).toBeGreaterThan(0);
+    for (const detail of plan) {
+      expect(detail.startsWith("SCAN"), `全件走査している：${detail}`).toBe(
+        false,
+      );
+      expect(detail).toMatch(
+        /^SEARCH case_todo_events USING (COVERING )?INDEX/,
+      );
+    }
   });
 });
