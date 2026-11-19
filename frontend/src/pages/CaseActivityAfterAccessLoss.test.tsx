@@ -56,11 +56,24 @@ type World = {
   participant: boolean;
   /** 一覧（GET /api/cases）の応答を保留する */
   listGate: Promise<void> | null;
+  /** 真の間、「参加中」の一覧の要求を、届いた時点の行のまま、release まで保留する（最初の取得の途中を作る） */
+  holdJoined: boolean;
+  joinedHolds: { release: () => void }[];
+  joinedRequests: number;
+  /** 概要（GET /api/cases/:caseId）の応答を保留する（#308 の確かめの途中を作る） */
+  summaryGate: Promise<void> | null;
 };
 
 /** 参加の状態で応答を変える、一覧・概要・詳細・部屋のメッセージ。退出（DELETE）で非参加になる */
 function respondWorld(): World {
-  const w: World = { participant: true, listGate: null };
+  const w: World = {
+    participant: true,
+    listGate: null,
+    holdJoined: false,
+    joinedHolds: [],
+    joinedRequests: 0,
+    summaryGate: null,
+  };
   const summary = (): CaseSummary =>
     w.participant
       ? caseSummary(N, { lastActivityAt: AT, participantCount: 2 })
@@ -75,12 +88,24 @@ function respondWorld(): World {
       }),
     ),
     http.get("/api/cases", async ({ request }) => {
-      if (w.listGate !== null) await w.listGate;
       const scope = new URL(request.url).searchParams.get("scope");
+      // 届いた時点の行（保留した後に返すときも、古いまま）
       const items = scope === "joined" && !w.participant ? [] : [summary()];
+      if (scope === "joined") {
+        w.joinedRequests += 1;
+        if (w.holdJoined) {
+          const hold = deferred();
+          w.joinedHolds.push(hold);
+          await hold.promise;
+        }
+      }
+      if (w.listGate !== null) await w.listGate;
       return HttpResponse.json({ items, nextCursor: null });
     }),
-    http.get("/api/cases/:caseId", () => HttpResponse.json(summary())),
+    http.get("/api/cases/:caseId", async () => {
+      if (w.summaryGate !== null) await w.summaryGate;
+      return HttpResponse.json(summary());
+    }),
     http.get("/api/cases/:caseId/detail", () =>
       w.participant
         ? HttpResponse.json(
@@ -166,6 +191,17 @@ describe("#148 148-C コードレビュー1回目（重大）: 資格を失っ�
     const unread = respondUnread({ counts: { [ROOM]: 3 } });
     unread.keepCountsOnPut = true;
     const { user } = renderApp("/cases");
+    // 退出の前に「すべての案件」を取得しておく（その案件の行に最終更新・未読が出て、キャッシュに参加者の行が残る）
+    await menu();
+    await user.click(screen.getByRole("radio", { name: "すべての案件" }));
+    const allCard = (
+      await within(screen.getByRole("main")).findByRole("link", { name: TITLE })
+    ).closest("li") as HTMLElement;
+    await waitFor(() =>
+      expect(within(allCard).getByText("未読 3件")).toBeTruthy(),
+    );
+    expect(allCard.querySelector(`time[datetime="${AT}"]`)).not.toBeNull();
+    await user.click(screen.getByRole("radio", { name: "自分が参加する案件" }));
     await openFromList(user);
 
     const manager = await (async () => {
@@ -195,6 +231,11 @@ describe("#148 148-C コードレビュー1回目（重大）: 資格を失っ�
     ).toBeNull();
     // 保留中：すべての案件
     await user.click(screen.getByRole("radio", { name: "すべての案件" }));
+    // キャッシュにある、退出の前の参加者の行を、非参加の行として出す
+    const cached = await within(screen.getByRole("main")).findByRole("link", {
+      name: TITLE,
+    });
+    expect(cached.closest("li")?.textContent).not.toContain("最終更新");
     expectNoActivityShown();
     await advance(2_100);
     expectNoActivityShown();
@@ -253,5 +294,106 @@ describe("#148 148-C コードレビュー1回目（重大）: 資格を失っ�
     expect(main.textContent).not.toContain("最終更新");
     expect(within(main).queryByText(/未読 \d+件/)).toBeNull();
     await expectSidebarWithoutCase();
+  });
+});
+
+describe("#148 148-C コードレビュー2回目（重大）: 最初の取得の途中の一覧を、後片付けで止めない", () => {
+  /** 参加中の一覧の、新しい取得が始まり、その案件を含まない応答が出るまで待つ */
+  async function expectSidebarReloaded(w: World, before: number) {
+    await waitFor(() => expect(w.joinedRequests).toBeGreaterThan(before));
+    const nav = await menu();
+    expect(
+      await within(nav).findByText("参加中の案件はありません"),
+    ).toBeTruthy();
+    expect(within(nav).queryByText("案件を読み込み中です")).toBeNull();
+  }
+
+  /** 保留していた古い応答（その案件を含む）を返しても、書き戻されない */
+  async function releaseStale(w: World) {
+    for (const hold of w.joinedHolds.splice(0)) hold.release();
+    await advance(2_100);
+    await expectSidebarWithoutCase();
+    expect(screen.queryByText(/未読 \d+件/)).toBeNull();
+    expect(document.querySelector(`time[datetime="${AT}"]`)).toBeNull();
+  }
+
+  it("#148 148-C #308: 案件を直接開き、サイドバーの最初の取得の途中でほかの参加者に外されると、サイドバーは読み込み中で止まらず、取り直してその案件を含まない一覧を出す。古い応答は書き戻されない", async () => {
+    const w = respondWorld();
+    respondUnread({ counts: { [ROOM]: 3 } }).keepCountsOnPut = true;
+    w.holdJoined = true;
+    renderApp(`/cases/${caseId(N)}`);
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "やり取り" }),
+    ).toBeTruthy();
+    expect(within(await menu()).getByText("案件を読み込み中です")).toBeTruthy();
+    const before = w.joinedRequests;
+
+    w.holdJoined = false;
+    w.participant = false;
+    await advance(2_100);
+    expect(await screen.findByText(PRIVATE_TEXT)).toBeTruthy();
+    await expectSidebarReloaded(w, before);
+    await releaseStale(w);
+  });
+
+  it("#148 148-C #308: 確かめの途中で S-16 へ移り、S-16 の最初の取得の途中で遅れた結果（外された）が届いても、一覧は読み込み中で止まらず、取り直して正しい一覧を出す", async () => {
+    const w = respondWorld();
+    respondUnread({ counts: { [ROOM]: 3 } }).keepCountsOnPut = true;
+    w.holdJoined = true;
+    const { user } = renderApp(`/cases/${caseId(N)}`);
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "やり取り" }),
+    ).toBeTruthy();
+    const summaryGate = deferred();
+    w.summaryGate = summaryGate.promise;
+    w.participant = false;
+    await advance(2_100);
+    // 確かめ（概要の取り直し）を保留したまま、S-16 へ移る
+    await user.click(within(await menu()).getByRole("link", { name: "案件" }));
+    await screen.findByRole("heading", { level: 1, name: "案件一覧" });
+    const before = w.joinedRequests;
+
+    w.holdJoined = false;
+    w.summaryGate = null;
+    summaryGate.release();
+    await waitFor(() => expect(w.joinedRequests).toBeGreaterThan(before));
+    const main = () => screen.getByRole("main");
+    expect(
+      await within(main()).findByText("参加している案件はありません"),
+    ).toBeTruthy();
+    expect(within(main()).queryByText("読み込み中です")).toBeNull();
+    await expectSidebarReloaded(w, before);
+    await releaseStale(w);
+    expect(within(main()).queryByRole("link", { name: TITLE })).toBeNull();
+  });
+
+  it("#148 148-C 5-1 AC-3: 案件を直接開き、サイドバーの最初の取得の途中で本人が退出しても、S-16・サイドバーは読み込み中で止まらず、取り直してその案件を含まない一覧を出す", async () => {
+    const w = respondWorld();
+    respondUnread({ counts: { [ROOM]: 3 } }).keepCountsOnPut = true;
+    w.holdJoined = true;
+    const { user } = renderApp(`/cases/${caseId(N)}`);
+    await user.click(
+      await screen.findByRole("button", { name: "参加者を管理" }),
+    );
+    const manager = await screen.findByRole("dialog", { name: "参加者を管理" });
+    const selfRow = within(manager)
+      .getAllByRole("listitem")
+      .find((row) => row.textContent?.includes(SELF.displayName));
+    if (selfRow === undefined) throw new Error("本人の行がありません");
+    const before = w.joinedRequests;
+    w.holdJoined = false;
+    await user.click(within(selfRow).getByRole("button", { name: "退出する" }));
+    const confirm = await screen.findByRole("dialog", {
+      name: "案件からの退出",
+    });
+    await user.click(within(confirm).getByRole("button", { name: "退出する" }));
+    await screen.findByRole("heading", { level: 1, name: "案件一覧" });
+    expect(
+      await within(screen.getByRole("main")).findByText(
+        "参加している案件はありません",
+      ),
+    ).toBeTruthy();
+    await expectSidebarReloaded(w, before);
+    await releaseStale(w);
   });
 });

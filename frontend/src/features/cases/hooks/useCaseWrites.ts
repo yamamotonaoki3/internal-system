@@ -114,7 +114,14 @@ function forgetCaseInLists(
   caseId: string,
 ): Promise<void> {
   const filters: QueryFilters = { queryKey: ["cases", "list", userId] };
-  const cancelling = queryClient.cancelQueries(filters);
+  // まだデータのない一覧は、取り消すと読み込み中のまま止まるので、表示中なら取り直す（取り消した古い応答は書き戻されない）
+  const cancelling = queryClient.cancelQueries(filters).then(() =>
+    queryClient.refetchQueries({
+      ...filters,
+      predicate: (query) =>
+        query.state.data === undefined && query.getObserversCount() > 0,
+    }),
+  );
   for (const [queryKey] of queryClient.getQueriesData(filters)) {
     const joined = queryKey[CASE_KEY_USER_ID_INDEX + 1] === "joined";
     queryClient.setQueryData<InfiniteData<CasePage>>(queryKey, (previous) =>
