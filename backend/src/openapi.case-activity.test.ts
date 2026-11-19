@@ -74,3 +74,19 @@ describe("#148 148-C API の仕様書：CaseSummary の lastActivityAt・channel
     }
   });
 });
+
+describe("#148 148-C コードレビュー1回目（軽微）API の仕様書：CaseDetail（GET /api/cases/{caseId}/detail）", () => {
+  const detail = () => okSchema("/api/cases/{caseId}/detail");
+
+  it("#148 148-C: 詳細の応答も、概要を広げた lastActivityAt（必須・null を許す日時）を持つ", () => {
+    expect(detail().required).toContain("lastActivityAt");
+    const p = detail().properties?.lastActivityAt;
+    expect(p?.type).toEqual(["string", "null"]);
+    expect(p?.format).toBe("date-time");
+  });
+
+  it("#149 AC-1（148-C レビューで確認）: 詳細の応答も、概要を広げた progress（必須）を持つ", () => {
+    expect(detail().required).toContain("progress");
+    expect(Object.keys(detail().properties ?? {})).toContain("progress");
+  });
+});
