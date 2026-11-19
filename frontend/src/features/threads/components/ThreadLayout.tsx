@@ -9,12 +9,15 @@ type ThreadLayoutProps = {
   roomId: string;
   /** 表示名に「退職者」を併記する投稿者の利用者ID（DM の相手が無効のとき） */
   retiredAuthorIds?: readonly string[];
+  /** 自分の返信が成功したあとに呼ぶ（画面ごとの取り直しのため。省略できる） */
+  onReplied?: () => void;
   children: ReactNode;
 };
 
 export function ThreadLayout({
   roomId,
   retiredAuthorIds,
+  onReplied,
   children,
 }: ThreadLayoutProps) {
   const { parentMessageId } = useThreadParam();
@@ -27,6 +30,7 @@ export function ThreadLayout({
           parentMessageId={parentMessageId}
           roomId={roomId}
           retiredAuthorIds={retiredAuthorIds}
+          onReplied={onReplied}
         />
       )}
     </div>

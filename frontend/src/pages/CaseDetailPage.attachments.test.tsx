@@ -403,6 +403,76 @@ describe("#148 AC-7 計画「取り直し」 自分の添付つきの投稿の�
   });
 });
 
+describe("#148 AC-7 計画「取り直し」 スレッドでの添付つきの返信の成功", () => {
+  it("#148 AC-7: 案件の画面のスレッド（?thread=）で添付つきの返信に成功したら、添付の一覧を取り直し、新しい添付の行が出る（元のメッセージへは親の ID）", async () => {
+    const state = respondCaseAttachments([]);
+    const thread = respondThread(41, 42, { roomN: 15 });
+    server.use(
+      http.post("/api/messages/:messageId/replies/attachments", () =>
+        HttpResponse.json(
+          {
+            id: caseAttachmentId(91),
+            name: "reply148b.txt",
+            kind: "document",
+            contentType: "text/plain; charset=utf-8",
+            size: 13,
+          },
+          { status: 201 },
+        ),
+      ),
+      http.post("/api/messages/:messageId/replies", ({ params }) => {
+        state.items = [
+          caseAttachment(91, {
+            name: "reply148b.txt",
+            messageId: caseMessageId(43),
+            threadParentId: String(params.messageId),
+          }),
+        ];
+        return HttpResponse.json(
+          {
+            id: caseMessageId(43),
+            parentMessageId: String(params.messageId),
+            createdAt: "2026-11-18T00:00:00.000Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    respondCases({ summaries: [caseSummary(15)], details: [caseDetail(15)] });
+    const { user } = renderCaseRequestScreen(<CaseDetailPage />, {
+      at: `/cases/${caseId(15)}?thread=${caseMessageId(41)}`,
+      path: "/cases/:caseId",
+    });
+    const region = await section();
+    await within(region).findByText(CASE_ATTACHMENT_TEXTS.empty);
+    const pane = await screen.findByRole("region", { name: "スレッド" });
+    await within(pane).findByText("[E2E_TEST]148B返信42");
+    const before = state.requests.length;
+    await user.upload(
+      within(pane).getByLabelText<HTMLInputElement>("ファイルを添付"),
+      new File(["[E2E_TEST]148B"], "reply148b.txt", { type: "text/plain" }),
+    );
+    await user.type(
+      within(pane).getByRole("textbox", { name: "返信" }),
+      "148Bの返信の添付つき",
+    );
+    await user.click(within(pane).getByRole("button", { name: "送信" }));
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
+    expect(await within(region).findByText("reply148b.txt")).toBeTruthy();
+    // 返信の行の「元のメッセージへ」は親の ID のスレッド
+    await user.click(
+      within(rowOf(region, "reply148b.txt")).getByText(
+        CASE_ATTACHMENT_TEXTS.jump,
+      ),
+    );
+    await waitFor(() =>
+      expect(thread.requested.every((id) => id === caseMessageId(41))).toBe(
+        true,
+      ),
+    );
+  });
+});
+
 // ---- 利用者の切り替え（#284 の枠と見張り） ----
 
 const USER_A = {

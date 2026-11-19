@@ -1,6 +1,7 @@
 // S-17 のやり取り（#148）。案件専用チャンネルの部屋（詳細の channelId）のメッセージを、チャンネル・DM と同じ部品で出す（5-2 AC-4）。
 // 終了した案件では、帯を出し、投稿・編集・リアクションの操作を出さない（読み取り専用。5-1 AC-11）。閲覧と既読はできる。
 // 開いている間にほかの人が案件を終了すると、投稿が 409 になる。理由を出し続け、概要・詳細を取り直して読み取り専用に切り替える。
+// 自分の投稿・返信が成功したら、案件の添付の一覧を取り直す（添付つきの投稿の添付を一覧に出すため。#148）。
 // 利用者・案件が替われば、ページごと作り直す（pages/CaseDetailPage.tsx の key）。下書きは RoomMessages が部屋×利用者で持つ。
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -32,6 +33,10 @@ export function CaseConversation({
   const read = useMarkRoomRead(roomId);
   const thread = useThreadParam();
   const [conflict, setConflict] = useState<string | null>(null);
+  const refetchAttachments = () =>
+    void queryClient.invalidateQueries({
+      queryKey: caseKeys.attachments(selfId, caseId),
+    });
 
   // 添付つきの送信では、アップロードの拒否が添付の失敗（cause に元のエラー）として届く
   function handlePostError(error: unknown) {
@@ -52,7 +57,7 @@ export function CaseConversation({
   }
 
   return (
-    <ThreadLayout roomId={roomId}>
+    <ThreadLayout roomId={roomId} onReplied={refetchAttachments}>
       <section className="mt-6 min-w-0 flex-1">
         <h2 className="mb-2 text-lg font-bold">やり取り</h2>
         {closed && <Alert tone="warning">{CASE_CLOSED_BANNER_TEXT}</Alert>}
@@ -70,6 +75,7 @@ export function CaseConversation({
           notFoundText={PARTICIPANTS_ONLY_TEXT}
           emptyText={CONVERSATION_EMPTY_TEXT}
           cannotPostText={CASE_CANNOT_POST_TEXT}
+          onPosted={refetchAttachments}
           onPostError={handlePostError}
           onLatestMessageIdChange={read.markRead}
           onOpenThread={thread.open}
