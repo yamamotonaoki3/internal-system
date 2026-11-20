@@ -7061,7 +7061,7 @@
             "$ref": "#/components/responses/Unauthenticated"
           },
           "403": {
-            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、または権限がない",
             "content": {
               "application/json": {
                 "schema": {
@@ -7145,7 +7145,7 @@
             "$ref": "#/components/responses/Unauthenticated"
           },
           "403": {
-            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、または権限がない",
             "content": {
               "application/json": {
                 "schema": {
