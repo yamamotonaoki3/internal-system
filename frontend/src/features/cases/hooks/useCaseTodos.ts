@@ -10,6 +10,16 @@ import { isApiError } from "../describe-error";
 
 const STOP_POLLING_STATUSES: readonly number[] = [401, 403, 404];
 
+/** TODO の一覧・履歴・削除済みの一覧の取り直しの間隔（149-C も同じ）。権限・存在の問題では止める */
+export function todoRefetchInterval(query: {
+  state: { error: unknown };
+}): number | false {
+  return isApiError(query.state.error) &&
+    STOP_POLLING_STATUSES.includes(query.state.error.status)
+    ? false
+    : MESSAGE_POLL_INTERVAL_MS;
+}
+
 /** 有効な参加者で、詳細が取れたときだけ取る */
 export function useCaseTodos(caseId: string, enabled: boolean) {
   const userId = useSignedInUserId();
@@ -20,10 +30,6 @@ export function useCaseTodos(caseId: string, enabled: boolean) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     retry: false,
-    refetchInterval: (query) =>
-      isApiError(query.state.error) &&
-      STOP_POLLING_STATUSES.includes(query.state.error.status)
-        ? false
-        : MESSAGE_POLL_INTERVAL_MS,
+    refetchInterval: todoRefetchInterval,
   });
 }

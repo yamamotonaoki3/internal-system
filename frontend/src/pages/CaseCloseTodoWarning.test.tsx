@@ -17,6 +17,8 @@ import {
 } from "../test/case-handlers";
 import { renderCaseRequestScreen } from "../test/case-request-handlers";
 import {
+  deletedTodo,
+  respondTodoHistory,
   respondTodos,
   todoItem,
   type TodoItem,
@@ -314,5 +316,39 @@ describe("#309 AC-1 ポーリングで進捗が変わったとき", () => {
     );
     const reopened = await openCloseDialog(user);
     expect(within(reopened).queryByText(WARNING_PATTERN)).toBeNull();
+  });
+});
+
+// #149（149-C）計画 plan-149c 5.4・9.8 F15：復元した未完了の TODO は、終了の確認の警告の件数に戻る（削除済みでなくなるため）。
+// 画面の契約は CaseTodos.history.test.tsx の冒頭と同じ（button「削除済みのTODO」・region「削除済みのTODO」・button「{題名}を復元」）。
+describe("#149 149-C 復元した未完了の TODO は、終了の確認の警告に数える", () => {
+  it("#149 149-C 5-1・5-4 AC-13 F15: 完了済み1件だけの案件で、削除済みの未完了の TODO を復元してから「案件を終了」を押すと、「未完了の TODO が 1 件あります」が出る", async () => {
+    const state = respondTodos([todoItem(1, { completed: true })]);
+    respondTodoHistory(state, {
+      deleted: [
+        deletedTodo(2, {
+          userId: "01JTESTUSER149C0000000000A",
+          displayName: "testuser_149c_alice",
+          isActive: true,
+        }),
+      ],
+    });
+    const { user } = renderPage(22);
+    await waitForProgress("1/1");
+    await user.click(
+      await screen.findByRole("button", { name: "削除済みのTODO" }),
+    );
+    const deleted = await screen.findByRole("region", {
+      name: "削除済みのTODO",
+    });
+    await user.click(
+      await within(deleted).findByRole("button", {
+        name: `${todoItem(2).title}を復元`,
+      }),
+    );
+    // 取り直しの後の進捗（前の「1/1」が消えてから確かめる）
+    await waitForProgress("1/2");
+    const dialog = await openCloseDialog(user);
+    expect(within(dialog).getByText(warning(1))).toBeTruthy();
   });
 });

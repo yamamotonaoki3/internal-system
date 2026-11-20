@@ -7085,6 +7085,269 @@
         }
       }
     },
+    "/api/cases/{caseId}/todos/{todoId}/events": {
+      "get": {
+        "operationId": "listCaseTodoEvents",
+        "summary": "TODO の変更履歴を取得する（EP-5-24）",
+        "description": "閲覧の資格は TODO の一覧（EP-5-13）と同じく、その案件の有効な参加者（後から参加した人にも参加の前の記録を全部見せる）。終了した案件でも見られる。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → TODO がない・ほかの案件の TODO（404）。削除済みの TODO の履歴も返す。古い順（記録の ID の昇順）。担当・前の担当の名前は記録した時点の名前、isActive は本人のいまの状態。操作した人はいまの表示名。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "description": "件数。既定は 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TODO の変更履歴。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoEventPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、または権限がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/deleted-todos": {
+      "get": {
+        "operationId": "listDeletedCaseTodos",
+        "summary": "案件の削除済みの TODO の一覧を取得する（EP-5-25）",
+        "description": "閲覧の資格は TODO の一覧（EP-5-13）と同じ。終了した案件でも見られる。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限。削除済みの TODO だけを、追加した順（TODO の ID の昇順）で返す。読み取り専用。進捗は返さない。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "description": "件数。既定は 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "削除済みの TODO の一覧。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoDeletedPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが見られます（非公開）」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無によらず同じ本文）、または権限がない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/cases/{caseId}/todos/{todoId}/restore": {
+      "post": {
+        "operationId": "restoreCaseTodo",
+        "summary": "削除した TODO を復元する（EP-5-26）",
+        "description": "有効な参加者なら誰でもできる。本文は受け取らない（版は送らない）。判定の順は、案件がない（404）→ 参加者でない（403）→ 権限 → TODO がない・ほかの案件の TODO（404）→ 終了中（409 closed）。削除されていなければ（すでに復元済み）何も書かずに、いまの項目と進捗を返す。題名・完了の状態・記録は削除の前を引き継ぐ。未完了で、担当がいまその案件の有効な参加者でなければ担当なしにし（以前の担当は残す）、記録 auto_unassign を残す。完了済みは担当・完了の記録を変えない。記録 restore を残す。監査ログには残さない。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          },
+          {
+            "name": "todoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "復元した（すでに復元済みなら何もしない）。一覧の項目と同じ形と進捗。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTodoAdded"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "参加者でない（FORBIDDEN「参加者だけが操作できます」。全体管理者・担当部署のオーナーでも、参加していなければ 403。TODO の有無・案件の状態によらず同じ本文）、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）、または TODO がない・ほかの案件の TODO（NOT_FOUND「TODOが見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
     "/api/cases/{caseId}/attachments": {
       "get": {
         "operationId": "listCaseAttachments",
@@ -12861,6 +13124,169 @@
               {
                 "$ref": "#/components/schemas/CaseTodoProgress"
               }
+            ]
+          }
+        }
+      },
+      "CaseTodoPerson": {
+        "type": "object",
+        "required": [
+          "userId",
+          "displayName",
+          "isActive"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "無効（退職者）なら false。画面は「退職者」を併記し、リンクを出さない"
+          }
+        }
+      },
+      "CaseTodoEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "createdAt",
+          "actor",
+          "title",
+          "previousTitle",
+          "assignee",
+          "previousAssignee"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "create",
+              "title_change",
+              "assignee_change",
+              "complete",
+              "uncomplete",
+              "delete",
+              "restore",
+              "auto_unassign"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/CaseTodoPerson",
+            "description": "操作した人（いまの表示名）"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "create・delete・restore はその時点の題名、title_change は新しい題名。ほかは null"
+          },
+          "previousTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "title_change の前の題名。ほかは null"
+          },
+          "assignee": {
+            "description": "create・complete はその時点の担当、assignee_change は新しい担当、auto_unassign は外れた担当（記録した名前）。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoPerson"
+              }
+            ]
+          },
+          "previousAssignee": {
+            "description": "assignee_change の前の担当（記録した名前）。ほかは null",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoPerson"
+              }
+            ]
+          }
+        }
+      },
+      "CaseTodoEventPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseTodoEvent"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CaseTodoDeletedItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CaseTodoItem"
+          },
+          {
+            "type": "object",
+            "required": [
+              "deletedAt",
+              "deletedBy"
+            ],
+            "properties": {
+              "deletedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "deletedBy": {
+                "$ref": "#/components/schemas/CaseTodoPerson",
+                "description": "削除した人（いまの表示名）"
+              }
+            }
+          }
+        ]
+      },
+      "CaseTodoDeletedPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseTodoDeletedItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
             ]
           }
         }

@@ -1,7 +1,8 @@
 // S-17 の TODO の区画（#149。5-4 AC-1〜AC-4・AC-6・AC-8・AC-9）。見出し「TODO」、進捗、追加の欄（進行中だけ）、項目の一覧。
 // 4つの状態（読み込み中・エラーと再試行・0件「項目なし」・あり）を分ける。一覧は 2 秒ごとに取り直す（useCaseTodos。取得は CaseDetailView が持つ）。
 // 操作の結果（追加・編集・削除の完了・エラー）と、編集・削除のダイアログの開閉は、この部品（行の外）で持つ：取り直しで行が消えても残す。
-// 送信中は、追加・完了・取り消し・編集・削除のすべてを止める（useCaseTodoBusy）。
+// 送信中は、追加・完了・取り消し・編集・削除・復元のすべてを止める（useCaseTodoBusy）。
+// 一覧の下に削除済みの一覧（149-C。CaseDeletedTodos）を置く。復元の結果も、ほかの操作と同じくこの部品で持つ。
 // 取得が 403 になったら、前の TODO を出さずに非公開の表示にする。外されたかの確かめ（概要の取り直し）は useCaseAccessLoss（#308）が行う。
 // 終了した案件では「閲覧のみ」を示し、追加・完了・取り消し・編集・削除を出さない（表示の制御。認可はサーバー）。
 import { useId, useState } from "react";
@@ -15,18 +16,21 @@ import type { useCaseTodos } from "../hooks/useCaseTodos";
 import {
   useCaseTodoBusy,
   useDeleteCaseTodo,
+  useRestoreCaseTodo,
   useSetCaseTodoCompleted,
 } from "../hooks/useCaseTodoWrites";
 import {
   CASE_TODO_ADDED_TEXT,
   CASE_TODO_EDIT_TEXTS,
   CASE_TODO_HEADING,
+  CASE_TODO_HISTORY_TEXTS,
   CASE_TODO_LOAD_ERROR_TEXT,
   CASE_TODO_MORE_TEXT,
   CASE_TODO_READ_ONLY_TEXT,
   PARTICIPANTS_ONLY_TEXT,
 } from "../labels";
 import { CaseConfirmDialog } from "./CaseConfirmDialog";
+import { CaseDeletedTodos } from "./CaseDeletedTodos";
 import { CaseTodoAddForm } from "./CaseTodoAddForm";
 import { CaseTodoEditDialog } from "./CaseTodoEditDialog";
 import { CaseTodoItem } from "./CaseTodoItem";
@@ -60,6 +64,7 @@ export function CaseTodoSection({
     setOpened(undefined);
     showError(cause);
   });
+  const restore = useRestoreCaseTodo(caseId, showError);
   const forbidden = isApiError(todos.error) && todos.error.status === 403;
   // 一覧を持っている間だけダイアログを出す（利用者の切り替え・資格の喪失で一覧が消えたら閉じる）
   const current =
@@ -106,6 +111,14 @@ export function CaseTodoSection({
     });
   }
 
+  function onRestore(todo: CaseTodo) {
+    if (busy) return;
+    setDone(undefined);
+    restore.mutate(todo.id, {
+      onSuccess: () => succeeded(CASE_TODO_HISTORY_TEXTS.restored),
+    });
+  }
+
   function renderBody() {
     if (forbidden) return <p>{PARTICIPANTS_ONLY_TEXT}</p>;
     if (todos.isError)
@@ -146,6 +159,7 @@ export function CaseTodoSection({
             {items.map((todo) => (
               <CaseTodoItem
                 key={todo.id}
+                caseId={caseId}
                 todo={todo}
                 readOnly={closed}
                 busy={busy}
@@ -168,6 +182,13 @@ export function CaseTodoSection({
             </Button>
           </div>
         )}
+        <CaseDeletedTodos
+          caseId={caseId}
+          closed={closed}
+          busy={busy}
+          selfId={selfId}
+          onRestore={onRestore}
+        />
       </>
     );
   }
@@ -205,6 +226,9 @@ export function CaseTodoSection({
           pending={busy}
           onConfirm={() => confirmDelete(current.todo)}
           onClose={() => setOpened(undefined)}
+          notice={
+            <p className="mb-4">{CASE_TODO_EDIT_TEXTS.deleteRestoreHint}</p>
+          }
         >
           {CASE_TODO_EDIT_TEXTS.deleteBody(current.todo.title)}
         </CaseConfirmDialog>

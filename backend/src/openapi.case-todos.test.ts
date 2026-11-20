@@ -407,3 +407,173 @@ describe("#149 149-B API の仕様書：TODO の編集・削除", () => {
     expect(deleteConflict).toContain("closed");
   });
 });
+
+// #149（149-C）EP-5-24（履歴）・EP-5-25（削除済みの一覧）・EP-5-26（復元）、計画 plan-149c 5.1・9.7（C1）
+const EVENTS = "/api/cases/{caseId}/todos/{todoId}/events";
+const DELETED = "/api/cases/{caseId}/deleted-todos";
+const RESTORE = "/api/cases/{caseId}/todos/{todoId}/restore";
+
+describe("#149 149-C API の仕様書：TODO の履歴・削除済みの一覧・復元", () => {
+  it.each([
+    { path: EVENTS, method: "get", codes: ["200", "401", "403", "404", "422"] },
+    {
+      path: DELETED,
+      method: "get",
+      codes: ["200", "401", "403", "404", "422"],
+    },
+    {
+      path: RESTORE,
+      method: "post",
+      codes: ["200", "401", "403", "404", "409", "422", "503"],
+    },
+  ])(
+    "#149 149-C C1（EP-5-24・25・26）: $method $path の応答コードが書かれている",
+    ({ path, method, codes }) => {
+      const operation = paths[path]?.[method];
+      expect(operation, `${method} ${path}`).toBeDefined();
+      for (const code of codes)
+        expect(Object.keys(operation?.responses ?? {}), code).toContain(code);
+    },
+  );
+
+  it("#149 149-C C1: パスの caseId・todoId の pattern は ULID_PATTERN と同じ判定", () => {
+    const checked: string[] = [];
+    for (const [path, method] of [
+      [EVENTS, "get"],
+      [DELETED, "get"],
+      [RESTORE, "post"],
+    ] as const) {
+      for (const parameter of paths[path]?.[method]?.parameters ?? []) {
+        if (parameter.in !== "path") continue;
+        expectUlidPattern(
+          `${method} ${path} ${parameter.name}`,
+          resolve(parameter.schema).pattern,
+        );
+        checked.push(`${path}:${method}:${parameter.name}`);
+      }
+    }
+    expect(checked.sort()).toEqual(
+      [
+        `${EVENTS}:get:caseId`,
+        `${EVENTS}:get:todoId`,
+        `${DELETED}:get:caseId`,
+        `${RESTORE}:post:caseId`,
+        `${RESTORE}:post:todoId`,
+      ].sort(),
+    );
+  });
+
+  it.each([EVENTS, DELETED])(
+    "#149 149-C 決定 Q5 C1: %s のクエリ limit は既定 100・最大 100、cursor がある",
+    (path) => {
+      const parameters = paths[path]?.get?.parameters ?? [];
+      const limit = parameters.find(
+        (p) => p.in === "query" && p.name === "limit",
+      );
+      expect(limit).toBeDefined();
+      expect(resolve(limit?.schema).maximum).toBe(100);
+      expect(resolve(limit?.schema).default).toBe(100);
+      expect(
+        parameters.some((p) => p.in === "query" && p.name === "cursor"),
+      ).toBe(true);
+    },
+  );
+
+  it("#149 149-C 5-4 AC-10・AC-11 C1: 履歴の 200 は items・nextCursor。記録は id・kind・createdAt・actor・title・previousTitle・assignee・previousAssignee。kind は8種類", () => {
+    const page = json(paths[EVENTS]?.get, "200");
+    expect(page.required).toEqual(
+      expect.arrayContaining(["items", "nextCursor"]),
+    );
+    const event = resolve(resolve(page.properties?.items).items);
+    expect(event.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "kind",
+        "createdAt",
+        "actor",
+        "title",
+        "previousTitle",
+        "assignee",
+        "previousAssignee",
+      ]),
+    );
+    expect([...(resolve(event.properties?.kind).enum ?? [])].sort()).toEqual(
+      [
+        "assignee_change",
+        "auto_unassign",
+        "complete",
+        "create",
+        "delete",
+        "restore",
+        "title_change",
+        "uncomplete",
+      ].sort(),
+    );
+    expect(resolve(resolve(event.properties?.actor)).required).toEqual(
+      expect.arrayContaining(["userId", "displayName", "isActive"]),
+    );
+    for (const key of ["assignee", "previousAssignee"]) {
+      const person = resolve(event.properties?.[key]);
+      expect(allowsNull(person), `${key} は null を許す`).toBe(true);
+      expect(resolve(nonNull(person)).required, key).toEqual(
+        expect.arrayContaining(["userId", "displayName", "isActive"]),
+      );
+    }
+    for (const key of ["title", "previousTitle"])
+      expect(
+        allowsNull(resolve(event.properties?.[key])),
+        `${key} は null を許す`,
+      ).toBe(true);
+  });
+
+  it("#149 149-C 5-4 AC-12 C1: 削除済みの一覧の 200 は items・nextCursor（progress を持たない）。項目は一覧の項目に deletedAt・deletedBy を足したもの", () => {
+    const page = json(paths[DELETED]?.get, "200");
+    expect(page.required).toEqual(
+      expect.arrayContaining(["items", "nextCursor"]),
+    );
+    expect(Object.keys(page.properties ?? {})).not.toContain("progress");
+    const item = resolve(resolve(page.properties?.items).items);
+    expect(item.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "title",
+        "completed",
+        "version",
+        "assignee",
+        "previousAssignee",
+        "completedAssignee",
+        "deletedAt",
+        "deletedBy",
+      ]),
+    );
+    expect(resolve(item.properties?.deletedBy).required).toEqual(
+      expect.arrayContaining(["userId", "displayName", "isActive"]),
+    );
+  });
+
+  it("#149 149-C 5-4 AC-13 決定 Q2 C1: 復元は本文を受け取らず（requestBody がない）、200 は一覧の項目と progress を持つ", () => {
+    const operation = paths[RESTORE]?.post;
+    expect(operation?.requestBody).toBeUndefined();
+    const restored = json(operation, "200");
+    expect(restored.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "title",
+        "completed",
+        "version",
+        "assignee",
+        "previousAssignee",
+        "completedAssignee",
+        "progress",
+      ]),
+    );
+    expectProgress("復元の progress", restored.properties?.progress);
+  });
+
+  it("#149 149-C 5-4 AC-9 C1: 復元の 409 の reason に closed が書かれている", () => {
+    const conflict = `${JSON.stringify(
+      paths[RESTORE]?.post?.responses?.["409"] ?? {},
+    )}${JSON.stringify(json(paths[RESTORE]?.post, "409"))}`;
+    expect(conflict).toContain("closed");
+  });
+});
