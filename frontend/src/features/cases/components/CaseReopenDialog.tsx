@@ -294,12 +294,12 @@ export function CaseReopenDialog({
           ) : (
             <Alert tone="error" role="alert">
               <p>{loadError}</p>
-              <Button variant="secondary" onClick={onRetry}>
+              <Button variant="secondary" disabled={pending} onClick={onRetry}>
                 {CASE_REOPEN_TEXTS.retry}
               </Button>
             </Alert>
           )}
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" disabled={pending} onClick={onClose}>
             キャンセル
           </Button>
         </>

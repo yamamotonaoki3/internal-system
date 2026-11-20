@@ -961,5 +961,81 @@ describe("#316 AC-1 再開のダイアログ：詳細の取得に失敗したと
       expect(await screen.findByText(TEXTS.reopened)).toBeTruthy();
       expect(w.writes).toHaveLength(1);
     });
+
+    describe("送信中に詳細の取り直しが起きたとき（150-B の設計：送信中は操作を止める）", () => {
+      async function sending() {
+        const sendGate = deferred();
+        const ctx = await setup(async () => {
+          await sendGate.promise;
+          ctx.w.state.status = "active";
+          return HttpResponse.json({ caseId: caseId(N), status: "active" });
+        }, "none");
+        await ctx.user.click(
+          within(ctx.dialog).getByRole("button", { name: TEXTS.next }),
+        );
+        await ctx.user.click(
+          await within(ctx.dialog).findByRole("button", {
+            name: TEXTS.confirm,
+          }),
+        );
+        await waitFor(() => expect(ctx.w.writes).toHaveLength(1));
+        return { ...ctx, sendGate };
+      }
+
+      const cancelButton = (dialog: HTMLElement) =>
+        within(dialog).getByRole<HTMLButtonElement>("button", {
+          name: TEXTS.cancel,
+        });
+
+      it("#316 AC-1: 送信中の取り直しの最中（応答を止めた間）は、「キャンセル」が無効で、押してもダイアログが閉じない", async () => {
+        const { user, client, dialog, w, sendGate } = await sending();
+        const detailGate = deferred();
+        server.use(
+          http.get("/api/cases/:caseId/detail", async () => {
+            await detailGate.promise;
+            return apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR);
+          }),
+        );
+        void client.invalidateQueries({
+          queryKey: caseKeys.detail(TEST_USER.id, caseId(N)),
+        });
+        expect(
+          (await within(dialog).findByRole("status")).textContent,
+        ).toContain(LOADING);
+        expect(cancelButton(dialog).disabled).toBe(true);
+        await user.click(cancelButton(dialog));
+        expect(screen.getByRole("dialog", { name: TEXTS.dialog })).toBeTruthy();
+        detailGate.release();
+        sendGate.release();
+        expect(await screen.findByText(TEXTS.reopened)).toBeTruthy();
+        expect(w.writes).toHaveLength(1);
+      });
+
+      it("#316 AC-1: 送信中の取り直しが失敗した後も、「キャンセル」と「再試行」が無効で、再開の応答を返すと書き込みは1回で成功の表示になる", async () => {
+        const { user, client, dialog, w, sendGate } = await sending();
+        server.use(
+          http.get("/api/cases/:caseId/detail", () =>
+            apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR),
+          ),
+        );
+        void client.invalidateQueries({
+          queryKey: caseKeys.detail(TEST_USER.id, caseId(N)),
+        });
+        expect(
+          (await within(dialog).findByRole("alert")).textContent,
+        ).toContain(DETAIL_ERROR);
+        expect(
+          within(dialog).getByRole<HTMLButtonElement>("button", {
+            name: RETRY,
+          }).disabled,
+        ).toBe(true);
+        expect(cancelButton(dialog).disabled).toBe(true);
+        await user.click(cancelButton(dialog));
+        expect(screen.getByRole("dialog", { name: TEXTS.dialog })).toBeTruthy();
+        sendGate.release();
+        expect(await screen.findByText(TEXTS.reopened)).toBeTruthy();
+        expect(w.writes).toHaveLength(1);
+      });
+    });
   });
 });
