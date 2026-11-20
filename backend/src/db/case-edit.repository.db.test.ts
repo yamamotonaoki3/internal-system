@@ -1033,3 +1033,116 @@ describe("#150 150-C D1 の上限（1文 100 パラメータ・batch の文の�
     });
   });
 });
+
+// ---- ミューテーション診断（PR #325）で検出できなかった前提を確かめる ----
+
+const addCaseDepartment = (caseId: string, departmentId: string) =>
+  env.DB.prepare(
+    "INSERT INTO case_departments (case_id, department_id) VALUES (?, ?)",
+  )
+    .bind(caseId, departmentId)
+    .run();
+
+const deleteCaseDepartment = (caseId: string, departmentId: string) =>
+  env.DB.prepare(
+    "DELETE FROM case_departments WHERE case_id = ? AND department_id = ?",
+  )
+    .bind(caseId, departmentId)
+    .run();
+
+describe("#150 150-C expected の方式で担当部署を変える（計画 4.4 の「担当部署が読んだまま」。C-199）", () => {
+  it("#150 Q3＝C・4.4: 割り込みがなければ、非参加の管理者が expected の方式で担当部署 [S,H] を [S,D] に差し替えられ、監査の前後の部署は昇順を「,」でつないだ文字列", async () => {
+    await addCaseDepartment(room.id, w.deptH.id);
+    await replaceOwner(w.memberD1.id, w.deptS.id);
+    await edit(
+      await inputFor({
+        actorId: w.memberD1.id,
+        basis: "expected",
+        departmentIds: [w.deptS.id, w.deptD.id],
+      }),
+    );
+    expect(await caseDepartmentIdsOf(room.id)).toEqual(
+      sorted([w.deptS.id, w.deptD.id]),
+    );
+    expect((await caseEditRow(room.id)).version).toBe(2);
+    const audits = await caseEditAudits();
+    expect(audits).toHaveLength(1);
+    expect(parseDetail(audits[0]?.detail ?? null)).toMatchObject({
+      changedFields: "departments",
+      departmentIdsBefore: sorted([w.deptS.id, w.deptH.id]).join(","),
+      departmentIdsAfter: sorted([w.deptS.id, w.deptD.id]).join(","),
+      departmentAddedCount: 1,
+      departmentRemovedCount: 1,
+    });
+  });
+
+  it.each([
+    {
+      name: "別の部署（deptH）が足された",
+      // 読んだ集合 [S]。いまは [S,H]。expected はいまの集合に合っている
+      prepare: async () => undefined,
+      interrupt: () => addCaseDepartment(room.id, w.deptH.id),
+      current: () => [w.deptS.id, w.deptH.id],
+    },
+    {
+      name: "読んだ部署（deptH）が外された",
+      // 読んだ集合 [S,H]。いまは [S]。expected はいまの集合に合っている
+      prepare: () => addCaseDepartment(room.id, w.deptH.id),
+      interrupt: () => deleteCaseDepartment(room.id, w.deptH.id),
+      current: () => [w.deptS.id],
+    },
+  ])(
+    "#150 4.4: 読んだ後に$name状態で、読んだ材料（before）のまま書くと、expected がいまと合っていても CaseStateChangedError で、案件・担当部署・参加・監査・版のどれも変わらない",
+    async ({ prepare, interrupt, current }) => {
+      await prepare();
+      await replaceOwner(w.memberD1.id, w.deptS.id);
+      const input = await inputFor({
+        actorId: w.memberD1.id,
+        basis: "expected",
+        departmentIds: [w.deptS.id, w.deptD.id],
+      });
+      await interrupt();
+      const stale: CaseEditWriteInput = {
+        ...input,
+        basis: {
+          expected: {
+            title: TITLE,
+            clientId: w.clientA.id,
+            departmentIds: current(),
+          },
+        },
+      };
+      const before = await caseEditSnapshot();
+      await expect(edit(stale)).rejects.toBeInstanceOf(CaseStateChangedError);
+      expect(await caseEditSnapshot()).toEqual(before);
+    },
+  );
+});
+
+describe("#150 150-C 取引先の有効性は、取引先を変えるときだけ確かめる（C-140(4)・計画 4.4）", () => {
+  it("#150 C-140(4): いまの取引先が無効で、取引先にいまと同じものを渡して件名を直すと成功し、取引先は変わらない", async () => {
+    await setClientActive(w.clientA.id, false);
+    const input = await inputFor({
+      title: "[UNIT_TEST]150C同じ取引先の件名",
+      clientId: w.clientA.id,
+    });
+    expect(input.client?.id).toBe(w.clientA.id);
+    await edit(input);
+    expect(await caseEditRow(room.id)).toMatchObject({
+      title: "[UNIT_TEST]150C同じ取引先の件名",
+      client_id: w.clientA.id,
+      version: 2,
+    });
+  });
+
+  it("#150 4.4: 読む前から無効な、別の取引先（clientB）へ変えると CaseStateChangedError で、何も変わらない", async () => {
+    await setClientActive(w.clientB.id, false);
+    const input = await inputFor({
+      title: "[UNIT_TEST]150C無効な取引先へ",
+      clientId: w.clientB.id,
+    });
+    const before = await caseEditSnapshot();
+    await expect(edit(input)).rejects.toBeInstanceOf(CaseStateChangedError);
+    expect(await caseEditSnapshot()).toEqual(before);
+  });
+});

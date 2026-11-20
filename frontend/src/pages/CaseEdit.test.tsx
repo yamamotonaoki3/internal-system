@@ -543,3 +543,94 @@ describe("#150 150-C 結果の出し方（計画 4.6）", () => {
     expect(writes).toEqual([]);
   });
 });
+
+// ---- ミューテーション診断（PR #325）で検出できなかった判定を確かめる ----
+
+const DEPT_EXTRA = {
+  id: "01JTESTCASE150CFDP0000EXT1",
+  name: "[UNIT_TEST]追加部署150C",
+};
+
+/** 担当部署の候補を3つにする（world の後に呼ぶ。後から足した応答が先に使われる） */
+function respondThreeDepartments() {
+  server.use(
+    http.get("/api/users/departments", () =>
+      HttpResponse.json({ items: [DEPT_SALES, DEPT_DEV, DEPT_EXTRA] }),
+    ),
+  );
+}
+
+describe("#150 150-C 担当部署の集合の比較（計画 4.6：変えた項目だけを送る）", () => {
+  it("#150 AC-20: 担当部署 [営業, 開発] を [営業, 追加] に差し替える（数が同じで共通の部署がある）と、departmentIds に [営業, 追加] を送る", async () => {
+    const { writes } = world({
+      summary: {
+        departments: [
+          { id: DEPT_SALES.id, name: DEPT_SALES.name, isActive: true },
+          { id: DEPT_DEV.id, name: DEPT_DEV.name, isActive: true },
+        ],
+      },
+    });
+    respondThreeDepartments();
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    expect(departmentBox(dialog, DEPT_DEV.name).checked).toBe(true);
+    await user.click(departmentBox(dialog, DEPT_DEV.name));
+    await user.click(departmentBox(dialog, DEPT_EXTRA.name));
+    expect(saveButton(dialog).disabled).toBe(false);
+    await user.click(saveButton(dialog));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    const body = writes[0]?.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["departmentIds", "version"]);
+    expect([...(body.departmentIds as string[])].sort()).toEqual(
+      [DEPT_SALES.id, DEPT_EXTRA.id].sort(),
+    );
+  });
+
+  it("#150 4.6: 差し替えた後に、同じ集合 [営業, 開発] に戻すと、「保存」を押せない（送らない）", async () => {
+    const { writes } = world({
+      summary: {
+        departments: [
+          { id: DEPT_SALES.id, name: DEPT_SALES.name, isActive: true },
+          { id: DEPT_DEV.id, name: DEPT_DEV.name, isActive: true },
+        ],
+      },
+    });
+    respondThreeDepartments();
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    await user.click(departmentBox(dialog, DEPT_DEV.name));
+    await user.click(departmentBox(dialog, DEPT_EXTRA.name));
+    expect(saveButton(dialog).disabled).toBe(false);
+    await user.click(departmentBox(dialog, DEPT_EXTRA.name));
+    await user.click(departmentBox(dialog, DEPT_DEV.name));
+    expect(saveButton(dialog).disabled).toBe(true);
+    await user.click(saveButton(dialog));
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("#150 150-C 類似件名の確かめ（C-122(6)）", () => {
+  it("#150 C-122(6): 取引先だけを変えても、excludeCaseId にこの案件の ID と新しい取引先を付けて確かめ、似た案件があれば警告を出すが保存は止めない", async () => {
+    const { writes } = world();
+    const similar = respondSimilar(true);
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    expect(similar.queries).toEqual([]);
+    await user.selectOptions(clientSelect(dialog), CLIENT_B.id);
+    // 入力が止まってから、新しい取引先で確かめる（入力の途中の値の問い合わせは、ここでは問わない）
+    await waitFor(
+      () =>
+        expect(
+          similar.queries.some((q) => q.get("clientId") === CLIENT_B.id),
+        ).toBe(true),
+      { timeout: 3000 },
+    );
+    const sent = similar.queries.find((q) => q.get("clientId") === CLIENT_B.id);
+    expect(sent?.get("excludeCaseId")).toBe(caseId(N));
+    expect(sent?.get("title")).toBe(TITLE);
+    expect(await within(dialog).findByText(TEXTS.similar)).toBeTruthy();
+    expect(saveButton(dialog).disabled).toBe(false);
+    await user.click(saveButton(dialog));
+    await waitFor(() => expect(writes).toHaveLength(1));
+  });
+});

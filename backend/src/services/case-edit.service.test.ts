@@ -485,3 +485,108 @@ describe("#150 150-C 計画 4.2：前提が崩れたとき（CaseStateChangedErr
     expect(error).toMatchObject({ details: { reason: "stale" } });
   });
 });
+
+// ---- ミューテーション診断（PR #325）で検出できなかった判定を確かめる ----
+
+/** 実際の Repository と同じく、いまと同じ取引先を求めたら、求めた取引先はいまの取引先（計画 4.3） */
+const sameClientRequested = (overrides: Partial<CaseEditFacts> = {}) =>
+  factsOf({
+    requestedClient: {
+      id: CLIENT_A,
+      code: "QZA",
+      name: "[UNIT_TEST]テスト商事A",
+      isActive: true,
+    },
+    ...overrides,
+  });
+
+describe("#150 150-C 計画 4.2 の 11：いまと同じ値は、変える項目にしない", () => {
+  it("#150 4.2 の 11: 本文が { version, clientId: いまの取引先 } だけなら、editCase を呼ばず 200（版は進まない）", async () => {
+    current = () => sameClientRequested();
+    const result = await service().edit(actor, CASE_ID, {
+      version: 2,
+      clientId: CLIENT_A,
+    });
+    expect(result).toEqual({ caseId: CASE_ID, titleFormatted: false });
+    expect(repository.editCase).not.toHaveBeenCalled();
+  });
+
+  it("#150 4.2 の 11: 同じ件名・同じ説明・いまの取引先・並びだけ違う同じ担当部署を送っても、editCase を呼ばず 200", async () => {
+    current = () => sameClientRequested({ departmentIds: [DEPT_D, DEPT_S] });
+    const result = await service().edit(actor, CASE_ID, {
+      version: 2,
+      title: TITLE,
+      description: DESCRIPTION,
+      clientId: CLIENT_A,
+      departmentIds: [DEPT_S, DEPT_D],
+    });
+    expect(result).toEqual({ caseId: CASE_ID, titleFormatted: false });
+    expect(repository.editCase).not.toHaveBeenCalled();
+  });
+
+  it("#150 4.2: いまの取引先と件名を送ると、書き込みには件名だけを渡す（取引先を変える項目にしない）", async () => {
+    current = () => sameClientRequested();
+    await service().edit(actor, CASE_ID, {
+      version: 2,
+      title: "[UNIT_TEST]150C件名だけ変わる",
+      clientId: CLIENT_A,
+    });
+    expect(repository.editCase).toHaveBeenCalledTimes(1);
+    const input = repository.editCase.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(input.title).toBe("[UNIT_TEST]150C件名だけ変わる");
+    expect("client" in input).toBe(false);
+  });
+});
+
+describe("#150 150-C 拒否の記録（logger.audit。計画 4.2・security）", () => {
+  type AuditAttributes = AuditLine["attributes"] & { result?: string };
+  const denyCases = [
+    {
+      name: "参加者でも管理の資格もない人",
+      facts: () =>
+        factsOf({ actorIsParticipant: false, actorCanManage: false }),
+      body: { version: 2, description: "[UNIT_TEST]150C送った説明" },
+      reason: "cannot_edit",
+    },
+    {
+      name: "参加していない管理者が説明を送る",
+      facts: () => managerFacts(),
+      body: {
+        expected: expected(),
+        description: "[UNIT_TEST]150C送った説明",
+      },
+      reason: "description_participants_only",
+    },
+    {
+      name: "参加していない管理者が版を送る",
+      facts: () => managerFacts(),
+      body: { version: 2, title: "[UNIT_TEST]150C送った件名" },
+      reason: "description_participants_only",
+    },
+  ];
+
+  it.each(denyCases)(
+    "#150 4.2・security: $name → 403 で、logger.audit に case.edit・案件の ID・failure・理由 $reason を1件だけ残し、本文・説明・件名を入れない",
+    async ({ facts, body, reason }) => {
+      current = facts;
+      const error = await rejectionOf(service().edit(actor, CASE_ID, body));
+      expect(error).toMatchObject({ code: "FORBIDDEN" });
+      expect(repository.editCase).not.toHaveBeenCalled();
+      const lines = audits();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.body).toBe("case.edit");
+      expect(lines[0]?.attributes as AuditAttributes).toMatchObject({
+        target: CASE_ID,
+        result: "failure",
+        reason,
+      });
+      const text = logLines.join("\n");
+      expect(text).not.toContain("150C送った");
+      expect(text).not.toContain(DESCRIPTION);
+      expect(text).not.toContain(TITLE);
+    },
+  );
+});
