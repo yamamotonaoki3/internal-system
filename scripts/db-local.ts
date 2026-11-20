@@ -263,7 +263,7 @@ function seedFile(options: string[]): string {
   return file;
 }
 
-/** 検索の索引の登録（#155）。手元の D1 だけ。追加の引数（--remote 等）と postgres の環境は拒否する */
+/** 検索の索引の登録（#155）。手元の D1 だけ。追加の引数（Cloudflare 上の DB を指す指定を含む）と postgres の環境は拒否する */
 async function searchReindex(): Promise<void> {
   const values = loadLocalEnvironment(environment as LocalEnvironment);
   applyLocalEnvironment(values);
