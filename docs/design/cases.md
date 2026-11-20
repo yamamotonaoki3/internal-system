@@ -1,4 +1,4 @@
-# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携、案件のやり取り、案件の TODO、案件の終了・再開（Issue #147 の 147-A・147-B・147-C-1・147-C-2、Issue #148 の 148-A・148-B-1・148-C、Issue #149 の 149-A・149-B・149-D、Issue #150 の 150-A・150-B）
+# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携、案件のやり取り、案件の TODO、案件の終了・再開（Issue #147 の 147-A・147-B・147-C-1・147-C-2、Issue #148 の 148-A・148-B-1・148-C、Issue #149 の 149-A・149-B・149-C・149-D、Issue #150 の 150-A・150-B）
 
 ## 目的
 
@@ -8,7 +8,7 @@ Issue #147 は「影響大」で、4つの子に分けた（C-182）。この設
 
 Issue #148（案件のやり取り）も「影響大」で、3つの子に分けた（C-184）。最初の子 148-A（案件の画面 S-17 に、案件専用チャンネルのやり取りを出す。既存のメッセージ・スレッド・添付・未読の経路に、案件の条件を足す）の設計は「148-A の設計」の節に書く。計画の段階で、148-B（添付の公開範囲と一覧）を 148-B-1（読み取りだけの添付の一覧。migration なし）と 148-B-2（公開範囲。migration あり）に分けた。148-B-1 の設計は「148-B-1 の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)）。148-C（S-16 の「最終更新」「未読」と、サイドバーの案件の未読の印）は 148-B-1 の後、148-B-2 の前に別の PR で実装した。設計は「148-C の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)(4)と[C-192](../requirements/decision-register.md)）。148-B-2（添付の公開範囲の選択・変更。migration あり）は 148-C の後に実装した。設計は「148-B-2 の設計」の節に書く（決定は[C-191](../requirements/decision-register.md)(1)〜(3)と[C-195](../requirements/decision-register.md)）。
 
-Issue #149（案件の TODO）は「影響大」で、4つの子に分けた（149-A 追加・完了・取り消しと一覧・進捗、149-B 編集・削除、149-C 履歴・削除済みの一覧・復元、149-D 担当者が外れたときの処理）。最初の子 149-A の設計は「149-A の設計」の節に、149-B（編集・削除）の設計は「149-B の設計」の節に、149-D（担当者が外れたときの処理）の設計は「149-D の設計」の節に書く。
+Issue #149（案件の TODO）は「影響大」で、4つの子に分けた（149-A 追加・完了・取り消しと一覧・進捗、149-B 編集・削除、149-C 履歴・削除済みの一覧・復元、149-D 担当者が外れたときの処理）。最初の子 149-A の設計は「149-A の設計」の節に、149-B（編集・削除）の設計は「149-B の設計」の節に、149-D（担当者が外れたときの処理）の設計は「149-D の設計」の節に、149-C（履歴・削除済みの一覧・復元）の設計は「149-C の設計」の節に書く。149-C で、#149 の4つの子はすべて実装済みになった（決定は[C-198](../requirements/decision-register.md)）。
 
 Issue #150（案件の終了・再開・再編集）も「影響大」で、3つの子に分けた（150-A：終了・再開〔参加者の選び直しなし〕・通知・監査・S-17 のボタン／150-B：再開時の参加者の選び直し〔5-1 AC-16〕／150-C：再編集〔EP-5-20〕）。最初の子 150-A の設計は「150-A の設計」の節に書く。決定は[C-189](../requirements/decision-register.md)。2つ目の子 150-B（再開のときの参加者の選び直し）の設計は「150-B の設計」の節に書く（決定は[C-194](../requirements/decision-register.md)）。
 
@@ -24,13 +24,14 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | 149-Aで作ったもの | 案件の TODO。表`case_todos`・`case_todo_events`（migration 0029。後の子で使う列まで含めて作った）／API4つ（EP-5-13 一覧と進捗・EP-5-14 追加・EP-5-17 完了・EP-5-18 完了の取り消し）／概要・案件の一覧の`progress`（非参加者にも出る）／S-17 の TODO の区画（一覧・進捗・追加・完了・取り消し・終了中の読み取り専用）と 2 秒のポーリング／S-16 の行とヘッダーの進捗（下の「149-A の設計」） |
 | 149-Bで作ったもの | TODO の編集（EP-5-15 `PATCH`。題名・担当。版を送り、違えば 409 `todo_changed`）と削除（EP-5-16 `DELETE`。論理削除。版は送らない。204）／409 の理由`todo_changed`・`todo_completed`／記録の ID を記録の表の全体で新しい順にそろえる（149-A の完了・取り消しも同じ方式に直した）／S-17 の「編集」「削除」・編集のダイアログ・担当の名前からプロフィールカード（S-27）と DM を開く導線。migration はない（下の「149-B の設計」） |
 | 149-Dで作ったもの | 担当者が案件から外れたら、外す操作と同じ batch で、未完了・未削除の TODO の担当を「なし」にし、記録`auto_unassign`を残し、版を進める（参加者の削除・本人の退出・無効化・再開の除外の4つの経路）／規則の定義元`backend/src/db/case-todo-unassign.sql.ts`（`eventIdsFreshSql`もここへ移した）／参加者の削除（本人の退出を含む）・無効化のやり直し（合計4回。超えたら 503。再開は 150-B のまま合計2回で 409 `retry`）／索引`case_todos_assignee_id_id_idx`（migration 0031。**本番に未適用**）。API・画面の追加はない（下の「149-D の設計」） |
+| 149-Cで作ったもの | TODO の履歴（EP-5-24 `GET …/todos/:todoId/events`。古い順）・削除済みの一覧（EP-5-25 `GET …/deleted-todos`。追加した順）・復元（EP-5-26 `POST …/todos/:todoId/restore`。版は送らない）。履歴・削除済みの一覧は 100 件ずつのカーソル送りで、資格（有効な参加者）を読み取りの SQL に入れ、終了中でも読める。復元は、終了中なら 409 `closed`、すでに復元済みなら何も書かずに 200、復元の時点で未完了かつ担当が有効な参加者でなければ「担当なし」にして記録`auto_unassign`を残す／共通化：`assigneeGoneSql`（完了の取り消しと共用）・`caseVisibleRow`・`viewGate`・`CaseTodoPerson.tsx`／S-17 の行の「履歴」と「削除済みのTODO」の区画（一覧・履歴・「復元」）、削除の確認の案内、資格を失ったときの後片付けの追加。migration はない。**これで #149 の受け入れ条件がすべて満たされた**（下の「149-C の設計」） |
 | 150-Aで作ったもの | API2つ（EP-5-11 終了・EP-5-12 再開。参加者は選び直さず、いまの参加者のまま）／通知の2種類（`case.closed`・`case.reopened`）／監査操作2つ（`case.close`・`case.reopen`）／案件の版（`cases.version`）の一致による競合の検知（409 `stale`）／宛先の一致の確認`recipientsUnchanged`を`channel-manage.sql.ts`から`channel-member.sql.ts`へ移したこと／S-17 の「案件を終了」「案件を再開」と確認のダイアログ（下の「150-A の設計」）。migration はない |
 | 150-Bで作ったもの | 再開（EP-5-12）の本文（`participantIds`・`addUserIds`・`removeUserIds`。必須）と、参加者の選び直し（外す・追加。本人と自動参加の人は外せない）／409 `participants_changed`・`auto_participant`・`already_participant`／監査の`case.reopen`への`addedCount`・`removedCount`と、人ごとの`case.participant.add`・`remove`（`viaReopen`）／再開の通知の宛先を選び直しの後の参加者にしたこと／batch の件数の確認`guardChanges`を、案件の書き込みの共通の場所へ移したこと／S-17 の再開の2段階のダイアログ`CaseReopenDialog`（下の「150-B の設計」）。migration はない |
 | 148-B-1で作ったもの | 案件の添付の一覧（EP-5-19 `GET /api/cases/:caseId/attachments`。有効な参加者だけ。終了した案件でも読める）／S-17 の「添付ファイル」の区画（ファイル名のリンク・大きさ・投稿者・日時・「元のメッセージへ」・「次のページ」）と、添付つきの投稿・返信の成功の後の取り直し／大きさの整形を`features/messages/format-size.ts`に移して共通にしたこと／`ThreadLayout`・`ThreadPane`の省略できる props `onReplied`（下の「148-B-1 の設計」）。migration はない |
 | 148-Cで作ったもの | 案件の一覧（EP-5-06）・概要（EP-5-07）の応答（詳細 EP-5-08 も、概要の項目として同じ値を含む。詳細の`channelId`は以前からの項目）に`lastActivityAt`（案件の部屋の、削除されていない最新のメッセージ〔返信を含む〕の投稿の時刻。なければ`null`）と`channelId`（案件の部屋の ID）を足したこと（**どちらも有効な参加者にだけ値を返す**。`participantCount`とは条件が別）／S-16 の参加の行の「最終更新」と未読の数／サイドバーの案件の項目の未読の印（下の「148-C の設計」）。新しい API・migration・索引はない |
 | 148-B-2で作ったもの | 案件の添付の公開範囲。`message_attachments.publication_visibility`（migration 0030。2値・既定は`participants_only`）／アップロードのクエリ`publicationVisibility`（案件の部屋だけ）／変更の API（EP-1-23 `PATCH /api/attachments/:attachmentId`。判定の順・書き込みの条件・監査`case.attachment.visibility.change`・対象の種類`attachment`）／EP-5-19 の各項目の`publicationVisibility`・`canChangeVisibility`／返信の取得の応答の`caseRoom`／アップロードの応答の定義の分離（`UploadedAttachmentItem`）／添付の入力欄のファイルごとの選択（S-17 の部屋・スレッド、S-35 の案件のスレッド）／S-17 の一覧の公開範囲の表示と「公開範囲を変更」のダイアログ／`insertPending`を列の名前を明示した INSERT に直したこと／`canManageSql`の`case-access.sql.ts`への移動（下の「148-B-2 の設計」）。**公開範囲の値は、いまは、どの読み取りの資格にも使わない**。migration 0030 は**本番に未適用** |
-| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：なし（148-A・148-B-1・148-C・148-B-2 が実装済み。承認済み公開アーカイブでの非参加者への表示などは 5-5・5-6 の Issue）。149：149-C（履歴・削除済みの一覧・復元）。149-A・149-B・149-D は実装済み。150：150-C（再編集。EP-5-20。件名・説明・取引先・担当部署）。150-B（再開時の参加者の選び直し。5-1 AC-16）は実装済み |
-| 他の Issue に回すもの | 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・審査中の一時閲覧・審査中／承認済みの変更の 409。5-5・5-6）、TODO の履歴・削除済みの一覧・復元（#149 の149-C。編集・削除は149-B、担当者が外れたときの処理は149-Dで実装済み）、再編集（#150 の150-C）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
+| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：なし（148-A・148-B-1・148-C・148-B-2 が実装済み。承認済み公開アーカイブでの非参加者への表示などは 5-5・5-6 の Issue）。149：なし（149-A・149-B・149-C・149-D が実装済み。#149 の4つの子はすべて実装済み）。150：150-C（再編集。EP-5-20。件名・説明・取引先・担当部署）。150-B（再開時の参加者の選び直し。5-1 AC-16）は実装済み |
+| 他の Issue に回すもの | 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・審査中の一時閲覧・審査中／承認済みの変更の 409。5-5・5-6）、再編集（#150 の150-C）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
 
@@ -742,7 +743,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | バックエンド | `backend/src/db/case.repository.ts` | 概要・一覧の`progress`（`todoTotal`・`todoDone`の副問い合わせ。外側の案件の ID は表の名前つきで渡す〔C-185〕）。削除済みを除き、0 件は`null` |
 | 契約 | `docs/api/openapi.json` | 4 つの API と`progress`（`backend/src/openapi.case-todos.test.ts`・`openapi.test.ts`が実装と照合） |
 | フロントエンド | `features/cases/api/case-todo-api.ts`・`hooks/useCaseTodos.ts`・`hooks/useCaseTodoWrites.ts` | `apiClient`で 4 つの API を呼び、Zod で検証する。一覧は無限スクロール式の取得で 2 秒ごとに取り直す。書き込みは成功・失敗とも`caseKeys.all`を取り直す。キーは`caseKeys.todos`（利用者の ID と案件の ID を含む） |
-| フロントエンド | `components/CaseTodoSection.tsx`・`CaseTodoItem.tsx`・`CaseTodoAddForm.tsx`・`CaseTodoProgress.tsx` | S-17 の TODO の区画（見出し・進捗・追加・一覧・「さらに表示」・4 つの状態）。進捗の表示は`CaseTodoProgress`を S-16 の行・S-17 のヘッダー・区画で共用 |
+| フロントエンド | `components/CaseTodoSection.tsx`・`CaseTodoItem.tsx`・`CaseTodoAddForm.tsx`・`CaseTodoProgress.tsx` | S-17 の TODO の区画（見出し・進捗・追加・一覧・「さらに表示」・4 つの状態）。進捗の表示は`CaseTodoProgress`を S-16 の行・S-17 のヘッダー・区画で共用。担当の名前の出し分け（`PersonName`・`Assignee`）は、149-C で`CaseTodoPerson.tsx`に移した（行・履歴・削除済みの一覧で共用） |
 | フロントエンド | `frontend/src/components/ProgressBar.tsx` | 共通の進捗バー。素の`progress`要素を包む。`className`・`style`は受け取らない |
 | フロントエンド | `components/CaseDetailView.tsx`・`CaseHeader.tsx`・`CaseSummaryFacts.tsx`・`CaseList.tsx`・`labels.ts` | 区画の配置と取得、進捗の出どころの切り替え、一覧の行の進捗、文言 |
 
@@ -759,7 +760,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 一覧は、追加した順（ID の昇順）で固定し、1 回 100 件（決定）。応答は`items`（`id`・`title`・`completed`・`version`・`assignee`・`previousAssignee`・`completedAssignee`）・`nextCursor`・`progress`
 - 担当の名前の出し分け：有効な人は現在の表示名、無効な人は担当した時点に保存した名前（画面は「（退職者）」を付ける）。現在の担当がなく、担当した時点の人が残っているときは`previousAssignee`に入れ、画面は「担当なし（以前の担当：{名前}）」と出す。以前の担当も、現在の担当・完了した時の担当と同じ出し分けで、無効な人なら「{名前}（退職者）」と出す
 - 書き込みの応答：追加は 201 で項目と`progress`、完了・取り消しは`id`・`completed`・`version`・`progress`。再認証は求めない
-- 完了の取り消しのとき、担当者がいまも有効な参加者かを確かめ、違えば現在の担当を NULL にして、記録`auto_unassign`を先に残す（外れた担当は、記録の`assignee_id`・`assignee_name`に入れる）。担当した時点の人と名前は表に残す
+- 完了の取り消しのとき、担当者がいまも有効な参加者かを確かめ、違えば現在の担当を NULL にして、記録`auto_unassign`を先に残す（外れた担当は、記録の`assignee_id`・`assignee_name`に入れる）。担当した時点の人と名前は表に残す。この「担当がいて、いま有効な参加者でない」の判定は、149-C で`assigneeGoneSql`（`case-todo.repository.ts`のモジュールの関数）に切り出し、復元と共用している（定義は1か所。動きは変えていない）
 
 ### 書き込みの batch と件数の確認
 
@@ -821,7 +822,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | バックエンド | `backend/src/db/case-todo.repository.ts` | `editTodo`・`deleteTodo`、`findTodoWriteFacts`の拡張（TODO の題名・担当の ID・項目の応答の形を返す）、`maxEventIdOverall`。`eventIdsFreshSql`（記録の ID の新しさの確認）は 149-D で`case-todo-unassign.sql.ts`に移した（ここから import する）。TODO ごとの`maxEventId`は削除した |
 | 契約 | `docs/api/openapi.json` | 2 操作と本文・応答、409 の理由の追加（`backend/src/openapi.case-todos.test.ts`・`openapi.test.ts`が実装と照合する） |
 | フロントエンド | `features/cases/api/case-todo-api.ts`・`hooks/useCaseTodoWrites.ts` | `editCaseTodo`・`deleteCaseTodo`（応答は Zod）、`useEditCaseTodo`・`useDeleteCaseTodo`（`onError`は定義の側、`onSettled`で`caseKeys.all`）、`useCaseTodoBusy`（案件ごとの mutation のキーで、書き込みの送信中を1つにまとめる） |
-| フロントエンド | `components/CaseTodoItem.tsx` | 進行中だけ「編集」「削除」を出す。担当の名前（現在・完了時・「以前の担当」）は、有効な社員なら`ProfileCardTrigger`でプロフィールカード（S-27）を開く形にし、カードに`StartDmButton`を差す（自分には出さない。セッションが届くまでも出さない）。無効な社員は「（退職者）」つきの文字だけ |
+| フロントエンド | `components/CaseTodoItem.tsx` | 進行中だけ「編集」「削除」を出す。担当の名前（現在・完了時・「以前の担当」）は、有効な社員なら`ProfileCardTrigger`でプロフィールカード（S-27）を開く形にし、カードに`StartDmButton`を差す（自分には出さない。セッションが届くまでも出さない）。無効な社員は「（退職者）」つきの文字だけ。この名前の出し分け（`PersonName`・`Assignee`）は、149-C で`CaseTodoPerson.tsx`に移した（履歴・削除済みの一覧と共用） |
 | フロントエンド | `components/CaseTodoEditDialog.tsx`（新） | 題名と担当の編集のダイアログ（完了済みは題名だけ） |
 | フロントエンド | `components/CaseTodoAssigneeOptions.tsx`（新。計画にはなかった） | 追加と編集で共用する担当の選択肢（「担当なし」と有効な参加者）。編集では、いまの担当が選べない人（外れた・無効）でも、変えていないことが分かるよう選択肢に残す |
 | フロントエンド | `components/CaseTodoSection.tsx`・`CaseTodoAddForm.tsx`・`labels.ts` | 編集・削除のダイアログの開閉と結果の表示を区画で持つ（行の外）。送信中は追加・完了・取り消し・編集・削除をすべて止める。文言`CASE_TODO_EDIT_TEXTS`。追加の欄は選択肢の部品を使う |
@@ -867,7 +868,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 ### 画面（S-17）
 
 - TODO の各行（進行中の案件のみ）に「編集」「削除」（`aria-label`は「{題名}を編集」「{題名}を削除」）。送信中は全部の操作を止める
-- 削除は既存の`CaseConfirmDialog`（見出し「TODOの削除」・本文「「{題名}」を削除します。」・「削除する」）。成功すると「TODOを削除しました」。復元できる旨は 149-C で足す
+- 削除は既存の`CaseConfirmDialog`（見出し「TODOの削除」・本文「「{題名}」を削除します。」・「削除する」）。成功すると「TODOを削除しました」。確認の本文の後ろに、「削除したTODOは、削除済みの一覧から復元できます。」の案内を 149-C で足した（`CaseConfirmDialog`の`notice`。文言は`labels.ts`の`CASE_TODO_EDIT_TEXTS.deleteRestoreHint`）
 - 編集のダイアログ（`CaseTodoEditDialog`）：開いた時点の`version`を持つ。送るのは変わった項目だけで、何も変わらなければ送らずに閉じる。題名は送る前に`shared/case-todo-rules.ts`の規則で確かめる。422 は欄に、409・403 は欄の外（`role="alert"`）に出し、**入力は残す**。成功すると「TODOを更新しました」
 - 409 の理由は、**サーバーの文言で見分ける**（共通の`ApiError`が理由を持たないため。先例はチャンネルの編集のダイアログ。計画からの変更点）。サーバーと画面の文言は`labels.ts`の`CASE_TODO_EDIT_TEXTS`で合わせてあり、文言を変えるときは両方を直す
   - 削除済み（`todo_deleted`）：「このTODOは削除されています」を出し、保存を押せなくする
@@ -895,7 +896,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 ### 規則（定義元は1か所）
 
 - 担当者が案件から外れたら、**外す操作と同じ batch の中で**、その人が現在の担当で、**未完了・未削除**の TODO の`assignee_id`を NULL にする（`recorded_assignee_*`は残す。「以前の担当」が出る）。記録`auto_unassign`（`assignee_id`＝外れた人、`assignee_name`＝`recorded_assignee_name`、操作した人＝**外す操作をした人**）を TODO ごとに1件足し、`version`に 1 を足す。版が進むので、外れる前の画面からの編集は 409 `todo_changed`になる
-- 削除済みの TODO と完了済みの TODO には当てない（完了済みは完了時の担当名が残る）。外れた人がもう一度参加しても、担当は戻らない（再追加では何も戻さない）
+- 削除済みの TODO と完了済みの TODO には当てない（完了済みは完了時の担当名が残る）。外れた人がもう一度参加しても、担当は戻らない（再追加では何も戻さない）。削除済みの TODO の担当は、外れた人を指したままでありうる。149-C の復元は、復元の時点で判定し直す（「149-C の設計」）
 - 外れる経路は4つ：参加者の削除、本人の退出、無効化、再開の除外（150-B）。オーナーの交代・異動は参加の行を消さない（案件の参加者から外れない）ので対象外
 - 終了中の案件でも、**無効化と再開の除外では書き換える**（終了中の案件の TODO を無効化・再開が変えてよい、という決定）。参加者の削除・退出は進行中の案件だけ（147-B のまま）
 - TODO の操作は監査ログの表に残さない（C-188 のまま）。参加者の削除の監査`case.participant.remove`・無効化の監査の`detail`は変えない
@@ -960,6 +961,126 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - **「読んだときのまま」の条件は、先頭の前提で 1 回だけ確かめ、後ろの文には付けない**：担当の書き換えが、その条件の材料（担当の列）を変えるため、後ろの文に付けると自分で偽にしてしまう。後ろの文には、途中で崩れない条件（規則・既存の`stillClosed`）だけを付ける
 - **対象の「集合の一致」ではなく、「件数の一致」と、batch の時点の規則で選ぶ**：読み取りと batch の間に中身が入れ替わっても、batch の時点の対象を処理するので正しい。集合を JSON で持つ案は、文を長くし、書き換えの途中で偽になる条件を作るため採らなかった
 - **索引は`(assignee_id, id)`の 1 本**：無効化（案件をまたぐ）が、`case_todos`の全件の走査にならないため（知見 db/index-design の項目 1）。`(case_id, id)`の既存の索引と合わせ、参加者の削除はどちらでも走査しない
+
+## 149-C の設計（案件の TODO：履歴・削除済みの一覧・復元）
+
+決定は[C-198](../requirements/decision-register.md)。要件は 5-4 AC-7（復元・履歴の反映）、AC-9（終了中は復元不可。履歴・削除済みの一覧は読める）、AC-10・AC-11（履歴の閲覧・完了の記録）、AC-12（削除済みの一覧）、AC-13（復元）、AC-14（S-17 の中で展開して履歴を見る）。**149-C で、#149 の受け入れ条件がすべて満たされた**。**migration はない**（記録の種類`restore`は migration 0029 の CHECK にある。索引も既存で足りる）。コードは書き写さず、ファイル名・関数名で指す。
+
+### ファイルと役割（149-C で足した・変えたもの）
+
+| 区分 | ファイル | 役割 |
+| --- | --- | --- |
+| バックエンド | `backend/src/routes/case-todos.ts` | 3経路：`GET /api/cases/:caseId/todos/:todoId/events`（EP-5-24）・`GET /api/cases/:caseId/deleted-todos`（EP-5-25。`/todos/deleted`にすると`/todos/:todoId`と紛れるため別の名前）・`POST /api/cases/:caseId/todos/:todoId/restore`（EP-5-26。本文は受け取らない）。どれも`noStore`。一覧の取得の形（`limit`・`cursor`。既定・上限とも 100）は EP-5-13 の`listQuerySchema`を使い回す |
+| バックエンド | `backend/src/services/case-todo.service.ts` | `listTodoEvents`・`listDeletedTodos`・`restoreTodo`、復元の判定の純粋関数`decideRestore`（export）。閲覧の門`viewGate`（404 → 403 → `perm.case.view`。一覧と共用）と、資格つきの読み取りの結果を 404・403 に分ける`visiblePage`（一覧と共用）。操作名`case.todo.history`・`case.todo.deleted_list`・`case.todo.restore`は、404・403 の拒否の`logger.audit`だけに使う（TODO の操作を監査ログの表に残さない決まりは変えない） |
+| バックエンド | `backend/src/db/case-todo.repository.ts` | `listTodoEvents`・`listDeletedTodos`・`restoreTodo`、復元の文の列を組む`buildRestoreTodoStatements`（export。件数の確認のテストが文の列を直接使うため）。共通の部品：`assigneeGoneSql`（担当がいて、いま有効な参加者でない。`uncompleteTodo`と共用）・`caseVisibleRow`（案件の行と資格。一覧・履歴・削除済みの一覧で共用）・`itemColumns`（項目の列。通常の一覧と削除済みの一覧で共用）・`todoInCaseWith`（削除の有無を問わない TODO の存在の条件。`liveTodoWith`はこの上に組む） |
+| 契約 | `docs/api/openapi.json` | 3 操作と応答の schema（`backend/src/openapi.case-todos.test.ts`・`openapi.test.ts`が実装と照合する） |
+| フロントエンド | `features/cases/api/case-todo-api.ts`・`api/query-keys.ts` | `fetchCaseTodoEvents`・`fetchDeletedCaseTodos`・`restoreCaseTodo`（応答は Zod）。キー`todoEvents`（TODO ごと）・`caseTodoEvents`（案件までの前方一致用）・`deletedTodos`。どれも利用者の ID が 2 番目（`CASE_KEY_USER_ID_INDEX`） |
+| フロントエンド | `hooks/useCaseTodoEvents.ts`・`useDeletedCaseTodos.ts` | 無限スクロール式の取得。**開いている間だけ取得**し（`enabled`）、2 秒ごとに取り直す。間隔と止める条件（401・403・404）は`useCaseTodos.ts`の`todoRefetchInterval`（149-C で export）を共用する |
+| フロントエンド | `hooks/useCaseTodoWrites.ts` | `useRestoreCaseTodo`（案件ごとの mutation のキーを付け、`onError`は定義の側、`onSettled`で`caseKeys.all`を取り直す） |
+| フロントエンド | `components/CaseTodoHistory.tsx`（新） | 履歴の部品と「履歴」の開閉のボタン`CaseTodoHistoryButton`。1件ずつ「日時・操作した人・内容」を古い順に出す。内容の文言は種類ごと（追加・題名の変更・担当の変更・完了・完了の取り消し・担当者が外れたため担当なし・削除・復元の8種類）。4つの状態と「さらに表示」（続きの失敗で読み込み済みの行を隠さない） |
+| フロントエンド | `components/CaseDeletedTodos.tsx`（新） | 「削除済みのTODO」の開閉の区画。行は読み取り専用（題名・担当・完了の状態・削除した人・日時・「履歴」）。進行中の案件だけ「復元」を出す |
+| フロントエンド | `components/CaseTodoPerson.tsx`（新。計画にはなかった） | `PersonName`・`Assignee`（担当の名前の出し分け）。`CaseTodoItem.tsx`にあったものを、履歴・削除済みの一覧と共用するため移した |
+| フロントエンド | `components/CaseTodoItem.tsx`・`CaseTodoSection.tsx`・`labels.ts` | 行に「履歴」（終了中・送信中でも押せる。読み取りだけ）。区画の一覧の下に削除済みの区画を置き、復元の送信と結果の表示は区画が持つ（149-B と同じ）。送信中は復元を含む全部の書き込みを止める。削除の確認に案内を足す。文言は`CASE_TODO_HISTORY_TEXTS` |
+| フロントエンド | `hooks/useCaseWrites.ts`・`useCaseAccessLoss.ts` | 資格を失ったときの後片付けに、削除済みの一覧と履歴を足した（下の「資格を失ったときの後片付け」） |
+
+### API と判定の順
+
+| API | 判定の順 |
+| --- | --- |
+| 履歴（EP-5-24） | 404（案件）→ 403（有効な参加者でない。「参加者だけが見られます（非公開）」）→ `perm.case.view` → TODO がない・ほかの案件の TODO（404「TODOが見つかりません」。**削除済みは 404 にしない**）→ 読み取り（資格つき） |
+| 削除済みの一覧（EP-5-25） | 404 → 403（同上）→ `perm.case.view` → 読み取り（資格つき） |
+| 復元（EP-5-26） | 404 → 403（「参加者だけが操作できます」）→ `perm.case.todo.edit` → TODO がない・ほかの案件（404）→ 終了中（409 `closed`）→ 削除されていない：**何も書かずに 200**（いまの項目と進捗）→ batch |
+
+- 履歴は、最初に`findTodoWriteFacts`で門（404・403）と TODO の有無を判定する。この読み取りは、操作者が有効な参加者のときだけ TODO を読むので、**非参加者（全体管理者・オーナーを含む）には、TODO の有無・題名・担当の名前が漏れない**（403 が先）
+- 終了中も履歴・削除済みの一覧は 200（5-4 AC-9 の「終了後の TODO の閲覧は 5-1 AC-2 の範囲で認める」）。復元だけ 409 `closed`
+- 並び：履歴は古い順（記録の ID の昇順）、削除済みの一覧は追加した順（TODO の ID の昇順）。どちらも 100 件ずつの「さらに表示」。カーソルの書き方は`listTodos`と同じ
+- 応答：履歴の項目は`id`・`kind`・`createdAt`・`actor`・`title`・`previousTitle`・`assignee`・`previousAssignee`、削除済みの一覧の項目は一覧（EP-5-13）の項目に`deletedAt`・`deletedBy`を足した形（進捗は返さない）、復元は編集と同じ形の項目と`progress`
+- 名前の出どころ：記録の担当・前の担当は**記録した名前**（C-74）と、本人のいまの`isActive`。操作した人（`actor`）・削除した人（`deletedBy`）は、記録・表に名前の列がないので、**いまの表示名**と`isActive`（画面は`isActive: false`に「（退職者）」を付け、プロフィール・DM の導線を出さない）
+- 後から参加した人にも、参加の前の記録を全部見せる（5-4 AC-10。閲覧の資格は一覧と同じ「その案件の有効な参加者」）
+
+### 読み取り（資格を SQL に入れる）
+
+- `listTodoEvents`・`listDeletedTodos`は、`listTodos`と同じ型：1つの`db.batch`で、案件の行と資格（`caseVisibleRow`）と中身を読む。**中身の読み取りの SQL にも資格（`visibleTo`）を入れる**ので、認可の後に参加を外された・無効化された場合も、中身は 0 行になる。Repository は、案件がなければ`"not_found"`、資格がなければ中身を捨てて`"not_visible"`を返し、Service が 404・403 にする（`visiblePage`）
+- 履歴は、記録の表を`case_id`と`todo_id`で絞る（計画にあった`case_todos`との結合は省いた。記録の表が`case_id`を持つため）。ほかの TODO・ほかの案件の記録は混ざらない。操作した人・担当・前の担当で`users`を 3 回結合するので、選択項目に別名を付ける
+- 削除済みの一覧は、項目の読み取りに`deleted_at IS NOT NULL`と、削除した人の`users`の結合（別名）を足したもの（`itemColumns`を共用）。変換は`toItem`を使い回す
+- 取得の 1 ページは`limit + 1`件を読み、余った 1 件で`nextCursor`を決める（`toPage`）。実行計画のテストで、記録の読み取りが`case_todo_events_todo_id_id_idx`を、削除済みの一覧が`case_todos_case_id_id_idx`を使い、全件の走査をしないことを確かめた
+
+### 復元の書き込み（`restoreTodo`・`buildRestoreTodoStatements`）
+
+149-A の型（前提 → 記録 → 件数の確認 → 更新 → 件数の確認）。文の並びは次のとおり（件数の確認を含む）。
+
+1. 前提（`assertStatement`）：案件が進行中・操作者が有効な参加者・TODO がその案件の**削除済み**・記録の ID の新しさ（`eventIdsFreshSql`。最初の ID で確かめる。後の ID はそれより大きい）
+2. 記録`auto_unassign`：復元の時点で「未完了で、担当がいま有効な参加者でない」ときだけ（`assignee_id`＝外れた人、`assignee_name`＝`recorded_assignee_name`、操作した人＝復元した人）
+3. 件数の確認：2 の条件のとき 1 件、でなければ 0 件
+4. 記録`restore`（その時点の題名。操作した人・日時）
+5. 件数の確認（1 件）
+6. TODO の更新：`deleted_at`・`deleted_by`を NULL に、版に 1 を足し、2 の条件のときだけ`assignee_id`を NULL にする。**担当した時点の人と名前（`recorded_assignee_*`）・完了の列・題名・`is_done`は変えない**（「以前の担当」が出る）
+7. 件数の確認（1 件）→ 項目と進捗の読み取り
+
+- 2 の条件は`assigneeGoneSql`（完了の取り消しと同じ定義）に`is_done = 0`を足したもの。**batch の時点の状態で決める**ので、読んだ後に担当者が参加者から外れても、担当なし＋`auto_unassign`になる
+- 更新の後は前提（削除済み）が偽になるが、7 の確認・読み取りは前提を見ないので崩れない（149-D の知見と同じ）
+- 記録の ID は 2 つ（`auto_unassign` < `restore`）。Service が`ulidAfter`で昇順に用意する
+- 復元した TODO は ID で並ぶので、通常の一覧の元の位置に戻る。一覧・進捗・概要の進捗・終了の確認の警告（未完了の件数）に再び入る
+- 復元は版を送らない。復元の後は版が 1 進むので、削除の前の画面の版での編集は 409 `todo_changed`
+
+### 復元のときの担当の扱い（5-4 AC-13。決定 U2）
+
+| TODO の状態 | 復元の結果 |
+| --- | --- |
+| 未完了で、担当がいま有効な参加者 | 担当を残す。`auto_unassign`は残さない |
+| 未完了で、担当が参加者から外れている・無効 | 担当なし（`recorded_assignee_*`は残り、「以前の担当」として出る）。記録`auto_unassign`を残す |
+| 完了済み | 担当・完了の列は変えない（完了時の担当名・完了の記録を維持）。`auto_unassign`なし |
+| 担当なし | 担当なしのまま |
+
+- 削除している間に担当者が一度外れて、もう一度参加していても、**復元の時点で有効な参加者なら担当を残す**（利用者の決定。5-4 AC-13 の原文「現在も有効な参加者の場合だけ戻す」のとおり）。削除していない TODO は「再び参加しても戻らない」（C-197(5)）ので、扱いが分かれる。外れた記録を持たないので、削除済みの TODO には 149-D の書き換えを当てない（`unassignTargetSql`が`deleted_at IS NULL`）
+
+### 判定とやり直し（Service）
+
+- `decideRestore`は、判定の材料（`TodoWriteFacts`）だけを見る純粋関数。順は、TODO なし（404）→ 終了中（409 `closed`）→ 削除されていない（`{ result }`＝いまの項目と進捗）→ 削除済み・進行中（`null`＝書き込みに進む）
+- batch が取り消されたら（`CaseStateChangedError`）、`writeWithRetry`が最初と同じ判定（`decideWriteGate ?? decideRestore`）で読み直す：理由（404・403・409）に当たればそれを返し、すでに復元済みなら 200（いまの項目）、どれでもなければ ID の逆転とみなし、記録の表の全体の最大（`maxEventIdOverall`）より大きい ID を 2 つ作り直してやり直す。試行は最初の 1 回＋やり直し`MAX_ID_RETRIES`（3）回の合計 4 回。上限を超えたら`logger.warn`と 503（`BUSY_MESSAGE`。成功にしない）
+
+### 同時の操作
+
+| 組み合わせ | 結果 |
+| --- | --- |
+| 2人が同時に復元 | 先が確定。後は前提（削除済み）が崩れ、読み直しで「復元済み」→ 何も書かずに 200。記録`restore`は 1 件 |
+| 復元の判定の後に案件が終了 | 前提が崩れ、読み直しで 409 `closed`。記録も更新も残らない |
+| 復元の判定の後に、担当者が参加者から削除 | batch の時点で判定するので、担当なし＋`auto_unassign` 1 件 |
+| 復元の判定の後に、操作者が参加者から削除 | 前提が崩れ、読み直しで 403。何も残らない |
+| 判定の後に、別の TODO の記録が確定し、全体の最大が最初の ID 以上になる | 前提が崩れ → 理由なし → ID を作り直してやり直す |
+| 復元が確定 → 別の人が削除 → 遅れて届いた復元 | 前提どおり削除済みなので、もう一度復元される（版を送らないことの帰結。記録`restore`は 2 回分） |
+| 履歴・削除済みの一覧の読み取りと、閲覧者の削除・無効化 | 資格の条件で 0 行・`not_visible`で 403（認可の後に確定しても漏れない） |
+
+### 画面（S-17）
+
+- 行の「履歴」（`aria-expanded`・`aria-label`「{題名}の履歴」）で、行の中に履歴を開く（詳細画面は作らない。5-4 AC-14）。**開いている間だけ**取得し、2 秒ごとに取り直す（5-4 AC-7）。閉じたら取らない。通常の一覧からその TODO が消えたら（ほかの人が削除）、行の部品の中にあるので、開いていた履歴も一緒に消える（許容。削除済みの一覧からは同じ履歴を開ける）
+- 区画の一覧の下の「削除済みのTODO」（`aria-expanded`）を開いたときだけ取得する（2 秒ごとに取り直し）。0 件は「削除済みのTODOはありません」。行は読み取り専用で、編集・削除・完了の操作を出さない。進行中の案件だけ「復元」（`aria-label`「{題名}を復元」）を出す。終了中は出さない（表示の制御。認可はサーバー）
+- 復元は、送信中は区画のすべての書き込み（追加・完了・取り消し・編集・削除・復元）を止める（履歴の開閉は止めない）。成功は「TODOを復元しました」、失敗（409 `closed`・404・503 など）は区画の結果の欄（`role="alert"`）に`describeError`の文言を出す。結果の表示は区画が持つ（取り直しで行が消えても残す）
+- 削除の確認の本文の後ろに「削除したTODOは、削除済みの一覧から復元できます。」を出す
+- 利用者が替わったときは、キーに利用者の ID があるので前の利用者の履歴・削除済みの一覧は出ない。開閉の状態は区画の部品の状態なので、切り替えで区画が描き直されて閉じる（#284）
+
+### 資格を失ったときの後片付け（#308 の延長）
+
+- `useCaseAccessLoss`が見張るキーに、削除済みの一覧（`deletedTodos`）と履歴（`caseTodoEvents`。案件までの前方一致）を足した。これらの取得が 403・404 になると、概要を取り直して決める（既存の流れ）
+- `forgetCaseContent`が取り除くキーに、削除済みの一覧（exact）と履歴（案件までの前方一致。ほかの案件の履歴は残す）を足した
+- 参加者でなくなった後（履歴・削除済みの一覧の部品が外れた後）に、`forgetTodoHistory`で取り除き直す。片付けと、概要の更新が画面に届くまでの間に、開いていた部品が描き直されて、取り除いたキーが作り直されることがあるため
+- 後追い：資格を失った直後に、TODO の一覧などのキャッシュが作り直されていないかの確認は Issue #323
+
+### テストの場所（149-C）
+
+- DB：`backend/src/db/case-todo.repository.history.db.test.ts`（履歴・削除済みの一覧の並び・ページ・資格・混ざらないこと・終了中でも読めること、復元の各状態・前提を 1 つずつ崩す・件数の確認・記録の ID・監査ログが増えないこと）、`backend/src/db/case-todo.explain.db.test.ts`（実行計画）
+- 判定・Service：`backend/src/services/case-todo.edit.decide.test.ts`（`decideRestore`）、`case-todo.restore.service.test.ts`（拒否のとき書き込みを呼ばないこと・読み直し・やり直しと 503）、`case-todo.restore.interleave.test.ts`（batch の直前に状態が変わる割り込み）
+- route・契約：`backend/src/routes/case-todos.history.test.ts`（判定の順・存在の非開示・終了中・`no-store`）、`backend/src/openapi.case-todos.test.ts`（3 操作の契約）
+- 画面：`frontend/src/pages/CaseTodos.history.test.tsx`（履歴・削除済みの一覧・復元・終了中・資格の喪失・取り直し・削除の確認）、`CaseCloseTodoWarning.test.tsx`（復元した TODO が終了の警告に入ること）、`CaseTodos.session-switch.test.tsx`（利用者の切り替え）、`frontend/src/features/cases/hooks/useCaseWrites.forget.test.ts`（取り除くキーの exact・前方一致）。MSW は`frontend/src/test/case-todo-handlers.ts`
+- E2E：`e2e/case-todos-history.spec.ts`（1 件。担当の変更と完了が履歴に出る → 削除すると通常の一覧と進捗から消え、削除済みの一覧と履歴に出る → 復元すると通常の一覧と進捗に戻り、別の参加者の画面にも再読み込みなしで 3 秒以内に出る。シードは`e2e/seeds/case-todos-history.sql`、後始末は`e2e/seeds/case-todos-history-cleanup.sql`。[e2e.md](../testing/e2e.md)）
+
+### 設計の判断（知見）
+
+- **資格は、読み取りの SQL にも入れる**：門（404・403）の後に参加を外された・無効化された場合でも、履歴・削除済みの題名・担当の名前を漏らさないため（`listTodos`と同じ型。資格の判定と読み取りを同じ batch で行う）
+- **復元は版を送らない・すでに復元済みなら 200**：復元は、削除済みの TODO だけが対象で、2 人が同時に押しても結果は同じ。版の不一致を理由に失敗させない（149-B の削除と同じ考え方）。代わりに「復元 → 削除 → 遅れた復元」はもう一度復元される
+- **担当は、復元の時点で判定する（U2＝A）**：5-4 AC-13 の原文に合わせ、参加の履歴は読まない。実装が単純で、`assigneeGoneSql`を完了の取り消しと共用できる
+- **同じ意味の判定・読み取りは 1 か所にまとめる**：`assigneeGoneSql`（完了の取り消し・復元）、`caseVisibleRow`・`viewGate`・`visiblePage`（一覧・履歴・削除済みの一覧）、`itemColumns`（通常の一覧・削除済みの一覧）、`CaseTodoPerson.tsx`（行・履歴・削除済みの一覧）
+- **履歴・削除済みの一覧は、開いている間だけ取り直す**：要求の数を抑えつつ、他の参加者の操作を再読み込みなしで出す（5-4 AC-7）
 
 ## 150-A の設計（案件の終了・再開）
 
@@ -1191,8 +1312,8 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/cases/hooks/useCaseAccessLoss.ts` | 新規。資格を失ったことの検出と判定を1か所に持つ部品。部屋のメッセージ（`messageKeys.room`）と TODO の取得のエラーを、クエリのキャッシュの購読で見る。`unverified`（確かめられない状態）と`retry`を返す |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・部屋のメッセージ・スレッド〕の取り消しと取り除き）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる |
+| `frontend/src/features/cases/hooks/useCaseAccessLoss.ts` | 新規。資格を失ったことの検出と判定を1か所に持つ部品。部屋のメッセージ（`messageKeys.room`）・TODO の取得・添付の一覧・TODO の履歴と削除済みの一覧（149-C）のエラーを、クエリのキャッシュの購読で見る。参加者でなくなった後に、履歴・削除済みの一覧を取り除き直す（`forgetTodoHistory`）。`unverified`（確かめられない状態）と`retry`を返す |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・TODO の履歴と削除済みの一覧（149-C。`forgetTodoHistory`と取り除くキーを共有）・部屋のメッセージ・スレッド〕の取り消しと取り除き）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる |
 | `frontend/src/features/cases/components/CaseDetailView.tsx` | 部品を呼び、`isParticipantOf`で概要から参加者かを決める。確かめられないときは`UnverifiedAlert`（「案件の情報を確かめられませんでした」と「再試行」）を出し、中身を描かない。ダイアログは部品の`onLost`で閉じる |
 | `frontend/src/features/cases/components/CaseTodoSection.tsx` | TODO が 403 のときに概要・詳細を取り直す処理（#149-A）を消した（部品に一本化） |
 | `frontend/src/features/cases/labels.ts` | 確かめられない表示の文言 |
@@ -1270,8 +1391,10 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 進行中の操作（投稿・添付の送信など）の途中で利用者が替わったときの扱い | 148-A でも直していない。Issue #300 |
 | 既に画面に出ている行の返信の件数・リアクションの、ほかの人の変更の反映 | 部屋のポーリング（`features/messages/hooks/message-polling.ts`の`catchUpMessages`）は最後の ID より後の新着だけを取り足し、既存の行は取り直さない。開き直すと出る（チャンネルと同じ既存の動き。`e2e/reactions.spec.ts`も開き直して確かめる）。リアルタイムの更新は #117 |
 | 投稿（トップレベル）の SQL に「部署が有効」の条件がない既存の差 | 案件専用チャンネルは部署を持たないので影響しない。148-A では変えていない |
-| TODO の編集・削除（149-B。実装済み）、履歴・削除済みの一覧・復元（149-C。**未実装**）、担当者が外れたときの処理（149-D。実装済み） | 149-A では作らない（表の列は先に作ってある）。編集・削除は 149-B（「149-B の設計」）、担当者が外れたときの処理は 149-D（「149-D の設計」）で実装した。149-C まで、`auto_unassign`などの記録は書くだけで、画面には出さない |
-| 有効な担当者の名前のプロフィールへのリンク | 149-A では付けない。149-B で実装した（担当の名前から`ProfileCardTrigger`でカードを開き、`StartDmButton`で DM。無効な人は文字だけ）。「以前の担当」の「（退職者）」の併記は 149-A で実装済み |
+| TODO の編集・削除（149-B）、履歴・削除済みの一覧・復元（149-C）、担当者が外れたときの処理（149-D） | **すべて実装済み（#149 の4つの子は完了）**。149-A では作らなかった（表の列は先に作ってある）。編集・削除は「149-B の設計」、担当者が外れたときの処理は「149-D の設計」、履歴・削除済みの一覧・復元は「149-C の設計」。`auto_unassign`などの記録は、149-C で履歴に出す |
+| 資格を失った直後の、TODO の一覧などのキャッシュ（149-C の後追い） | 資格を失った直後に、TODO の一覧などのキャッシュが作り直されていないかの確認は、後追いの Issue #323 |
+| 開いている履歴の TODO が、ほかの人に削除されたとき | 通常の一覧から行が消えるので、行の中の履歴も一緒に消える（許容）。削除済みの一覧の行からは同じ履歴を開ける |
+| TODO の操作の監査ログの表への記録 | しない（C-188 のまま）。履歴・復元も TODO の記録の表（`case_todo_events`）だけに残す || 有効な担当者の名前のプロフィールへのリンク | 149-A では付けない。149-B で実装した（担当の名前から`ProfileCardTrigger`でカードを開き、`StartDmButton`で DM。無効な人は文字だけ）。「以前の担当」の「（退職者）」の併記は 149-A で実装済み |
 | ID の作り直しの上限（`MAX_ID_RETRIES`）の定数 | `case-todo.service.ts`と`message.service.ts`が同じ値を別に持っている（意味と変更理由が別のため統合していない） |
 | 実行計画（EXPLAIN）の確認 | 品質チェックで行う |
 | API 仕様の番人のテストの、ルートの一覧の件 | 別の Issue |
@@ -1288,7 +1411,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 - Issue #147：本Issue（4つの子に分ける。147-A が最初）。依存は#146（[case-requests.md](case-requests.md)）。参加の行を使う経路の変更は147-C-1、参加者・納期は147-B（実装済み）、無効化・異動・オーナー交代は147-C-2
 - [ADR-0006](../adr/0006-id-cursor-unread.md)：IDとカーソル／[ADR-0012](../adr/0012-zero-trust-principle.md)：サーバー側で毎回認可する／[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)：ミューテーション・E2Eの実行範囲
 - Issue #148：案件のやり取り（3つの子に分ける。148-A が最初。依存は #147・#284・#297・#294）。要件：5-2 AC-1〜AC-6（AC-3 は参加者の閲覧・取得の部分）・5-1 AC-11、R-62〜R-64、S-17・S-07・S-35。決定記録[C-184](../requirements/decision-register.md)。148-B-1（添付の一覧。5-2 AC-7 の参加者の部分、EP-5-19）の決定は[C-191](../requirements/decision-register.md)。148-C（S-16 の最終更新・未読、サイドバーの未読の印。5-1 AC-4 の残り）の決定は C-191(4)・[C-192](../requirements/decision-register.md)。148-B-2（添付の公開範囲。5-2 AC-8・AC-9、R-85、EP-1-23。migration 0030）の決定は C-191(1)〜(3)・[C-195](../requirements/decision-register.md)、関連：[ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)（列の追加の migration の書き換え）。関連する設計：[messages.md](messages.md)・[threads.md](threads.md)・[attachments.md](attachments.md)・[unread.md](unread.md)・[channels.md](channels.md)
-- Issue #149：案件の TODO（4つの子に分ける。149-A が最初。149-B〔編集・削除。EP-5-15・16。決定[C-196](../requirements/decision-register.md)〕・149-D〔担当者が外れたときの処理。決定[C-197](../requirements/decision-register.md)。migration 0031〕も実装済み。依存は #148）。要件：5-4 AC-1〜AC-5・AC-6（選べる人の部分）・AC-7・AC-9・AC-11（記録）、1-9 AC-2、5-1 AC-2 の進捗、R-76・R-78、S-16・S-17、EP-5-13・14・17・18。決定記録[C-188](../requirements/decision-register.md)。関連：[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)
+- Issue #149：案件の TODO（4つの子に分ける。149-A が最初。149-B〔編集・削除。EP-5-15・16。決定[C-196](../requirements/decision-register.md)〕・149-D〔担当者が外れたときの処理。決定[C-197](../requirements/decision-register.md)。migration 0031〕・149-C〔履歴・削除済みの一覧・復元。EP-5-24〜26。決定[C-198](../requirements/decision-register.md)。後追い #323〕も実装済み。依存は #148）。要件：5-4 AC-1〜AC-14、1-9 AC-2、5-1 AC-2 の進捗、R-76・R-78、S-16・S-17、EP-5-13〜18・24〜26。決定記録[C-188](../requirements/decision-register.md)。関連：[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)
 - 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。147-B：5-1 AC-3・AC-7（外せない部分）・AC-11（終了中は不可）・AC-17（変更）・AC-21（納期の変更）、EP-5-09・EP-5-10。決定記録[C-182](../requirements/decision-register.md)
 - Issue #150：案件の終了・再開・再編集（3つの子に分ける。150-A が最初。依存は #148 の148-A）。要件：5-1 AC-8〜AC-11・AC-13、3-3 AC-1〜AC-3、R-77、S-17、EP-5-11・EP-5-12。決定記録[C-189](../requirements/decision-register.md)。150-B（再開のときの参加者の選び直し。5-1 AC-13・AC-16、3-3 AC-2・AC-3）の決定は[C-194](../requirements/decision-register.md)。依存は #149-A・#308
 - 関連する設計：[case-requests.md](case-requests.md)、[app-shell.md](app-shell.md)、[notifications.md](notifications.md)、[channels.md](channels.md)、[audit-logs.md](audit-logs.md)
