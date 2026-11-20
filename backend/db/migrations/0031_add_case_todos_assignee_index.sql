@@ -1,0 +1,1 @@
+CREATE INDEX `case_todos_assignee_id_id_idx` ON `case_todos` (`assignee_id`,`id`);

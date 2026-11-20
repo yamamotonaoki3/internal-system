@@ -15,10 +15,12 @@ import {
   type SeededCase,
 } from "../../test/case-fixtures";
 import {
+  casereqTraceId,
   setupCaseWorld,
   type CaseWorld,
 } from "../../test/case-request-fixtures";
 import { eventIdAt, insertTodo, todoIdAt } from "../../test/case-todo-fixtures";
+import { createAccountRepository } from "./account.repository";
 import { createCaseTodoRepository } from "./case-todo.repository";
 import { createCaseRepository } from "./case.repository";
 
@@ -240,5 +242,96 @@ describe("#149 計画 6.9(6) 実行計画（EXPLAIN QUERY PLAN）", () => {
         /^SEARCH case_todo_events USING (COVERING )?INDEX/,
       );
     }
+  });
+});
+
+// ---- #149（149-D）決定 Q6・計画 6.3.2・10節「実行計画」：担当者が外れたときの対象の読み取りと書き換え ----
+// 無効化（全案件。assignee_id だけで絞る）は、担当の列の索引（migration 0031。決定 Q6）を使う。索引の名前は実装に任せ、
+// 「case_todos の索引で、先頭の列が assignee_id のもの」を PRAGMA で探して使う。
+// 参加者の削除・退出（case_id と assignee_id で絞る）は、case_todos を全件走査しない（計画は case_todos_case_id_id_idx。
+// 担当の列の索引が加わった後は、どちらを選ぶかは SQLite の判断のため、2つのどちらかを使えばよいとする）。
+async function assigneeIndexName(): Promise<string | null> {
+  const { results: indexes } = await env.DB.prepare(
+    "PRAGMA index_list('case_todos')",
+  ).all<{ name: string }>();
+  for (const index of indexes) {
+    const { results: columns } = await env.DB.prepare(
+      `PRAGMA index_info('${index.name}')`,
+    ).all<{ seqno: number; name: string }>();
+    const first = columns.find((c) => c.seqno === 0);
+    if (first?.name === "assignee_id") return index.name;
+  }
+  return null;
+}
+
+describe("#149 149-D 決定 Q6 担当の列の索引と実行計画", () => {
+  it("#149 149-D 決定 Q6: case_todos に、先頭の列が assignee_id の索引がある（migration 0031）", async () => {
+    expect(await assigneeIndexName()).not.toBeNull();
+  });
+
+  it("#149 149-D 決定 Q6: 無効化の、対象の TODO の読み取りと担当の書き換えは、担当の列の索引を使い、case_todos を全件走査しない", async () => {
+    await insertTodo({
+      id: todoIdAt(21),
+      caseId: room.id,
+      title: "[UNIT_TEST]149D実行計画の無効化",
+      createdBy: w.memberS1.id,
+      assigneeId: w.memberD1.id,
+    });
+    const index = await assigneeIndexName();
+    expect(index).not.toBeNull();
+    const statements: Recorded[] = [];
+    await createAccountRepository(dbOf(statements)).deactivate({
+      targetId: w.memberD1.id,
+      actorId: w.admin.id,
+      now: "2026-11-20T05:00:00.000Z",
+      traceId: casereqTraceId(),
+    });
+    await expectIndexed(statements, "case_todos", index ?? "");
+  });
+
+  it("#149 149-D 計画 6.3.2: 参加者の削除の、対象の TODO の読み取りと担当の書き換えは、case_todos を全件走査せず、case_todos の索引を使う", async () => {
+    await insertTodo({
+      id: todoIdAt(22),
+      caseId: room.id,
+      title: "[UNIT_TEST]149D実行計画の削除",
+      createdBy: w.memberS1.id,
+      assigneeId: w.memberD1.id,
+    });
+    const index = await assigneeIndexName();
+    const statements: Recorded[] = [];
+    await createCaseRepository(dbOf(statements)).removeParticipant({
+      caseId: room.id,
+      actorId: w.memberS1.id,
+      userId: w.memberD1.id,
+      traceId: casereqTraceId(),
+    });
+    const reading = statements.filter((s) => /\bcase_todos\b/i.test(s.sql));
+    expect(reading.length, "case_todos を読む文がない").toBeGreaterThan(0);
+    const allowed = ["case_todos_case_id_id_idx", index ?? "(なし)"];
+    const searched: string[] = [];
+    for (const statement of reading) {
+      const plan = await planOf(statement);
+      const names = namesOf(statement.sql, "case_todos");
+      for (const detail of plan) {
+        const scanned = /^SCAN (\S+)/.exec(detail)?.[1]?.replace(/"/g, "");
+        if (scanned !== undefined && names.includes(scanned.toLowerCase()))
+          expect(
+            /USING (COVERING )?INDEX/.test(detail),
+            `case_todos を全件走査している：${detail}\n${statement.sql}`,
+          ).toBe(true);
+      }
+      const searchesTodos = plan.filter((d) =>
+        names.some((name) => new RegExp(`^SEARCH ${name}\\b`, "i").test(d)),
+      );
+      searched.push(...searchesTodos);
+      for (const detail of searchesTodos)
+        expect(
+          allowed.some((a) => detail.includes(a)),
+          `決めた索引を使っていない：${detail}`,
+        ).toBe(true);
+    }
+    expect(searched.length, "case_todos の SEARCH の行がない").toBeGreaterThan(
+      0,
+    );
   });
 });

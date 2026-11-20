@@ -34,7 +34,7 @@ import { createAppAuthorizer } from "./authorizer";
 export type CaseTodoActor = { userId: string; traceId: string };
 
 /** ID の作り直しの上限（最初の1回に加えて）。メッセージの作り直しと同じ回数 */
-const MAX_ID_RETRIES = 3;
+export const MAX_ID_RETRIES = 3;
 
 /** 画面はこの文言をそのまま出す */
 const NOT_FOUND_MESSAGE = "案件が見つかりません";
@@ -44,7 +44,8 @@ const TODO_NOT_FOUND_MESSAGE = "TODOが見つかりません";
 const VALIDATION_MESSAGE = "入力内容を確かめてください";
 /** 担当者がいない・無効・非参加のどれでも同じ本文にする（社員の有無・状態を本文の違いで明かさない） */
 const ASSIGNEE_INVALID_MESSAGE = "担当者は、この案件の参加者から選んでください";
-const BUSY_MESSAGE = "混み合っています。しばらくしてからもう一度お試しください";
+export const BUSY_MESSAGE =
+  "混み合っています。しばらくしてからもう一度お試しください";
 
 export type CaseTodoConflictReason =
   "closed" | "todo_deleted" | "todo_changed" | "todo_completed";

@@ -19,6 +19,7 @@ import type { Permission } from "../lib/permissions";
 import { encryptLegalName } from "../lib/pii-crypto";
 import { newUlid } from "../lib/ulid";
 import { createAppAuthorizer } from "./authorizer";
+import { BUSY_MESSAGE, MAX_ID_RETRIES } from "./case-todo.service";
 import { assertRecentReauth } from "./credentials.service";
 
 export type AccountActor = { userId: string; traceId: string };
@@ -319,14 +320,27 @@ export function createAccountService(
     ): Promise<void> {
       const decide = () => decideDeactivation(actor, targetId);
       await decide();
-      await writeWithRecheck(decide, () =>
-        repository.deactivate({
-          targetId,
-          actorId: actor.userId,
-          now: new Date().toISOString(),
-          traceId: actor.traceId,
-        }),
+      // 担当の TODO の件数・記録の ID が読み取りの後に変わっても、理由に当たらなければ呼び直す（Repository が読み直す。149-D 計画 6.3.7）
+      for (let retry = 0; ; retry += 1) {
+        try {
+          await repository.deactivate({
+            targetId,
+            actorId: actor.userId,
+            now: new Date().toISOString(),
+            traceId: actor.traceId,
+          });
+          return;
+        } catch (error) {
+          if (!(error instanceof AccountStateChangedError)) throw error;
+          await decide();
+          if (retry >= MAX_ID_RETRIES) break;
+        }
+      }
+      createLogger({ traceId: actor.traceId, userId: actor.userId }).warn(
+        "無効化のやり直しが上限を超えた",
+        { targetId },
       );
+      throw new AppError("SERVICE_UNAVAILABLE", BUSY_MESSAGE);
     },
     async reactivate(
       actor: AccountLifecycleActor,

@@ -47,6 +47,7 @@ import { createLogger } from "../lib/logger/logger";
 import type { Permission } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { createAppAuthorizer } from "./authorizer";
+import { BUSY_MESSAGE, MAX_ID_RETRIES } from "./case-todo.service";
 import { RETRY_CONFLICT_MESSAGE } from "./channel-manage.service";
 
 // 一覧の範囲と状態（route が入力の形に使う。routes は db を直接参照しない）
@@ -633,22 +634,30 @@ export function createCaseService(
       raiseIf(actor, action, caseId, decideParticipantGate(facts));
       await authorize(actor, "perm.case.participant.edit");
       raiseIf(actor, action, caseId, decideRemove(present(facts)));
-      await writeOrRedecide(
-        actor,
-        action,
-        caseId,
-        () =>
-          repository.removeParticipant({
+      // 外れた人の TODO の件数・記録の ID が読み取りの後に変わっても、理由に当たらなければ呼び直す（Repository が読み直す。149-D 計画 6.3.7）
+      for (let retry = 0; ; retry += 1) {
+        try {
+          await repository.removeParticipant({
             caseId,
             actorId: actor.userId,
             userId,
             traceId: actor.traceId,
-          }),
-        async () => {
+          });
+          return;
+        } catch (error) {
+          if (!(error instanceof CaseStateChangedError)) throw error;
           const again = await read();
-          return decideParticipantGate(again) ?? decideRemove(present(again));
-        },
-      );
+          raiseIf(
+            actor,
+            action,
+            caseId,
+            decideParticipantGate(again) ?? decideRemove(present(again)),
+          );
+          if (retry >= MAX_ID_RETRIES) break;
+        }
+      }
+      loggerOf(actor).warn("参加者の削除のやり直しが上限を超えた", { caseId });
+      throw new AppError("SERVICE_UNAVAILABLE", BUSY_MESSAGE);
     },
 
     /** 納期の変更。非参加の担当部署のオーナー・全体管理者もできる（AC-21・Q6）。null は未定に戻す */

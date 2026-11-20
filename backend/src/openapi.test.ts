@@ -1666,3 +1666,23 @@ describe("API の仕様書：チャンネル管理・アーカイブの一覧（
     ]);
   });
 });
+
+describe("#149 149-D 軽微1: 担当者が外れる操作の 503", () => {
+  it.each([
+    "DELETE /api/cases/{caseId}/participants/{userId}",
+    "POST /api/admin/accounts/{id}/deactivate",
+  ])(
+    "#149 149-D 軽微1: %s に 503（ID の作り直しの上限を超えた）が、共通の ServiceUnavailable を参照して書かれている",
+    (name) => {
+      const operation = operations.find((entry) => entry.name === name);
+      expect(operation, name).toBeDefined();
+      const responses = (operation?.operation.responses ?? {}) as Record<
+        string,
+        { $ref?: string }
+      >;
+      expect(responses["503"]?.$ref).toBe(
+        "#/components/responses/ServiceUnavailable",
+      );
+    },
+  );
+});

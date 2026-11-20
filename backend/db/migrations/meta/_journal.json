@@ -218,6 +218,13 @@
       "when": 1795098007849,
       "tag": "0030_add_attachment_publication_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1795132181506,
+      "tag": "0031_add_case_todos_assignee_index",
+      "breakpoints": true
     }
   ]
 }
