@@ -15,6 +15,12 @@ import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid } from "../lib/ulid";
 import { auditLogInsert } from "./audit-log.repository";
+import {
+  assigneeScope,
+  readUnassignPlan,
+  unassignPreSql,
+  unassignStatements,
+} from "./case-todo-unassign.sql";
 import { withDatabase, type Database } from "./database";
 import { notificationInserts } from "./notification.repository";
 import {
@@ -267,6 +273,19 @@ function assertStatement(
 }
 
 /**
+ * 必須の行を書いた直後に置く：直前の文の件数が expected でなければ、対象の1行の login_id を NULL にして batch 全体を取り消す。
+ * assertStatement と同じ列なので AccountStateChangedError になる。案件の版を使う case.repository.ts の guardChanges とは表が違うため、共通化しない
+ */
+function guardUsers(db: Database, targetId: string, expected: number) {
+  return db
+    .update(users)
+    .set({
+      loginId: sql`CASE WHEN changes() = ${expected} THEN ${users.loginId} ELSE NULL END`,
+    })
+    .where(eq(users.id, targetId));
+}
+
+/**
  * 対象が参加している進行中の案件のうち、対象のほかに有効な参加者が1人もいない案件があること（AC-15）。
  * 終了した案件は対象にしない（有効な参加者0人になってよい）。自動参加の全体管理者・オーナーも、有効なら数える（決定 Q1）。
  */
@@ -417,6 +436,9 @@ export function createAccountRepository(db: Database) {
         .limit(1);
       const pending = pendingRows[0] ?? null;
       const caseRequests = await readPendingCaseRequests(db, input.targetId);
+      // 対象が担当の TODO（全案件。終了中を含む。#149 の 149-D・決定 Q7）の件数と記録の ID
+      const unassignScope = assigneeScope(input.targetId);
+      const unassignPlan = await readUnassignPlan(db, unassignScope);
       const condition = sql`${input.actorId} <> ${input.targetId}
         AND (SELECT q.id FROM retirement_requests q
           WHERE q.target_user_id = ${input.targetId} AND q.status = 'pending') IS ${pending?.id ?? null}
@@ -429,7 +451,19 @@ export function createAccountRepository(db: Database) {
         AND ${actorIsGlobalAdmin(input.actorId)}`;
       try {
         await db.batch([
-          assertStatement(db, input, condition),
+          assertStatement(
+            db,
+            input,
+            sql`${condition} AND ${unassignPreSql(unassignScope, unassignPlan)}`,
+          ),
+          // 担当の書き換えは、申請の取り消しより前に置く。条件は規則だけで、condition を使わない（計画 6.3.5）
+          ...unassignStatements(db, {
+            scope: unassignScope,
+            plan: unassignPlan,
+            actorId: input.actorId,
+            now: input.now,
+            guard: (expected) => guardUsers(db, input.targetId, expected),
+          }),
           autoCancelCaseRequests(db, input),
           db
             .update(users)

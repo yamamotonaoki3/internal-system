@@ -970,6 +970,8 @@ export const caseTodos = sqliteTable(
       sql`(${t.deletedAt} is null) = (${t.deletedBy} is null)`,
     ),
     index("case_todos_case_id_id_idx").on(t.caseId, t.id),
+    // 無効化（全案件）で、外れた人が担当の TODO を探すため（#149 の 149-D。決定 Q6）
+    index("case_todos_assignee_id_id_idx").on(t.assigneeId, t.id),
   ],
 );
 

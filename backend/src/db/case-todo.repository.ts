@@ -21,6 +21,7 @@ import {
   runWriteBatch,
   type CaseStatus,
 } from "./case.repository";
+import { eventIdsFreshSql } from "./case-todo-unassign.sql";
 import { activeChannelMember } from "./channel-member.sql";
 import { withDatabase, type Database } from "./database";
 import {
@@ -124,11 +125,6 @@ function liveTodoWith(todoId: string, extra: SQL): SQL {
 
 const ONE = sql`1`;
 const ZERO = sql`0`;
-
-/** 記録の表の全体に、firstId 以上の ID がないこと（計画 6.1。主キーの索引で探す） */
-function eventIdsFreshSql(firstId: string): SQL {
-  return sql`NOT EXISTS (SELECT 1 FROM case_todo_events fe WHERE fe.id >= ${firstId})`;
-}
 
 /** 利用者のいまの表示名（記録の時点の名前を残すため） */
 const displayNameOf = (userId: SQL | string) =>

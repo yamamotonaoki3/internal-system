@@ -30,6 +30,14 @@ import { isUlid, newUlid } from "../lib/ulid";
 import { auditLogInsert, auditLogInsertRows } from "./audit-log.repository";
 import { canManageSql } from "./case-access.sql";
 import {
+  caseAssigneeScope,
+  caseAssigneesScope,
+  readUnassignPlan,
+  unassignPreSql,
+  unassignStatements,
+  type UnassignPlan,
+} from "./case-todo-unassign.sql";
+import {
   activeChannelMember,
   activeMembersEqual,
   recipientsUnchanged,
@@ -319,7 +327,11 @@ const STATUS_CHANGES = {
 } as const;
 
 /** 再開の batch の文と、案件の更新（RETURNING）の位置 */
-function composeReopen(db: Database, input: CaseReopenWriteInput) {
+function composeReopen(
+  db: Database,
+  input: CaseReopenWriteInput,
+  plan: UnassignPlan,
+) {
   const { caseId, actorId } = input;
   const change = STATUS_CHANGES.reopen;
   const addJson = JSON.stringify(input.addUserIds);
@@ -343,6 +355,7 @@ function composeReopen(db: Database, input: CaseReopenWriteInput) {
     guardChanges(db, caseId, sql`${expected}`);
   const recipientIds = [...new Set(input.recipientIds)];
   const now = new Date().toISOString();
+  const unassignScope = caseAssigneesScope(caseId, removeJson);
   const audit = {
     actorId,
     targetType: "case",
@@ -352,7 +365,11 @@ function composeReopen(db: Database, input: CaseReopenWriteInput) {
   } as const;
 
   const statements: BatchItem[] = [
-    assertStatement(db, caseId, condition),
+    assertStatement(
+      db,
+      caseId,
+      sql`${condition} AND ${unassignPreSql(unassignScope, plan)}`,
+    ),
     auditLogInsert(
       db,
       {
@@ -391,7 +408,16 @@ function composeReopen(db: Database, input: CaseReopenWriteInput) {
       ),
       guard(changedCount),
     );
-  // 149-D が、外す人の TODO の担当の書き換えを、この削除の直前に差す（計画 150-B 6.8）
+  // 外す人の TODO の担当の書き換え（149-D 計画 6.3.4）。外す人が0人でも置き、n=0 で通す。条件は規則だけで、stillClosed の材料を変えない
+  statements.push(
+    ...unassignStatements(db, {
+      scope: unassignScope,
+      plan,
+      actorId,
+      now,
+      guard,
+    }),
+  );
   if (input.removeUserIds.length > 0)
     statements.push(
       db
@@ -450,15 +476,89 @@ function composeReopen(db: Database, input: CaseReopenWriteInput) {
   return { statements, updateAt };
 }
 
+/** 再開で外す人が担当の TODO の、対象の件数と記録の ID（149-D 計画 6.3.4） */
+function readReopenUnassignPlan(db: Database, input: CaseReopenWriteInput) {
+  return readUnassignPlan(
+    db,
+    caseAssigneesScope(input.caseId, JSON.stringify(input.removeUserIds)),
+  );
+}
+
 /**
- * 再開（選び直しつき）の batch の文（計画 150-B 6.3 の順）：前提 → 再開の監査 → 人ごとの監査 → 参加の行の削除 → 追加
- * → 通知 → 案件の更新 → 不変条件。条件つきの文は0行でも失敗しないため、必須の文の直後に件数の確認を置く
+ * 再開（選び直しつき）の batch の文（計画 150-B 6.3 の順）：前提 → 再開の監査 → 人ごとの監査 → 外す人の TODO の担当の書き換え（149-D）
+ * → 参加の行の削除 → 追加 → 通知 → 案件の更新 → 不変条件。条件つきの文は0行でも失敗しないため、必須の文の直後に件数の確認を置く
  */
-export function buildReopenStatements(
+export async function buildReopenStatements(
   db: Database,
   input: CaseReopenWriteInput,
+): Promise<BatchItem[]> {
+  const plan = await readReopenUnassignPlan(db, input);
+  return composeReopen(db, input, plan).statements;
+}
+
+/**
+ * 参加者の削除・本人の退出の batch の文（計画 149-D 6.3.3 の順）：前提 → 監査 → 確認 → 外れた人の TODO の担当の書き換え（4文）
+ * → 参加の行の削除 → 確認 → 不変条件（有効な参加者が1人以上。Q1）。
+ * 前提：進行中・操作者が有効な参加者・対象に参加の行があり、自動参加の人でない（Q2）・TODO の対象の件数と記録の ID が読んだときのまま
+ */
+export function buildRemoveParticipantStatements(
+  db: Database,
+  input: CaseParticipantWriteInput,
+  plan: UnassignPlan,
 ): BatchItem[] {
-  return composeReopen(db, input).statements;
+  const condition = activeCaseWith(
+    input.caseId,
+    sql`${activeChannelMember(K_ROOM, input.actorId)}
+      AND ${hasMembershipRow(input.userId)}
+      AND NOT ${autoParticipantSql(input.userId)}`,
+  );
+  const scope = caseAssigneeScope(input.caseId, input.userId);
+  const guard = (expected: number) =>
+    guardChanges(db, input.caseId, sql`${expected}`);
+  return [
+    assertStatement(
+      db,
+      input.caseId,
+      sql`${condition} AND ${unassignPreSql(scope, plan)}`,
+    ),
+    auditLogInsert(
+      db,
+      {
+        actorId: input.actorId,
+        action: "case.participant.remove",
+        targetType: "case",
+        targetId: input.caseId,
+        result: "success",
+        traceId: input.traceId,
+        detail: {
+          caseId: input.caseId,
+          userId: input.userId,
+          self: input.userId === input.actorId,
+        },
+      },
+      { onlyWhen: condition },
+    ),
+    guard(1),
+    ...unassignStatements(db, {
+      scope,
+      plan,
+      actorId: input.actorId,
+      now: new Date().toISOString(),
+      guard,
+    }),
+    // 担当の書き換えは condition の材料（案件・参加の行・ロール）を変えないので、ここでも condition は前提のときと同じ値になる
+    db
+      .delete(channelMembers)
+      .where(
+        and(
+          eq(channelMembers.userId, input.userId),
+          sql`${channelMembers.channelId} = (SELECT c.channel_id FROM cases c WHERE c.id = ${input.caseId})`,
+          condition,
+        ),
+      ),
+    guard(1),
+    assertStatement(db, input.caseId, atLeastOneActive(input.caseId)),
+  ];
 }
 
 function cursorFor(row: { id: string }) {
@@ -898,50 +998,18 @@ export function createCaseRepository(db: Database) {
     },
 
     /**
-     * 参加者の削除・本人の退出：前提 → 監査 → 参加の行の削除 → 不変条件（有効な参加者が1人以上。Q1）。
-     * 前提：進行中・操作者が有効な参加者・対象に参加の行があり、自動参加の人でない（Q2）。崩れたら CaseStateChangedError
+     * 参加者の削除・本人の退出（文の順は buildRemoveParticipantStatements）。外れた人が担当の TODO の対象の件数と記録の ID を先に読む。
+     * 前提が崩れたら CaseStateChangedError で、何も残さない
      */
     async removeParticipant(input: CaseParticipantWriteInput): Promise<void> {
-      const condition = activeCaseWith(
-        input.caseId,
-        sql`${activeChannelMember(K_ROOM, input.actorId)}
-          AND ${hasMembershipRow(input.userId)}
-          AND NOT ${autoParticipantSql(input.userId)}`,
+      const plan = await readUnassignPlan(
+        db,
+        caseAssigneeScope(input.caseId, input.userId),
       );
-      const [, , removed] = await runWriteBatch(() =>
-        db.batch([
-          assertStatement(db, input.caseId, condition),
-          auditLogInsert(
-            db,
-            {
-              actorId: input.actorId,
-              action: "case.participant.remove",
-              targetType: "case",
-              targetId: input.caseId,
-              result: "success",
-              traceId: input.traceId,
-              detail: {
-                caseId: input.caseId,
-                userId: input.userId,
-                self: input.userId === input.actorId,
-              },
-            },
-            { onlyWhen: condition },
-          ),
-          db
-            .delete(channelMembers)
-            .where(
-              and(
-                eq(channelMembers.userId, input.userId),
-                sql`${channelMembers.channelId} = (SELECT c.channel_id FROM cases c WHERE c.id = ${input.caseId})`,
-                condition,
-              ),
-            )
-            .returning({ userId: channelMembers.userId }),
-          assertStatement(db, input.caseId, atLeastOneActive(input.caseId)),
-        ]),
+      const statements = buildRemoveParticipantStatements(db, input, plan);
+      await runWriteBatch(() =>
+        db.batch(statements as [BatchItem, ...BatchItem[]]),
       );
-      if (removed.length === 0) throw new CaseStateChangedError();
     },
 
     /**
@@ -1016,7 +1084,8 @@ export function createCaseRepository(db: Database) {
 
     /** 再開（EP-5-12。参加者の選び直しつき）。前提が崩れていたら CaseStateChangedError で、何も残さない */
     async reopenCase(input: CaseReopenWriteInput): Promise<void> {
-      const { statements, updateAt } = composeReopen(db, input);
+      const plan = await readReopenUnassignPlan(db, input);
+      const { statements, updateAt } = composeReopen(db, input, plan);
       const results = await runWriteBatch(() =>
         db.batch(statements as [BatchItem, ...BatchItem[]]),
       );

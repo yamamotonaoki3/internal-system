@@ -25,12 +25,21 @@ import {
   roomIdOf,
 } from "../../test/case-reopen-fixtures";
 import {
+  caseRequestRow,
   casereqTraceId,
+  insertCaseRequest,
   setUserActive,
   setupCaseWorld,
   TEST_TAG,
   type CaseWorld,
 } from "../../test/case-request-fixtures";
+import {
+  insertTodo,
+  todoIdAt,
+  todoRow,
+  type TodoEventRow,
+  type TodoRow,
+} from "../../test/case-todo-fixtures";
 import { companyGeneralRoomId } from "../../test/company-general-fixtures";
 import { insertChannel, insertMember } from "../../test/department-fixtures";
 import { createUlidFactory } from "../lib/ulid";
@@ -570,5 +579,208 @@ describe("#150 150-A AC-15 と終了・再開", () => {
     await statusWrite("reopen", only.id, target, 2);
     await expectDeactivationRejected();
     expect(await isActive(target)).toBe(1);
+  });
+});
+
+// ---- #149（149-D）5-4 AC-6（無効化で担当者が外れたとき）・決定 Q7・計画 6.3.5・10節「149-D」 ----
+// 無効化（全案件。進行中と終了中の両方）で、対象が担当の未完了・未削除の TODO の担当を「担当なし」にし、記録 auto_unassign
+// （actor＝無効化した全体管理者）を残す。参加の行は残る（C-142(1)）。cases.version は変えない。監査 account.deactivate の detail は変えない。
+// 契約（実装前の仮置き）：repository.deactivate の引数・戻り値は変えない（batch の前に readUnassignPlan を読み、部品の4文を差す）。
+describe("#149 149-D 5-4 AC-6 無効化で、担当の TODO を外す（計画 6.3.5）", () => {
+  const NAME_T = "テスト担当149D無効化";
+
+  async function eventsOf(): Promise<TodoEventRow[]> {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM case_todo_events ORDER BY id",
+    ).all<TodoEventRow>();
+    return results;
+  }
+
+  async function todosAll(): Promise<TodoRow[]> {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM case_todos ORDER BY id",
+    ).all<TodoRow>();
+    return results;
+  }
+
+  async function caseVersions() {
+    const { results } = await env.DB.prepare(
+      "SELECT id, version FROM cases ORDER BY id",
+    ).all();
+    return results;
+  }
+
+  /** 進行中の案件 X（U1 未完了・担当 target／U2 完了・担当 target／U3 削除済み・担当 target／U4 未完了・担当 memberS1）と、終了中の案件 Y（U5 未完了・担当 target） */
+  async function seedAcrossCases() {
+    const active = await caseWith([w.memberS1.id, target, w.memberD1.id]);
+    const closed = await caseWith([w.memberS1.id, target], {
+      status: "closed",
+    });
+    const mine = {
+      createdBy: w.memberS1.id,
+      assigneeId: target,
+      recordedAssigneeName: NAME_T,
+    };
+    await insertTodo({
+      ...mine,
+      id: todoIdAt(201),
+      caseId: active.id,
+      title: "[UNIT_TEST]149D無効化の見積書",
+    });
+    await insertTodo({
+      ...mine,
+      id: todoIdAt(202),
+      caseId: active.id,
+      title: "[UNIT_TEST]149D無効化の完了済み",
+      isDone: true,
+      completedAssigneeId: target,
+      completedAssigneeName: NAME_T,
+      version: 2,
+    });
+    await insertTodo({
+      ...mine,
+      id: todoIdAt(203),
+      caseId: active.id,
+      title: "[UNIT_TEST]149D無効化の消したもの",
+      deletedBy: w.memberS1.id,
+      version: 2,
+    });
+    await insertTodo({
+      id: todoIdAt(204),
+      caseId: active.id,
+      createdBy: w.memberS1.id,
+      title: "[UNIT_TEST]149D無効化の別の人の担当",
+      assigneeId: w.memberS1.id,
+      recordedAssigneeName: "テスト操作者149D",
+    });
+    await insertTodo({
+      ...mine,
+      id: todoIdAt(205),
+      caseId: closed.id,
+      title: "[UNIT_TEST]149D無効化の終了中の案件",
+    });
+    return { active, closed };
+  }
+
+  it("#149 149-D 5-4 AC-6・決定 Q7: 複数の案件（進行中と終了中）にまたがる、対象が担当の未完了の TODO が全部担当なしになり、記録 auto_unassign（actor＝無効化した全体管理者）が件数分。参加の行は残り、cases.version は変わらない", async () => {
+    const { active, closed } = await seedAcrossCases();
+    const before = await todosAll();
+    const versions = await caseVersions();
+    await deactivate();
+    const after = await todosAll();
+    const byId = (rows: TodoRow[], n: number) =>
+      rows.find((r) => r.id === todoIdAt(n)) as TodoRow;
+    for (const n of [201, 205]) {
+      expect(byId(after, n), `U${n}`).toEqual({
+        ...byId(before, n),
+        assignee_id: null,
+        version: byId(before, n).version + 1,
+        updated_at: NOW_1,
+      });
+      expect(byId(after, n).recorded_assignee_name).toBe(NAME_T);
+    }
+    for (const n of [202, 203, 204])
+      expect(byId(after, n), `U${n}`).toEqual(byId(before, n));
+    const events = (await eventsOf()).filter((e) => e.kind === "auto_unassign");
+    expect(events.map((e) => e.todo_id).sort()).toEqual(
+      [todoIdAt(201), todoIdAt(205)].sort(),
+    );
+    for (const event of events)
+      expect(event).toMatchObject({
+        actor_id: w.admin.id,
+        assignee_id: target,
+        assignee_name: NAME_T,
+        created_at: NOW_1,
+      });
+    expect(await participantIdsOf(active.roomId)).toContain(target);
+    expect(await participantIdsOf(closed.roomId)).toContain(target);
+    expect(await caseVersions()).toEqual(versions);
+  });
+
+  it("#149 149-D 決定（戻らない）: 無効化の後に再有効化しても、担当は NULL のまま", async () => {
+    await seedAcrossCases();
+    await deactivate();
+    await reactivate();
+    expect((await todoRow(todoIdAt(201))).assignee_id).toBeNull();
+    expect((await todoRow(todoIdAt(205))).assignee_id).toBeNull();
+  });
+
+  it("#149 149-D 重大2の退行: 審査中の案件作成申請1件と、担当の未完了の TODO 1件を同時に持つ人を無効化すると、1回で確定する（無効化・申請の auto_cancelled・担当なし・記録1件・監査1件、detail は変えない）", async () => {
+    const active = await caseWith([w.memberS1.id, target, w.memberD1.id]);
+    await insertTodo({
+      id: todoIdAt(211),
+      caseId: active.id,
+      createdBy: w.memberS1.id,
+      title: "[UNIT_TEST]149D申請と同時",
+      assigneeId: target,
+      recordedAssigneeName: NAME_T,
+    });
+    const requestId = await insertCaseRequest({
+      clientId: w.clientA.id,
+      title: `${TEST_TAG}149D申請と同時`,
+      requestedBy: target,
+      departmentIds: [w.deptS.id],
+      candidateIds: [w.memberD1.id],
+    });
+    await deactivate();
+    expect(await isActive(target)).toBe(0);
+    expect((await caseRequestRow(requestId))?.status).toBe("auto_cancelled");
+    expect((await todoRow(todoIdAt(211))).assignee_id).toBeNull();
+    expect(
+      (await eventsOf()).filter((e) => e.kind === "auto_unassign"),
+    ).toHaveLength(1);
+    const { results } = await env.DB.prepare(
+      "SELECT detail FROM audit_logs WHERE action = 'account.deactivate'",
+    ).all<{ detail: string | null }>();
+    expect(results).toHaveLength(1);
+    expect(JSON.parse(results[0]?.detail ?? "{}")).toEqual({
+      fromDepartmentId: w.deptS.id,
+      retirementRequestId: null,
+      cancelledCaseRequestCount: 1,
+    });
+  });
+
+  it("#149 149-D 前提の件数: 読み取りの後・batch の前に、対象を担当にした TODO を足すと、batch 全体が取り消され（AccountStateChangedError）何も残らない", async () => {
+    const { active } = await seedAcrossCases();
+    let state: unknown = null;
+    const interrupting = new Proxy(env.DB, {
+      get(db, property) {
+        if (property === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            await insertTodo({
+              id: todoIdAt(220),
+              caseId: active.id,
+              createdBy: w.memberS1.id,
+              title: "[UNIT_TEST]149D無効化の途中で足したもの",
+              assigneeId: target,
+              recordedAssigneeName: NAME_T,
+            });
+            state = {
+              base: await snapshot(),
+              todos: await todosAll(),
+              events: await eventsOf(),
+            };
+            return db.batch(statements);
+          };
+        const value: unknown = Reflect.get(db, property);
+        return typeof value === "function" ? value.bind(db) : value;
+      },
+    });
+    await expect(
+      withAccounts({ ...env, DB: interrupting } as Env, (r) =>
+        r.deactivate({
+          targetId: target,
+          actorId: w.admin.id,
+          now: NOW_1,
+          traceId: casereqTraceId(),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(AccountStateChangedError);
+    expect(state).not.toBeNull();
+    expect({
+      base: await snapshot(),
+      todos: await todosAll(),
+      events: await eventsOf(),
+    }).toEqual(state);
   });
 });

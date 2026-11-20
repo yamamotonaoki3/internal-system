@@ -672,6 +672,9 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -6235,6 +6238,9 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }

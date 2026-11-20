@@ -55,6 +55,12 @@ import {
   type CaseWorld,
 } from "../../test/case-request-fixtures";
 import {
+  insertTodo,
+  todoIdAt,
+  todoRow,
+  type TodoEventRow,
+} from "../../test/case-todo-fixtures";
+import {
   CaseStateChangedError,
   buildReopenStatements,
   runWriteBatch,
@@ -713,5 +719,113 @@ describe("#150 150-B D1 の上限（1文 100 パラメータ・batch の文の�
       addedCount: 100,
       removedCount: 100,
     });
+  });
+});
+
+// ---- #149（149-D）5-4 AC-6・決定 Q7・計画 6.3.4：再開のときの除外で、外した人の担当の TODO を外す ----
+// 終了中の案件でも、外した人が担当の未完了・未削除の TODO の担当を「担当なし」にし、記録 auto_unassign（actor＝再開した人）を残す。
+// 完了済み・外さない人の担当・ほかの案件の TODO は変わらない。外す人が0人なら何も書かない。
+// 契約（実装前の仮置き）：reopenCase(input) の引数は変えない（Repository の中で readUnassignPlan を読む）。
+// buildReopenStatements(db, input) も、引数を変えずに使えること（このファイルの既存の差し替えのテストが使う）。
+describe("#149 149-D 再開のときの除外で、外した人の担当の TODO を外す（計画 6.3.4）", () => {
+  const NAME_D1 = "テスト担当149D再開";
+
+  async function todoEvents(): Promise<TodoEventRow[]> {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM case_todo_events ORDER BY id",
+    ).all<TodoEventRow>();
+    return results;
+  }
+
+  async function seedReopenTodos() {
+    const base = { createdBy: w.memberS1.id };
+    await insertTodo({
+      ...base,
+      id: todoIdAt(301),
+      caseId: room.id,
+      title: "[UNIT_TEST]149D再開の見積書",
+      assigneeId: w.memberD1.id,
+      recordedAssigneeName: NAME_D1,
+    });
+    await insertTodo({
+      ...base,
+      id: todoIdAt(302),
+      caseId: room.id,
+      title: "[UNIT_TEST]149D再開の完了済み",
+      assigneeId: w.memberD1.id,
+      recordedAssigneeName: NAME_D1,
+      isDone: true,
+      completedAssigneeId: w.memberD1.id,
+      completedAssigneeName: NAME_D1,
+      version: 2,
+    });
+    await insertTodo({
+      ...base,
+      id: todoIdAt(303),
+      caseId: room.id,
+      title: "[UNIT_TEST]149D再開の残る人の担当",
+      assigneeId: w.memberS2.id,
+      recordedAssigneeName: "テスト残る人149D",
+    });
+    await insertTodo({
+      ...base,
+      id: todoIdAt(309),
+      caseId: other.id,
+      title: "[UNIT_TEST]149D再開の別の案件",
+      assigneeId: w.memberD1.id,
+      recordedAssigneeName: NAME_D1,
+    });
+  }
+
+  it("#149 149-D 5-4 AC-6・決定 Q7: 外した人（memberD1）の未完了の TODO が担当なし（recorded_* は残る・版+1）、auto_unassign 1件（actor＝再開した人）。完了済み・残る人の担当・ほかの案件の TODO は変わらない", async () => {
+    await seedReopenTodos();
+    const keep = await Promise.all(
+      [302, 303, 309].map((n) => todoRow(todoIdAt(n))),
+    );
+    await reopen(await inputFor({ removeUserIds: [w.memberD1.id] }));
+    expect(await todoRow(todoIdAt(301))).toMatchObject({
+      assignee_id: null,
+      recorded_assignee_id: w.memberD1.id,
+      recorded_assignee_name: NAME_D1,
+      version: 2,
+      updated_at: REOPEN_NOW,
+    });
+    expect(
+      await Promise.all([302, 303, 309].map((n) => todoRow(todoIdAt(n)))),
+    ).toEqual(keep);
+    const events = (await todoEvents()).filter(
+      (e) => e.kind === "auto_unassign",
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      todo_id: todoIdAt(301),
+      case_id: room.id,
+      actor_id: w.memberS1.id,
+      assignee_id: w.memberD1.id,
+      assignee_name: NAME_D1,
+      created_at: REOPEN_NOW,
+    });
+  });
+
+  it("#149 149-D 計画 6.3.4: 外す人が0人の再開では、TODO も記録も変わらない", async () => {
+    await seedReopenTodos();
+    const before = await Promise.all(
+      [301, 302, 303, 309].map((n) => todoRow(todoIdAt(n))),
+    );
+    await reopen(await inputFor({ addUserIds: [w.noDept.id] }));
+    expect(
+      await Promise.all([301, 302, 303, 309].map((n) => todoRow(todoIdAt(n)))),
+    ).toEqual(before);
+    expect(await todoEvents()).toEqual([]);
+  });
+
+  it("#149 149-D 計画 6.3.4: 前提が崩れて再開が取り消されたら（版が古い）、TODO の担当・記録も変わらない", async () => {
+    await seedReopenTodos();
+    const before = await todoRow(todoIdAt(301));
+    await expect(
+      reopen(await inputFor({ removeUserIds: [w.memberD1.id], version: 2 })),
+    ).rejects.toBeInstanceOf(CaseStateChangedError);
+    expect(await todoRow(todoIdAt(301))).toEqual(before);
+    expect(await todoEvents()).toEqual([]);
   });
 });
