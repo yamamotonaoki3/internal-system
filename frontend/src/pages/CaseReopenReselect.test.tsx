@@ -7,6 +7,9 @@
 //   - 送信の本文 { participantIds（開いた時点の候補）, addUserIds, removeUserIds }。送信中はダイアログの操作を全部無効にし、二重に送らない
 //   - 成功の文言はダイアログの外に残る。409・403 はダイアログを閉じて外に出す。422 の fields（addUserIds）はダイアログを閉じずに「社員の検索」の欄のエラー
 //   - 409 participants_changed の後に開き直すと、取り直した詳細の新しい候補で選び直せる。失敗の表示は、後の成功で消える
+// #316 AC-1（詳細の取得の失敗）：ダイアログは、取得中は role="status" の「読み込み中です」、失敗は role="alert" で API のメッセージ
+//   （下の DETAIL_ERROR）と button「再試行」を出す（CaseTodoHistory・CaseEditDialog の出し方にそろえた）。失敗の間は、参加者の欄・「確認へ」を出さない。
+//   「再試行」で詳細を取り直し、成功したら失敗の表示が消えて選ぶ段階になる。403・404（外された）は #308 の経路（CaseAccessLoss.test.tsx・CaseReopenRemovedViewer.test.tsx）が確かめる。
 // 認可・判定の順はサーバー（backend の routes/cases.reopen-reselect.test.ts）で確かめ、ここでは重ねない。
 // 画面の契約（実装の担当へ。テストが決めたもの。既存の「参加者を管理」・終了と再開のダイアログの型に合わせた）：
 //   ボタン「案件を再開」→ ダイアログ（role dialog、名前「案件の再開」）。
@@ -30,6 +33,7 @@ import {
   type CaseSummary,
 } from "../test/case-handlers";
 import { renderCaseRequestScreen } from "../test/case-request-handlers";
+import { apiErrorResponse } from "../test/message-handlers";
 import { server } from "../test/server";
 import { CaseDetailPage } from "./CaseDetailPage";
 
@@ -586,5 +590,98 @@ describe("#150 150-B S-17 再開のダイアログ：失敗の表示（6.6）", 
     expect(describedText(reopened)).not.toContain(TEXTS.targetInvalid);
     expect(screen.queryByText(TEXTS.targetInvalid)).toBeNull();
     expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+});
+
+const DETAIL_ERROR = "案件の詳細を取得できませんでした";
+const RETRY = "再試行";
+const LOADING = "読み込み中です";
+
+describe("#316 AC-1 再開のダイアログ：詳細の取得に失敗したとき", () => {
+  it("#316 AC-1: 詳細の取得が失敗（500）したとき、読み込み中のままにせず、失敗の文言（role=alert）と「再試行」を出し、参加者の欄と「確認へ」は出さない", async () => {
+    const state = world();
+    server.use(
+      http.get("/api/cases/:caseId/detail", () =>
+        apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR),
+      ),
+    );
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain(DETAIL_ERROR);
+    expect(within(dialog).getByRole("button", { name: RETRY })).toBeTruthy();
+    expect(within(dialog).queryByText(LOADING)).toBeNull();
+    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).queryByRole("checkbox")).toBeNull();
+    expect(
+      within(dialog).queryByRole("textbox", { name: SEARCH_LABEL }),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: TEXTS.next }),
+    ).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: TEXTS.cancel }),
+    ).toBeTruthy();
+    expect(state.writes).toEqual([]);
+  });
+
+  it("#316 AC-1: 「再試行」で詳細を取り直し、成功したら失敗の文言が消えて、参加者の選び直しの欄が出る", async () => {
+    const state = world();
+    let fail = true;
+    server.use(
+      http.get("/api/cases/:caseId/detail", () => {
+        state.detailCalls.push(1);
+        if (fail) return apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR);
+        return HttpResponse.json(
+          caseDetail(N, {
+            ...caseSummary(N, { status: "closed" }),
+            participants: [SELF, OWNER, ADMIN, MEMBER_A, MEMBER_B, RETIRED],
+          }),
+        );
+      }),
+    );
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      DETAIL_ERROR,
+    );
+    const before = state.detailCalls.length;
+    fail = false;
+    await user.click(within(dialog).getByRole("button", { name: RETRY }));
+    expect(
+      await within(dialog).findByRole("checkbox", {
+        name: MEMBER_A.displayName,
+      }),
+    ).toBeTruthy();
+    expect(state.detailCalls.length).toBeGreaterThan(before);
+    expect(within(dialog).queryByText(DETAIL_ERROR)).toBeNull();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: RETRY })).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: TEXTS.next }),
+    ).toBeTruthy();
+  });
+
+  it("#316 AC-1: 取得の途中（応答を止めた間）は、これまでどおり「読み込み中です」を出し、失敗の表示は出さない", async () => {
+    world();
+    const gate = deferred();
+    server.use(
+      http.get("/api/cases/:caseId/detail", async () => {
+        await gate.promise;
+        return apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR);
+      }),
+    );
+    const { user } = renderPage();
+    const dialog = await openDialog(user);
+    expect((await within(dialog).findByRole("status")).textContent).toContain(
+      LOADING,
+    );
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: RETRY })).toBeNull();
+    gate.release();
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      DETAIL_ERROR,
+    );
+    expect(within(dialog).queryByText(LOADING)).toBeNull();
   });
 });

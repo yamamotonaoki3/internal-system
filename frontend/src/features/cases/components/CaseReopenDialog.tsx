@@ -24,6 +24,9 @@ type Props = {
   selfId: string;
   /** 詳細の参加者（読み込み中は undefined） */
   participants: CaseParticipant[] | undefined;
+  /** 詳細の取得の失敗の文言（失敗していなければ undefined）。出ている間は選ぶ段階を出さず、再試行を出す */
+  loadError?: string;
+  onRetry: () => void;
   pending: boolean;
   /** 422 の、社員の検索の欄のエラー */
   searchError?: string;
@@ -57,6 +60,8 @@ function PeopleRegion({ title, people }: { title: string; people: Person[] }) {
 export function CaseReopenDialog({
   selfId,
   participants,
+  loadError,
+  onRetry,
   pending,
   searchError,
   error,
@@ -268,7 +273,16 @@ export function CaseReopenDialog({
       )}
       {participants === undefined ? (
         <>
-          <p role="status">読み込み中です</p>
+          {loadError === undefined ? (
+            <p role="status">読み込み中です</p>
+          ) : (
+            <Alert tone="error" role="alert">
+              <p>{loadError}</p>
+              <Button variant="secondary" onClick={onRetry}>
+                {CASE_REOPEN_TEXTS.retry}
+              </Button>
+            </Alert>
+          )}
           <Button variant="secondary" onClick={onClose}>
             キャンセル
           </Button>
