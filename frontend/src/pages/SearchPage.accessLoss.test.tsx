@@ -10,7 +10,7 @@ import {
   forgetCaseAfterLeave,
   forgetCaseContent,
 } from "../features/cases/hooks/useCaseWrites";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   installDomStubs,
   renderApp,
@@ -45,6 +45,7 @@ beforeEach(() => {
   respondShellUser();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   stubs.restore();
 });
 
@@ -268,23 +269,62 @@ describe("#155 AC-3 F-2 取り消された取得は、残りのページを取�
       within(main).getByRole("button", { name: "さらに表示" }),
     );
     await waitFor(() => expect(rowsIn(main)).toHaveLength(2));
-    // 3ページ目までの取り直しを始め、その1ページ目の応答を保留する
+    // 3ページ目までの取り直しを始め、その1ページ目の応答を保留する。保留した要求の中断（signal）を観測できるようにする
     const gate = deferred();
-    world.hold = gate.promise;
+    const held: { arrived: boolean; aborted: boolean } = {
+      arrived: false,
+      aborted: false,
+    };
+    // 保留した要求の通信（Axios の XMLHttpRequest）が中断されたかを見張る
+    const urls = new WeakMap<XMLHttpRequest, string>();
+    const open = XMLHttpRequest.prototype.open;
+    const abort = XMLHttpRequest.prototype.abort;
+    vi.spyOn(XMLHttpRequest.prototype, "open").mockImplementation(function (
+      this: XMLHttpRequest,
+      ...args: Parameters<XMLHttpRequest["open"]>
+    ) {
+      urls.set(this, String(args[1]));
+      return (open as (...a: unknown[]) => void).apply(this, args);
+    });
+    vi.spyOn(XMLHttpRequest.prototype, "abort").mockImplementation(function (
+      this: XMLHttpRequest,
+    ) {
+      const url = new URL(urls.get(this) ?? "/", "http://localhost");
+      if (
+        url.pathname === "/api/search/messages" &&
+        url.searchParams.get("q") === "頁" &&
+        url.searchParams.get("cursor") === null
+      )
+        held.aborted = true;
+      abort.call(this);
+    });
+    server.use(
+      http.get("/api/search/messages", async ({ request }) => {
+        const url = new URL(request.url);
+        if (
+          held.arrived ||
+          url.searchParams.get("q") !== "頁" ||
+          url.searchParams.get("cursor") !== null
+        )
+          return undefined;
+        held.arrived = true;
+        await gate.promise;
+        return undefined;
+      }),
+    );
     const before = world.requests.length;
     await app.user.click(
       within(main).getByRole("button", { name: "さらに表示" }),
     );
-    await waitFor(() => expect(world.requests.length).toBe(before + 1));
-    world.hold = null;
-    return { world, app, main, gate, before };
+    await waitFor(() => expect(held.arrived).toBe(true));
+    return { world, app, main, gate, before, held };
   }
 
   const oldContinued = (world: SearchWorld, from: number) =>
     world.requests.slice(from).filter((r) => r.q === "頁" && r.cursor !== null);
 
   it("#155 AC-3 F-2: 取り直しの途中で言葉を変えたら、保留を解いた後に、古い言葉の2ページ目以降の要求が出ない", async () => {
-    const { world, app, main, gate, before } =
+    const { world, app, main, gate, before, held } =
       await threePagesWithHeldRefetch();
     const input = within(main).getByRole("searchbox", { name: "検索する言葉" });
     await app.user.clear(input);
@@ -293,15 +333,15 @@ describe("#155 AC-3 F-2 取り消された取得は、残りのページを取�
     await waitFor(() =>
       expect(world.requests.some((r) => r.q === "別語")).toBe(true),
     );
+    // 古い取得が中断されたこと（保留中の要求の通信の abort）を観測してから、保留を解く。中断されていれば、続きのページの要求は出ようがない
+    await waitFor(() => expect(held.aborted).toBe(true));
     gate.release();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
     expect(oldContinued(world, before)).toEqual([]);
   });
 
   it("#155 AC-3 F-2: 取り直しの途中で画面を離れたら、保留を解いた後に、古い条件の2ページ目以降の要求が出ない", async () => {
-    const { world, app, before, gate } = await threePagesWithHeldRefetch();
+    const { world, app, before, gate, held } =
+      await threePagesWithHeldRefetch();
     await app.user.click(
       within(screen.getByRole("banner")).getByRole("link", {
         name: "internal-system",
@@ -312,10 +352,9 @@ describe("#155 AC-3 F-2 取り消された取得は、残りのページを取�
         screen.queryByRole("heading", { level: 1, name: "検索結果" }),
       ).toBeNull(),
     );
+    // 古い取得が中断されたこと（保留中の要求の通信の abort）を観測してから、保留を解く。中断されていれば、続きのページの要求は出ようがない
+    await waitFor(() => expect(held.aborted).toBe(true));
     gate.release();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
     expect(oldContinued(world, before)).toEqual([]);
   });
 });
