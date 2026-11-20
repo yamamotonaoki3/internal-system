@@ -1,4 +1,4 @@
-# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携、案件のやり取り、案件の TODO、案件の終了・再開（Issue #147 の 147-A・147-B・147-C-1・147-C-2、Issue #148 の 148-A・148-B-1・148-C、Issue #149 の 149-A・149-B・149-D、Issue #150 の 150-A・150-B）
+# 案件の一覧・概要・詳細・参加者・納期と、無効化・オーナー交代との連携、案件のやり取り、案件の TODO、案件の終了・再開（Issue #147 の 147-A・147-B・147-C-1・147-C-2、Issue #148 の 148-A・148-B-1・148-C、Issue #149 の 149-A・149-B・149-D、Issue #150 の 150-A・150-B・150-C）
 
 ## 目的
 
@@ -10,7 +10,7 @@ Issue #148（案件のやり取り）も「影響大」で、3つの子に分け
 
 Issue #149（案件の TODO）は「影響大」で、4つの子に分けた（149-A 追加・完了・取り消しと一覧・進捗、149-B 編集・削除、149-C 履歴・削除済みの一覧・復元、149-D 担当者が外れたときの処理）。最初の子 149-A の設計は「149-A の設計」の節に、149-B（編集・削除）の設計は「149-B の設計」の節に、149-D（担当者が外れたときの処理）の設計は「149-D の設計」の節に書く。
 
-Issue #150（案件の終了・再開・再編集）も「影響大」で、3つの子に分けた（150-A：終了・再開〔参加者の選び直しなし〕・通知・監査・S-17 のボタン／150-B：再開時の参加者の選び直し〔5-1 AC-16〕／150-C：再編集〔EP-5-20〕）。最初の子 150-A の設計は「150-A の設計」の節に書く。決定は[C-189](../requirements/decision-register.md)。2つ目の子 150-B（再開のときの参加者の選び直し）の設計は「150-B の設計」の節に書く（決定は[C-194](../requirements/decision-register.md)）。
+Issue #150（案件の終了・再開・再編集）も「影響大」で、3つの子に分けた（150-A：終了・再開〔参加者の選び直しなし〕・通知・監査・S-17 のボタン／150-B：再開時の参加者の選び直し〔5-1 AC-16〕／150-C：再編集〔EP-5-20〕）。最初の子 150-A の設計は「150-A の設計」の節に書く。決定は[C-189](../requirements/decision-register.md)。2つ目の子 150-B（再開のときの参加者の選び直し）の設計は「150-B の設計」の節に書く（決定は[C-194](../requirements/decision-register.md)）。3つ目の子 150-C（案件の内容の再編集）の設計は「150-C の設計」の節に書く（決定は[C-199](../requirements/decision-register.md)）。これで #150 の子はすべて実装済みである。
 
 ## 範囲
 
@@ -26,11 +26,12 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | 149-Dで作ったもの | 担当者が案件から外れたら、外す操作と同じ batch で、未完了・未削除の TODO の担当を「なし」にし、記録`auto_unassign`を残し、版を進める（参加者の削除・本人の退出・無効化・再開の除外の4つの経路）／規則の定義元`backend/src/db/case-todo-unassign.sql.ts`（`eventIdsFreshSql`もここへ移した）／参加者の削除（本人の退出を含む）・無効化のやり直し（合計4回。超えたら 503。再開は 150-B のまま合計2回で 409 `retry`）／索引`case_todos_assignee_id_id_idx`（migration 0031。**本番に未適用**）。API・画面の追加はない（下の「149-D の設計」） |
 | 150-Aで作ったもの | API2つ（EP-5-11 終了・EP-5-12 再開。参加者は選び直さず、いまの参加者のまま）／通知の2種類（`case.closed`・`case.reopened`）／監査操作2つ（`case.close`・`case.reopen`）／案件の版（`cases.version`）の一致による競合の検知（409 `stale`）／宛先の一致の確認`recipientsUnchanged`を`channel-manage.sql.ts`から`channel-member.sql.ts`へ移したこと／S-17 の「案件を終了」「案件を再開」と確認のダイアログ（下の「150-A の設計」）。migration はない |
 | 150-Bで作ったもの | 再開（EP-5-12）の本文（`participantIds`・`addUserIds`・`removeUserIds`。必須）と、参加者の選び直し（外す・追加。本人と自動参加の人は外せない）／409 `participants_changed`・`auto_participant`・`already_participant`／監査の`case.reopen`への`addedCount`・`removedCount`と、人ごとの`case.participant.add`・`remove`（`viaReopen`）／再開の通知の宛先を選び直しの後の参加者にしたこと／batch の件数の確認`guardChanges`を、案件の書き込みの共通の場所へ移したこと／S-17 の再開の2段階のダイアログ`CaseReopenDialog`（下の「150-B の設計」）。migration はない |
+| 150-Cで作ったもの | API1つ（EP-5-20 `PATCH /api/cases/:caseId`。件名・説明・取引先・担当部署の再編集。納期は変えない）／衝突の検知（有効な参加者は詳細の`version`、参加していない管理者は概要で見た値`expected`）／監査`case.edit`／足した部署の有効なオーナーの自動参加／詳細（EP-5-08）に`version`を足し、概要の項目も説明・参加者と同じ1回の読み取りで返すこと（**概要・一覧には版を足さない**）／類似件名の確認（`GET /api/case-requests/similar-title`）の任意のクエリ`excludeCaseId`／S-17 の「内容を編集」と`CaseEditDialog`／申請の画面の部品（`DepartmentCheckboxes`・`SimilarTitleNotice`）を共用のために移したこと（下の「150-C の設計」）。migration はない |
 | 148-B-1で作ったもの | 案件の添付の一覧（EP-5-19 `GET /api/cases/:caseId/attachments`。有効な参加者だけ。終了した案件でも読める）／S-17 の「添付ファイル」の区画（ファイル名のリンク・大きさ・投稿者・日時・「元のメッセージへ」・「次のページ」）と、添付つきの投稿・返信の成功の後の取り直し／大きさの整形を`features/messages/format-size.ts`に移して共通にしたこと／`ThreadLayout`・`ThreadPane`の省略できる props `onReplied`（下の「148-B-1 の設計」）。migration はない |
 | 148-Cで作ったもの | 案件の一覧（EP-5-06）・概要（EP-5-07）の応答（詳細 EP-5-08 も、概要の項目として同じ値を含む。詳細の`channelId`は以前からの項目）に`lastActivityAt`（案件の部屋の、削除されていない最新のメッセージ〔返信を含む〕の投稿の時刻。なければ`null`）と`channelId`（案件の部屋の ID）を足したこと（**どちらも有効な参加者にだけ値を返す**。`participantCount`とは条件が別）／S-16 の参加の行の「最終更新」と未読の数／サイドバーの案件の項目の未読の印（下の「148-C の設計」）。新しい API・migration・索引はない |
 | 148-B-2で作ったもの | 案件の添付の公開範囲。`message_attachments.publication_visibility`（migration 0030。2値・既定は`participants_only`）／アップロードのクエリ`publicationVisibility`（案件の部屋だけ）／変更の API（EP-1-23 `PATCH /api/attachments/:attachmentId`。判定の順・書き込みの条件・監査`case.attachment.visibility.change`・対象の種類`attachment`）／EP-5-19 の各項目の`publicationVisibility`・`canChangeVisibility`／返信の取得の応答の`caseRoom`／アップロードの応答の定義の分離（`UploadedAttachmentItem`）／添付の入力欄のファイルごとの選択（S-17 の部屋・スレッド、S-35 の案件のスレッド）／S-17 の一覧の公開範囲の表示と「公開範囲を変更」のダイアログ／`insertPending`を列の名前を明示した INSERT に直したこと／`canManageSql`の`case-access.sql.ts`への移動（下の「148-B-2 の設計」）。**公開範囲の値は、いまは、どの読み取りの資格にも使わない**。migration 0030 は**本番に未適用** |
-| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：なし（148-A・148-B-1・148-C・148-B-2 が実装済み。承認済み公開アーカイブでの非参加者への表示などは 5-5・5-6 の Issue）。149：149-C（履歴・削除済みの一覧・復元）。149-A・149-B・149-D は実装済み。150：150-C（再編集。EP-5-20。件名・説明・取引先・担当部署）。150-B（再開時の参加者の選び直し。5-1 AC-16）は実装済み |
-| 他の Issue に回すもの | 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・審査中の一時閲覧・審査中／承認済みの変更の 409。5-5・5-6）、TODO の履歴・削除済みの一覧・復元（#149 の149-C。編集・削除は149-B、担当者が外れたときの処理は149-Dで実装済み）、再編集（#150 の150-C）、アーカイブ・物理削除（#151）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
+| 後の子 | 147：なし（#147 の4つの子は、すべて実装済み）。148：なし（148-A・148-B-1・148-C・148-B-2 が実装済み。承認済み公開アーカイブでの非参加者への表示などは 5-5・5-6 の Issue）。149：149-C（履歴・削除済みの一覧・復元）。149-A・149-B・149-D は実装済み。150：なし（150-A・150-B・150-C が実装済み。#150 の子はすべてそろった） |
+| 他の Issue に回すもの | 公開範囲の値による読み取りの資格（承認済み公開アーカイブでの非参加者の閲覧・審査中の一時閲覧・審査中／承認済みの変更の 409。5-5・5-6）、TODO の履歴・削除済みの一覧・復元（#149 の149-C。編集・削除は149-B、担当者が外れたときの処理は149-Dで実装済み）、アーカイブ・物理削除（#151）、再編集の「⋯」メニューへの統合と審査中の禁止（#151・5-5・5-6。150-C の「既知の差」）、名前・番号での絞り込みと検索（#155）、全体管理者の任命・引き継ぎによる自動参加（#157） |
 | 作らないもの | migration（表は146-Bで作った`cases`・`case_departments`・`channel_members`をそのまま使う）、`case_participants`表、`cases(status,id)`の索引（デモの規模では要らない。要るようになったら利用者に戻す）、一覧の既定値（`scope`・`status`は必須。画面が「参加中・進行中」から始める） |
 | 本Issueで確定した決定 | [C-182](../requirements/decision-register.md) |
 
@@ -42,7 +43,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | --- | --- |
 | `backend/src/routes/cases.ts` | Controller。`GET /api/cases`・`/:caseId`・`/:caseId/detail`。入力の形の確認（`scope`・`status`は必須、`limit`・`cursor`。`caseId`は ULID の形。いずれも`strict`）と応答だけ。全応答に`noStore`。認証と送信元の確認は`app.ts`が`/api/*`に一括で適用する。`backend/src/index.ts`で`/api/cases`に登録 |
 | `backend/src/services/case.service.ts` | Service。認可・判定の順・存在の非開示・監査用のログ（`logger.audit`）。Repository が返した結果（詳細は`not_found`・`not_visible`）を 404・403 に分ける。管理の資格は、Service では判定しない（Repository が読み取りの SQL の中で決める）。HTTP を知らない |
-| `backend/src/db/case.repository.ts` | Repository。`list`（一覧）・`findSummary`（概要1件）・`findDetailExtras`（詳細だけの項目。操作者の ID を受け取り、戻り値は詳細の項目か`not_visible`か`not_found`）。`list`・`findSummary`は操作者の ID だけを受け取る。見える範囲と資格は SQL で決める。読み取りだけで、監査・通知は書かない。管理の資格の SQL の条件`canManageSql`は、148-B-2 で`backend/src/db/case-access.sql.ts`に移した（中身は同じ。案件の添付の Repository と共用） |
+| `backend/src/db/case.repository.ts` | Repository。`list`（一覧）・`findSummary`（概要1件）・`findDetailExtras`（詳細だけの項目。操作者の ID を受け取り、戻り値は詳細の項目か`not_visible`か`not_found`。【150-C で変更：概要の項目・担当部署・`version`も同じ`db.batch`で読み、詳細の応答全体を返す】）。`list`・`findSummary`は操作者の ID だけを受け取る。見える範囲と資格は SQL で決める。読み取りだけで、監査・通知は書かない。管理の資格の SQL の条件`canManageSql`は、148-B-2 で`backend/src/db/case-access.sql.ts`に移した（中身は同じ。案件の添付の Repository と共用） |
 | `backend/src/db/channel-member.sql.ts` | 「有効な参加者」の共通の部品`activeChannelMember`（下の節） |
 | `docs/api/openapi.json` | 3つの API の契約（`backend/src/openapi.test.ts`が実装と照合する） |
 
@@ -147,7 +148,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | --- | --- | --- |
 | 一覧（EP-5-06） | `scope`（`joined`・`all`。必須）、`status`（`active`・`closed`。必須）、`limit`（既定20・最大100）、`cursor` | 200：`items`・`nextCursor`。項目は概要の項目（下） |
 | 概要（EP-5-07） | パスの`caseId` | 200：概要の項目 |
-| 詳細（EP-5-08） | パスの`caseId` | 200：概要の項目に、`description`・`channelId`・`createdBy`・`participants`を足したもの |
+| 詳細（EP-5-08） | パスの`caseId` | 200：概要の項目に、`description`・`channelId`・`createdBy`・`participants`を足したもの。【150-C で、`version`（案件の版）を足した。詳細だけにあり、概要・一覧にはない】 |
 
 - 概要の項目：`id`・`caseNumber`・`title`・`status`・`client`（`id`・`name`・`isActive`）・`departments`（`id`・`name`・`isActive`）・`dueDate`（`YYYY-MM-DD`または`null`）・`isParticipant`・`canManage`・`participantCount`（上の節のとおり`null`になることがある）・`canEditDueDate`（147-B で足した。進行中で、有効な参加者か管理の資格のある人なら真）。進捗は含めない（#149）
 - 詳細の`createdBy`は**作成者の利用者の ID**。`participants`は、`userId`・`displayName`・`departmentName`・`isActive`・`isCreator`・`autoRole`・`removable`（後の2つは147-B で足した）。並びは参加した日時、同じなら利用者 ID の順。退職者（無効）も残し、`isActive`を偽にする
@@ -1030,7 +1031,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | --- | --- | --- |
 | 終了・再開 | 進める | 版の一致で検出 |
 | 納期の変更（147-B） | 進める | 版の一致で検出（終了の直前に納期が変わっていれば 409 `stale`） |
-| 再編集（150-C） | 進める（予定） | 同上 |
+| 再編集（150-C） | 進める | 参加者は版の一致で検出。参加していない管理者は版を見ず、件名・取引先・担当部署の集合の一致（`expected`）で検出（下の「150-C の設計」） |
 | 参加者の追加・削除・退出（147-B）、無効化・再有効化、オーナー交代による自動参加 | 進めない | 宛先の一致（`recipientsUnchanged`）で検出。変わったら宛先を読み直して1回だけやり直す |
 | 投稿・返信・リアクション（148-A） | 進めない | 関係しない（宛先・状態を変えない） |
 
@@ -1183,6 +1184,191 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 真偽値（`viaReopen`・`self`）は、SQL の`json_object`に数値で渡すと JSON の数値になり、既存の監査（`JSON.stringify`で真偽値）と型が食い違う。JSON の真偽値として保存し、テストで型を確かめる
 - D1 の1つの batch の文の数・1回の呼び出しの問い合わせの数の上限の値は、`docs/`にも調査にも根拠がなく**未確認**。文の数を人数によらず最大15にしたことで、150-A（最大4文）・147-B と同じ桁に収めた。手元のテスト（Miniflare）が確かめるのは「上限の人数で動くこと」だけで、本番の D1 の上限に収まることの証明ではない
 
+## 150-C の設計（案件の内容の再編集）
+
+決定は[C-199](../requirements/decision-register.md)。要件は 5-1 AC-20、C-122(3)〜(6)・C-124・C-129・C-130・C-133(2)(3)・C-140(3)(4)、S-17、EP-5-20。**migration はない**（`cases`の列と`case_departments`は既にある）。変えられるのは件名・説明・取引先・担当部署で、案件番号と取引先コードは変えない（`case_number`・`number_client_id`に触れない）。**納期は再編集に含めない**（既存の「納期を変更」のまま。送ると 422）。コードは書き写さず、ファイル名・関数名で指す。
+
+### ファイルと役割（150-C で足した・変えたもの）
+
+バックエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `backend/src/routes/cases.ts` | `PATCH /:caseId`。パスの形（ULID）と本文の外枠だけを検証し、Service に渡す。項目の形は、403 までの判定の後に Service で確かめる（存在・状態・説明の有無を漏らさないため。147-B の追加・150-B の再開と同じ形）。応答に`noStore` |
+| `backend/src/services/case.service.ts` | `editBodySchema`（`strict`。変える項目と、`version`か`expected`のどちらか1つ）・`decideEdit`（export。最初の判定と読み直しで同じ順。判定の内側を`isStale`・`decideEditTargets`に分けた）・`edit`（判定の順・読み直し・やり直し）・`changedFieldsOf`（いまの値と違う項目だけを選ぶ）。拒否の`logger.audit`の理由は`not_found`・`cannot_edit`・`description_participants_only`（409・422 は、ほかの操作と同じく残さない）。`detail`は、先に読んだ概要を資格の判定にだけ使い、応答は`findDetailExtras`の値をそのまま返す |
+| `backend/src/db/case.repository.ts` | `findEditFacts`（判定の材料を1回の`db.batch`で読む）・`buildEditStatements`（export。文の配列を組む）・`editCase`（それを`db.batch`で実行）。`findDetailExtras`は概要の項目・担当部署・`version`も同じ batch で読む。`selectRows`の取引先の列に別名を付けた（下の「設計の判断」） |
+| `backend/src/lib/audit-actions.ts` | 操作`case.edit`を足した（対象の種類`case`は 147-B で足した） |
+| `backend/src/routes/case-requests.ts`・`services/case-request.service.ts`・`db/case-request.repository.ts` | 類似件名の確認に任意のクエリ`excludeCaseId`を足した（下の「類似件名」） |
+| `docs/api/openapi.json` | EP-5-20 の契約（`CaseEditBody`〔`version`か`expected`〕・200・403・404・409 の`closed`・`stale`・`retry`・422）、`CaseDetail.version`、監査の操作の列挙、similar-title のクエリ。`CaseSummary`は変えない |
+
+フロントエンド：
+
+| ファイル | 役割 |
+| --- | --- |
+| `frontend/src/features/cases/components/CaseEditDialog.tsx` | 新規。「内容を編集」のダイアログ。欄は件名（注意の文・類似の警告）・説明（参加者だけ）・取引先・担当部署（チェック）・案件番号（表示だけ）。開いた時点の基準（`CaseEditBasis`）を受け取り、入力の初期値・比べる値・送る衝突の検知の値に使う |
+| `frontend/src/features/cases/components/CaseDetailView.tsx` | ボタン「内容を編集」、基準の作成と固定（`editBasisOf`）、開閉・結果の表示（`CaseEditPanel`）。ページの側が持つ |
+| `frontend/src/features/cases/schemas/case-edit-form.ts` | 新規。フォームの入力チェック（件名・説明の規則は`shared/case-rules.ts`を参照。担当部署は1件以上） |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts`・`api/case-api.ts`・`labels.ts` | `useEditCase`・`editCase`と本文の型`CaseEditBody`・詳細の`version`・文言`CASE_EDIT_TEXTS` |
+| `frontend/src/features/case-requests/components/DepartmentCheckboxes.tsx`・`SimilarTitleNotice.tsx` | 新規。申請の画面（`CaseRequestForm.tsx`）にあった部品を、再編集と共用するために別ファイルへ移した（中身は同じ） |
+| `frontend/src/features/case-requests/form-parts.ts` | 新規。再編集が使う部品・候補・類似件名の公開の入口。`index.ts`から公開しない理由は「設計の判断」 |
+| `frontend/src/features/case-requests/labels.ts` | `TITLE_CAUTION`（件名の欄の注意の文）の定義元をここにした（申請の画面と再編集で共用） |
+| `frontend/src/features/case-requests/hooks/useSimilarTitle.ts`・`api/query-keys.ts`・`api/case-request-api.ts` | 任意の`excludeCaseId`・`enabled`を受ける（キャッシュのキーにも含める） |
+| `frontend/src/features/audit-logs/action-labels.ts` | 「案件の編集」 |
+
+### 範囲と、使える人
+
+| 項目 | 内容 |
+| --- | --- |
+| 編集できる人 | 有効な参加者、いずれかの担当部署のオーナー、全体管理者（参加していなくてよい）。権限は`perm.case.edit`（会社の範囲） |
+| 説明 | 有効な参加者だけが変えられる。参加していない人が本文に`description`を入れると 403 |
+| 状態 | 進行中だけ。終了中は 409 `closed`。**アーカイブ中の禁止（#151）と、審査中の公開申請・再開申請があるときの禁止（C-140(2)。5-5・5-6）は、未実装のため判定にない** |
+| 通知 | 出さない（C-124・C-140(3)）。監査ログだけが記録する |
+| 再認証・レート制限 | 求めない・作らない（C-81 の趣旨。X-8 が未決定） |
+
+### API と判定の順（EP-5-20）
+
+本文（`strict`）は、変える項目（`title`・`description`・`clientId`・`departmentIds`。送った項目だけ）と、衝突の検知の値を**どちらか1つ**。
+
+- `version`（整数）：有効な参加者が送る。詳細の応答の版
+- `expected`：`title`・`clientId`・`departmentIds`（概要で見た値）。参加していない管理者が送る。**有効な参加者が送ると 422**（説明の衝突を版で見るため）
+
+| 順 | 判定 |
+| --- | --- |
+| 1 | 認証・送信元（`app.ts`）→ パスの形（422） |
+| 2 | 案件がない → 404（`logger.audit`） |
+| 3 | 有効な参加者でも管理の資格もない → 403「案件を編集できるのは、参加者・担当部署のオーナー・全体管理者だけです」（`logger.audit`） |
+| 4 | `authorize(perm.case.edit)` → 403 |
+| 5 | 有効な参加者でないのに、本文に`description`か`version`がある → 403「説明を変更できるのは参加者だけです」（`logger.audit`）。本文の形より先に見る。`version`を拒むのは、非参加者に「版が合ったか」を 409 と 200 の違いで答えないため |
+| 6 | 本文の形 → 422（件名は整形した後に 1〜100 文字・説明 2000 文字以内・担当部署は 1 件以上で重複なし・`caseNumber`・`dueDate`・未知の項目は`fields`に項目名・`version`と`expected`の両方、またはどちらもない、有効な参加者の`expected`は`fields: ["version"]`） |
+| 7 | 終了中 → 409 `closed` |
+| 8 | 衝突（`isStale`）：`version`がいまの版と違う、または`expected`がいまの件名・取引先・担当部署の集合と違う → 409 `stale` |
+| 9 | 取引先をいまと違う値にするのに、ない・無効 → 422（`fields: ["clientId"]`）。いまと同じ取引先なら、無効でも通す（C-140(4)） |
+| 10 | 新しく足す部署に、ない・無効なものがある → 422（`fields: ["departmentIds"]`）。すでに担当の無効な部署は残せる（Q1＝A） |
+| 11 | 変える項目がない（いまの値と同じ）→ 何も書かずに 200。版・監査を変えない |
+| 12 | batch |
+
+- 取引先・部署の「ない」と「無効」は同じ本文にする（`fields`だけが違う。存在・状態を本文の違いで明かさない）
+- 応答は 200 で`{ caseId, titleFormatted }`だけ（説明・版を返さない。画面は取り直す）。`titleFormatted`は、件名を送り、整形で値が変わったときだけ真
+- 判定は`decideEdit(facts, body, actorId)`の1つ（材料の資格の値だけで決まる）。最初の判定と、前提が崩れた後の読み直しで同じ関数を使う
+
+### 版の方式と`expected`の方式
+
+| 項目 | 版の方式（有効な参加者） | `expected`の方式（参加していない管理者） |
+| --- | --- | --- |
+| 送る値 | 詳細の`version` | 概要で見た`title`・`clientId`・`departmentIds` |
+| 先頭の前提 | 進行中・版が送った値のまま・有効な参加者・各変更の条件 | 進行中・件名・取引先・担当部署の集合が`expected`のまま・管理の資格・説明を含まない・各変更の条件 |
+| 後ろの文 | 案件の ID と進行中だけ | 同じ |
+| 版の扱い | 一致を求め、更新で**現在の値から**+1 | 見ない。更新で現在の値から+1 |
+| 説明・納期だけの同時の変更 | 版が進むので 409 `stale`（相手の説明を上書きしない） | 衝突にしない。編集は成功し、相手の説明・納期は残る（指定した列だけを書くため） |
+| 公開項目（件名・取引先・担当部署）の同時の変更 | 409 `stale` | 409 `stale` |
+| 監査の前の値 | 版で、読んだ値のままと確かめ済み | `expected`で、読んだ値のままと確かめ済み |
+
+**概要・一覧に版を返さない理由**：概要・一覧は全社員が読める。版は説明だけの更新でも進むので、返すと、説明を読めない人にも説明が更新されたかどうかが分かる。そこで、版を返すのは**詳細（有効な参加者だけが取れる）**に限り、参加していない管理者は、見えている件名・取引先・担当部署の集合との一致で衝突を見る（利用者の決定。Q3＝C）。この方式の違いは、参加していない管理者どうしで納期だけが変わっても衝突にしないこと（変える項目と関係がない）。
+
+### 詳細の応答を1つの時点にそろえる
+
+以前の`detail`は、概要（`findSummary`）を読み、資格を確かめた後に、説明・参加者（`findDetailExtras`）を別に読んで合わせていた。間に件名が変わると、古い件名と新しい版が1つの応答に混ざり、画面がそれを基準に編集して正しい衝突の検知ができなくなる。そこで、`findDetailExtras`の`db.batch`が、概要の行（`selectRows`）・担当部署・説明・`version`・参加者・役割を**同じ読み取りの時点**で読み、Service は、先に読んだ概要を 404・403 と`authorize`の判定にだけ使い、応答には`findDetailExtras`の値を使う。応答の形は、足した`version`を除いて変わらない。判定の順（404 → 403 → `perm.case.view`）と、非参加者が 403 になることも変えていない。
+
+### 材料の読み取り（`findEditFacts`）
+
+1回の`db.batch`で、案件の行（状態・版・件名・説明・取引先・操作者が有効な参加者か・管理の資格）・いまの取引先と求めた取引先（コード・名前・有効か）・いまの担当部署の集合・求めた部署の有無と有効か・自動参加させる人を読む。求めた部署の ID は JSON の値1つで渡す（部署の数に比例して束縛値を増やさない）。説明はサーバーの中の比較にだけ使い、応答・監査に出さない。
+
+### 書き込み（`buildEditStatements`が組む1回の`db.batch`）
+
+**前提**（`editCondition`。1つの SQL。案件があることも含む）：進行中・衝突の検知（上の表）・操作者の資格（有効な参加者か管理の資格）・説明を変えるなら有効な参加者・取引先を変えるなら新しい取引先が有効・担当部署を変えるなら担当部署の集合が読んだまま・足す部署が全部あって有効・自動参加させる人の集合が読んだまま。
+
+| 順 | 文 | 件数の確認 |
+| --- | --- | --- |
+| 1 | 前提の確認`assertStatement` | — |
+| 2 | 監査`case.edit`（`auditLogInsert`の`onlyWhen`に前提を渡す。案件がない・前提が崩れていれば0行） | `guardChanges(1)` |
+| 3 | 担当部署の削除（外す部署があるときだけ。送った集合にないもの） | `guardChanges(外す数)` |
+| 4 | 担当部署の追加（足す部署があるときだけ。ID は JSON の値1つ＋`json_each`） | `guardChanges(足す数)` |
+| 5 | 自動参加（`joinUserIds`が1人以上のときだけ。参加の行の挿入） | `guardChanges(人数)` |
+| 6 | 案件の更新（**指定した列だけ**＋版を現在の値から+1＋更新日時。`RETURNING`） | `guardChanges(1)` |
+| 7 | 末尾の不変条件`assertStatement`（担当部署が1件以上。C-130(1)） | — |
+
+- **文の数は最大12**（1＋2＋2＋2＋2＋2＋1。部署・人の数に比例しない）。D1 の1文の束縛値の上限（100）に収まることは、DB のテストが、生成したすべての文について確かめる
+- **後ろの文（3〜6）は、案件の ID と進行中だけを見る**。先頭の前提を通れば、D1 の`db.batch`は1つのトランザクションで、途中に別の要求が割り込まないため前提は保たれる。版の一致を後ろの文で求めないのは、`expected`の方式で、読んだ後に説明・納期だけが変わると後ろの文が0行になり、500 になるため
+- **取り消しの仕組みと、案件がないときの扱い**：`assertStatement`・`guardChanges`が偽になると全体が取り消される（150-B と同じ）。案件がないとき、条件つきの更新・削除は0行でエラーにならず、件数の確認も0行で通ってしまうので、`editCase`が、案件の更新の`RETURNING`が0行なら`CaseStateChangedError`にする。監査は`onlyWhen`で0行になるので、案件がなくても監査だけが残ることはない
+- **触れないもの**：`case_number`・`number_client_id`・チャンネル・通知・外れた部署のオーナーの参加の行（C-133(2)）・`due_date`・`cases.description`（指定しない限り）
+
+### 監査（`case.edit`）
+
+`detail`は平坦で、変えた項目のキーだけを入れる。業務の更新と同じ batch で確定する。
+
+| キー | 入るとき |
+| --- | --- |
+| `caseId`・`changedFields`（`title`・`description`・`client`・`departments`のうち変えたもの。「,」でつなぐ） | 常に |
+| `titleBefore`・`titleAfter` | 件名を変えたとき |
+| `descriptionChanged`（真偽値） | 説明を変えたとき。**説明の本文は入れない** |
+| `clientIdBefore`・`clientCodeBefore`・`clientNameBefore`・`clientIdAfter`・`clientCodeAfter`・`clientNameAfter` | 取引先を変えたとき（C-129(3)。取引先の名前とコード） |
+| `departmentIdsBefore`・`departmentIdsAfter`（ID の昇順を「,」でつなぐ）・`departmentAddedCount`・`departmentRemovedCount`・`caseJoinCount`（自動参加した人数） | 担当部署を変えたとき |
+
+- 自動参加は`case.edit`の1件に含める（人ごとの監査を作らない。147-C-2 の`caseJoinCount`と同じ）
+- 前の値は材料で読んだ値。取引先の名前だけは、読んだ後の改名を前提にしないので、読んだ時点の値
+
+### 自動参加（担当部署を足したとき）
+
+足した部署の**有効なオーナー**（担当部署のスコープの役割を持つ有効な社員）で、案件専用チャンネルに参加の行がない人を、同じ batch で参加させる（C-133(3)）。承認のときと同じ規則で、利用者の ID で重複を除く（同じ人が足す2部署を兼任していても1人）。参加させる人の集合は`findEditFacts`が読み、前提で「その集合のまま」を確かめ、挿入の直後に件数を確かめる。外した部署のオーナーは、参加者のまま残る（C-133(2)）。部署を足さなければ、自動参加は起きない。
+
+### 前提が崩れたとき（`edit`の流れ）
+
+1. 材料を読む（本文の`clientId`・`departmentIds`を渡す）→ `decideEdit`の判定 → 変える項目がなければ 200
+2. batch。前提が崩れたら（`CaseStateChangedError`）、材料を**読み直して**同じ判定を行い、404・403・409・422 のどれかに当たればそれを返す
+3. どれにも当たらず、**読んだ件名・取引先・担当部署の集合が変わっていれば** 409 `stale`（版を進めずに担当部署が付け替えられた場合も含む）
+4. それでもなく、自動参加させる人の集合だけが違えば（オーナーの交代など。版は進まない）、読み直した材料で**1回だけ**やり直す。2回目も崩れたら 409 `retry`
+5. 上のどれでもなければ、成功にせず元のエラーのまま投げる
+
+### 類似件名（`excludeCaseId`）
+
+`GET /api/case-requests/similar-title`に、任意のクエリ`excludeCaseId`（ULID）を足した。`hasSimilarTitle`の案件の側の文に「その案件自身を除く」条件を足す（審査中の申請の側は変えない）。応答は、これまでどおり真偽と整形後の件名だけ。比べる相手は全社員に見える概要の件名・取引先なので、新しく分かることはない。画面は、件名か取引先が基準と変わったときだけ確かめ、警告は出すが保存は止めない（146-A と同じ）。
+
+### 画面（S-17。`CaseEditDialog`）
+
+| 場所 | 内容 |
+| --- | --- |
+| ボタン | ヘッダーの下の並び（「納期を変更」「案件を終了／再開」と並べる）に「内容を編集」。出す条件は、進行中で、有効な参加者か`canManage`。表示の制御で、認可はサーバー。参加者は、詳細が取れるまで押せない |
+| 開いた時点の固定 | ボタンを押したときに、**1つの応答だけ**から基準を作り、ダイアログに渡す。有効な参加者は**詳細の応答だけ**から（件名・説明・取引先・担当部署・`version`。詳細が1つの時点の値なので混ざらない）、参加していない管理者は**概要の応答だけ**から（件名・取引先・担当部署。これが`expected`。説明の欄は出さない）。ダイアログが開いている間、概要・詳細を取り直しても、入力の初期値・比べる値・送る衝突の検知の値を差し替えない（背景の取り直しで古い入力を新しい版で送らないため。サーバーの値を`useState`に写さない決まりに対する、意図した例外） |
+| 送る本文 | 基準と比べて変えた項目と、基準の`version`か`expected`。何も変えていなければ「保存」を押せない |
+| 取引先・担当部署の候補 | 有効なものに、基準の無効なもの（取引先・部署）を「（無効）」付きで足す。候補と欄を一度にそろえて出す |
+| 結果 | 成功はダイアログを閉じ、外に「案件の内容を保存しました」（件名を整形したら「表記を整えて保存しました」も）。422 は欄（当たる欄がなければダイアログの中）。409・403・404 は、ダイアログを閉じて、サーバーの文言を外に出す（409 `stale`のときは、取り直した画面で開き直してもらう。古い入力を新しい基準で送り直さない） |
+| 取り直し | `useEditCase`が、成功しても失敗しても案件（`caseKeys.all`）を取り直し、成功では申請のキャッシュ（`caseRequestKeys.all`。類似件名の確認など）も取り直す |
+| 離れる・資格を失う | 入力の途中は`useLeaveGuard`（チャンネルの編集と同じ）。開いたまま外されたときは、#308 の`onLost`でダイアログを閉じ、説明を残さない。利用者・案件が替わったときは、`CaseDetailPage`の`key`で作り直し、ダイアログ・入力を持ち越さない（#284） |
+
+### 同時の操作
+
+| 組み合わせ | 結果 |
+| --- | --- |
+| 読み取りの後に、別の編集・納期の変更・終了して再開（版が進む） | 参加者は 409 `stale` |
+| 別の管理者が件名・取引先・担当部署を変える | `expected`の方式は 409 `stale` |
+| 納期・説明だけが変わる | `expected`の方式は通る（相手の説明・納期は残り、版は2つ進む）。版の方式は 409 `stale` |
+| 版を進めずに担当部署が付け替えられる | 読み直しで、読んだ集合と違うので 409 `stale` |
+| 終了 | 読み直しで 409 `closed` |
+| 操作者が外される・無効になる・オーナーでなくなる | 読み直しで 403 |
+| 取引先・足す部署が無効になる | 読み直しで 422 |
+| 足す部署のオーナーが交代する（版は進まない） | 集合を読み直して1回だけやり直し、新しいオーナーが1行だけ参加する。2回続けて変われば 409 `retry` |
+| 拒否された要求 | 監査・参加の行・担当部署が残らない |
+
+### テストの場所（150-C）
+
+- 単体：`backend/src/services/case-edit.decide.test.ts`（`decideEdit`の順と各判定）、`case-edit.service.test.ts`（`edit`の本文の形・呼び出し）、`backend/src/lib/audit-actions.case-edit.test.ts`・`frontend/src/features/audit-logs/action-labels.case-edit.test.ts`（操作名・表示名）
+- DB：`backend/src/db/case-edit.repository.db.test.ts`（各項目の更新・版+1・番号の不変・監査の`detail`・自動参加〔無効なオーナー・既に参加の人・兼任〕・前提を1つずつ崩して何も残らないこと・`buildEditStatements`の文を差し替えて件数の確認が全体を取り消すこと・存在しない案件で監査が増えないこと・#294 の相関・生成した全文の束縛値が 100 以下で文が12以下・部署120件）。テスト部品は`backend/test/case-edit-fixtures.ts`
+- 割り込み：`backend/src/services/case-edit.interleave.test.ts`（材料の読み取りの後に別の操作が入る順を固定する。上の「同時の操作」）、`case-detail.snapshot.test.ts`（詳細の応答が1つの時点にそろうこと）
+- 結合：`backend/src/routes/cases.edit.test.ts`（判定の順・存在の非開示・200の形・`noStore`・非参加者の応答が説明の更新の前後で同じこと・通知が増えないこと）、`backend/src/routes/case-requests.similar-exclude.test.ts`（`excludeCaseId`）、契約は`backend/src/openapi.case-edit.test.ts`。既存の`backend/src/routes/cases.test.ts`は、詳細の項目に`version`を足した
+- フロントエンド：`frontend/src/pages/CaseEdit.test.tsx`（出し分け・本文・422・409・送信中・離れる前の確認）、`CaseEdit.snapshot.test.tsx`（開いた時点の固定）、`CaseEditAccessLoss.test.tsx`（資格を失ったとき）、`CaseEditSessionSwitch.test.tsx`（利用者の切り替え）。申請の画面の既存のテスト（`CaseRequestPage.test.tsx`）が、部品を移した後も通ることを確かめた
+- E2E：`e2e/case-edit.spec.ts`（1件。参加者 A が件名・説明・取引先を変え担当部署 X を足す → 再読み込みなしで見出しが変わる → X のオーナー C のサイドバーに出て詳細が見える〔自動参加〕→ 参加していない担当部署のオーナー B は説明の欄のないダイアログで件名だけ変えられる。[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/case-edit.sql`、後始末は`e2e/seeds/case-edit-cleanup.sql`
+
+### 設計の判断（知見）
+
+- **版の方式と`expected`の方式を、資格で分けた**：説明の更新が版を進めるので、版を全員に見せると説明の更新の有無が漏れる。参加者には版、参加していない管理者には公開項目の一致で衝突を見せる（migration なしの案。説明を進めない別の版の列を足す案は、migration と「版を進める操作の表」が2つになるため採らなかった）
+- **D1 の`db.batch`の中では、同じ名前の列の値が取り違えられることがある**：`findDetailExtras`が、案件の概要の行（取引先の`id`・`name`と、案件の列が同名）を batch に入れたところ、取引先の列の値が取り違えられた。そこで、`selectRows`の取引先の列（`id`・`name`・`isActive`）に**別名**を付けた。決まり：**`db.batch`に入れる読み取りで、結合した表の列が、ほかの表の列と同じ名前になるときは、別名を付ける**。なぜ取り違えが起きるかの原因は未調査（別名で防げることだけをテストで確かめた）。一覧・概要など、`selectRows`を使う既存の読み取りも同じ別名を通る（応答の形は変えない）
+- **後ろの文の条件は、案件の ID と進行中だけ**：先頭の前提で版・`expected`・資格・各変更の条件を確かめれば足りる。後ろに版の一致を足すと、`expected`の方式で説明・納期だけが変わった場合に、後ろの文が0行になり 500 になる
+- **更新は指定した列だけを書く**：説明・納期など、指定していない列は書かない。`expected`の方式で、相手が読んだ後に変えた説明を上書きしないため
+- **監査の`onlyWhen`を使う**：`auditLogInsertWithDetailSql`は条件を付けられないため、案件がないときに監査だけが残る。`detail`は SQL ではなく、読んだ材料から組む
+- **`form-parts.ts`を`case-requests/index.ts`と別にした**：`index.ts`は案件の機能（`cases`）を参照する部品を含む。`cases`から`index.ts`を参照すると循環になるため、再編集が使う部品・候補・類似件名だけを`form-parts.ts`から公開した（既存の機能どうしの公開の入口の決まりの範囲で、循環を避ける）
+- **`TITLE_CAUTION`の定義元は`case-requests/labels.ts`の1か所**。申請の画面と再編集の両方が参照する
+- **D1 の1つの batch の文の数の上限は未確認**（150-B と同じ）。最大12文にして、150-A・150-B と同じ桁に収めた。手元のテスト（Miniflare）が確かめるのは、120部署・多数のオーナーで動くことと、全文の束縛値が 100 以下であることだけで、本番の D1 の上限の証明ではない
+
 ## 資格を失ったときの画面の切り替え（#308）
 
 S-17 を開いたまま、ほかの参加者に外された人の画面が、開き直すまで、既に読み込んだ説明・参加者の一覧を出し続けていた（概要・詳細に自動の更新がなく、やり取りの自動の更新が拒否されても、詳細を取り直す経路がなかった。新しい中身は取得されない）。既存の参加者の削除（#147-B）からあった穴で、#150-B の計画レビューで見つかり、先に直した。決定は C-190。API・DB は変えない（フロントエンドだけ）。
@@ -1259,7 +1445,12 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 再開の「申請者」の必須参加・承認者が同じ情報を確かめること（5-1 AC-16・AC-13 の「申請」の部分） | 作らない。再開申請（5-6、#153。後回し）が未実装のため、外せないのは再開する本人と自動参加の人だけ（C-194(2)） |
 | 終了の時点の参加者の記録 | 作らない。候補は「再開の時点で参加していて有効な人」（C-194(1)）。終了の後に無効化された人の参加の行は、再開の除外では消えない（行は残る） |
 | 終了中の参加者の追加・削除（権限表 Q-37。未決定） | 150-B は、再開と同時の変更だけ。終了中の通常の追加・削除は 409 `closed`のまま |
-| 再編集（EP-5-20。件名・説明・取引先・担当部署）、5-1 AC-20 | 作らない。150-C。参加していない担当部署のオーナー・全体管理者は、概要の項目（件名・取引先・担当部署・納期）だけ編集でき、説明は参加者だけ。監査は件名を前後の値で、説明は変えたことだけ残す。類似の件名の警告は案件の申請（146-A）と同じ（利用者・統括の決定。[C-189](../requirements/decision-register.md)） |
+| 再編集（EP-5-20。件名・説明・取引先・担当部署）、5-1 AC-20 | **150-C で実装済み（解消）**（下の「150-C の設計」。[C-199](../requirements/decision-register.md)）。参加していない担当部署のオーナー・全体管理者は、件名・取引先・担当部署だけ編集でき、説明は参加者だけ。監査は件名を前後の値で、説明は変えたことだけ残す。類似の件名の警告は案件の申請（146-A）と同じ（利用者・統括の決定。[C-189](../requirements/decision-register.md)）。納期は再編集に含めず、既存の「納期を変更」（147-B）のまま |
+| 再編集で、審査中の公開申請・再開申請があるときの禁止（C-140(2)） | 作らない。公開申請・再開申請（5-5・5-6）が未実装のため、判定にまだない。5-5・5-6 の Issue で足す（150-C の既知の差） |
+| 再編集で、アーカイブ中の案件の禁止（C-129(4)） | 作らない。案件のアーカイブ（#151）が未実装のため。#151 で足す |
+| S-17 の「⋯」メニュー（screens.md の案：「編集」を含む） | 作らない（150-C）。「内容を編集」のボタンを置いた。項目が2つ以上になる #151 で「⋯」にまとめる（利用者の決定。C-199(2)） |
+| 再編集のレート制限・非参加の管理者が編集したことの見せ方 | 作らない。レート制限は X-8 が未決定、見せ方は C-122 で未決定のため、監査ログだけが記録する |
+| 再編集の監査の取引先の名前 | 読んだ時点の値（読んだ後の取引先の改名は前提に入れない）。取引先の ID と、件名・担当部署の集合は、読んだときのままであることを前提で確かめる |
 | 案件の操作履歴の画面（C-140(3)） | 未定義。操作の履歴は監査ログだけで満たし、参加者向けの履歴の画面は作らない（利用者の決定） |
 | 終了のときの未完了の TODO の扱い | 解消（#309。C-193）。終了の確認に警告を出し、終了はできる（TODO は未完了のまま残り、終了中は閲覧のみ。再開すれば再び操作できる）。サーバーの終了の判定は変えていない。以前は未定義だった（150-A は TODO に触れなかった） |
 | 終了・再開の日時の列 | 作らない（migration なし）。「いつ」は監査ログの記録の日時で分かる。記録の有無は未決定（#37） |
@@ -1290,5 +1481,5 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 - Issue #148：案件のやり取り（3つの子に分ける。148-A が最初。依存は #147・#284・#297・#294）。要件：5-2 AC-1〜AC-6（AC-3 は参加者の閲覧・取得の部分）・5-1 AC-11、R-62〜R-64、S-17・S-07・S-35。決定記録[C-184](../requirements/decision-register.md)。148-B-1（添付の一覧。5-2 AC-7 の参加者の部分、EP-5-19）の決定は[C-191](../requirements/decision-register.md)。148-C（S-16 の最終更新・未読、サイドバーの未読の印。5-1 AC-4 の残り）の決定は C-191(4)・[C-192](../requirements/decision-register.md)。148-B-2（添付の公開範囲。5-2 AC-8・AC-9、R-85、EP-1-23。migration 0030）の決定は C-191(1)〜(3)・[C-195](../requirements/decision-register.md)、関連：[ADR-0024](../adr/0024-add-column-rewrite-for-table-rebuild.md)（列の追加の migration の書き換え）。関連する設計：[messages.md](messages.md)・[threads.md](threads.md)・[attachments.md](attachments.md)・[unread.md](unread.md)・[channels.md](channels.md)
 - Issue #149：案件の TODO（4つの子に分ける。149-A が最初。149-B〔編集・削除。EP-5-15・16。決定[C-196](../requirements/decision-register.md)〕・149-D〔担当者が外れたときの処理。決定[C-197](../requirements/decision-register.md)。migration 0031〕も実装済み。依存は #148）。要件：5-4 AC-1〜AC-5・AC-6（選べる人の部分）・AC-7・AC-9・AC-11（記録）、1-9 AC-2、5-1 AC-2 の進捗、R-76・R-78、S-16・S-17、EP-5-13・14・17・18。決定記録[C-188](../requirements/decision-register.md)。関連：[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)
 - 要件：5-1 AC-2（進捗を除く）・AC-4・AC-5・AC-12・AC-14・AC-17（表示）・AC-19（表示）・AC-21（管理の情報の表示）、S-16・S-17。147-B：5-1 AC-3・AC-7（外せない部分）・AC-11（終了中は不可）・AC-17（変更）・AC-21（納期の変更）、EP-5-09・EP-5-10。決定記録[C-182](../requirements/decision-register.md)
-- Issue #150：案件の終了・再開・再編集（3つの子に分ける。150-A が最初。依存は #148 の148-A）。要件：5-1 AC-8〜AC-11・AC-13、3-3 AC-1〜AC-3、R-77、S-17、EP-5-11・EP-5-12。決定記録[C-189](../requirements/decision-register.md)。150-B（再開のときの参加者の選び直し。5-1 AC-13・AC-16、3-3 AC-2・AC-3）の決定は[C-194](../requirements/decision-register.md)。依存は #149-A・#308
+- Issue #150：案件の終了・再開・再編集（3つの子に分ける。150-A が最初。依存は #148 の148-A）。要件：5-1 AC-8〜AC-11・AC-13、3-3 AC-1〜AC-3、R-77、S-17、EP-5-11・EP-5-12。決定記録[C-189](../requirements/decision-register.md)。150-B（再開のときの参加者の選び直し。5-1 AC-13・AC-16、3-3 AC-2・AC-3）の決定は[C-194](../requirements/decision-register.md)。依存は #149-A・#308。150-C（案件の内容の再編集。5-1 AC-20、EP-5-20）の決定は[C-199](../requirements/decision-register.md)。#150 の子はこれで3つとも実装済み
 - 関連する設計：[case-requests.md](case-requests.md)、[app-shell.md](app-shell.md)、[notifications.md](notifications.md)、[channels.md](channels.md)、[audit-logs.md](audit-logs.md)
