@@ -86,6 +86,7 @@ npm run docker:up:local
 | `docs/adr/` | 設計判断の記録。`0000-template.md` を写して書きます |
 | `docs/testing/` | テストの種類ごとの環境構築の手順書（セキュリティのテストは `security.md`、API の異常な入力のテストは `schemathesis.md`） |
 | `docs/api/openapi.json` | API の仕様書（OpenAPI）。API を足す・変えるときは、同じ変更の中で直します |
+| `docs/operations/` | 運用の手順書。本番の D1 に migration 0013〜0031 を当てる手順は `production-migration-0013-0031.md`（実行は利用者が承認して行う） |
 
 ## 仮のアイコン
 
