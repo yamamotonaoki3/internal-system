@@ -133,3 +133,149 @@ describe("#155 AC-3 U-2 findSearchMatches：一致の位置", () => {
     ]);
   });
 });
+
+describe("#155 AC-3 U-2 toSearchText：規則ごとの完全一致（ミューテーション診断の生き残り。設計書の「記号を除く規則」）", () => {
+  it("#155 AC-3 U-2: 引用（空白あり）", () => {
+    expect(toSearchText("> 引用")).toBe("引用");
+  });
+
+  it("#155 AC-3 U-2: 引用（空白なし）", () => {
+    expect(toSearchText(">引用")).toBe("引用");
+  });
+
+  it("#155 AC-3 U-2: 引用の重なり", () => {
+    expect(toSearchText("> > 二重引用")).toBe("二重引用");
+  });
+
+  it("#155 AC-3 U-2: 引用の中の箇条書き", () => {
+    expect(toSearchText("> - 引用の中の項目")).toBe("引用の中の項目");
+  });
+
+  it("#155 AC-3 U-2: 見出し1", () => {
+    expect(toSearchText("# 一")).toBe("一");
+  });
+
+  it("#155 AC-3 U-2: 見出し2", () => {
+    expect(toSearchText("## 二")).toBe("二");
+  });
+
+  it("#155 AC-3 U-2: 見出し6", () => {
+    expect(toSearchText("###### 六")).toBe("六");
+  });
+
+  it("#155 AC-3 U-2: 記号だけの見出し", () => {
+    expect(toSearchText("#")).toBe("");
+  });
+
+  it("#155 AC-3 U-2: 見出しの後の複数の空白", () => {
+    expect(toSearchText("#  二重空白")).toBe("二重空白");
+  });
+
+  it("#155 AC-3 U-2: 7個の # は見出しでない（CommonMark）", () => {
+    expect(toSearchText("####### 七")).toBe("####### 七");
+  });
+
+  it("#155 AC-3 U-2: # の直後に空白がなければ見出しでない", () => {
+    expect(toSearchText("#見出しでない")).toBe("#見出しでない");
+  });
+
+  it("#155 AC-3 U-2: 箇条書き -", () => {
+    expect(toSearchText("- 項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 箇条書き *", () => {
+    expect(toSearchText("* 項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 箇条書き +", () => {
+    expect(toSearchText("+ 項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 箇条書きの後の複数の空白", () => {
+    expect(toSearchText("-  項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 番号 1.", () => {
+    expect(toSearchText("1. 項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 番号 1)", () => {
+    expect(toSearchText("1) 項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 2桁の番号", () => {
+    expect(toSearchText("10. 十番")).toBe("十番");
+  });
+
+  it("#155 AC-3 U-2: 番号の後の複数の空白", () => {
+    expect(toSearchText("1.  項目")).toBe("項目");
+  });
+
+  it("#155 AC-3 U-2: 字下げした箇条書き", () => {
+    expect(toSearchText("  - 字下げ")).toBe("字下げ");
+  });
+
+  it("#155 AC-3 U-2: 行の途中の - は残す", () => {
+    expect(toSearchText("a - b")).toBe("a - b");
+  });
+
+  it("#155 AC-3 U-2: 行頭でない記号は残す", () => {
+    expect(toSearchText("x- 項目")).toBe("x- 項目");
+  });
+
+  it("#155 AC-3 U-2: 行の区切りは改行のまま", () => {
+    expect(toSearchText("一行目\n二行目")).toBe("一行目\n二行目");
+  });
+
+  it("#155 AC-3 U-2: コードブロックの中は残し、囲みの行は空", () => {
+    expect(toSearchText("```\n**中身**\n```")).toBe("\n**中身**\n");
+  });
+
+  it("#155 AC-3 U-2: 囲みの後は通常の処理に戻る", () => {
+    expect(toSearchText("```\nx\n```\n**後**")).toBe("\nx\n\n後");
+  });
+
+  it("#155 AC-3 U-2: 字下げした囲み", () => {
+    expect(toSearchText("  ```\n*中*\n  ```")).toBe("\n*中*\n");
+  });
+
+  it("#155 AC-3 U-2: ~~~ の囲み", () => {
+    expect(toSearchText("~~~\n*中*\n~~~\n*外*")).toBe("\n*中*\n\n外");
+  });
+
+  it("#155 AC-3 U-2: 行の途中の ``` は囲みでない", () => {
+    expect(toSearchText("text ```x")).toBe("text x");
+  });
+
+  it("#155 AC-3 U-2: 行頭でない ``` は囲みでない", () => {
+    expect(toSearchText("x```")).toBe("x");
+  });
+
+  it("#155 AC-3 U-2: 行頭の ` 1個は囲みでない", () => {
+    expect(toSearchText("`code` と **b**")).toBe("code と b");
+  });
+
+  it("#155 AC-3 U-2: バッククォート2個のインラインのコード", () => {
+    expect(toSearchText("``二個``")).toBe("二個");
+  });
+
+  it("#155 AC-3 U-2: 太字＋斜体", () => {
+    expect(toSearchText("***強斜***")).toBe("強斜");
+  });
+
+  it("#155 AC-3 U-2: 太字の中の1つだけの *", () => {
+    expect(toSearchText("**a*b**")).toBe("a*b");
+  });
+
+  it("#155 AC-3 U-2: 組にならない *", () => {
+    expect(toSearchText("5*3")).toBe("5*3");
+  });
+
+  it("#155 AC-3 U-2: エスケープの直後のバッククォートは残る", () => {
+    expect(toSearchText("a\\`b")).toBe("a`b");
+  });
+
+  it("#155 AC-3 U-2: エスケープした # は残る", () => {
+    expect(toSearchText("\\# 見出しでない")).toBe("# 見出しでない");
+  });
+});

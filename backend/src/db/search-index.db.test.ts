@@ -465,3 +465,41 @@ describe("#155 AC-3 D-7 書き込みの経路の一覧（それぞれの後で�
     expect(await ftsMatchIds("経路一覧の返信")).toEqual([ids[1]]);
   });
 });
+
+describe("#155 AC-3 D-5b 条件ごとの確認（SQL の条件を外す手での確認で、落ちるテストがなかったもの）", () => {
+  it("#155 AC-3 D-5b: 写しがなく、いまの本文が渡した元の本文と違うとき、組は写しを入れない（写しを入れる条件の m.body = sourceBody）", async () => {
+    const { id } = await post(V, "子丑の元文面です");
+    const readByReindex = await currentBody(id);
+    // 索引を通さずに本文を変え、写しも消す（写しがなく、いまの本文が別のものになった状態）
+    await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id = ?)",
+      ).bind(id),
+      env.DB.prepare(
+        "DELETE FROM search_documents WHERE kind = 'message' AND ref_id = ?",
+      ).bind(id),
+      env.DB.prepare("UPDATE messages SET body = ? WHERE id = ?").bind(
+        body("寅卯の新文面です"),
+        id,
+      ),
+    ]);
+    await runIndexStatements(id, readByReindex);
+    expect(await indexCountsOf(id)).toEqual({ documents: 0, fts: 0 });
+    expect(await ftsMatchIds("子丑の元文面")).toEqual([]);
+  });
+
+  it("#155 AC-3 D-5b: 対応の行はあり検索用の行がないとき、元の本文が違う組は、検索用の行を入れない（検索用の行の d.source_body = sourceBody）", async () => {
+    const { id } = await post(V, "辰巳の元文面です");
+    const readByReindex = await currentBody(id);
+    expect(await editCompat(id, V, "午未の新文面です")).toBe(1);
+    // 検索用の行だけを消す（対応の行は新しい本文のまま）
+    await env.DB.prepare(
+      "DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id = ?)",
+    )
+      .bind(id)
+      .run();
+    await runIndexStatements(id, readByReindex);
+    expect(await ftsMatchIds("辰巳の元文面")).toEqual([]);
+    expect(await indexCountsOf(id)).toEqual({ documents: 1, fts: 0 });
+  });
+});

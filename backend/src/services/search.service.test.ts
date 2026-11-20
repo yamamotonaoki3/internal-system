@@ -123,3 +123,71 @@ describe("#155 AC-4 D-8 検索の権限（Service）", () => {
     });
   });
 });
+
+describe("#155 AC-4 D-8 権限の判定の範囲（ミューテーション診断の生き残り）", () => {
+  it('#155 AC-4 D-8: perm.search.message は authorize、perm.dm.message.view・perm.case.view は can で、どれも会社の範囲（{ type: "company" }）と閲覧者で判定する', async () => {
+    const calls: {
+      method: "authorize" | "can";
+      userId: string | null;
+      permission: Permission;
+      scope: unknown;
+    }[] = [];
+    const authorizer = {
+      async authorize(
+        principal: { userId: string } | null,
+        permission: Permission,
+        scope: unknown,
+      ) {
+        calls.push({
+          method: "authorize",
+          userId: principal?.userId ?? null,
+          permission,
+          scope,
+        });
+      },
+      async can(
+        principal: { userId: string } | null,
+        permission: Permission,
+        scope: unknown,
+      ) {
+        calls.push({
+          method: "can",
+          userId: principal?.userId ?? null,
+          permission,
+          scope,
+        });
+        return true;
+      },
+    };
+    const spy = spyRepository();
+    const service = createSearchService(
+      spy.repository as unknown as Parameters<typeof createSearchService>[0],
+      {
+        authorizer: authorizer as unknown as Parameters<
+          typeof createSearchService
+        >[1]["authorizer"],
+      },
+    );
+    await service.searchMessages(ACTOR, { q: "見積書", limit: 20 });
+    expect(calls).toEqual([
+      {
+        method: "authorize",
+        userId: ACTOR.userId,
+        permission: "perm.search.message",
+        scope: { type: "company" },
+      },
+      {
+        method: "can",
+        userId: ACTOR.userId,
+        permission: "perm.dm.message.view",
+        scope: { type: "company" },
+      },
+      {
+        method: "can",
+        userId: ACTOR.userId,
+        permission: "perm.case.view",
+        scope: { type: "company" },
+      },
+    ]);
+  });
+});

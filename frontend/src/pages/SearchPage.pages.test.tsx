@@ -7,6 +7,8 @@
 // 抜粋の文字は、強調の <mark> で要素が分かれるため、画面全体の textContent のつながりで確かめる。データはすべて架空（[E2E_TEST]・testuser_）。
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { authKeys } from "../features/auth";
+import { respondLoggedOut, respondPublicStatus } from "../test/auth-handlers";
 import {
   installDomStubs,
   renderApp,
@@ -156,5 +158,42 @@ describe("#155 AC-3 F-2 3ページ目までのカーソル", () => {
     expect(
       within(main).queryByRole("button", { name: "さらに表示" }),
     ).toBeNull();
+  });
+});
+
+describe("#155 AC-4 F-8 画面を離れたときの片付けの範囲（ミューテーション診断の生き残り）", () => {
+  it("#155 AC-4 F-8: 検索の画面を離れても、片付けるのは検索の結果だけで、セッションなどほかのキャッシュは残る", async () => {
+    respondSearchPages([{ items: [searchItem(1)], nextCursor: null }]);
+    const { user, client } = renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(rowsIn(main)).toHaveLength(1));
+    expect(client.getQueryData(authKeys.session)).toBeDefined();
+    await user.click(
+      within(screen.getByRole("banner")).getByRole("link", {
+        name: "internal-system",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { level: 1, name: "検索結果" }),
+      ).toBeNull(),
+    );
+    expect(client.getQueryData(authKeys.session)).toBeDefined();
+    await waitFor(() =>
+      expect(client.getQueryCache().findAll({ queryKey: ["search"] })).toEqual(
+        [],
+      ),
+    );
+  });
+
+  it("#155 AC-4 F-8: 未ログインのまま /search を開いても、検索の API を呼ばない", async () => {
+    respondLoggedOut();
+    respondPublicStatus();
+    const world = respondSearchPages([
+      { items: [searchItem(1)], nextCursor: null },
+    ]);
+    renderApp("/search?q=見積書");
+    await screen.findByRole("button", { name: "ログイン" });
+    expect(world.requests).toEqual([]);
   });
 });

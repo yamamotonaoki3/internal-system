@@ -133,3 +133,26 @@ describe("#155 AC-3 U-1 toFtsPhrase：NUL（コードレビュー1回目の軽�
       expect(() => toFtsPhrase(term)).toThrow();
   });
 });
+
+describe("#155 AC-3 U-1 buildExcerpt：厳密な位置（ミューテーション診断の生き残り）", () => {
+  // 規則（計画 4.4・設計書）：抜粋は 120 コードポイント。一致の前に 40 を残す。語が長いときは、前に残す長さを 120 − 語の長さに抑える
+  const slice = (text: string, start: number, length: number) =>
+    [...text].slice(start, start + length).join("");
+
+  it("#155 AC-3 U-1: 一致の前後に十分な長さがあれば、抜粋は「一致の位置 − 40」から 120 コードポイント", () => {
+    const text = `${"あ".repeat(200)}見積書${"い".repeat(200)}`;
+    expect(buildExcerpt(text, "見積書")).toBe(slice(text, 160, 120));
+  });
+
+  it("#155 AC-3 U-1: 語が 100 コードポイントなら、前に残すのは 20（120 − 100）", () => {
+    const term = "ほ".repeat(100);
+    const text = `${"あ".repeat(200)}${term}${"い".repeat(200)}`;
+    expect(buildExcerpt(text, term)).toBe(slice(text, 180, 120));
+  });
+
+  it("#155 AC-3 U-1: 語が 90 コードポイントなら、前に残すのは 30（120 − 90）", () => {
+    const term = "ほ".repeat(90);
+    const text = `${"あ".repeat(200)}${term}${"い".repeat(200)}`;
+    expect(buildExcerpt(text, term)).toBe(slice(text, 170, 120));
+  });
+});

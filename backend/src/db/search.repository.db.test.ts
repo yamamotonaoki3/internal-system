@@ -866,3 +866,26 @@ describe("#155 AC-3 D-4 記号を除いた本文で引ける", () => {
     expect(await ids("file_name")).toEqual([ident]);
   });
 });
+
+describe("#155 AC-4 D-9 元の行の部屋の再確認（SQL の条件を外す手での確認で、落ちるテストがなかったもの）", () => {
+  it("#155 AC-4 D-9: 写しの部屋（d.room_id）と元の行の部屋が食い違うとき、部屋の絞り込みでどちらの部屋を指定しても出さない（m.room_id = d.room_id）", async () => {
+    const moved = await insertRow({
+      roomId: ROOM.pubJoined,
+      senderId: V,
+      text: "申酉の移動本文",
+    });
+    await buildSearchIndex();
+    // 索引の写しは pubJoined のまま、元の行だけが pubOther にある（食い違い）。どちらも V に見える部屋
+    await env.DB.prepare("UPDATE messages SET room_id = ? WHERE id = ?")
+      .bind(ROOM.pubOther, moved)
+      .run();
+    expect(await search("申酉の移動", V, { roomId: ROOM.pubJoined })).toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    expect(await search("申酉の移動", V, { roomId: ROOM.pubOther })).toEqual({
+      items: [],
+      nextCursor: null,
+    });
+  });
+});
