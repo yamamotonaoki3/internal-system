@@ -28,15 +28,16 @@ export function SearchPage() {
     <section className="mx-auto max-w-4xl rounded-lg bg-surface p-4 md:p-6">
       <h1 className="mb-4 text-2xl font-bold">検索結果</h1>
       <SearchConditionsForm
-        // URL が変わったら（ヘッダーから検索し直したとき等）、欄をいまの条件で作り直す
-        key={params.toString()}
+        // URL が変わったら（ヘッダーから検索し直したとき等）、欄をいまの条件で作り直す（欄の値は useState の初期値のため）。
+        // 兄弟の結果の部品と key が重ならないよう、接頭辞で分ける
+        key={`form:${params.toString()}`}
         conditions={conditions}
         onSearch={(next) => setParams(next)}
       />
       {q !== undefined && (
         // 条件が変わったら、見せるページ数を1に戻す
         <MessageSearchResults
-          key={params.toString()}
+          key={`results:${params.toString()}`}
           conditions={{ ...conditions, q }}
         />
       )}
