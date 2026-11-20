@@ -32,3 +32,12 @@ export const caseKeys = {
 
 /** list・summary・detail・todos・attachments・todoEvents・deletedTodos のキーで、利用者の ID がある位置 */
 export const CASE_KEY_USER_ID_INDEX = 2;
+
+/**
+ * 案件の操作（mutation）のキー。TODO の書き込みは区画の送信中の判定（useCaseTodoBusy）にも使う。
+ * 閲覧の資格を失ったら、この案件の完了した操作を MutationCache から取り除く（#323。応答・変数に中身を含むため）
+ */
+export const caseMutationKeys = {
+  todoWrite: (caseId: string) => ["caseTodoWrite", caseId] as const,
+  write: (caseId: string) => ["caseWrite", caseId] as const,
+};

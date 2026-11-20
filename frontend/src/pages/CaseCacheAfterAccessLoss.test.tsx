@@ -32,13 +32,22 @@ const N = 323;
 const BODY = "[UNIT_TEST]323やり取りの本文";
 const DESCRIPTION = "[UNIT_TEST]323説明";
 
-/** キャッシュの全データを1つの文字列にする（DevTools で見える中身の代わり） */
+/** キャッシュの全データ（Query のデータと、操作（Mutation）の応答・変数）を1つの文字列にする（DevTools で見える中身の代わり） */
 function cacheText(client: QueryClient): string {
-  return client
+  const queries = client
     .getQueryCache()
     .getAll()
-    .map((query) => JSON.stringify(query.state.data ?? null))
-    .join("\n");
+    .map((query) => JSON.stringify(query.state.data ?? null));
+  const mutations = client
+    .getMutationCache()
+    .getAll()
+    .map((mutation) =>
+      JSON.stringify([
+        mutation.state.data ?? null,
+        mutation.state.variables ?? null,
+      ]),
+    );
+  return [...queries, ...mutations].join("\n");
 }
 
 function renderCase(afterRemoval: () => CaseSummary) {

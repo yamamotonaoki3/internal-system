@@ -1498,8 +1498,11 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/cases/hooks/useCaseAccessLoss.ts` | 新規。資格を失ったことの検出と判定を1か所に持つ部品。部屋のメッセージ（`messageKeys.room`）・TODO の取得・添付の一覧・TODO の履歴と削除済みの一覧（149-C）のエラーを、クエリのキャッシュの購読で見る。概要が参加者から非参加に変わった後に、参加者だけの中身を取り除き直す（`forgetCaseContent`。#323）。`unverified`（確かめられない状態）と`retry`を返す 【150-C の修正で、概要が参加者から非参加に変わったときも`onLost`を呼ぶようにした。下の「処理の流れ」の 3】 |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・TODO の履歴と削除済みの一覧（149-C）・部屋のメッセージ・スレッド・メンションの候補〕の取り消しと取り除き）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる |
+| `frontend/src/features/cases/hooks/useCaseAccessLoss.ts` | 新規。資格を失ったことの検出と判定を1か所に持つ部品。部屋のメッセージ（`messageKeys.room`）・TODO の取得・添付の一覧・TODO の履歴と削除済みの一覧（149-C）のエラーを、クエリのキャッシュの購読で見る。概要が参加者から非参加に変わった後に、参加者だけの中身を取り除き直す（`forgetCaseContent`・`forgetCaseInLists`。#323）。確かめの途中に画面を離れた後も、部屋の ID を渡して取り除く。`unverified`（確かめられない状態）と`retry`を返す 【150-C の修正で、概要が参加者から非参加に変わったときも`onLost`を呼ぶようにした。下の「処理の流れ」の 3】 |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・TODO の履歴と削除済みの一覧（149-C）・この案件の完了した操作・部屋のメッセージ・スレッド・メンションの候補・チャンネルの詳細・スレッドの一覧と未読の件数のうちこの部屋の分〕の取り消しと取り除き。スレッドは引数`threads`で`"all"`か`"room"`）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。`cachedCaseRoomId`（退出の前に部屋の ID を求める）も足した。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる |
+| `frontend/src/features/cases/hooks/useParticipantWrites.ts` | 退出で、送る前に`cachedCaseRoomId`で部屋の ID を求め、成功したときと、画面を離れるときの`forgetCaseAfterLeave`に渡す（#323） |
+| `frontend/src/features/cases/api/query-keys.ts`・`frontend/src/features/messages/api/query-keys.ts` | `caseMutationKeys`（`todoWrite`・`write`）を足した。メンションの候補のキーを`messageKeys.mentionCandidates`・`roomMentionCandidates`に移した（`MentionTextArea.tsx`の直書きをやめた） |
+| `frontend/src/features/cases/components/CaseAttachments.tsx` | `caseId`を受け取り、`useChangeAttachmentVisibility(caseId)`を使う（操作の記録を案件で絞るため） |
 | `frontend/src/features/cases/components/CaseDetailView.tsx` | 部品を呼び、`isParticipantOf`で概要から参加者かを決める。確かめられないときは`UnverifiedAlert`（「案件の情報を確かめられませんでした」と「再試行」）を出し、中身を描かない。ダイアログは部品の`onLost`で閉じる |
 | `frontend/src/features/cases/components/CaseTodoSection.tsx` | TODO が 403 のときに概要・詳細を取り直す処理（#149-A）を消した（部品に一本化） |
 | `frontend/src/features/cases/labels.ts` | 確かめられない表示の文言 |
@@ -1509,8 +1512,15 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 1. 契機は2種類ある。(a) 拒否を受けて確かめる：部屋のメッセージと TODO の自動の更新が、403 または 404 で失敗する。(b) 概要が先に変わる：概要の取り直しで、参加者から非参加に変わる（拒否を契機にする確かめは、概要が既に非参加だと動かないため。150-C の修正で足した。(a) の確かめでも非参加と分かると`onLost`が呼ばれるが、ダイアログを閉じるだけなので、重ねて呼んでも害はない）。(a) では、401（セッション切れ。共通の処理）・5xx・通信の失敗では何もしない（既存の表示とポーリングの続き）
 2. 403・404 は、参加者のままでも起こりうる（権限がない等）ので、それだけでは決めず、**概要を取り直した結果**で決める
 3. きっかけごとにすること。
-   - (b) 概要が先に非参加に変わったとき（#323 で直した）：`onLost`（ダイアログを閉じ、編集の基準を捨てる。7）と、`forgetCaseContent(queryClient, userId, caseId, roomId)`による参加者だけの中身のキャッシュの取り除きを行う。取り除くのは、詳細・TODO の一覧・添付の一覧・TODO の履歴・削除済みの TODO、部屋が分かっていれば、その部屋のメッセージ・スレッド・メンションの候補（`["message-mention-candidates", roomId]`。部屋の参加者の名前）。取り除かないのは、概要・一覧（全員・管理者に見える項目）と、ほかの案件・ほかの利用者のキャッシュ（参加者に戻ったら取り直せる）。この効果は、開いていた部品が外れた後に走るので、(a) の片付けの後に部品がキーを作り直した分も、ここで取り除かれる
-   - 部屋の ID（`roomId`）の出どころ：呼び出し側（`CaseDetailView.tsx`）が、**詳細**の`channelId`から作る。概要の`channelId`は、非参加者には null なので使わない。非参加に変わった描画でも、詳細のキャッシュ（この効果の前なので残っている）から求まるため、部屋の中身も取り除ける。呼び出し側が概要の`channelId`を使うように変えると、部屋の中身が残る
+   - (b) 概要が先に非参加に変わったとき（#323 で直した）：`onLost`（ダイアログを閉じ、編集の基準を捨てる。7）と、`forgetCaseContent(queryClient, userId, caseId, roomId)`による参加者だけの中身のキャッシュの取り除きに加えて、`forgetCaseInLists`で、一覧のこの案件の行も非参加の形に書き換える（「参加中」の一覧からは行を除く。参加者数の扱いは (a) の`forgetCaseAfterLeave`と同じ）。この効果は、開いていた部品が外れた後に走るので、(a) の片付けの後に部品がキーを作り直した分も、ここで取り除かれる
+   - `forgetCaseContent`が取り除くもの（進行中の取得は先に取り消す）：
+     - 常に：詳細・TODO の一覧・添付の一覧・TODO の履歴・削除済みの TODO、この案件の**完了した操作**（下の「操作の記録」）
+     - 部屋が分かれば、さらに：部屋のメッセージ、メンションの候補（部屋の参加者の名前。キーは`messageKeys.roomMentionCandidates`の前方一致）、チャンネルの詳細（`channelKeys.detail`。参加者の名前を含む）、スレッド（下の「スレッドの取り除き方」）。自分のスレッドの一覧（`threadKeys.list`）は、キーごとは取り除かず、取得を取り消してから**この部屋の行だけ**を除く。未読の件数（`unreadKeys.counts`）も、**この部屋の分だけ**を除く
+     - 取り除かないもの：概要・一覧（全員・管理者に見える項目）、ほかの案件・ほかの利用者のキャッシュ（参加者に戻ったら取り直せる）
+   - スレッドの取り除き方（5番目の引数`threads`）：スレッドのキー（`["messages","thread",親のID]`）は部屋で絞れない。`"all"`（既定。表示中の後片付け〔(a)・(b)・退出〕）は、前方一致ですべて取り除く（ほかの部屋のスレッドも取り除かれ、開き直すと取り直される）。`"room"`（確かめの途中に画面を離れた後）は、データの`parent.roomId`がこの部屋のものだけを取り除く（移動した先のスレッドを巻き込まない）。データのない、取得の途中のスレッドは残す
+   - 操作の記録（MutationCache。「操作の記録」）：案件の操作に、案件で絞れる`mutationKey`を付けた（`caseMutationKeys.todoWrite`＝`["caseTodoWrite", caseId]`、`caseMutationKeys.write`＝`["caseWrite", caseId]`。`api/query-keys.ts`）。操作の応答・変数には TODO の題名・担当者の名前・説明などが残るので、後片付けで、この案件の完了した操作を取り除く。進行中の操作は取り消さない（ADR-0030 と両立）。MutationCache を購読し、完了した時点（成功の後処理の後）で取り除く。ほかの案件の操作は残す
+   - 部屋の ID（`roomId`）の求め方：表示中は、呼び出し側（`CaseDetailView.tsx`）が、**詳細**の`channelId`から作る。概要の`channelId`は、非参加者には null なので使わない。非参加に変わった描画でも、詳細のキャッシュ（この効果の前なので残っている）から求まるため、部屋の中身も取り除ける。呼び出し側が概要の`channelId`を使うように変えると、部屋の中身が残る。退出は、送る前に`cachedCaseRoomId`（詳細、なければ概要）で求め、成功したときと、画面を離れるときの後片付けに渡す（後片付けで詳細が先に消えるため）
+   - 確かめの途中に画面を離れた場合：非参加・404・確かめられないときも、部屋の ID を渡して、`"room"`で取り除く
    - (a) 拒否を受けて確かめたときの判定：
      - 概要が非参加、または 404：`forgetCaseAfterLeave`／`forgetCaseContent`で中身のキャッシュを取り除き、`onLost`で開いているダイアログを閉じ、非公開の表示にする
      - 概要が参加者のまま：何もしない（取り直さない。要求が増え続けないように）
@@ -1523,7 +1533,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 ### テストの場所（#308）
 
 - 画面：`frontend/src/pages/CaseAccessLoss.test.tsx`（403・404・通信の失敗・5xx、再試行、ダイアログ、キャッシュの取り除き）、`CaseAccessLoss.userSwitch.test.tsx`（利用者の切り替え）
-- 取り除きの確認（#323）：`frontend/src/features/cases/hooks/useCaseAccessLoss.forget.test.tsx`（9件。概要が先に非参加になったときの取り除くキー・残すキー）、`frontend/src/pages/CaseCacheAfterAccessLoss.test.tsx`（2件。画面から確かめる）
+- 取り除きの確認（#323）：`frontend/src/features/cases/hooks/useCaseAccessLoss.forget.test.tsx`（16件。取り除くキー・残すキー、スレッドの2通り、一覧の行）、`useCaseAccessLoss.mutations.test.tsx`（3件。操作の記録の取り除き）、`frontend/src/features/cases/hooks/useParticipantWrites.leave.test.tsx`（3件。退出の後片付けと部屋の ID）、`frontend/src/pages/CaseCacheAfterAccessLoss.test.tsx`（2件。画面から確かめる。キャッシュの中身を調べる補助が、操作の記録も調べる）
 - E2E：`e2e/case-access-loss.spec.ts`（1件。実ブラウザ2つで、外された人の画面が開き直さずに非公開の表示になる。[e2e.md](../testing/e2e.md)）
 
 ## 既知の差・未実施・未決定として記録するもの
@@ -1531,7 +1541,8 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 項目 | 状態 |
 | --- | --- |
 | 概要が先に非参加になる経路で、ダイアログと参加者だけの中身（説明・参加者の一覧など）が残っていたこと | **解消**（150-C の修正）。`useCaseAccessLoss`が、概要の参加者から非参加への変化でも`onLost`を呼ぶ（上の「資格を失ったときの画面の切り替え（#308）」の 1・7） |
-| 概要が先に非参加になった時点（契機 (b)）では、詳細・やり取り・TODO の一覧・添付の一覧のキャッシュを取り除かないこと | **解消**（#323）。`forgetCaseContent`で、参加者だけの中身（メンションの候補を含む）を取り除く（上の「処理の流れ」の 3）。メンションの候補のキーは`MentionTextArea.tsx`に直接書かれていて、`messageKeys`に定義がない（キーが2か所に書かれた状態。別の Issue で扱う） |
+| 概要が先に非参加になった時点（契機 (b)）では、詳細・やり取り・TODO の一覧・添付の一覧のキャッシュを取り除かないこと | **解消**（#323）。`forgetCaseContent`で、参加者だけの中身（メンションの候補を含む）を取り除く（上の「処理の流れ」の 3）。メンションの候補のキーは`messageKeys`に移した |
+| 資格を失った後に、参加者だけの中身が残りうる場所（#323。取り除ききれない） | (1) 画面を離れた後で、取得の途中だったスレッドの応答が、後から届いた場合（データのないスレッドは`"room"`では残すため）。(2) 部品が画面に付いたままの間に、`useMutation`の部品の側が持つ、直前の操作の結果。(3) 表示中の後片付けは、スレッドを全部取り除く（ほかの部屋のスレッドも。開き直すと取り直されるので、残る問題ではなく、余分な取り直し） |
 | 表示中に、ロールの権限（`perm.case.view`）だけが外れた場合 | 既に読み込んだ説明・参加者は、次に開き直すまで残る（TODO・やり取りは欄ごとに 403 の表示）。権限の変更が、開いている画面にすぐ反映されないのは、ほかの画面と同じ既存の動き（ロール・権限を変えても、セッションは切れない）。#308 の範囲の外（C-190） |
 | 進捗（5-1 AC-2。S-16・S-17 の進捗） | 149-A で実装済み（下の「149-A の設計」）。147-A の時点では出していなかった（Q7） |
 | 最終更新・未読（S-16 の列）、サイドバーの案件の未読の印 | 148-C で実装済み（下の「148-C の設計」）。148-A・148-B-1 の時点では出していなかった（C-184(1)） |

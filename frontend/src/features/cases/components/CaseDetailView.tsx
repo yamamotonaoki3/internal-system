@@ -455,6 +455,7 @@ export function CaseDetailView({
           todos={todos}
         />
         <CaseAttachments
+          caseId={caseId}
           attachments={attachments}
           visibilityTarget={visibilityTarget}
           onVisibilityTargetChange={setVisibilityTarget}

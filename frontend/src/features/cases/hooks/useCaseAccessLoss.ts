@@ -13,7 +13,11 @@ import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
 import { isApiError } from "../describe-error";
-import { forgetCaseAfterLeave, forgetCaseContent } from "./useCaseWrites";
+import {
+  forgetCaseAfterLeave,
+  forgetCaseContent,
+  forgetCaseInLists,
+} from "./useCaseWrites";
 
 const ACCESS_LOSS_STATUSES: readonly number[] = [403, 404];
 
@@ -62,13 +66,14 @@ export function useCaseAccessLoss({
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
   // 概要の取り直しが拒否より先に非参加を返した場合も、開いているダイアログ（参加者用の基準を含む）を閉じる。
   // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける。
-  // あわせて、参加者だけの中身（詳細・TODO・添付・履歴・部屋のやり取り・メンションの候補）を取り除き直す（149-C・#323）。
+  // あわせて、参加者だけの中身（forgetCaseContent の対象）を取り除き直し、一覧のこの案件の行から参加者だけの項目を消す（149-C・#323）。
   // この効果は、それらの部品が外れた後に走るため、拒否を契機にした片付けの後に部品が作り直したキーも、ここで消える
   useEffect(() => {
     if (isParticipant && !previousParticipant.current) handling.current = false;
     if (!isParticipant && previousParticipant.current) {
       onLost();
       void forgetCaseContent(queryClient, userId, caseId, roomId);
+      void forgetCaseInLists(queryClient, userId, caseId);
     }
     previousParticipant.current = isParticipant;
   }, [isParticipant, onLost, queryClient, userId, caseId, roomId]);
@@ -88,11 +93,18 @@ export function useCaseAccessLoss({
   useEffect(() => {
     settle.current = (verdict, retried) => {
       if (!mounted.current) {
-        // 非参加・404・確かめられないときは、元の案件の詳細・TODO だけを取り除く（戻ったときに古い内容を出さない。AC-2）。部屋・スレッドは、表示していないので残らない
+        // 非参加・404・確かめられないときは、元の案件の中身を取り除く（戻ったときに古い内容を出さない。AC-2）。部屋の分も、ほかの機能のキャッシュに残りうる（#323）。
+        // スレッドは、移動先のものを巻き込まないよう、この部屋のものだけ（"room"）
         if (verdict === "lost")
-          void forgetCaseAfterLeave(queryClient, userId, caseId);
+          void forgetCaseAfterLeave(
+            queryClient,
+            userId,
+            caseId,
+            roomId,
+            "room",
+          );
         else if (verdict !== "participant")
-          void forgetCaseContent(queryClient, userId, caseId);
+          void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
         return;
       }
       if (verdict === "participant") {

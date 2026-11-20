@@ -350,3 +350,265 @@ describe("#323 #308 実際の呼び出し方（roomId を詳細の channelId か
     );
   });
 });
+
+// ---- コードレビュー1回目（重大1・軽微4）：別の機能が持つ、この案件の部屋のキャッシュと、全員に見える一覧・未読の、参加者だけの項目 ----
+
+const OTHER_ROOM = "01JTESTROOM323000000000002";
+const CHANNEL_DETAIL = ["channels", "detail", ROOM] as const;
+const OTHER_CHANNEL_DETAIL = ["channels", "detail", OTHER_ROOM] as const;
+const THREAD_LIST = ["threads", "list"] as const;
+const UNREAD_COUNTS = ["unread", "counts"] as const;
+const LIST_JOINED = ["cases", "list", USER, "joined", "active"] as const;
+
+const threadRow = (roomId: string, n: number) => ({
+  parent: { id: `01JTESTMSG32300000000000T${n}`, body: SECRET },
+  room: { kind: "channel", id: roomId, name: "[UNIT_TEST]323部屋" },
+  lastReplyAt: "2026-11-20T00:00:00.000Z",
+  unreadCount: 1,
+});
+
+type ThreadRow = ReturnType<typeof threadRow>;
+type RowPages<T> = { pages: { items: T[] }[] } | undefined;
+
+const threadRoomIds = (client: QueryClient) =>
+  (client.getQueryData<RowPages<ThreadRow>>([...THREAD_LIST])?.pages ?? [])
+    .flatMap((page) => page.items)
+    .map((row) => row.room.id);
+
+const otherCaseRow = {
+  ...summary(true),
+  id: OTHER_CASE,
+  channelId: OTHER_ROOM,
+};
+
+/** 部屋のほかの機能のキャッシュ・未読・一覧を、外される前の形で入れる */
+function seedRoomAndLists(client: QueryClient) {
+  client.setQueryData([...CHANNEL_DETAIL], {
+    ...content("channel"),
+    members: [{ displayName: "testuser_323_member" }],
+  });
+  client.setQueryData([...OTHER_CHANNEL_DETAIL], content("otherChannel"));
+  client.setQueryData([...THREAD_LIST], {
+    pages: [{ items: [threadRow(ROOM, 1), threadRow(OTHER_ROOM, 2)] }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(
+    [...UNREAD_COUNTS],
+    new Map([
+      [ROOM, 3],
+      [OTHER_ROOM, 5],
+    ]),
+  );
+  for (const key of [LIST_ALL, LIST_JOINED])
+    client.setQueryData([...key], {
+      pages: [{ items: [summary(true), otherCaseRow] }],
+      pageParams: [null],
+    });
+  // 外される前：どれもキャッシュにある（否定の確認を空振りさせない）
+  expect(dataOf(client, CHANNEL_DETAIL)).toBeDefined();
+  expect(threadRoomIds(client)).toEqual([ROOM, OTHER_ROOM]);
+  expect(
+    client.getQueryData<Map<string, number>>([...UNREAD_COUNTS])?.get(ROOM),
+  ).toBe(3);
+}
+
+async function loseBy(
+  trigger: "a" | "b",
+  view: ReturnType<typeof setup>,
+): Promise<void> {
+  if (trigger === "b") {
+    view.client.setQueryData([...SUMMARY], summary(false));
+    view.rerender({ isParticipant: false });
+    return;
+  }
+  view.server.participant = false;
+  await rejectTodos(view.client);
+  await waitFor(() =>
+    expect(dataOf(view.client, SUMMARY)).toEqual(
+      expect.objectContaining({ isParticipant: false }),
+    ),
+  );
+  view.rerender({ isParticipant: false });
+}
+
+describe.each(["a", "b"] as const)(
+  "#323 コードレビュー1回目 重大1 (%s) 別の機能が持つ、この案件の部屋のキャッシュ",
+  (trigger) => {
+    it(`#323 AC-1 (${trigger}): 部屋の参加者の名前を持つチャンネルの詳細が、キャッシュから取り出せない。別の部屋の詳細は残る`, async () => {
+      const view = setup();
+      seedRoomAndLists(view.client);
+
+      await loseBy(trigger, view);
+
+      await waitFor(() =>
+        expect(dataOf(view.client, CHANNEL_DETAIL)).toBeUndefined(),
+      );
+      expect(dataOf(view.client, OTHER_CHANNEL_DETAIL)).toEqual(
+        expect.objectContaining({ secret: SECRET }),
+      );
+    });
+
+    it(`#323 AC-1 (${trigger}): 自分のスレッドの一覧に、この部屋の行（親の本文）が残らない。別の部屋の行は残る`, async () => {
+      const view = setup();
+      seedRoomAndLists(view.client);
+
+      await loseBy(trigger, view);
+
+      await waitFor(() =>
+        expect(threadRoomIds(view.client)).toEqual([OTHER_ROOM]),
+      );
+    });
+
+    it(`#323 AC-1 (${trigger}): スレッドの一覧の取得の途中で外されたら、後から届いた応答で、この部屋の行を書き戻さない`, async () => {
+      const view = setup();
+      let respond: (value: unknown) => void = () => undefined;
+      const fetching = view.client
+        .fetchQuery({
+          queryKey: [...THREAD_LIST],
+          queryFn: () => new Promise((resolve) => (respond = resolve)),
+        })
+        .catch(() => undefined);
+      expect(view.client.isFetching({ queryKey: [...THREAD_LIST] })).toBe(1);
+
+      await loseBy(trigger, view);
+      respond({
+        pages: [{ items: [threadRow(ROOM, 1), threadRow(OTHER_ROOM, 2)] }],
+        pageParams: [undefined],
+      });
+      await fetching;
+
+      expect(threadRoomIds(view.client)).not.toContain(ROOM);
+    });
+  },
+);
+
+describe.each(["a", "b"] as const)(
+  "#323 コードレビュー1回目 軽微4 (%s) 全員に見える一覧・未読の、参加者だけの項目",
+  (trigger) => {
+    it(`#323 AC-1 (${trigger}): 未読の件数から、この部屋の件数が取り出せない。別の部屋の件数は残る`, async () => {
+      const view = setup();
+      seedRoomAndLists(view.client);
+
+      await loseBy(trigger, view);
+
+      await waitFor(() =>
+        expect(
+          view.client
+            .getQueryData<Map<string, number>>([...UNREAD_COUNTS])
+            ?.has(ROOM),
+        ).toBe(false),
+      );
+      expect(
+        view.client
+          .getQueryData<Map<string, number>>([...UNREAD_COUNTS])
+          ?.get(OTHER_ROOM),
+      ).toBe(5);
+    });
+
+    it(`#323 AC-1 AC-2 (${trigger}): 案件の一覧は取り除かず、この案件の行だけ参加者だけの項目を消す（参加中の一覧からは行を除く）。ほかの案件の行は残る`, async () => {
+      const view = setup();
+      seedRoomAndLists(view.client);
+
+      await loseBy(trigger, view);
+
+      const rows = (key: readonly string[]) =>
+        (
+          view.client.getQueryData<RowPages<typeof otherCaseRow>>([...key])
+            ?.pages ?? []
+        ).flatMap((page) => page.items);
+      await waitFor(() =>
+        expect(rows(LIST_ALL).find((row) => row.id === CASE)).toEqual(
+          expect.objectContaining({
+            isParticipant: false,
+            channelId: null,
+            lastActivityAt: null,
+          }),
+        ),
+      );
+      expect(rows(LIST_ALL).find((row) => row.id === OTHER_CASE)).toEqual(
+        otherCaseRow,
+      );
+      expect(rows(LIST_JOINED).map((row) => row.id)).toEqual([OTHER_CASE]);
+    });
+  },
+);
+
+// ---- 実装の担当の報告（経路1）：拒否を受けて確かめている途中に画面を離れ、その後に非参加と分かったとき ----
+
+describe("#323 経路1 確かめの途中に画面を離れた後に、非参加と分かったとき", () => {
+  const OTHER_PARENT = "01JTESTMSG3230000000000002";
+  const ROOM_MESSAGES = ["messages", "room", ROOM] as const;
+  const MENTION = ["message-mention-candidates", ROOM, ""] as const;
+  const OTHER_ROOM_MESSAGES = ["messages", "room", OTHER_ROOM] as const;
+  const OTHER_THREAD = ["messages", "thread", OTHER_PARENT] as const;
+
+  /** 概要の取り直し（確かめ）を、テストが答えるまで止めておき、拒否から確かめを始めて、答える前に画面を離れる */
+  async function leaveWhileVerifying() {
+    const view = setup();
+    seedRoomAndLists(view.client);
+    // 移動した先で開いている、別の部屋のスレッドとメッセージ
+    view.client.setQueryData([...OTHER_THREAD], content("otherThread"));
+    view.client.setQueryData([...OTHER_ROOM_MESSAGES], content("otherRoom"));
+    // 外される前：この部屋の中身がキャッシュにある
+    for (const key of [ROOM_MESSAGES, MENTION])
+      expect(dataOf(view.client, key)).toBeDefined();
+    let answer: (value: unknown) => void = () => undefined;
+    view.client.setQueryDefaults([...SUMMARY], {
+      queryFn: () => new Promise((resolve) => (answer = resolve)),
+    });
+    // 既にある概要のクエリは前の取得関数を持つので、同じ中身で作り直して、止める取得関数を使わせる
+    view.client.removeQueries({ queryKey: [...SUMMARY], exact: true });
+    view.client.setQueryData([...SUMMARY], summary(true));
+    await rejectTodos(view.client);
+    await waitFor(() =>
+      expect(view.client.isFetching({ queryKey: [...SUMMARY] })).toBe(1),
+    );
+    view.unmount();
+    answer(summary(false));
+    await waitFor(() =>
+      expect(dataOf(view.client, SUMMARY)).toEqual(
+        expect.objectContaining({ isParticipant: false }),
+      ),
+    );
+    return view;
+  }
+
+  it("#323 AC-1 経路1: チャンネルの詳細・メンションの候補・部屋のメッセージ・スレッドの一覧のこの部屋の行・未読の件数のこの部屋の分が、取り出せない", async () => {
+    const { client } = await leaveWhileVerifying();
+
+    await waitFor(() => {
+      const left = {
+        channelDetail: dataOf(client, CHANNEL_DETAIL) !== undefined,
+        mention: dataOf(client, MENTION) !== undefined,
+        roomMessages: dataOf(client, ROOM_MESSAGES) !== undefined,
+        threadRow: threadRoomIds(client).includes(ROOM),
+        unread:
+          client
+            .getQueryData<Map<string, number>>([...UNREAD_COUNTS])
+            ?.has(ROOM) === true,
+      };
+      expect(
+        Object.keys(left).filter((k) => left[k as keyof typeof left]),
+      ).toEqual([]);
+    });
+  });
+
+  it("#323 AC-2 経路1 取りすぎの防止: 移動した先の別の部屋の、開いているスレッド・メッセージ・チャンネルの詳細・スレッドの一覧の行・未読の件数は残る", async () => {
+    const { client } = await leaveWhileVerifying();
+    // 後片付けが走り終わるのを待つ（この案件の詳細が消えていること）
+    await waitFor(() =>
+      expect(dataOf(client, PARTICIPANT_ONLY.detail)).toBeUndefined(),
+    );
+
+    for (const key of [OTHER_THREAD, OTHER_ROOM_MESSAGES, OTHER_CHANNEL_DETAIL])
+      expect(dataOf(client, key)).toEqual(
+        expect.objectContaining({ secret: SECRET }),
+      );
+    expect(threadRoomIds(client)).toContain(OTHER_ROOM);
+    expect(
+      client
+        .getQueryData<Map<string, number>>([...UNREAD_COUNTS])
+        ?.get(OTHER_ROOM),
+    ).toBe(5);
+  });
+});

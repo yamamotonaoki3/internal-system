@@ -14,9 +14,9 @@ import {
   setCaseTodoCompleted,
   type CaseTodoEdit,
 } from "../api/case-todo-api";
-import { caseKeys } from "../api/query-keys";
+import { caseKeys, caseMutationKeys } from "../api/query-keys";
 
-const todoWriteKey = (caseId: string) => ["caseTodoWrite", caseId] as const;
+const todoWriteKey = caseMutationKeys.todoWrite;
 
 /** この案件の TODO の書き込みのどれかが送信中か（送信中は区画のすべての操作を止める） */
 export function useCaseTodoBusy(caseId: string): boolean {
