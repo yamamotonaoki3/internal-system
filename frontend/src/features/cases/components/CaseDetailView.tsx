@@ -93,13 +93,20 @@ function isForbidden(error: unknown): boolean {
   return isApiError(error) && error.status === 403;
 }
 
-/** 再開のダイアログに渡す、詳細の取得の失敗の文言。取り直し中は出さず（読み込み中に戻す）、403 は外された扱い（#308）で出さない */
-function reopenLoadError(
-  detail: ReturnType<typeof useCaseDetail>,
-): string | undefined {
-  if (!detail.isError || detail.isFetching || isForbidden(detail.error))
-    return undefined;
-  return describeError(detail.error);
+/**
+ * 再開のダイアログに渡す、詳細の取得の状態。取得中（取り直しも）と 403（外された扱い。#308 がダイアログを閉じる）は読み込み中、
+ * それ以外の失敗は文言を渡す。古い詳細が残っていても、取り直しの最中・失敗の間は選ぶ・送るを出さない
+ */
+function reopenLoadState(detail: ReturnType<typeof useCaseDetail>): {
+  loading: boolean;
+  loadError: string | undefined;
+} {
+  const loading = detail.isFetching || isForbidden(detail.error);
+  return {
+    loading,
+    loadError:
+      detail.isError && !loading ? describeError(detail.error) : undefined,
+  };
 }
 
 type EditResult = { tone: "info" | "error"; lines: string[] };
@@ -386,7 +393,7 @@ export function CaseDetailView({
           <CaseReopenDialog
             selfId={selfId}
             participants={detail.data?.participants}
-            loadError={reopenLoadError(detail)}
+            {...reopenLoadState(detail)}
             onRetry={() => void detail.refetch()}
             pending={statusChange.isPending}
             searchError={

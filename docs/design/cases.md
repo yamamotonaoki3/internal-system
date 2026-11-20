@@ -1228,8 +1228,8 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | `docs/api/openapi.json` | EP-5-12 の requestBody（`CaseReopenBody`）・422・409 の理由。説明の文は実装の判定の順 |
 | `frontend/src/features/cases/api/case-api.ts` | `reopenCase(caseId, body)`・`CaseReopenBody` |
 | `frontend/src/features/cases/hooks/useCaseWrites.ts` | `useCaseStatusChange`の引数が、終了か、本文つきの再開か。取り直しは150-A と同じ（案件・部屋のメッセージ・スレッドの前方一致） |
-| `frontend/src/features/cases/components/CaseReopenDialog.tsx` | 新規。再開の2段階のダイアログ（下の「画面」）。詳細の取得中・失敗の表示と「再試行」も持つ（#316。`loadError`・`onRetry`） |
-| `frontend/src/features/cases/components/CaseDetailView.tsx` | 再開でだけ`CaseReopenDialog`を使う。開閉・結果・422 の振り分けはページの側。終了は`CaseConfirmDialog`のまま。詳細の失敗の文言`reopenLoadError`と、詳細の取り直し（`onRetry`）を渡す（#316） |
+| `frontend/src/features/cases/components/CaseReopenDialog.tsx` | 新規。再開の2段階のダイアログ（下の「画面」）。詳細の取得中・失敗の表示と「再試行」も持つ（#316。`loading`・`loadError`・`onRetry`）。取り直しの間も部品は作り直さず、選びかけた内容を保つ |
+| `frontend/src/features/cases/components/CaseDetailView.tsx` | 再開でだけ`CaseReopenDialog`を使う。開閉・結果・422 の振り分けはページの側。終了は`CaseConfirmDialog`のまま。詳細の取得の状態`reopenLoadState`（`loading`・`loadError`）と、詳細の取り直し（`onRetry`）を渡す（#316） |
 | `frontend/src/features/cases/labels.ts` | `CASE_REOPEN_TEXTS`（ダイアログの見出し・理由・ボタン・「再試行」の文言）。`CASE_STATUS_CHANGE_TEXTS.reopen.body`を共有の文言に変えた |
 
 ### API と判定の順
@@ -1286,7 +1286,11 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 送る`participantIds`は、ダイアログが表示している候補の ID。送信中は、確定・戻る・キャンセル・チェック・検索・追加の取り消しをすべて無効にする
 - 結果：成功は「案件を再開しました」をダイアログの外に出す。409・403・404 は、ダイアログを閉じてサーバーの文言を外に出す（`participants_changed`の後は、取り直した詳細で開き直せば新しい候補になる）。422 はダイアログを閉じず、段階1に戻して、`fields`が`addUserIds`なら社員の検索の欄に、それ以外はダイアログの全体のエラーに出す
 - 外された人が画面を開いていた場合は、#308 の仕組み（`useCaseAccessLoss`・`forgetCaseContent`）で非公開の表示に切り替わる。150-B は画面の後片付けを足していない
-- **詳細（参加者）が取れていないときの表示（#316）**：段階1の前に、詳細の取得中と失敗を区別する。取得中（または取り直しの最中）は`role="status"`で「読み込み中です」。失敗は`role="alert"`で、共通の`describeError`を通した文言と「再試行」（`CASE_REOPEN_TEXTS.retry`）を出す。「再試行」は詳細の取り直し（`CaseDetailView`の`onRetry`）で、取り直しの間は「読み込み中です」に戻る。失敗の間は、参加者の選び直し・社員の検索・「確認へ」を出さず、「キャンセル」だけが残る。失敗の文言は`CaseDetailView`の`reopenLoadError`が決め、`loadError`としてダイアログに渡す。403（参加者でなくなった）は、この表示に入れず、上の #308 の仕組み（ダイアログを閉じる）のままにする。以前は、詳細の取得が失敗すると「読み込み中です」のまま止まっていた（解消）
+- **詳細（参加者）が取れていないときの表示（#316）**：詳細の取得の状態は、`CaseDetailView`の`reopenLoadState(detail)`（`{ loading, loadError }`）がダイアログに渡す。`loading`は、詳細の取得中（取り直しを含む）か 403 のとき。`loadError`は、失敗していて取得中でないときの、共通の`describeError`を通した文言。選ぶ・送る欄（段階1・段階2）は、**参加者があり、取得中でなく、失敗していないときだけ**出す。取得中は、古い詳細がキャッシュに残っていても、`role="status"`の「読み込み中です」を出す。失敗は`role="alert"`で文言と「再試行」（`CASE_REOPEN_TEXTS.retry`。詳細の取り直し＝`onRetry`）を出す。どちらの間も「キャンセル」だけが残る。
+  - **取り直しの間も、ダイアログの部品は作り直さない**ので、選びかけた内容（外した人・検索・追加に選んだ人・段階）を保つ。取り直しで有効な参加者の一覧が変わっていたら、確認の段階から選ぶ段階に戻す（見ていない一覧で送らせない）。追加に選んだ人のうち、取り直しですでに参加者になっていた人は、追加から外す
+  - 詳細の取り直しが起きる契機：ウィンドウに戻ったとき・ネットワークの復帰（react-query の既定）、ほかの操作の後の`invalidateQueries`、「再試行」
+  - 403（参加者でなくなった）は、#308 の仕組み（ダイアログを閉じる）に任せる。それまでは読み込み中の扱いにして、古い一覧で選ばせない
+  - 以前は、詳細の取得が失敗すると「読み込み中です」のまま止まっていた（解消）
 
 ### テストの場所（150-B）
 
@@ -1294,7 +1298,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 割り込み：`backend/src/services/case-reopen-reselect.interleave.test.ts`（材料の読み取りの後に別の操作が入る順を固定する）
 - DB：`backend/src/db/case-reopen-reselect.db.test.ts`（前提を1つずつ崩して何も残らないこと、件数の確認〔`buildReopenStatements`の文を1つ差し替えて余分な削除・追加・更新0行・通知の不足を起こす〕、人ごとの監査の対象と`detail`の型、通知の識別、追加・除外100人ずつと参加者500人）。テスト部品は`backend/test/case-reopen-fixtures.ts`
 - 結合：`backend/src/routes/cases.reopen-reselect.test.ts`（本文の形・判定の順と存在の非開示・外れた人は見られず足した人は過去が見えること・通知と監査・501人以上の案件）、契約は`backend/src/openapi.case-close.test.ts`
-- フロントエンド：`frontend/src/pages/CaseReopenReselect.test.tsx`（候補・外せない人・検索・確かめる段階・送信中・結果の振り分け・詳細の取得中／失敗／403 の表示と再試行〔#316 AC-1〕）、`CaseReopenRemovedViewer.test.tsx`（外された人の画面が切り替わること）、`CaseReopenSessionSwitch.test.tsx`（利用者の切り替え）
+- フロントエンド：`frontend/src/pages/CaseReopenReselect.test.tsx`（候補・外せない人・検索・確かめる段階・送信中・結果の振り分け・詳細の取得中・失敗・再試行・取り直しの後の扱い〔#316〕）、`CaseReopenRemovedViewer.test.tsx`（外された人の画面が切り替わること）、`CaseReopenSessionSwitch.test.tsx`（利用者の切り替え）
 - E2E：`e2e/case-reopen-reselect.spec.ts`（1件。A が B を外し C を足して再開 → C に通知・過去のメッセージが見える → B の画面は非公開の表示）。シードは`e2e/seeds/case-reopen-reselect.sql`、後始末は`e2e/seeds/case-reopen-reselect-cleanup.sql`
 - 150-A の既存のテストは、本文必須の形に直した（呼び出しの形と文言）。業務の期待を変えたのは1か所：`backend/src/services/case-close.interleave.test.ts`の「再開と、参加者の追加」が、「宛先を読み直して成功」から 409 `participants_changed`（要求の側の状態・参加の行・監査・通知が増えない）に変わった（C-194(7)）
 

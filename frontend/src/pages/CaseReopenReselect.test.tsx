@@ -21,6 +21,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { caseKeys } from "../features/cases";
 import { TEST_USER } from "../test/auth-handlers";
 import {
   caseDetail,
@@ -683,5 +684,282 @@ describe("#316 AC-1 再開のダイアログ：詳細の取得に失敗したと
       DETAIL_ERROR,
     );
     expect(within(dialog).queryByText(LOADING)).toBeNull();
+  });
+
+  describe("詳細が一度取れた後の取り直し（古い参加者で再開を送らせない）", () => {
+    /** 詳細を一度取ってダイアログを開き、そのあとの取り直しの応答を mode で切り替える */
+    async function openWithCachedDetail() {
+      world();
+      const mode: {
+        value: "ok" | "fail" | "hold" | "fresh";
+        gate: ReturnType<typeof deferred>;
+      } = { value: "ok", gate: deferred() };
+      server.use(
+        http.get("/api/cases/:caseId/detail", async () => {
+          if (mode.value === "hold") await mode.gate.promise;
+          if (mode.value === "fail")
+            return apiErrorResponse(500, "INTERNAL_ERROR", DETAIL_ERROR);
+          const participants =
+            mode.value === "fresh"
+              ? [SELF, OWNER, ADMIN, MEMBER_B, LATE_JOINER]
+              : [SELF, OWNER, ADMIN, MEMBER_A, MEMBER_B, RETIRED];
+          return HttpResponse.json(
+            caseDetail(N, {
+              ...caseSummary(N, { status: "closed" }),
+              participants,
+            }),
+          );
+        }),
+      );
+      const { user, client } = renderPage();
+      const dialog = await openDialog(user);
+      expect(
+        await within(dialog).findByRole("checkbox", {
+          name: MEMBER_A.displayName,
+        }),
+      ).toBeTruthy();
+      return { user, client, dialog, mode };
+    }
+
+    it("#316 AC-1: 詳細が取れた後の取り直しが失敗（500）したとき、失敗の文言（role=alert）と「再試行」を出し、古い参加者のまま「確認へ」を押せない", async () => {
+      const { client, dialog, mode } = await openWithCachedDetail();
+      mode.value = "fail";
+      void client.invalidateQueries({ queryKey: caseKeys.all });
+      expect((await within(dialog).findByRole("alert")).textContent).toContain(
+        DETAIL_ERROR,
+      );
+      expect(within(dialog).getByRole("button", { name: RETRY })).toBeTruthy();
+      expect(
+        within(dialog).queryByRole("button", { name: TEXTS.next }),
+      ).toBeNull();
+      expect(within(dialog).queryByRole("checkbox")).toBeNull();
+    });
+
+    it("#316 AC-1: 取り直しの最中（応答を止めた間）は、読み込み中（role=status）になり、古い参加者のまま「確認へ」を押せない", async () => {
+      const { client, dialog, mode } = await openWithCachedDetail();
+      mode.value = "hold";
+      void client.invalidateQueries({ queryKey: caseKeys.all });
+      expect((await within(dialog).findByRole("status")).textContent).toContain(
+        LOADING,
+      );
+      expect(
+        within(dialog).queryByRole("button", { name: TEXTS.next }),
+      ).toBeNull();
+      expect(within(dialog).queryByRole("checkbox")).toBeNull();
+      mode.gate.release();
+    });
+
+    it("#316 AC-1: 取り直しの失敗の後の「再試行」が成功したら、新しい参加者の一覧（古い一覧と違う中身）で選び直しの欄が出る", async () => {
+      const { user, client, dialog, mode } = await openWithCachedDetail();
+      mode.value = "fail";
+      void client.invalidateQueries({ queryKey: caseKeys.all });
+      await within(dialog).findByRole("alert");
+      mode.value = "fresh";
+      await user.click(within(dialog).getByRole("button", { name: RETRY }));
+      expect(
+        await within(dialog).findByRole("checkbox", {
+          name: LATE_JOINER.displayName,
+        }),
+      ).toBeTruthy();
+      expect(
+        within(dialog).queryByRole("checkbox", {
+          name: MEMBER_A.displayName,
+        }),
+      ).toBeNull();
+      expect(within(dialog).queryByRole("alert")).toBeNull();
+      expect(
+        within(dialog).getByRole("button", { name: TEXTS.next }),
+      ).toBeTruthy();
+    });
+  });
+
+  describe("裏の取り直しで、選びかけた内容を消さず、見ていない一覧で送らせない", () => {
+    const NEWCOMER_PERSON: CaseParticipant = {
+      ...person("NC"),
+      userId: NEWCOMER.id,
+      displayName: NEWCOMER.displayName,
+    };
+
+    async function setup(
+      respond?: Parameters<typeof world>[0],
+      choose: "none" | "pick" = "pick",
+    ) {
+      const w = world(respond);
+      respondUserSearch([[NEWCOMER]]);
+      const { user, client } = renderPage();
+      const dialog = await openDialog(user);
+      if (choose === "pick") {
+        await user.click(checkbox(dialog, MEMBER_A.displayName));
+        await addBySearch(user, dialog, NEWCOMER.displayName);
+      }
+      return { w, user, client, dialog };
+    }
+
+    /** 取り直しを起こし、読み込み中を経て、選ぶ段階か確認の段階が戻るまで待つ */
+    async function refetchDetail(
+      w: ReturnType<typeof world>,
+      client: ReturnType<typeof renderPage>["client"],
+      dialog: HTMLElement,
+    ) {
+      const before = w.detailCalls.length;
+      void client.invalidateQueries({ queryKey: caseKeys.all });
+      await waitFor(() => expect(w.detailCalls.length).toBeGreaterThan(before));
+      await waitFor(() =>
+        expect(within(dialog).queryByRole("status")).toBeNull(),
+      );
+    }
+
+    it("#316 AC-1: 一覧が変わらない取り直しの後も、外したチェック・検索語・追加に選んだ人が残り、送る本文は選んだとおり", async () => {
+      const { w, user, client, dialog } = await setup();
+      await refetchDetail(w, client, dialog);
+      expect(checkbox(dialog, MEMBER_A.displayName).checked).toBe(false);
+      expect(checkbox(dialog, MEMBER_B.displayName).checked).toBe(true);
+      expect(
+        within(
+          within(dialog).getByRole("list", { name: ADDED_LIST }),
+        ).getByText(NEWCOMER.displayName),
+      ).toBeTruthy();
+      expect(
+        within(dialog).getByRole<HTMLInputElement>("textbox", {
+          name: SEARCH_LABEL,
+        }).value,
+      ).toBe("150b");
+      await user.click(
+        within(dialog).getByRole("button", { name: TEXTS.next }),
+      );
+      await user.click(
+        await within(dialog).findByRole("button", { name: TEXTS.confirm }),
+      );
+      await waitFor(() => expect(w.writes).toHaveLength(1));
+      expect(sortedBody(w.writes[0]?.body)).toEqual({
+        participantIds: [...ACTIVE_IDS].sort(),
+        addUserIds: [NEWCOMER.id],
+        removeUserIds: [MEMBER_A.userId],
+      });
+    });
+
+    it("#316 AC-1: 確認の段階での取り直しで、一覧が変わらなければ確認の段階のまま戻る", async () => {
+      const { w, user, client, dialog } = await setup();
+      await user.click(
+        within(dialog).getByRole("button", { name: TEXTS.next }),
+      );
+      expect(
+        await within(dialog).findByRole("button", { name: TEXTS.confirm }),
+      ).toBeTruthy();
+      await refetchDetail(w, client, dialog);
+      expect(
+        within(dialog).getByRole("button", { name: TEXTS.confirm }),
+      ).toBeTruthy();
+      expect(regionNames(dialog, TEXTS.leave)).toContain(MEMBER_A.displayName);
+      expect(within(dialog).queryByRole("checkbox")).toBeNull();
+    });
+
+    it.each([
+      {
+        name: "1人増えた",
+        change: (w: ReturnType<typeof world>) => {
+          w.state.participants = [...w.state.participants, LATE_JOINER];
+        },
+        present: LATE_JOINER.displayName,
+        checked: true,
+      },
+      {
+        name: "1人減った",
+        change: (w: ReturnType<typeof world>) => {
+          w.state.participants = w.state.participants.filter(
+            (p) => p.userId !== MEMBER_B.userId,
+          );
+        },
+        absent: MEMBER_B.displayName,
+      },
+    ])(
+      "#316 AC-1: 確認の段階での取り直しで、一覧が変わった（$name）ら、選ぶ段階に戻り、新しい一覧を出す（古い一覧で送れない）",
+      async ({ change, present, absent }) => {
+        const { w, user, client, dialog } = await setup();
+        await user.click(
+          within(dialog).getByRole("button", { name: TEXTS.next }),
+        );
+        expect(
+          await within(dialog).findByRole("button", { name: TEXTS.confirm }),
+        ).toBeTruthy();
+        change(w);
+        await refetchDetail(w, client, dialog);
+        await waitFor(() =>
+          expect(
+            within(dialog).queryByRole("button", { name: TEXTS.confirm }),
+          ).toBeNull(),
+        );
+        expect(
+          within(dialog).getByRole("button", { name: TEXTS.next }),
+        ).toBeTruthy();
+        if (present !== undefined)
+          expect(checkbox(dialog, present).checked).toBe(true);
+        if (absent !== undefined)
+          expect(
+            within(dialog).queryByRole("checkbox", { name: absent }),
+          ).toBeNull();
+        // 選びかけた内容は保たれる
+        expect(checkbox(dialog, MEMBER_A.displayName).checked).toBe(false);
+        expect(w.writes).toEqual([]);
+      },
+    );
+
+    it("#316 AC-1: 追加に選んだ人が、取り直しですでに参加者になっていたら、送る本文の「足す人」に入らない", async () => {
+      const { w, user, client, dialog } = await setup();
+      w.state.participants = [...w.state.participants, NEWCOMER_PERSON];
+      await refetchDetail(w, client, dialog);
+      expect(
+        await within(dialog).findByRole("checkbox", {
+          name: NEWCOMER.displayName,
+        }),
+      ).toBeTruthy();
+      expect(
+        within(dialog).queryByRole("list", { name: ADDED_LIST })?.textContent ??
+          "",
+      ).not.toContain(NEWCOMER.displayName);
+      await user.click(
+        within(dialog).getByRole("button", { name: TEXTS.next }),
+      );
+      await user.click(
+        await within(dialog).findByRole("button", { name: TEXTS.confirm }),
+      );
+      await waitFor(() => expect(w.writes).toHaveLength(1));
+      const body = sortedBody(w.writes[0]?.body);
+      expect(body.addUserIds).toEqual([]);
+      expect(body.participantIds).toContain(NEWCOMER.id);
+      expect(body.removeUserIds).toEqual([MEMBER_A.userId]);
+    });
+
+    it("#316 AC-1: 再開を送っている間に取り直しが起きても、送信は1回だけ", async () => {
+      const gate = deferred();
+      const { w, user, client, dialog } = await setup(async () => {
+        await gate.promise;
+        w.state.status = "active";
+        return HttpResponse.json({ caseId: caseId(N), status: "active" });
+      }, "none");
+      await user.click(
+        within(dialog).getByRole("button", { name: TEXTS.next }),
+      );
+      await user.click(
+        await within(dialog).findByRole("button", { name: TEXTS.confirm }),
+      );
+      await waitFor(() => expect(w.writes).toHaveLength(1));
+      const before = w.detailCalls.length;
+      void client.invalidateQueries({
+        queryKey: caseKeys.detail(TEST_USER.id, caseId(N)),
+      });
+      await waitFor(() => expect(w.detailCalls.length).toBeGreaterThan(before));
+      await waitFor(() =>
+        expect(within(dialog).queryByRole("status")).toBeNull(),
+      );
+      for (const button of within(dialog).queryAllByRole<HTMLButtonElement>(
+        "button",
+      ))
+        expect(button.disabled, button.textContent ?? "").toBe(true);
+      expect(w.writes).toHaveLength(1);
+      gate.release();
+      expect(await screen.findByText(TEXTS.reopened)).toBeTruthy();
+      expect(w.writes).toHaveLength(1);
+    });
   });
 });
