@@ -9,6 +9,7 @@
 import { execFile } from "node:child_process";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./console-guard";
+import { allowSessionCheck401 } from "./session-console";
 
 const PASSWORD = "TestPass123!";
 const CASE_ID = "01JTE2E00000000000Y0011149";
@@ -42,14 +43,8 @@ test("#149 149-D 5-4 AC-6: 担当者を参加者から外すと、外した人�
   await seedFile("case-todos-unassign.sql");
   const problems: string[] = [];
   try {
-    page.on("console", (message) => {
-      if (message.type() !== "error") return;
-      if (/status of 401/.test(message.text())) return;
-      problems.push(`console: ${message.text()}`);
-    });
-    page.on("pageerror", (error) =>
-      problems.push(`pageerror: ${String(error)}`),
-    );
+    // コンソールのエラー・処理されなかった例外の監視と、未ログインのセッションの確認の 401 の許可は、console-guard の fixture に任せる
+    allowSessionCheck401(page);
     page.on("response", (response) => {
       if (response.status() < 400) return;
       const path = new URL(response.url()).pathname;
@@ -89,11 +84,13 @@ test("#149 149-D 5-4 AC-6: 担当者を参加者から外すと、外した人�
     await page.keyboard.press("Escape");
 
     // 再読み込みせずに、TODO の担当の表示が変わる（前の表示が消えるのを待ってから確かめる）
-    await expect(item).not.toContainText(`担当：${PARTNER_NAME}`, {
-      timeout: REFLECT_MS,
-    });
     await expect(item).toContainText(
       `担当：担当なし（以前の担当：${PARTNER_NAME}）`,
+      { timeout: REFLECT_MS },
+    );
+    // 新しい表示の「以前の担当：名前」には当たらないよう、直前が「以前の」でない「担当：名前」だけを古い表示とみなす
+    await expect(item).not.toHaveText(
+      new RegExp(`(?<!以前の)担当：${PARTNER_NAME}`),
     );
     expect(problems, "コンソールのエラー・失敗した要求").toEqual([]);
   } finally {
