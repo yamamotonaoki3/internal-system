@@ -897,3 +897,215 @@ describe("#149 AC-1 149-B 5-4 AC-7 ポーリングと資格の喪失（計画 10
     );
   });
 });
+
+// #320：409（todo_changed）の後の取り直しの完了を、時刻の比較だけに頼らずに見分ける（#149-B の後追い）。
+// 組み合わせ：取り直しの {成功・失敗・最中} × {時刻が進む・409 の受信と前の取得が同じミリ秒}。
+// 同じミリ秒は、Date.now を固定して再現する（react-query の取得の時刻も、409 を受けた時刻も同じ値になる）。
+const LOADING_TEXT = "最新の内容を読み込み中です";
+const SAME_MS = 1_800_000_000_000;
+
+describe.each([
+  { label: "時刻が進む", sameMs: false },
+  { label: "409 の受信と前の取得が同じミリ秒", sameMs: true },
+])("#320 AC-1・AC-2 409 の後の取り直し（$label）", ({ sameMs }) => {
+  beforeEach(() => {
+    if (sameMs) vi.spyOn(Date, "now").mockReturnValue(SAME_MS);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 409 を返し、その後の一覧は「最新の内容」を、失敗または保留で返す */
+  function setup(n: number, mode: { fail?: boolean; hold?: Promise<void> }) {
+    const state = respondTodos([todoItem(1, { assignee: person(MEMBER) })], {
+      people: PEOPLE,
+      respond: () => {
+        state.items = [
+          todoItem(1, {
+            title: "[UNIT_TEST]320最新の題名",
+            assignee: person(PARTICIPANT_CREATOR),
+            version: 2,
+          }),
+        ];
+        if (mode.fail) state.failWith = FAIL_500;
+        if (mode.hold !== undefined) state.hold = mode.hold;
+        return changedConflict();
+      },
+    });
+    const { user } = renderPage(n);
+    return { state, user };
+  }
+  async function saveWithInput(
+    user: User,
+    region: HTMLElement,
+    text: string,
+  ): Promise<HTMLElement> {
+    const dialog = await openEdit(user, region, todoTitle(1));
+    await retitle(user, dialog, text);
+    await user.selectOptions(
+      assigneeOf(dialog),
+      within(assigneeOf(dialog)).getByRole("option", {
+        name: CASE_TODO_TEXTS.noAssignee,
+      }),
+    );
+    await user.click(saveOf(dialog));
+    return dialog;
+  }
+
+  it("#320 AC-1・AC-2: 取り直しが失敗したら、古い内容を「最新」と出さず、失敗の表示と「再試行」を出し、保存は押せない。入力は残る", async () => {
+    const { state, user } = setup(41, { fail: true });
+    const region = await section();
+    const dialog = await saveWithInput(
+      user,
+      region,
+      "[[UNIT_TEST]320失敗の入力",
+    );
+    expect(
+      await within(dialog).findByText(CASE_TODO_TEXTS.latestLoadFailed, {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "再試行" })).toBeTruthy();
+    expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestPrefix);
+    expect(disabled(saveOf(dialog))).toBe(true);
+    // 入力は残る
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]320失敗の入力");
+    expect(selectedOf(dialog)).toBe("");
+    // 古い版のまま、もう一度送らせない
+    await user.click(saveOf(dialog));
+    expect(state.writes).toHaveLength(1);
+  });
+
+  it("#320 AC-1・AC-2: 取り直しの最中は、読み込みの表示になり、保存は押せない。「最新」とは出さない。入力は残る", async () => {
+    const hold = deferred();
+    const { state, user } = setup(42, { hold: hold.promise });
+    const region = await section();
+    const dialog = await saveWithInput(
+      user,
+      region,
+      "[[UNIT_TEST]320最中の入力",
+    );
+    expect(
+      await within(dialog).findByText(LOADING_TEXT, { exact: false }),
+    ).toBeTruthy();
+    expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestPrefix);
+    expect(disabled(saveOf(dialog))).toBe(true);
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]320最中の入力");
+    expect(selectedOf(dialog)).toBe("");
+    await user.click(saveOf(dialog));
+    expect(state.writes).toHaveLength(1);
+    state.hold = null;
+    hold.release();
+    expect(
+      await within(dialog).findByText(
+        `${CASE_TODO_TEXTS.latestPrefix}[UNIT_TEST]320最新の題名`,
+        { exact: false },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("#320 AC-1・AC-2: 失敗の後の「再試行」が成功したら、最新の内容が出て、保存を押せる。入力は残る", async () => {
+    const { state, user } = setup(43, { fail: true });
+    const region = await section();
+    const dialog = await saveWithInput(
+      user,
+      region,
+      "[[UNIT_TEST]320再試行の入力",
+    );
+    await within(dialog).findByText(CASE_TODO_TEXTS.latestLoadFailed, {
+      exact: false,
+    });
+    state.failWith = null;
+    await user.click(within(dialog).getByRole("button", { name: "再試行" }));
+    expect(
+      await within(dialog).findByText(
+        `${CASE_TODO_TEXTS.latestPrefix}[UNIT_TEST]320最新の題名／担当：${PARTICIPANT_CREATOR.displayName}`,
+        { exact: false },
+      ),
+    ).toBeTruthy();
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+    expect(within(dialog).queryByRole("button", { name: "再試行" })).toBeNull();
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]320再試行の入力");
+    expect(selectedOf(dialog)).toBe("");
+  });
+});
+
+describe("#320 AC-1 一覧の自動の取り直し（2秒ごと）と編集のダイアログ", () => {
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("#320 AC-1: 送信中に、一覧の自動の取り直しが走っても、保存・キャンセルは押せないままで、送信は1回だけ", async () => {
+    const gate = deferred();
+    const state = respondTodos([todoItem(1)], {
+      people: PEOPLE,
+      respond: async () => {
+        await gate.promise;
+        return HttpResponse.json({
+          ...todoItem(1, { title: "[UNIT_TEST]320送信中", version: 2 }),
+          progress: { done: 0, total: 1 },
+        });
+      },
+    });
+    const { user } = renderPage(44);
+    const region = await section();
+    const dialog = await openEdit(user, region, todoTitle(1));
+    await retitle(user, dialog, "[[UNIT_TEST]320送信中");
+    await user.click(saveOf(dialog));
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(true));
+    const before = state.requests.length;
+    await advance(POLL_MS);
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
+    const cancel = within(dialog).getByRole("button", {
+      name: CASE_TODO_TEXTS.cancel,
+    });
+    expect(disabled(saveOf(dialog))).toBe(true);
+    expect(disabled(cancel)).toBe(true);
+    await user.click(saveOf(dialog));
+    expect(state.writes).toHaveLength(1);
+    gate.release();
+    expect(
+      await within(region).findByText(CASE_TODO_TEXTS.updated),
+    ).toBeTruthy();
+  });
+
+  it("#320 AC-1: 409 の後ではない、ふだんの自動の取り直しの最中・失敗では、読み込みや失敗の表示に切り替わらず、保存を押せる。入力は残る", async () => {
+    const hold = deferred();
+    const state = respondTodos([todoItem(1, { assignee: person(MEMBER) })], {
+      people: PEOPLE,
+    });
+    const { user } = renderPage(45);
+    const region = await section();
+    const dialog = await openEdit(user, region, todoTitle(1));
+    await retitle(user, dialog, "[[UNIT_TEST]320ふだんの入力");
+    expect(disabled(saveOf(dialog))).toBe(false);
+    // 取り直しの最中（保留）
+    state.hold = hold.promise;
+    const before = state.requests.length;
+    await advance(POLL_MS);
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
+    expect(dialog.textContent).not.toContain(LOADING_TEXT);
+    expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestLoadFailed);
+    expect(disabled(saveOf(dialog))).toBe(false);
+    // 取り直しの失敗
+    state.failWith = FAIL_500;
+    state.hold = null;
+    hold.release();
+    await advance(POLL_MS);
+    await waitFor(() =>
+      expect(state.requests.length).toBeGreaterThan(before + 1),
+    );
+    expect(dialog.textContent).not.toContain(LOADING_TEXT);
+    expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestLoadFailed);
+    expect(within(dialog).queryByRole("button", { name: "再試行" })).toBeNull();
+    expect(disabled(saveOf(dialog))).toBe(false);
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]320ふだんの入力");
+  });
+});

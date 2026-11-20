@@ -873,7 +873,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 編集のダイアログ（`CaseTodoEditDialog`）：開いた時点の`version`を持つ。送るのは変わった項目だけで、何も変わらなければ送らずに閉じる。題名は送る前に`shared/case-todo-rules.ts`の規則で確かめる。422 は欄に、409・403 は欄の外（`role="alert"`）に出し、**入力は残す**。成功すると「TODOを更新しました」
 - 409 の理由は、**サーバーの文言で見分ける**（共通の`ApiError`が理由を持たないため。先例はチャンネルの編集のダイアログ。計画からの変更点）。サーバーと画面の文言は`labels.ts`の`CASE_TODO_EDIT_TEXTS`で合わせてあり、文言を変えるときは両方を直す
   - 削除済み（`todo_deleted`）：「このTODOは削除されています」を出し、保存を押せなくする
-  - ほかの人の変更（`todo_changed`）：一覧の取り直しが終わるまで保存を押せなくする。取り直した一覧に項目があれば「最新の内容」（題名・担当）を出し、次の保存は最新の版で送る。取得済みのページに項目がなければ、削除とは言わず「閉じてから、一覧で確かめてください」を出す。取り直しの失敗は「再試行」。取り直しが終わったかは、409 を受けた時刻と、一覧の取得の成功・失敗の時刻を比べて導く（状態をコピーしない）
+  - ほかの人の変更（`todo_changed`）：一覧の取り直しが終わるまで保存を押せなくする。取り直した一覧に項目があれば「最新の内容」（題名・担当）を出し、次の保存は最新の版で送る。取得済みのページに項目がなければ、削除とは言わず「閉じてから、一覧で確かめてください」を出す。取り直しの失敗は「再試行」。取り直しが終わったかは、時刻の比較ではなく、一覧の取得の**成功・失敗の回数**で見分ける（#320）。409 を受けたとき（と「再試行」を押したとき）に、react-query の一覧の状態の成功の回数（`dataUpdateCount`）と失敗の回数（`errorUpdateCount`）を控え（`CaseTodoEditDialog.tsx`の`useFetchCounts`）、成功の回数が控えより増えたら「届いた」（項目があれば最新の内容、なければ上の「確かめてください」）、失敗の回数が増えたら「失敗」（「再試行」）、どちらでもなければ「読み込み中」とする（状態をコピーしない。同じミリ秒でも正しく動く）。409 より前に始まった取得は数えない（409 の後の`invalidateQueries`が取得中のものを取り消して取り直し、取り消された取得はどちらの回数にも入らない）。409 の後の 2 秒ごとの自動の取り直しの成功も「届いた」になる。409 を受けていない間は、ふだんの自動の取り直しの最中・失敗でも、ダイアログの表示は変わらない
 - ダイアログを開いている間に、ほかの人の操作で項目が完了・削除されても閉じない（入力を失わせない）。送ったときに 409 で伝える。利用者が替わったときと資格を失ったとき（一覧がなくなったとき）は、開いているダイアログを出さない（#284）
 - 担当の選択肢は`CaseTodoAssigneeOptions`（「担当なし」と有効な参加者。編集ではいまの担当も残す）。終了中は「編集」「削除」を出さない
 
@@ -881,7 +881,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 
 - DB：`backend/src/db/case-todo.repository.edit.db.test.ts`（編集・削除の書き込みの結果、前提を1つずつ崩す、記録の ID の逆転、監査ログが増えないこと）、`backend/src/db/case-todo.explain.db.test.ts`・`case-todo.repository.db.test.ts`（記録の ID の新しさの確認への変更に追随）
 - Service・route：`backend/src/routes/case-todos.edit.test.ts`（判定の順・存在の非開示）、`backend/src/services/case-todo.edit.decide.test.ts`（`decideEdit`・`decideDelete`）、`case-todo.edit.event-id.db.test.ts`（記録の ID の作り直し）、`case-todo.edit.interleave.test.ts`（確認の直後に状態が変わる割り込み）。契約は`backend/src/openapi.case-todos.test.ts`
-- 画面：`frontend/src/pages/CaseTodos.edit.test.tsx`（編集・削除・409 の理由ごとの表示）、`CaseTodos.session-switch.test.tsx`（利用者の切り替え）、`CaseCloseTodoWarning.test.tsx`、`frontend/src/features/profile/profile-card.unique-id.test.tsx`（カードの ID）。MSW は`frontend/src/test/case-todo-handlers.ts`
+- 画面：`frontend/src/pages/CaseTodos.edit.test.tsx`（編集・削除・409 の理由ごとの表示。末尾に #320 のテスト：409 の後の取り直しの失敗・最中・再試行を、時刻が進む場合と同じミリ秒の場合の 2 通りで、送信中の自動の取り直し、ふだんの自動の取り直しで表示が変わらないこと）、`CaseTodos.session-switch.test.tsx`（利用者の切り替え）、`CaseCloseTodoWarning.test.tsx`、`frontend/src/features/profile/profile-card.unique-id.test.tsx`（カードの ID）。MSW は`frontend/src/test/case-todo-handlers.ts`
 - E2E：`e2e/case-todos-edit.spec.ts`（1 件。題名の変更が別の参加者の画面に 3 秒以内に出る → 古い版での保存は 409 で入力が残る → 削除で両方の一覧と進捗から消える。[e2e.md](../testing/e2e.md)）
 
 ### 設計の判断（知見）

@@ -4,13 +4,17 @@
 //   削除済み：保存を押せなくする。
 //   ほかの人の変更：一覧の取り直し（onSettled の invalidate）を待ち、取得済みのページに項目があれば最新の内容を出して、次の保存は最新の版で送る。
 //   項目がなければ削除とは言わずに閉じて確かめるよう案内し、取り直しが失敗したら再試行を出す。それまでは保存を押せない。
-// 取り直しが終わったかは、409 を受けた時刻と、一覧の取得の成功・失敗の時刻を比べて導く（状態をコピーしない）。
+// 取り直しが終わったかは、409 を受けた時点の一覧の取得の成功・失敗の回数を控え、それより増えたかで導く（時刻は比べない。状態をコピーしない）。
+// 409 の直後に invalidate が走り、取得中のものは取り消されて取り直される。なので、回数が増えたのは 409 の後に始まった取得の結果。
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { caseTodoTitleSchema } from "../../../../../shared/case-todo-rules";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { SelectField } from "../../../components/SelectField";
 import { TextField } from "../../../components/TextField";
+import { useSignedInUserId } from "../../auth";
+import { caseKeys } from "../api/query-keys";
 import type { CaseParticipant } from "../api/case-api";
 import type { CaseTodo, CaseTodoEdit } from "../api/case-todo-api";
 import { describeError, isApiError } from "../describe-error";
@@ -42,20 +46,45 @@ type Latest =
   | { kind: "missing" }
   | { kind: "found"; item: CaseTodo };
 
+/** 409 を受けた時点の、一覧の取得の成功・失敗の回数 */
+type FetchCounts = { data: number; error: number };
+
 function latestOf(
   todos: ReturnType<typeof useCaseTodos>,
   todoId: string,
-  changedAt: number | null,
+  dataUpdateCount: number,
+  since: FetchCounts | null,
 ): Latest {
-  if (changedAt === null) return { kind: "none" };
-  if (todos.data !== undefined && todos.dataUpdatedAt >= changedAt) {
+  if (since === null) return { kind: "none" };
+  if (
+    todos.data !== undefined &&
+    todos.status === "success" &&
+    dataUpdateCount > since.data
+  ) {
     const item = todos.data.pages
       .flatMap((page) => page.items)
       .find((candidate) => candidate.id === todoId);
     return item === undefined ? { kind: "missing" } : { kind: "found", item };
   }
-  if (todos.errorUpdatedAt >= changedAt) return { kind: "failed" };
+  if (todos.status === "error" && todos.errorUpdateCount > since.error)
+    return { kind: "failed" };
   return { kind: "loading" };
+}
+
+/** 一覧の取得の成功・失敗の回数（react-query の取得の状態から、描画のたびに読む） */
+function useFetchCounts(caseId: string) {
+  const queryClient = useQueryClient();
+  const userId = useSignedInUserId();
+  const key = caseKeys.todos(userId ?? "", caseId);
+  return {
+    now: (): FetchCounts => {
+      const state = queryClient.getQueryState(key);
+      return {
+        data: state?.dataUpdateCount ?? 0,
+        error: state?.errorUpdateCount ?? 0,
+      };
+    },
+  };
 }
 
 const assigneeName = (todo: CaseTodo) => {
@@ -80,8 +109,9 @@ export function CaseTodoEditDialog({
   const [assigneeError, setAssigneeError] = useState<string>();
   const [error, setError] = useState<string>();
   const [deleted, setDeleted] = useState(false);
-  /** ほかの人の変更（409 todo_changed）を受けた時刻。最新の内容の取り直しを待つ基準 */
-  const [changedAt, setChangedAt] = useState<number | null>(null);
+  const counts = useFetchCounts(caseId);
+  /** ほかの人の変更（409 todo_changed）を受けた時点の取得の回数。最新の内容の取り直しを待つ基準 */
+  const [since, setSince] = useState<FetchCounts | null>(null);
   const edit = useEditCaseTodo(caseId, (cause) => {
     if (isApiError(cause) && cause.status === 422) {
       if (cause.fields?.includes("assigneeUserId"))
@@ -93,14 +123,14 @@ export function CaseTodoEditDialog({
     if (!isApiError(cause) || cause.status !== 409) return;
     if (cause.message === CASE_TODO_EDIT_TEXTS.todoDeleted) setDeleted(true);
     else if (cause.message === CASE_TODO_EDIT_TEXTS.todoChanged)
-      setChangedAt(Date.now());
+      setSince(counts.now());
   });
 
   useEffect(() => {
     dialogRef.current?.showModal();
   }, []);
 
-  const latest = latestOf(todos, todo.id, changedAt);
+  const latest = latestOf(todos, todo.id, counts.now().data, since);
   // 最新の内容が届いたら、それを基準に比べ、その版で送る
   const base = latest.kind === "found" ? latest.item : todo;
   const blocked =
@@ -138,7 +168,7 @@ export function CaseTodoEditDialog({
   }
 
   function retry() {
-    setChangedAt(Date.now());
+    setSince(counts.now());
     void todos.refetch();
   }
 
