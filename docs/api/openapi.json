@@ -4179,9 +4179,10 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 100
+              "maxLength": 100,
+              "pattern": "^[^\u0000]*$"
             },
-            "description": "検索語。前後の空白を除いて1〜100文字（UTF-16 の単位で数える）"
+            "description": "検索語。前後の空白を除いて1〜100文字（UTF-16 の単位で数える）。NUL（U+0000）を含む語は 422"
           },
           {
             "name": "roomId",

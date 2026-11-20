@@ -14,7 +14,12 @@ type Schema = {
   $ref?: string;
   allOf?: Schema[];
 };
-type Parameter = { name: string; in: string; required?: boolean };
+type Parameter = {
+  name: string;
+  in: string;
+  required?: boolean;
+  schema?: { maxLength?: number; pattern?: string; $ref?: string };
+};
 type Operation = {
   operationId?: string;
   parameters?: Parameter[];
@@ -97,5 +102,25 @@ describe("#155 AC-4 A-2 EP-4-01 の仕様書", () => {
     const codes = Object.keys(operation().responses ?? {});
     for (const code of ["401", "403", "422"]) expect(codes).toContain(code);
     expect(codes).not.toContain("429");
+  });
+
+  it("#155 AC-3 A-2: q の制約は実装と同じ（100文字まで。NUL を含む語を許さない）", () => {
+    const q = (operation().parameters ?? []).find(
+      (p) => p.in === "query" && p.name === "q",
+    );
+    const schema = q?.schema ?? {};
+    expect(schema.maxLength).toBe(100);
+    expect(typeof schema.pattern).toBe("string");
+    const pattern = new RegExp(schema.pattern ?? "", "u");
+    for (const ok of ["見積書", "a", "this AND that", "制御\t文字"])
+      expect({ value: ok, ok: pattern.test(ok) }).toEqual({
+        value: ok,
+        ok: true,
+      });
+    for (const ng of ["\u0000見積書", "見積\u0000書", "見積書\u0000"])
+      expect({ value: JSON.stringify(ng), ok: pattern.test(ng) }).toEqual({
+        value: JSON.stringify(ng),
+        ok: false,
+      });
   });
 });

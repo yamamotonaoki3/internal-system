@@ -17,11 +17,14 @@ export type MessageSearchResult = {
 async function fetchPages(
   conditions: MessageSearchConditions,
   pageCount: number,
+  signal: AbortSignal,
 ): Promise<MessageSearchResult> {
   const items: MessageSearchItem[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < pageCount; page += 1) {
-    const result = await searchMessages(conditions, cursor);
+    // 取り消された取得は、残りのページを取りにいかない
+    signal.throwIfAborted();
+    const result = await searchMessages(conditions, cursor, { signal });
     items.push(...result.items);
     if (result.nextCursor === null) return { items, hasMore: false };
     cursor = result.nextCursor;
@@ -44,7 +47,7 @@ export function useMessageSearch(conditions: MessageSearchConditions) {
   );
   const query = useQuery({
     queryKey: searchKeys.messages(userId ?? "", conditions, pageCount),
-    queryFn: () => fetchPages(conditions, pageCount),
+    queryFn: ({ signal }) => fetchPages(conditions, pageCount, signal),
     enabled: userId !== undefined,
     retry: false,
     staleTime: 0,

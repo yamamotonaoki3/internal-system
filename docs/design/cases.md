@@ -476,7 +476,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | `features/cases/components/CaseAttachments.tsx` | S-17 の「添付ファイル」の区画。4つの状態（読み込み中・エラーと「再試行」・0件・あり）と、行・「次のページ」。「元のメッセージへ」は`features/threads`の`useThreadParam`で`?thread=`を開く |
 | `features/cases/components/CaseDetailView.tsx` | 参加者の本文に、`CaseTodoSection`の下・`CaseConversation`の上へ区画を差し込み、取得（`useCaseAttachments`）を持つ |
 | `features/cases/components/CaseConversation.tsx` | 自分の投稿・返信が成功したら、`caseKeys.attachments`を取り直す（投稿の`onPosted`と、返信の`onReplied`） |
-| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ） |
+| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ）【Issue #155：`forgetCaseContent`は、検索の結果も`forgetSearchResults`で片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。[search.md](search.md)）。ほかのキーの片付けの方式は変えていない（#323）】 |
 | `features/cases/labels.ts` | 区画の文言（`CASE_ATTACHMENTS_TEXTS`） |
 | `features/messages/format-size.ts`・`index.ts` | 大きさの整形`formatAttachmentSize`（MB＝10^6 バイト・小数1桁）を、送信前の一覧（`AttachmentList.tsx`）から移して共通にした。`attachmentUrl`・`formatAttachmentSize`を公開の入口に足した |
 | `features/threads/components/ThreadLayout.tsx`・`ThreadPane.tsx` | 省略できる props `onReplied`。自分の返信が成功した後に呼ぶ（スレッド一覧の取り直しに加えて）。案件の画面だけが渡す |

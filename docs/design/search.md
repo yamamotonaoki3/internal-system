@@ -58,7 +58,7 @@
 | `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調） |
 | `frontend/src/pages/SearchPage.tsx`、`frontend/src/App.tsx`（`/search`） | S-15。URL の`q`・`roomId`・`from`・`to`で検索する。`q`がなければ API を呼ばない |
 | `frontend/src/features/app-shell/Header.tsx` | `HeaderSearch`を置いた |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も取り消して取り除く |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`・`forgetSearchResults`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。下の「画面」） |
 
 ## 表の構成（migration 0032・0033）
 
@@ -188,7 +188,8 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - 「さらに表示」の取得の最中は、前の行を出さず、読み込み中だけを出す。取得中はボタンを押せない。失敗したら、取得済みの行も出さず、失敗の文言と再試行だけを出す（再試行は1ページ目から）。条件を変えると（`SearchPage`が結果の部品に`key`を付ける）、ページ数は1に戻る
 - **キャッシュに持たない**（抜粋は資格に左右されるため）：`staleTime: 0`・`gcTime: 0`・`retry: false`、画面を離れたら`searchKeys.user`を取り消して取り除く。`placeholderData`を使わず、前の結果を仮に出さない
 - **利用者の切り替え**：キーに利用者の ID を入れ、ADR-0030 の枠（`user-switch-guard.ts`）でも捨てられる
-- **資格の喪失**：`forgetCaseContent`が、その利用者の検索の結果を全部取り除く（どの案件の抜粋が入っているかをキーから決められないため）。別の作業 #323 が、資格を失ったときの後片付けを「ページごと読み込み直す」方式に変える予定で、その後はこの取り除きの扱いも合わせて見直す
+- **資格の喪失**：`forgetCaseContent`が`forgetSearchResults`（`useCaseWrites.ts`）を呼び、その利用者の検索の結果（`['search', 利用者の ID]`）を全部片付ける（どの案件の抜粋が入っているかをキーから決められないため）。順は、取り消し → 表示していない分の取り除き（`removeQueries`の`type: 'inactive'`）→ `resetQueries`（表示中の分のデータを消して購読している画面に知らせ、いまの資格で取り直す）。`removeQueries`だけでは表示中の画面に知らせず、出ている抜粋が残るため（2回目のコードレビューの重大な指摘への対応）。取り直しの完了は待たず、取り消しの完了だけを待つ。案件のほかのキーの片付けの方式は変えていない
+- **取り消し**：取得は`signal`で取り消せる（`searchMessages`に渡す）。取り消された取得は、残りのページを取りにいかない。別の作業 #323 が、資格を失ったときの後片付けを「ページごと読み込み直す」方式に変える予定で、その後はこの取り除きの扱いも合わせて見直す
 
 ## 設計の判断
 
@@ -202,7 +203,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - DB：`backend/src/db/search-fts5-capability.db.test.ts`（T-0。手元の D1 で trigram が使えること）、`search-index.db.test.ts`（状態の遷移・順序に依らない一致・7か所の書き込みの後の不一致0件・既存の戻り値）、`search-reindex.db.test.ts`（べき等・再開・分割の境目・migration の更新の試験）、`search.repository.db.test.ts`（一致・見える範囲と権限・期間・ページ・抜粋）、`search.explain.db.test.ts`（実行計画）、`cleanup-sql.search.db.test.ts`（後始末）。準備の部品は`backend/test/search-fixtures.ts`
 - 単体：`backend/src/lib/search-query.test.ts`、`backend/src/lib/search-text.test.ts`、`scripts/db-generate-args.test.mjs`
 - API：`backend/src/routes/search.test.ts`、`backend/src/services/search.service.test.ts`、`backend/src/openapi.search.test.ts`
-- 画面：`frontend/src/pages/SearchPage.test.tsx`、`SearchPage.userSwitch.test.tsx`、`SearchPage.accessLoss.test.tsx`（資格を失った後の「さらに表示」・取り直しの失敗で、前の抜粋を残さない）、`SearchPage.pages.test.tsx`（取得の最中の表示、条件を変えたらページ数が1に戻る、3ページ目までのカーソル）、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.test.ts`。モックは`frontend/src/test/search-handlers.ts`
+- 画面：`frontend/src/pages/SearchPage.test.tsx`、`SearchPage.userSwitch.test.tsx`、`SearchPage.accessLoss.test.tsx`（資格を失った後の「さらに表示」・取り直しの失敗・途中のページの失敗で、前の抜粋を残さない。表示中の画面の後片付け、取り消された取得が残りのページを取りにいかないこと）、`SearchPage.pages.test.tsx`（取得の最中の表示、条件を変えたらページ数が1に戻る、3ページ目までのカーソル）、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.test.ts`。モックは`frontend/src/test/search-handlers.ts`
 - E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。[e2e.md](../testing/e2e.md)）
 - ヘッダーに「検索」のボタンが増えたため、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った
 

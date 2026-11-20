@@ -26,9 +26,11 @@ export type MessageSearchPage = z.infer<typeof searchPageSchema>;
 export async function searchMessages(
   conditions: MessageSearchConditions,
   cursor: string | undefined,
+  options: { signal?: AbortSignal } = {},
 ): Promise<MessageSearchPage> {
   const response = await apiClient.get("/search/messages", {
     params: { ...conditions, cursor },
+    signal: options.signal,
   });
   return searchPageSchema.parse(response.data);
 }
