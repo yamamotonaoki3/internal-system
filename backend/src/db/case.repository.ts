@@ -27,7 +27,11 @@ import {
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid, newUlid } from "../lib/ulid";
-import { auditLogInsert, auditLogInsertRows } from "./audit-log.repository";
+import {
+  auditLogInsert,
+  auditLogInsertRows,
+  type AuditDetail,
+} from "./audit-log.repository";
 import { canManageSql } from "./case-access.sql";
 import {
   caseAssigneeScope,
@@ -94,7 +98,12 @@ export type CaseDetailExtras = {
   channelId: string;
   createdBy: string;
   participants: CaseParticipant[];
+  /** 案件の版（再編集の衝突の検知に使う。概要・一覧には返さない：説明だけの更新を非参加者に知らせないため） */
+  version: number;
 };
+
+/** 詳細の応答：概要の項目と詳細だけの項目を、同じ読み取りの時点で読んだもの（#150 の 150-C 計画 4.2.1） */
+export type CaseDetail = Omit<CaseSummary, "channelId"> & CaseDetailExtras;
 
 const jsonIds = (ids: readonly string[]) => JSON.stringify(ids);
 
@@ -561,6 +570,264 @@ export function buildRemoveParticipantStatements(
   ];
 }
 
+// ---- 再編集（#150 の 150-C。EP-5-20） ----
+
+type EditClient = { id: string; code: string; name: string };
+
+/** 再編集の判定の材料（Service が decideEdit に渡す）。案件がなければ null。説明はサーバーの中の比較にだけ使う */
+export type CaseEditFacts = {
+  status: CaseStatus;
+  version: number;
+  title: string;
+  description: string;
+  actorIsParticipant: boolean;
+  actorCanManage: boolean;
+  /** いまの取引先 */
+  client: EditClient;
+  /** 本文の clientId の取引先（指定なし・存在しないなら null） */
+  requestedClient: (EditClient & { isActive: boolean }) | null;
+  /** いまの担当部署（昇順） */
+  departmentIds: string[];
+  /** 本文の departmentIds のうち、存在する部署 */
+  requestedDepartments: { id: string; isActive: boolean }[];
+  /** 足す部署の有効なオーナーで、参加の行がない人（重複なし・昇順） */
+  joinUserIds: string[];
+};
+
+/**
+ * 再編集の入力。basis は衝突の検知（参加者は版、非参加の管理者は概要で見た値）。before は読んだ材料（監査の前の値・「読んだまま」の前提）。
+ * title・description・client・departmentIds は変える項目だけ（件名は整形後）
+ */
+export type CaseEditWriteInput = {
+  caseId: string;
+  actorId: string;
+  traceId: string;
+  basis:
+    | { version: number }
+    | {
+        expected: {
+          title: string;
+          clientId: string;
+          departmentIds: readonly string[];
+        };
+      };
+  before: {
+    title: string;
+    client: EditClient;
+    departmentIds: readonly string[];
+  };
+  title?: string;
+  description?: string;
+  client?: EditClient;
+  departmentIds?: readonly string[];
+  joinUserIds: readonly string[];
+};
+
+/** 案件（別名 k）の担当部署の集合が ids と同じであること。ID は JSON の値1つで渡す */
+function caseDepartmentsEqual(ids: readonly string[]): SQL {
+  const json = jsonIds(ids);
+  return sql`(SELECT COUNT(*) FROM case_departments ed WHERE ed.case_id = ${K_ID}) = ${ids.length}
+    AND (SELECT COUNT(*) FROM case_departments ed WHERE ed.case_id = ${K_ID}
+      AND ed.department_id IN (SELECT value FROM json_each(${json}))) = ${ids.length}`;
+}
+
+/**
+ * 自動参加させる人：departmentSet（部署の ID を返す副問い合わせ）の有効なオーナーで、部屋 room に参加の行がない人（利用者で重複を除く）。
+ * 承認のときの自動参加と同じ規則（有効なオーナー・scope_type = 'department'）
+ */
+function pendingOwnersSql(room: SQL, departmentSet: SQL): SQL {
+  return sql`SELECT DISTINCT oa.user_id AS user_id FROM user_role_assignments oa
+    JOIN users ou ON ou.id = oa.user_id AND ou.is_active = 1
+    WHERE oa.role_id = ${ROLE_IDS.owner} AND oa.scope_type = 'department'
+      AND oa.department_id IN (${departmentSet})
+      AND NOT EXISTS (SELECT 1 FROM channel_members jm WHERE jm.channel_id = ${room} AND jm.user_id = oa.user_id)`;
+}
+
+const idsSql = (json: string) => sql`SELECT value FROM json_each(${json})`;
+
+/** 担当部署の付け替え（読んだ集合 → 求めた集合）の、外す部署と足す部署 */
+function departmentDiff(input: CaseEditWriteInput) {
+  const after = input.departmentIds;
+  if (after === undefined) return { removed: [], added: [] };
+  const before = new Set(input.before.departmentIds);
+  const next = new Set(after);
+  return {
+    removed: input.before.departmentIds.filter((id) => !next.has(id)),
+    added: after.filter((id) => !before.has(id)),
+  };
+}
+
+const sortedIds = (ids: readonly string[]) => [...ids].sort();
+
+/** 監査 case.edit の detail（平ら。変えた項目のキーだけ。説明の本文は入れない） */
+function editAuditDetail(input: CaseEditWriteInput): AuditDetail {
+  const changed: string[] = [];
+  const detail: AuditDetail = { caseId: input.caseId };
+  if (input.title !== undefined) {
+    changed.push("title");
+    detail.titleBefore = input.before.title;
+    detail.titleAfter = input.title;
+  }
+  if (input.description !== undefined) {
+    changed.push("description");
+    detail.descriptionChanged = true;
+  }
+  if (input.client !== undefined) {
+    changed.push("client");
+    Object.assign(detail, {
+      clientIdBefore: input.before.client.id,
+      clientCodeBefore: input.before.client.code,
+      clientNameBefore: input.before.client.name,
+      clientIdAfter: input.client.id,
+      clientCodeAfter: input.client.code,
+      clientNameAfter: input.client.name,
+    });
+  }
+  if (input.departmentIds !== undefined) {
+    changed.push("departments");
+    const { removed, added } = departmentDiff(input);
+    Object.assign(detail, {
+      departmentIdsBefore: sortedIds(input.before.departmentIds).join(","),
+      departmentIdsAfter: sortedIds(input.departmentIds).join(","),
+      departmentAddedCount: added.length,
+      departmentRemovedCount: removed.length,
+      caseJoinCount: input.joinUserIds.length,
+    });
+  }
+  return { caseId: input.caseId, changedFields: changed.join(","), ...detail };
+}
+
+/**
+ * 再編集の前提（1つの SQL。案件があることも含む）：進行中・衝突の検知（版、または概要で見た件名・取引先・担当部署の集合）・
+ * 操作者の資格・各変更の条件（説明は有効な参加者だけ・新しい取引先が有効・担当部署が読んだまま・足す部署が有効・自動参加させる人が読んだまま）
+ */
+function editCondition(input: CaseEditWriteInput): SQL {
+  const { caseId, actorId, basis } = input;
+  const isParticipant = activeChannelMember(K_ROOM, actorId);
+  const parts: SQL[] = [
+    sql`(${isParticipant} OR ${canManageSql(actorId, K_ID)})`,
+  ];
+  if ("version" in basis)
+    parts.push(sql`k.version = ${basis.version}`, isParticipant);
+  else
+    parts.push(
+      sql`k.title = ${basis.expected.title}`,
+      sql`k.client_id = ${basis.expected.clientId}`,
+      caseDepartmentsEqual(basis.expected.departmentIds),
+    );
+  if (input.description !== undefined) parts.push(isParticipant);
+  if (input.client !== undefined && input.client.id !== input.before.client.id)
+    parts.push(
+      sql`EXISTS (SELECT 1 FROM clients nc WHERE nc.id = ${input.client.id} AND nc.is_active = 1)`,
+    );
+  if (input.departmentIds !== undefined) {
+    const { added } = departmentDiff(input);
+    const addJson = jsonIds(added);
+    const pending = pendingOwnersSql(K_ROOM, idsSql(addJson));
+    const joinJson = jsonIds(input.joinUserIds);
+    const n = input.joinUserIds.length;
+    parts.push(
+      caseDepartmentsEqual(input.before.departmentIds),
+      sql`NOT EXISTS (SELECT 1 FROM json_each(${addJson}) na WHERE NOT EXISTS (
+        SELECT 1 FROM departments nd WHERE nd.id = na.value AND nd.is_active = 1))`,
+      sql`(SELECT COUNT(*) FROM (${pending})) = ${n}
+        AND (SELECT COUNT(*) FROM (${pending}) po WHERE po.user_id IN (${idsSql(joinJson)})) = ${n}`,
+    );
+  }
+  return activeCaseWith(caseId, sql.join(parts, sql` AND `));
+}
+
+/**
+ * 再編集の batch の文（計画 150-C 4.4 の順）：1 前提 → 2 監査 → 確認 → 3 担当部署の削除 → 確認 → 4 追加 → 確認
+ * → 5 自動参加 → 確認 → 6 案件の更新（RETURNING）→ 確認 → 7 不変条件（担当部署が1件以上）。最大12文で、部署・人の数に比例しない。
+ * 後ろの文は案件の ID と進行中だけを見る（先頭を通れば、D1 の batch は1つのトランザクションで前提は保たれる。
+ * 版を後ろで求めないのは、expected の方式で読んだ後に説明・納期だけが変わっても崩さないため）
+ */
+export function buildEditStatements(
+  db: Database,
+  input: CaseEditWriteInput,
+): BatchItem[] {
+  const { caseId } = input;
+  const condition = editCondition(input);
+  const stillEditable = activeCaseWith(caseId, sql`1 = 1`);
+  const guard = (expected: number) =>
+    guardChanges(db, caseId, sql`${expected}`);
+  const now = new Date().toISOString();
+  const statements: BatchItem[] = [
+    assertStatement(db, caseId, condition),
+    auditLogInsert(
+      db,
+      {
+        actorId: input.actorId,
+        action: "case.edit",
+        targetType: "case",
+        targetId: caseId,
+        result: "success",
+        traceId: input.traceId,
+        detail: editAuditDetail(input),
+      },
+      { onlyWhen: condition },
+    ),
+    guard(1),
+  ];
+  const after = input.departmentIds;
+  if (after !== undefined) {
+    const { removed, added } = departmentDiff(input);
+    if (removed.length > 0)
+      statements.push(
+        db
+          .delete(caseDepartments)
+          .where(
+            and(
+              eq(caseDepartments.caseId, caseId),
+              sql`${caseDepartments.departmentId} NOT IN (${idsSql(jsonIds(after))})`,
+              stillEditable,
+            ),
+          ),
+        guard(removed.length),
+      );
+    if (added.length > 0)
+      statements.push(
+        db
+          .insert(caseDepartments)
+          .select(
+            sql`SELECT ${caseId}, na.value FROM json_each(${jsonIds(added)}) na WHERE ${stillEditable}`,
+          ),
+        guard(added.length),
+      );
+  }
+  if (input.joinUserIds.length > 0)
+    statements.push(
+      db.insert(channelMembers).select(
+        sql`SELECT k.channel_id, j.value, ${now} FROM cases k, json_each(${jsonIds(input.joinUserIds)}) j
+            WHERE k.id = ${caseId} AND k.status = 'active'`,
+      ),
+      guard(input.joinUserIds.length),
+    );
+  statements.push(
+    db
+      .update(cases)
+      .set({
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined
+          ? {}
+          : { description: input.description }),
+        ...(input.client === undefined ? {} : { clientId: input.client.id }),
+        version: sql`${cases.version} + 1`,
+        updatedAt: now,
+      })
+      .where(and(eq(cases.id, caseId), stillEditable))
+      .returning({ id: cases.id }),
+    guard(1),
+    assertStatement(
+      db,
+      caseId,
+      sql`EXISTS (SELECT 1 FROM case_departments ld WHERE ld.case_id = ${caseId})`,
+    ),
+  );
+  return statements;
+}
+
 function cursorFor(row: { id: string }) {
   if (!isUlid(row.id)) throw new Error("案件IDが不正です");
   return { v: row.id, id: row.id };
@@ -580,9 +847,12 @@ export function createCaseRepository(db: Database) {
         title: cases.title,
         status: cases.status,
         dueDate: cases.dueDate,
-        clientId: clients.id,
-        clientName: clients.name,
-        clientIsActive: clients.isActive,
+        // 案件の列と名前が重なる取引先の列には別名を付ける（db.batch の中では、同じ名前の列の値が取り違えられるため）
+        clientId: sql<string>`${clients.id}`.as("client_ref_id"),
+        clientName: sql<string>`${clients.name}`.as("client_ref_name"),
+        clientIsActive: sql<boolean>`${clients.isActive}`
+          .mapWith(clients.isActive)
+          .as("client_ref_is_active"),
         isParticipant: sql<number>`CASE WHEN ${isParticipant} THEN 1 ELSE 0 END`,
         canManage: sql<number>`CASE WHEN ${canManage} THEN 1 ELSE 0 END`,
         canEditDueDate: sql<number>`CASE WHEN ${cases.status} = 'active' AND (${isParticipant} OR ${canManage}) THEN 1 ELSE 0 END`,
@@ -607,10 +877,9 @@ export function createCaseRepository(db: Database) {
     ReturnType<ReturnType<typeof selectRows>["where"]>
   >[number];
 
-  /** 行に担当部署を付ける（ページ全体で1回の読み込み） */
-  async function toSummaries(rows: Row[]): Promise<CaseSummary[]> {
-    if (rows.length === 0) return [];
-    const departmentRows = await db
+  /** 案件の担当部署（案件 ID は JSON の値1つで渡す） */
+  const departmentsOfQuery = (caseIds: readonly string[]) =>
+    db
       .select({
         caseId: caseDepartments.caseId,
         id: departments.id,
@@ -620,9 +889,23 @@ export function createCaseRepository(db: Database) {
       .from(caseDepartments)
       .innerJoin(departments, eq(departments.id, caseDepartments.departmentId))
       .where(
-        sql`${caseDepartments.caseId} IN (SELECT value FROM json_each(${jsonIds(rows.map((row) => row.id))}))`,
+        sql`${caseDepartments.caseId} IN (SELECT value FROM json_each(${jsonIds(caseIds)}))`,
       )
       .orderBy(asc(departments.name), asc(departments.id));
+
+  type DepartmentRow = Awaited<ReturnType<typeof departmentsOfQuery>>[number];
+
+  /** 行に担当部署を付ける（ページ全体で1回の読み込み） */
+  async function toSummaries(rows: Row[]): Promise<CaseSummary[]> {
+    if (rows.length === 0) return [];
+    const departmentRows = await departmentsOfQuery(rows.map((row) => row.id));
+    return summariesOf(rows, departmentRows);
+  }
+
+  function summariesOf(
+    rows: Row[],
+    departmentRows: DepartmentRow[],
+  ): CaseSummary[] {
     return rows.map((row) => ({
       id: row.id,
       caseNumber: row.caseNumber,
@@ -833,45 +1116,60 @@ export function createCaseRepository(db: Database) {
     async findDetailExtras(input: {
       caseId: string;
       actorId: string;
-    }): Promise<CaseDetailExtras | "not_visible" | "not_found"> {
+    }): Promise<CaseDetail | "not_visible" | "not_found"> {
       const visible = activeChannelMember(
         sql`${cases.channelId}`,
         input.actorId,
       );
-      const [caseRows, participantRows, roleRows, departmentRows] =
-        await db.batch([
-          db
-            .select({
-              description: cases.description,
-              channelId: cases.channelId,
-              createdBy: cases.createdBy,
-              visible: sql<number>`CASE WHEN ${visible} THEN 1 ELSE 0 END`,
-            })
-            .from(cases)
-            .where(eq(cases.id, input.caseId))
-            .limit(1),
-          db
-            .select({
-              userId: users.id,
-              displayName: users.displayName,
-              departmentName: departments.name,
-              isActive: users.isActive,
-            })
-            .from(channelMembers)
-            .innerJoin(cases, eq(cases.channelId, channelMembers.channelId))
-            .innerJoin(users, eq(users.id, channelMembers.userId))
-            .leftJoin(departments, eq(departments.id, users.departmentId))
-            .where(and(eq(cases.id, input.caseId), visible))
-            .orderBy(asc(channelMembers.joinedAt), asc(channelMembers.userId)),
-          participantRolesQuery(db, input.caseId, input.actorId),
-          caseDepartmentIdsQuery(db, input.caseId, input.actorId),
-        ]);
+      // 概要の項目・担当部署も同じ batch で読む（先に読んだ概要と混ぜると、間の更新で古い件名と新しい版が1つの応答に入るため）
+      const [
+        caseRows,
+        participantRows,
+        roleRows,
+        departmentRows,
+        summaryRows,
+        summaryDepartmentRows,
+      ] = await db.batch([
+        db
+          .select({
+            description: cases.description,
+            channelId: cases.channelId,
+            createdBy: cases.createdBy,
+            version: cases.version,
+            visible: sql<number>`CASE WHEN ${visible} THEN 1 ELSE 0 END`,
+          })
+          .from(cases)
+          .where(eq(cases.id, input.caseId))
+          .limit(1),
+        db
+          .select({
+            userId: users.id,
+            displayName: users.displayName,
+            departmentName: departments.name,
+            isActive: users.isActive,
+          })
+          .from(channelMembers)
+          .innerJoin(cases, eq(cases.channelId, channelMembers.channelId))
+          .innerJoin(users, eq(users.id, channelMembers.userId))
+          .leftJoin(departments, eq(departments.id, users.departmentId))
+          .where(and(eq(cases.id, input.caseId), visible))
+          .orderBy(asc(channelMembers.joinedAt), asc(channelMembers.userId)),
+        participantRolesQuery(db, input.caseId, input.actorId),
+        caseDepartmentIdsQuery(db, input.caseId, input.actorId),
+        selectRows(input.actorId)
+          .where(and(eq(cases.id, input.caseId), visible))
+          .limit(1),
+        departmentsOfQuery([input.caseId]),
+      ]);
       const [found] = caseRows;
       if (found === undefined) return "not_found";
-      if (found.visible !== 1) return "not_visible";
+      const [summary] = summariesOf(summaryRows, summaryDepartmentRows);
+      if (found.visible !== 1 || summary === undefined) return "not_visible";
       const caseDepartmentIds = departmentRows.map((d) => d.departmentId);
       const activeCount = participantRows.filter((p) => p.isActive).length;
       return {
+        ...summary,
+        version: found.version,
         description: found.description,
         channelId: found.channelId,
         createdBy: found.createdBy,
@@ -956,6 +1254,102 @@ export function createCaseRepository(db: Database) {
           ...rolesOf(roleRows, targetId),
         },
       };
+    },
+
+    /**
+     * 再編集の判定の材料を、同じ時点（1つの batch）で読む。案件がなければ null。
+     * 求めた部署・自動参加させる人は、部署の ID を JSON の値1つで渡して読む（部署の数に比例して値の数を増やさない）
+     */
+    async findEditFacts(input: {
+      caseId: string;
+      actorId: string;
+      clientId?: string;
+      departmentIds?: readonly string[];
+    }): Promise<CaseEditFacts | null> {
+      const requestedJson = jsonIds(input.departmentIds ?? []);
+      const room = sql`(SELECT ec.channel_id FROM cases ec WHERE ec.id = ${input.caseId})`;
+      // 求めた部署のうち、いまの担当部署にない部署（足す部署）
+      const addedSet = sql`SELECT value FROM json_each(${requestedJson})
+        WHERE value NOT IN (SELECT cd.department_id FROM case_departments cd WHERE cd.case_id = ${input.caseId})`;
+      const [caseRows, departmentRows, clientRows, requestedRows, joinRows] =
+        await db.batch([
+          db
+            .select({
+              status: cases.status,
+              version: cases.version,
+              title: cases.title,
+              description: cases.description,
+              clientId: clients.id,
+              clientCode: clients.code,
+              clientName: clients.name,
+              // 外側の案件の列は表の名前つきで渡し、内側の表には別名を付ける（#294）
+              actorIsParticipant: sql<number>`CASE WHEN ${activeChannelMember(sql`${cases.channelId}`, input.actorId)} THEN 1 ELSE 0 END`,
+              actorCanManage: sql<number>`CASE WHEN ${canManageSql(input.actorId, sql`${cases.id}`)} THEN 1 ELSE 0 END`,
+            })
+            .from(cases)
+            .innerJoin(clients, eq(clients.id, cases.clientId))
+            .where(eq(cases.id, input.caseId))
+            .limit(1),
+          departmentIdsQuery(input.caseId).orderBy(
+            asc(caseDepartments.departmentId),
+          ),
+          db
+            .select({
+              id: clients.id,
+              code: clients.code,
+              name: clients.name,
+              isActive: clients.isActive,
+            })
+            .from(clients)
+            .where(
+              input.clientId === undefined
+                ? sql`0`
+                : eq(clients.id, input.clientId),
+            )
+            .limit(1),
+          db
+            .select({ id: departments.id, isActive: departments.isActive })
+            .from(departments)
+            .where(sql`${departments.id} IN (${idsSql(requestedJson)})`),
+          db
+            .select({ userId: sql<string>`po.user_id` })
+            .from(sql`(${pendingOwnersSql(room, addedSet)}) po`)
+            .orderBy(sql`po.user_id`),
+        ]);
+      const [row] = caseRows;
+      if (row === undefined) return null;
+      const [requested] = clientRows;
+      return {
+        status: row.status,
+        version: row.version,
+        title: row.title,
+        description: row.description,
+        actorIsParticipant: row.actorIsParticipant === 1,
+        actorCanManage: row.actorCanManage === 1,
+        client: {
+          id: row.clientId,
+          code: row.clientCode,
+          name: row.clientName,
+        },
+        requestedClient: requested ?? null,
+        departmentIds: departmentRows.map((d) => d.departmentId),
+        requestedDepartments: requestedRows,
+        joinUserIds: joinRows.map((j) => j.userId),
+      };
+    },
+
+    /** 再編集（EP-5-20。文の順は buildEditStatements）。前提が崩れていたら CaseStateChangedError で、何も残さない */
+    async editCase(input: CaseEditWriteInput): Promise<void> {
+      const statements = buildEditStatements(db, input);
+      // 案件の更新（RETURNING）は、件数の確認・不変条件の2文の前
+      const updateAt = statements.length - 3;
+      const results = await runWriteBatch(() =>
+        db.batch(statements as [BatchItem, ...BatchItem[]]),
+      );
+      // 案件がない場合、件数の確認の文も0行で失敗しないため、更新の RETURNING で確かめる
+      const updated = results[updateAt] as unknown[] | undefined;
+      if (updated === undefined || updated.length === 0)
+        throw new CaseStateChangedError();
     },
 
     /**

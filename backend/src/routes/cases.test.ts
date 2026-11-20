@@ -94,6 +94,8 @@ const DETAIL_KEYS = [
     "createdBy",
     "description",
     "participants",
+    // #150（150-C）計画 4.2.1：詳細（有効な参加者だけ）に版を足す。概要（SUMMARY_KEYS）には足さない（重大4）
+    "version",
   ]),
 ].sort();
 const PARTICIPANT_KEYS = [

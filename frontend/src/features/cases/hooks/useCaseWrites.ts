@@ -8,14 +8,17 @@ import {
   type QueryFilters,
 } from "@tanstack/react-query";
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
+import { caseRequestKeys } from "../../case-requests/form-parts";
 import { messageKeys } from "../../messages";
 import {
   addCaseParticipant,
   changeAttachmentVisibility,
   changeCaseDueDate,
   closeCase,
+  editCase,
   removeCaseParticipant,
   reopenCase,
+  type CaseEditBody,
   type CasePage,
   type CaseReopenBody,
   type CaseSummary,
@@ -171,6 +174,20 @@ export function useChangeCaseDueDate(caseId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (dueDate: string | null) => changeCaseDueDate(caseId, dueDate),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
+  });
+}
+
+/**
+ * 案件の内容の編集（#150 の 150-C）。成功しても失敗しても案件を取り直す。成功したら、件名・取引先が変わりうるので、
+ * 類似件名の確認など申請のキャッシュも取り直す
+ */
+export function useEditCase(caseId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CaseEditBody) => editCase(caseId, body),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: caseRequestKeys.all }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
   });
 }

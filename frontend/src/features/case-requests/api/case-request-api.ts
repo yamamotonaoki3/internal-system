@@ -169,6 +169,7 @@ export async function rejectCaseRequest(requestId: string, reason: string) {
 export async function checkSimilarTitle(input: {
   clientId: string;
   title: string;
+  excludeCaseId?: string;
 }) {
   const response = await apiClient.get("/case-requests/similar-title", {
     params: input,

@@ -6,8 +6,8 @@ export const caseRequestKeys = {
   mine: (userId: string) => ["case-requests", "mine", userId] as const,
   review: (userId: string, status: string) =>
     ["case-requests", "review", userId, status] as const,
-  similar: (clientId: string, title: string) =>
-    ["case-requests", "similar-title", clientId, title] as const,
+  similar: (clientId: string, title: string, excludeCaseId: string | null) =>
+    ["case-requests", "similar-title", clientId, title, excludeCaseId] as const,
 };
 
 export const caseRequestChoiceKeys = {

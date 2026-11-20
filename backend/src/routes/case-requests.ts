@@ -54,7 +54,12 @@ const approveSchema = z
 // 却下の理由はチャンネルの作成申請と同じ規則（C-91）
 const rejectSchema = z.object({ reason: rejectReasonSchema }).strict();
 const similarQuerySchema = z
-  .object({ clientId: ulidSchema, title: caseTitleSchema })
+  // excludeCaseId：再編集の画面が、編集中の案件自身を「似た案件」に数えないために渡す（#150 の 150-C）
+  .object({
+    clientId: ulidSchema,
+    title: caseTitleSchema,
+    excludeCaseId: ulidSchema.optional(),
+  })
   .strict();
 // 存在しない申請と他人の申請を同じ 404 にするため、ID の形は確かめずに Service へ渡す
 const requestParamSchema = z.object({ requestId: z.string().min(1) });

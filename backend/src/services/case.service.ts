@@ -23,12 +23,16 @@
 //   → 422 追加の人がいない・無効（同じ本文）→ 409 already_participant → batch。読み直しと版・やり直しの扱いは終了と同じ。
 import { z } from "zod";
 import {
+  caseDescriptionSchema,
   caseDueDateSchema,
+  caseTitleSchema,
   isDueDateBeforeToday,
 } from "../../../shared/case-rules";
 import {
   CaseStateChangedError,
   withCases,
+  type CaseEditFacts,
+  type CaseEditWriteInput,
   type CaseListScope,
   type CaseRepository,
   type CaseStatus,
@@ -66,6 +70,10 @@ const VALIDATION_MESSAGE = "入力内容を確かめてください";
 /** 対象の社員がいない・無効のどちらでも同じ本文にする（社員の有無・状態を本文の違いで明かさない） */
 const TARGET_INVALID_MESSAGE = "追加できる社員を選んでください";
 const CANNOT_REMOVE_SELF_MESSAGE = "再開する本人は外せません";
+const EDIT_FORBIDDEN_MESSAGE =
+  "案件を編集できるのは、参加者・担当部署のオーナー・全体管理者だけです";
+const DESCRIPTION_PARTICIPANTS_ONLY_MESSAGE =
+  "説明を変更できるのは参加者だけです";
 
 /** 再開の選び直しの上限（決定 Q4。画面で見た参加者には上限を置かない） */
 export const REOPEN_ADD_LIMIT = 100;
@@ -103,7 +111,8 @@ type WriteAction =
   | "case.participant.remove"
   | "case.due_date.change"
   | "case.close"
-  | "case.reopen";
+  | "case.reopen"
+  | "case.edit";
 
 const addBodySchema = z.object({ userId: z.string().refine(isUlid) }).strict();
 const dueDateBodySchema = z
@@ -313,6 +322,193 @@ export function decideReopenReselect(
   return null;
 }
 
+// ---- 再編集（#150 の 150-C。EP-5-20。計画 4.2） ----
+
+const departmentIdsSchema = ulidListSchema
+  .min(1)
+  .refine((ids) => !hasDuplicates(ids));
+
+/** 本文（strict）。変える項目と、衝突の検知の version（参加者）か expected（非参加の管理者が概要で見た値）のどちらか1つ */
+const editBodySchema = z
+  .object({
+    title: caseTitleSchema.optional(),
+    description: caseDescriptionSchema.optional(),
+    clientId: z.string().refine(isUlid).optional(),
+    departmentIds: departmentIdsSchema.optional(),
+    version: z.number().int().min(1).optional(),
+    expected: z
+      .object({
+        title: z.string(),
+        clientId: z.string().refine(isUlid),
+        departmentIds: departmentIdsSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (body) => (body.version === undefined) !== (body.expected === undefined),
+    { path: ["version"] },
+  );
+
+export type CaseEditBody = z.infer<typeof editBodySchema>;
+
+/** 本文の形を確かめる。未知の項目（caseNumber・dueDate を含む）は、項目名を fields に入れる */
+function parseEditBody(body: unknown): CaseEditBody {
+  const parsed = editBodySchema.safeParse(body);
+  if (parsed.success) return parsed.data;
+  const fields = parsed.error.issues.flatMap((issue) =>
+    issue.code === "unrecognized_keys"
+      ? issue.keys
+      : [String(issue.path[0] ?? "")],
+  );
+  throw validationError([...new Set(fields)]);
+}
+
+/** 本文に、参加者だけが送れる項目（説明・版）があるか。本文の形より先に見る（非参加者に版の一致を答えないため） */
+const hasParticipantOnlyField = (body: unknown) =>
+  typeof body === "object" &&
+  body !== null &&
+  ("description" in body || "version" in body);
+
+/** 再編集の 403 までの判定（有効な参加者か、管理の資格） */
+function decideEditGate(facts: CaseEditFacts | null): Decision {
+  if (facts === null) return notFound();
+  if (!facts.actorIsParticipant && !facts.actorCanManage)
+    return {
+      kind: "deny",
+      reason: "cannot_edit",
+      error: new AppError("FORBIDDEN", EDIT_FORBIDDEN_MESSAGE),
+    };
+  return null;
+}
+
+const descriptionParticipantsOnly = (): Decision => ({
+  kind: "deny",
+  reason: "description_participants_only",
+  error: new AppError("FORBIDDEN", DESCRIPTION_PARTICIPANTS_ONLY_MESSAGE),
+});
+
+/** 公開項目（件名・取引先・担当部署の集合）が、読んだときと同じか */
+const samePublicFields = (a: CaseEditFacts, b: CaseEditFacts) =>
+  a.title === b.title &&
+  a.client.id === b.client.id &&
+  sameMembers(a.departmentIds, b.departmentIds);
+
+/**
+ * 再編集の判定（最初の判定と読み直しで同じ）。body は形の検証を通った後のもの（件名は整形後）。
+ * 404 → 403（資格なし）→ 403（非参加者の説明・版）→ 409 closed → 409 stale → 422 取引先 → 422 部署。
+ * 取引先・部署の「ない」と「無効」は同じ本文にする（存在・状態を明かさない）。いまと同じ取引先・すでに担当の部署は無効でも通す
+ */
+/** 衝突：版がいまと違う、または expected がいまの件名・取引先・担当部署の集合と違う */
+function isStale(current: CaseEditFacts, body: CaseEditBody): boolean {
+  const expected = body.expected;
+  if (expected === undefined) return body.version !== current.version;
+  return (
+    expected.title !== current.title ||
+    expected.clientId !== current.client.id ||
+    !sameMembers(expected.departmentIds, current.departmentIds)
+  );
+}
+
+/** 取引先・足す部署の 422（「ない」と「無効」は同じ本文） */
+function decideEditTargets(
+  current: CaseEditFacts,
+  body: CaseEditBody,
+): Decision {
+  const changesClient =
+    body.clientId !== undefined && body.clientId !== current.client.id;
+  if (changesClient && current.requestedClient?.isActive !== true)
+    return { kind: "error", error: validationError(["clientId"]) };
+  const added = (body.departmentIds ?? []).filter(
+    (id) => !current.departmentIds.includes(id),
+  );
+  const isUsable = (id: string) =>
+    current.requestedDepartments.some((d) => d.id === id && d.isActive);
+  if (!added.every(isUsable))
+    return { kind: "error", error: validationError(["departmentIds"]) };
+  return null;
+}
+
+/** 判定の関数の形（操作者の ID も受ける）をほかの操作とそろえる。再編集の判定は、材料の資格の値だけで決まる */
+export const decideEdit: (
+  facts: CaseEditFacts | null,
+  body: CaseEditBody,
+  actorId: string,
+) => Decision = (facts, body) => {
+  const gate = decideEditGate(facts);
+  if (gate !== null) return gate;
+  const current = present(facts);
+  if (
+    !current.actorIsParticipant &&
+    (body.description !== undefined || body.version !== undefined)
+  )
+    return descriptionParticipantsOnly();
+  if (current.status !== "active") return conflict("closed");
+  if (isStale(current, body)) return conflict("stale");
+  return decideEditTargets(current, body);
+};
+
+/** 本文の項目のうち、いまの値と違うもの（件名は整形後で比べる。取引先は監査に使うコード・名前つき） */
+function changedFieldsOf(
+  facts: CaseEditFacts,
+  body: CaseEditBody,
+): Pick<
+  CaseEditWriteInput,
+  "title" | "description" | "client" | "departmentIds"
+> {
+  const changed: Pick<
+    CaseEditWriteInput,
+    "title" | "description" | "client" | "departmentIds"
+  > = {};
+  if (body.title !== undefined && body.title !== facts.title)
+    changed.title = body.title;
+  if (body.description !== undefined && body.description !== facts.description)
+    changed.description = body.description;
+  const requested = facts.requestedClient;
+  if (
+    requested !== null &&
+    body.clientId !== facts.client.id &&
+    requested.id === body.clientId
+  )
+    changed.client = {
+      id: requested.id,
+      code: requested.code,
+      name: requested.name,
+    };
+  const departmentIds = body.departmentIds;
+  if (
+    departmentIds !== undefined &&
+    !sameMembers(departmentIds, facts.departmentIds)
+  )
+    changed.departmentIds = [...departmentIds].sort();
+  return changed;
+}
+
+/** 判定を通った本文から、書き込みの入力を作る。変える項目がなければ null（何も書かない） */
+function editPlanOf(
+  facts: CaseEditFacts,
+  body: CaseEditBody,
+  base: Pick<CaseEditWriteInput, "caseId" | "actorId" | "traceId">,
+): CaseEditWriteInput | null {
+  const changed = changedFieldsOf(facts, body);
+  if (Object.keys(changed).length === 0) return null;
+  return {
+    ...base,
+    basis:
+      body.expected === undefined
+        ? { version: facts.version }
+        : { expected: body.expected },
+    before: {
+      title: facts.title,
+      client: facts.client,
+      departmentIds: facts.departmentIds,
+    },
+    ...changed,
+    joinUserIds: changed.departmentIds === undefined ? [] : facts.joinUserIds,
+  };
+}
+
 const STATUS_OPERATIONS = {
   close: {
     action: "case.close",
@@ -506,7 +702,70 @@ export function createCaseService(
           "not_participant",
           new AppError("FORBIDDEN", PARTICIPANTS_ONLY_MESSAGE),
         );
-      return { ...summary, ...extras };
+      // 先に読んだ概要は資格の判定にだけ使い、応答は詳細の1回の読み取りの値にする（古い件名と新しい版を混ぜない）
+      return extras;
+    },
+
+    /**
+     * 案件の内容の再編集（EP-5-20）。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示）。
+     * 前提が崩れたら読み直して理由を返す。読んだ公開項目が版を進めずに変わっていれば 409 stale。
+     * どれでもなく自動参加させる人の集合だけが違えば、読み直した材料で1回だけやり直し、それでも崩れたら 409 retry
+     */
+    async edit(
+      actor: CaseActor,
+      caseId: string,
+      body: unknown,
+    ): Promise<{ caseId: string; titleFormatted: boolean }> {
+      const action = "case.edit";
+      const gate = await repository.findEditFacts({
+        caseId,
+        actorId: actor.userId,
+      });
+      raiseIf(actor, action, caseId, decideEditGate(gate));
+      await authorize(actor, "perm.case.edit");
+      if (!present(gate).actorIsParticipant && hasParticipantOnlyField(body))
+        raiseIf(actor, action, caseId, descriptionParticipantsOnly());
+      const edit = parseEditBody(body);
+      // 説明の衝突を版で見るため、有効な参加者は expected を使えない
+      if (present(gate).actorIsParticipant && edit.expected !== undefined)
+        throw validationError(["version"]);
+      const rawTitle = (body as { title?: unknown }).title;
+      const result = {
+        caseId,
+        titleFormatted: edit.title !== undefined && rawTitle !== edit.title,
+      };
+      const read = () =>
+        repository.findEditFacts({
+          caseId,
+          actorId: actor.userId,
+          ...(edit.clientId === undefined ? {} : { clientId: edit.clientId }),
+          ...(edit.departmentIds === undefined
+            ? {}
+            : { departmentIds: edit.departmentIds }),
+        });
+      let facts = await read();
+      raiseIf(actor, action, caseId, decideEdit(facts, edit, actor.userId));
+      const base = { caseId, actorId: actor.userId, traceId: actor.traceId };
+      for (let attempt = 0; ; attempt += 1) {
+        const plan = editPlanOf(present(facts), edit, base);
+        if (plan === null) return result;
+        try {
+          await repository.editCase(plan);
+          return result;
+        } catch (error) {
+          if (!(error instanceof CaseStateChangedError)) throw error;
+          const again = await read();
+          raiseIf(actor, action, caseId, decideEdit(again, edit, actor.userId));
+          if (!samePublicFields(present(again), present(facts)))
+            throw conflictError("stale");
+          if (
+            sameMembers(present(again).joinUserIds, present(facts).joinUserIds)
+          )
+            throw error;
+          if (attempt >= 1) throw conflictError("retry");
+          facts = again;
+        }
+      }
     },
     /** 終了（EP-5-11） */
     close(actor: CaseActor, caseId: string) {
