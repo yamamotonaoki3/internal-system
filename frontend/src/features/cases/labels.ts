@@ -88,6 +88,7 @@ export const CASE_REOPEN_TEXTS = {
   add: "追加する人",
   leave: "外れる人",
   none: "なし",
+  retry: "再試行",
 } as const;
 
 /** S-17 の TODO（#149） */

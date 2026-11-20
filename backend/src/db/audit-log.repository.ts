@@ -201,11 +201,11 @@ const JST_OFFSET = "+09:00";
 const DAY_MS = 24 * 60 * 60_000;
 
 /** JST の日の始まりを、occurred_at と同じ形式（UTC の ISO 8601）にする */
-const jstDayStart = (date: string) =>
+export const jstDayStart = (date: string) =>
   new Date(Date.parse(`${date}T00:00:00.000${JST_OFFSET}`)).toISOString();
 
 /** JST の日の翌日の始まり（その日の終わりを含めるための、含めない側の境界） */
-const jstNextDayStart = (date: string) =>
+export const jstNextDayStart = (date: string) =>
   new Date(
     Date.parse(`${date}T00:00:00.000${JST_OFFSET}`) + DAY_MS,
   ).toISOString();

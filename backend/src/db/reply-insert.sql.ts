@@ -25,6 +25,7 @@ import {
 } from "./attachment.repository";
 import { activeChannelMember } from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
+import { syncMessageIndexStatements } from "./search-index.sql";
 
 export type ReplyInsert = {
   id: string;
@@ -84,6 +85,11 @@ export async function insertReplyIfOrdered(
         uploaderId: input.senderId,
         threadParentId: input.parentMessageId,
         attachmentIds: input.attachmentIds ?? [],
+      }),
+      // 検索の索引（#155）。ガードの後ろ・batch の末尾に置く
+      ...syncMessageIndexStatements(db, {
+        messageId: input.id,
+        sourceBody: input.body,
       }),
     ]);
     return result.meta.changes;

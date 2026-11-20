@@ -34,6 +34,7 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { PasswordChangePage } from "./pages/PasswordChangePage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SetupPage } from "./pages/SetupPage";
+import { SearchPage } from "./pages/SearchPage";
 import { ThreadsPage } from "./pages/ThreadsPage";
 
 function ClientManageRoute() {
@@ -160,6 +161,7 @@ export function App() {
           element={<MyRetirementRequestsPage />}
         />
         <Route path="/threads" element={<ThreadsPage />} />
+        <Route path="/search" element={<SearchPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/password" element={<PasswordChangePage />} />

@@ -259,8 +259,20 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - `requirePostable`・`requireReplyable`は、操作の種類（投稿／アップロード）の引数を受け取る（409の文言を選ぶため）。部屋の情報は`findForViewer`の`caseId`・`caseStatus`から得る（問い合わせは増やしていない）
 - テスト：`backend/src/db/case-room.db.test.ts`・`backend/src/services/message.case-room.test.ts`・`message.case-room.interleave.test.ts`・`backend/src/routes/messages.case-room.test.ts`
 
+## 検索の索引を足したときの変更（Issue #155の155-A）
+
+元の記述は残し、#155で変わった点だけをここに書く。全体は[search.md](search.md)、手で書いた migration は[ADR-0031](../adr/0031-search-fts-handwritten-migration.md)、決定は C-200。
+
+- **本文を書く文には、同じ`db.batch`の末尾に、検索の索引の文の組を足す**（`backend/src/db/search-index.sql.ts`の`syncMessageIndexStatements`。削除は`removeStaleMessageIndexStatements`）。対象は、`insertIfOrdered`（投稿）・`reply-insert.sql.ts`の`insertReplyIfOrdered`（返信）・`message-modify.sql.ts`の`updateBodyIfModifiable`（編集。互換の経路も batch に変えた）・`deleteIfModifiable`（削除）
+- **ガードとの間に挟まない**：投稿・返信のガード（`guardInsertedMessage`・`guardChanges`）は直前の文の`changes()`を見るため、索引の組はガードの後ろ、batch の最後に置く
+- **戻り値の契約は変えない**：Repository が返す件数は、主の文（INSERT・UPDATE）の`meta.changes`のまま。索引の文の`meta.changes`は、FTS5 の内部の書き込みも数えるため、件数の判定に使わない
+- 組は「いまの行の状態」と「渡した本文」だけで結果が決まるため、条件つきの UPDATE が0件（拒否）でも、いまの本文の写しは消えない
+- **メッセージの本文を書く処理を新しく足すときは、必ず同じ batch の末尾に組を足す**（漏れると検索に出ない・古い本文で引ける）。`backend/src/db/search-index.db.test.ts`の書き込みの一覧のテストにも足す
+- `backend/db/seeds/cleanup.sql`は、メッセージを消した後に、元のメッセージがなくなった索引の行を消す
+
 ## 関係するIssue・ADR
 
+- Issue #155の155-A：メッセージの検索。本文を書く batch の末尾に索引の組を足した。詳細は[search.md](search.md)。ADR-0031、決定記録C-200
 - Issue #201：本Issue。親Issue #133。#200（チャンネル。`channel.repository`・EP-2-06・S-05が重なる）が先行。DM・スレッド・案件（#133の後続）が「最後のID以降」の部品を使う
 - Issue #136：DMの部屋の一覧・投稿を、この設計の上に足した（`insertIfOrdered`のDMの条件、判定の順のDMの枝、`RoomMessages`の任意のprops）。詳細は[dms.md](dms.md)。決定記録C-168
 - Issue #238：チャンネルの退職者の併記（`author.isActive`）。関連：#242（DMの`retiredAuthorIds`の整理）、#243（有効な投稿者の名前へのプロフィールカード）、#117（開いている間の追従）

@@ -18,7 +18,7 @@
 //   → 状態（409 already_closed／already_active）→ batch。再認証は求めない（C-81）。
 //   前提が崩れたら読み直し、理由に当たればそれを返す。版だけが変わっていれば 409 stale（状態が一度変わって戻った場合）。
 //   どれにも当たらなければ宛先が変わったとみて、最初の版のまま宛先を読み直して1回だけやり直し、それでも崩れたら 409 retry。
-// 再開の選び直し（150-B。計画 6.1。変えない）：404 → 403 → perm.case.close → 本文の形（422）→ 409 already_active
+// 再開の選び直し（150-B。docs/design/cases.md「150-B の設計」。変えない）：404 → 403 → perm.case.close → 本文の形（422）→ 409 already_active
 //   → 409 participants_changed（画面で見た参加者といまの有効な参加者が違う）→ 422 本人を外す → 409 auto_participant
 //   → 422 追加の人がいない・無効（同じ本文）→ 409 already_participant → batch。読み直しと版・やり直しの扱いは終了と同じ。
 import { z } from "zod";

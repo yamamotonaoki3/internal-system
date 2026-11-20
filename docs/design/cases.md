@@ -476,7 +476,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | `features/cases/components/CaseAttachments.tsx` | S-17 の「添付ファイル」の区画。4つの状態（読み込み中・エラーと「再試行」・0件・あり）と、行・「次のページ」。「元のメッセージへ」は`features/threads`の`useThreadParam`で`?thread=`を開く |
 | `features/cases/components/CaseDetailView.tsx` | 参加者の本文に、`CaseTodoSection`の下・`CaseConversation`の上へ区画を差し込み、取得（`useCaseAttachments`）を持つ |
 | `features/cases/components/CaseConversation.tsx` | 自分の投稿・返信が成功したら、`caseKeys.attachments`を取り直す（投稿の`onPosted`と、返信の`onReplied`） |
-| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ） |
+| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ）【Issue #155：`forgetCaseContent`は、検索の結果も`forgetSearchResults`で片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。[search.md](search.md)）。ほかのキーの片付けの方式は変えていない（#323）】 |
 | `features/cases/labels.ts` | 区画の文言（`CASE_ATTACHMENTS_TEXTS`） |
 | `features/messages/format-size.ts`・`index.ts` | 大きさの整形`formatAttachmentSize`（MB＝10^6 バイト・小数1桁）を、送信前の一覧（`AttachmentList.tsx`）から移して共通にした。`attachmentUrl`・`formatAttachmentSize`を公開の入口に足した |
 | `features/threads/components/ThreadLayout.tsx`・`ThreadPane.tsx` | 省略できる props `onReplied`。自分の返信が成功した後に呼ぶ（スレッド一覧の取り直しに加えて）。案件の画面だけが渡す |
@@ -873,7 +873,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 編集のダイアログ（`CaseTodoEditDialog`）：開いた時点の`version`を持つ。送るのは変わった項目だけで、何も変わらなければ送らずに閉じる。題名は送る前に`shared/case-todo-rules.ts`の規則で確かめる。422 は欄に、409・403 は欄の外（`role="alert"`）に出し、**入力は残す**。成功すると「TODOを更新しました」
 - 409 の理由は、**サーバーの文言で見分ける**（共通の`ApiError`が理由を持たないため。先例はチャンネルの編集のダイアログ。計画からの変更点）。サーバーと画面の文言は`labels.ts`の`CASE_TODO_EDIT_TEXTS`で合わせてあり、文言を変えるときは両方を直す
   - 削除済み（`todo_deleted`）：「このTODOは削除されています」を出し、保存を押せなくする
-  - ほかの人の変更（`todo_changed`）：一覧の取り直しが終わるまで保存を押せなくする。取り直した一覧に項目があれば「最新の内容」（題名・担当）を出し、次の保存は最新の版で送る。取得済みのページに項目がなければ、削除とは言わず「閉じてから、一覧で確かめてください」を出す。取り直しの失敗は「再試行」。取り直しが終わったかは、409 を受けた時刻と、一覧の取得の成功・失敗の時刻を比べて導く（状態をコピーしない）
+  - ほかの人の変更（`todo_changed`）：一覧の取り直しが終わるまで保存を押せなくする。取り直した一覧に項目があれば「最新の内容」（題名・担当）を出し、次の保存は最新の版で送る。取得済みのページに項目がなければ、削除とは言わず「閉じてから、一覧で確かめてください」を出す。取り直しの失敗は「再試行」。取り直しが終わったかは、時刻の比較ではなく、一覧の取得の**成功・失敗の回数**で見分ける（#320）。409 を受けたとき（と「再試行」を押したとき）に、react-query の一覧の状態の成功の回数（`dataUpdateCount`）と失敗の回数（`errorUpdateCount`）を控え、回数はキャッシュの購読（`CaseTodoEditDialog.tsx`の`useFetchCounts`。`useSyncExternalStore`と`queryCache.subscribe`）から読む（データや状態が同じ、つまり同じ内容で成功した取り直しでも、回数が変われば描画が起き、「読み込み中」が終わる。回数が控えより小さくなった場合、つまりキャッシュの作り直しは、守りとして 0 から数え直す。「再試行」は送信中は押せない）。成功の回数が控えより増えたら「届いた」（項目があれば最新の内容、なければ上の「確かめてください」）、失敗の回数が増えたら「失敗」（「再試行」）、どちらでもなければ「読み込み中」とする（状態をコピーしない。同じミリ秒でも正しく動く）。409 より前に始まった取得は数えない（409 の後の`invalidateQueries`が取得中のものを取り消して取り直し、取り消された取得はどちらの回数にも入らない）。409 の後の 2 秒ごとの自動の取り直しの成功も「届いた」になる。409 を受けていない間は、ふだんの自動の取り直しの最中・失敗でも、ダイアログの表示は変わらない
 - ダイアログを開いている間に、ほかの人の操作で項目が完了・削除されても閉じない（入力を失わせない）。送ったときに 409 で伝える。利用者が替わったときと資格を失ったとき（一覧がなくなったとき）は、開いているダイアログを出さない（#284）
 - 担当の選択肢は`CaseTodoAssigneeOptions`（「担当なし」と有効な参加者。編集ではいまの担当も残す）。終了中は「編集」「削除」を出さない
 
@@ -881,7 +881,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 
 - DB：`backend/src/db/case-todo.repository.edit.db.test.ts`（編集・削除の書き込みの結果、前提を1つずつ崩す、記録の ID の逆転、監査ログが増えないこと）、`backend/src/db/case-todo.explain.db.test.ts`・`case-todo.repository.db.test.ts`（記録の ID の新しさの確認への変更に追随）
 - Service・route：`backend/src/routes/case-todos.edit.test.ts`（判定の順・存在の非開示）、`backend/src/services/case-todo.edit.decide.test.ts`（`decideEdit`・`decideDelete`）、`case-todo.edit.event-id.db.test.ts`（記録の ID の作り直し）、`case-todo.edit.interleave.test.ts`（確認の直後に状態が変わる割り込み）。契約は`backend/src/openapi.case-todos.test.ts`
-- 画面：`frontend/src/pages/CaseTodos.edit.test.tsx`（編集・削除・409 の理由ごとの表示）、`CaseTodos.session-switch.test.tsx`（利用者の切り替え）、`CaseCloseTodoWarning.test.tsx`、`frontend/src/features/profile/profile-card.unique-id.test.tsx`（カードの ID）。MSW は`frontend/src/test/case-todo-handlers.ts`
+- 画面：`frontend/src/pages/CaseTodos.edit.test.tsx`（編集・削除・409 の理由ごとの表示。末尾に #320 のテスト：409 の後の取り直しの失敗・最中・再試行を、時刻が進む場合と同じミリ秒の場合の 2 通りで、送信中の自動の取り直し、ふだんの自動の取り直しで表示が変わらないこと。続けて、コードレビュー1回目の指摘の 3 件：通信が切れて戻った後に同じ中身を取得しても読み込み中が終わる／409 の前からキャッシュが最新の場合／もう一度送っている間は「再試行」が無効）、`CaseTodos.session-switch.test.tsx`（利用者の切り替え）、`CaseCloseTodoWarning.test.tsx`、`frontend/src/features/profile/profile-card.unique-id.test.tsx`（カードの ID）。MSW は`frontend/src/test/case-todo-handlers.ts`
 - E2E：`e2e/case-todos-edit.spec.ts`（1 件。題名の変更が別の参加者の画面に 3 秒以内に出る → 古い版での保存は 409 で入力が残る → 削除で両方の一覧と進捗から消える。[e2e.md](../testing/e2e.md)）
 
 ### 設計の判断（知見）
@@ -1228,9 +1228,9 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | `docs/api/openapi.json` | EP-5-12 の requestBody（`CaseReopenBody`）・422・409 の理由。説明の文は実装の判定の順 |
 | `frontend/src/features/cases/api/case-api.ts` | `reopenCase(caseId, body)`・`CaseReopenBody` |
 | `frontend/src/features/cases/hooks/useCaseWrites.ts` | `useCaseStatusChange`の引数が、終了か、本文つきの再開か。取り直しは150-A と同じ（案件・部屋のメッセージ・スレッドの前方一致） |
-| `frontend/src/features/cases/components/CaseReopenDialog.tsx` | 新規。再開の2段階のダイアログ（下の「画面」） |
-| `frontend/src/features/cases/components/CaseDetailView.tsx` | 再開でだけ`CaseReopenDialog`を使う。開閉・結果・422 の振り分けはページの側。終了は`CaseConfirmDialog`のまま |
-| `frontend/src/features/cases/labels.ts` | `CASE_REOPEN_TEXTS`（ダイアログの見出し・理由・ボタンの文言）。`CASE_STATUS_CHANGE_TEXTS.reopen.body`を共有の文言に変えた |
+| `frontend/src/features/cases/components/CaseReopenDialog.tsx` | 新規。再開の2段階のダイアログ（下の「画面」）。詳細の取得中・失敗の表示と「再試行」も持つ（#316。`loading`・`loadError`・`onRetry`）。取り直しの間も部品は作り直さず、選びかけた内容を保つ |
+| `frontend/src/features/cases/components/CaseDetailView.tsx` | 再開でだけ`CaseReopenDialog`を使う。開閉・結果・422 の振り分けはページの側。終了は`CaseConfirmDialog`のまま。詳細の取得の状態`reopenLoadState`（`loading`・`loadError`）と、詳細の取り直し（`onRetry`）を渡す（#316） |
+| `frontend/src/features/cases/labels.ts` | `CASE_REOPEN_TEXTS`（ダイアログの見出し・理由・ボタン・「再試行」の文言）。`CASE_STATUS_CHANGE_TEXTS.reopen.body`を共有の文言に変えた |
 
 ### API と判定の順
 
@@ -1286,6 +1286,11 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 送る`participantIds`は、ダイアログが表示している候補の ID。送信中は、確定・戻る・キャンセル・チェック・検索・追加の取り消しをすべて無効にする
 - 結果：成功は「案件を再開しました」をダイアログの外に出す。409・403・404 は、ダイアログを閉じてサーバーの文言を外に出す（`participants_changed`の後は、取り直した詳細で開き直せば新しい候補になる）。422 はダイアログを閉じず、段階1に戻して、`fields`が`addUserIds`なら社員の検索の欄に、それ以外はダイアログの全体のエラーに出す
 - 外された人が画面を開いていた場合は、#308 の仕組み（`useCaseAccessLoss`・`forgetCaseContent`）で非公開の表示に切り替わる。150-B は画面の後片付けを足していない
+- **詳細（参加者）が取れていないときの表示（#316）**：詳細の取得の状態は、`CaseDetailView`の`reopenLoadState(detail)`（`{ loading, loadError }`）がダイアログに渡す。`loading`は、詳細の取得中（取り直しを含む）か 403 のとき。`loadError`は、失敗していて取得中でないときの、共通の`describeError`を通した文言。選ぶ・送る欄（段階1・段階2）は、**参加者があり、取得中でなく、失敗していないときだけ**出す。取得中は、古い詳細がキャッシュに残っていても、`role="status"`の「読み込み中です」を出す。失敗は`role="alert"`で文言と「再試行」（`CASE_REOPEN_TEXTS.retry`。詳細の取り直し＝`onRetry`）を出す。どちらの間も「キャンセル」だけが残る。
+  - **取り直しの間も、ダイアログの部品は作り直さない**ので、選びかけた内容（外した人・検索・追加に選んだ人・段階）を保つ。取り直しで有効な参加者の一覧が変わっていたら、確認の段階から選ぶ段階に戻す（見ていない一覧で送らせない）。追加に選んだ人のうち、取り直しですでに参加者になっていた人は、追加から外す
+  - 詳細の取り直しが起きる契機：ウィンドウに戻ったとき・ネットワークの復帰（react-query の既定）、ほかの操作の後の`invalidateQueries`、「再試行」
+  - 403（参加者でなくなった）は、#308 の仕組み（ダイアログを閉じる）に任せる。それまでは読み込み中の扱いにして、古い一覧で選ばせない
+  - 以前は、詳細の取得が失敗すると「読み込み中です」のまま止まっていた（解消）
 
 ### テストの場所（150-B）
 
@@ -1293,7 +1298,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - 割り込み：`backend/src/services/case-reopen-reselect.interleave.test.ts`（材料の読み取りの後に別の操作が入る順を固定する）
 - DB：`backend/src/db/case-reopen-reselect.db.test.ts`（前提を1つずつ崩して何も残らないこと、件数の確認〔`buildReopenStatements`の文を1つ差し替えて余分な削除・追加・更新0行・通知の不足を起こす〕、人ごとの監査の対象と`detail`の型、通知の識別、追加・除外100人ずつと参加者500人）。テスト部品は`backend/test/case-reopen-fixtures.ts`
 - 結合：`backend/src/routes/cases.reopen-reselect.test.ts`（本文の形・判定の順と存在の非開示・外れた人は見られず足した人は過去が見えること・通知と監査・501人以上の案件）、契約は`backend/src/openapi.case-close.test.ts`
-- フロントエンド：`frontend/src/pages/CaseReopenReselect.test.tsx`（候補・外せない人・検索・確かめる段階・送信中・結果の振り分け）、`CaseReopenRemovedViewer.test.tsx`（外された人の画面が切り替わること）、`CaseReopenSessionSwitch.test.tsx`（利用者の切り替え）
+- フロントエンド：`frontend/src/pages/CaseReopenReselect.test.tsx`（候補・外せない人・検索・確かめる段階・送信中・結果の振り分け・詳細の取得中・失敗・再試行・取り直しの後の扱い〔#316〕）、`CaseReopenRemovedViewer.test.tsx`（外された人の画面が切り替わること）、`CaseReopenSessionSwitch.test.tsx`（利用者の切り替え）
 - E2E：`e2e/case-reopen-reselect.spec.ts`（1件。A が B を外し C を足して再開 → C に通知・過去のメッセージが見える → B の画面は非公開の表示）。シードは`e2e/seeds/case-reopen-reselect.sql`、後始末は`e2e/seeds/case-reopen-reselect-cleanup.sql`
 - 150-A の既存のテストは、本文必須の形に直した（呼び出しの形と文言）。業務の期待を変えたのは1か所：`backend/src/services/case-close.interleave.test.ts`の「再開と、参加者の追加」が、「宛先を読み直して成功」から 409 `participants_changed`（要求の側の状態・参加の行・監査・通知が増えない）に変わった（C-194(7)）
 
@@ -1562,7 +1567,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 既存の案件への自動参加の補完 SQL（`backfill-case-auto-participants.sql`） | 作成済み・**どの環境にも未実行**。本番への実行は、利用者の承認が別に必要 |
 | 異動・再有効化で案件の参加の行が変わらないこと／外れること | コードは変えず、テストで固定した（147-C-2） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
-| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029、148-B-2 の migration 0030、149-D の migration 0031（索引だけ）は**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後） |
+| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029、148-B-2 の migration 0030、149-D の migration 0031（索引だけ）は**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後）【Issue #155（155-A）の migration 0032・0033（検索の表。0033 は手で書いた。ADR-0031）と、既存のメッセージの索引の登録（`reindexMessages`）も、次の区切りで同じく要る。#160 で手順を示して承認を得る。[search.md](search.md)】 |
 | API 仕様（`docs/api/openapi.json`）の ULID の`pattern` | 案件の経路だけ、実装の ULID の形と一致させた。ほかの経路を含む全体は Issue #289 |
 | 案件のやり取り（S-17）、終了した案件の読み取り専用、案件の権限の確認 | 148-A で実装済み（下の「148-A の設計」） |
 | 案件の添付の一覧と元の投稿への移動 | 148-B-1 で実装済み（下の「148-B-1 の設計」）。C-184(4) |
