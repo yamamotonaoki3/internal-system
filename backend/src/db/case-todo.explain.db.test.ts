@@ -308,6 +308,7 @@ describe("#149 149-D 決定 Q6 担当の列の索引と実行計画", () => {
     const reading = statements.filter((s) => /\bcase_todos\b/i.test(s.sql));
     expect(reading.length, "case_todos を読む文がない").toBeGreaterThan(0);
     const allowed = ["case_todos_case_id_id_idx", index ?? "(なし)"];
+    const searched: string[] = [];
     for (const statement of reading) {
       const plan = await planOf(statement);
       const names = namesOf(statement.sql, "case_todos");
@@ -320,14 +321,17 @@ describe("#149 149-D 決定 Q6 担当の列の索引と実行計画", () => {
           ).toBe(true);
       }
       const searchesTodos = plan.filter((d) =>
-        names.some((name) => new RegExp(`^SEARCH ${name}\b`, "i").test(d)),
+        names.some((name) => new RegExp(`^SEARCH ${name}\\b`, "i").test(d)),
       );
+      searched.push(...searchesTodos);
       for (const detail of searchesTodos)
-        if (!/PRIMARY KEY|sqlite_autoindex/.test(detail))
-          expect(
-            allowed.some((a) => detail.includes(a)),
-            `決めた索引を使っていない：${detail}`,
-          ).toBe(true);
+        expect(
+          allowed.some((a) => detail.includes(a)),
+          `決めた索引を使っていない：${detail}`,
+        ).toBe(true);
     }
+    expect(searched.length, "case_todos の SEARCH の行がない").toBeGreaterThan(
+      0,
+    );
   });
 });
