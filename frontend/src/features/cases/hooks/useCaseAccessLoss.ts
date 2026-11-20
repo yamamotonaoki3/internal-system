@@ -1,5 +1,5 @@
 // S-17 を開いたまま、ほかの参加者に外されたことを、自動の更新（部屋のメッセージ・TODO の取り直し）と、
-// 添付の一覧の取り直し（公開範囲の変更の後など。#148）の 403・404 から見つける（#308）。
+// 添付の一覧の取り直し（公開範囲の変更の後など。#148）、TODO の履歴・削除済みの一覧の取り直し（149-C）の 403・404 から見つける（#308）。
 // 403・404 は参加者のままでも起こりうる（perm.case.view がない等）ので、それだけで決めず、概要を取り直した結果で決める。
 // 401 は共通の処理（セッション切れ）に、5xx・通信の失敗は既存の表示とポーリングの続きに任せる（AC-3）。
 // 部屋・TODO のポーリングは 403・404 で止まるため、概要の取り直しが失敗したときは次の契機がない。中身を隠して再試行を出す（安全な側）。
@@ -13,7 +13,11 @@ import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
 import { isApiError } from "../describe-error";
-import { forgetCaseAfterLeave, forgetCaseContent } from "./useCaseWrites";
+import {
+  forgetCaseAfterLeave,
+  forgetCaseContent,
+  forgetTodoHistory,
+} from "./useCaseWrites";
 
 const ACCESS_LOSS_STATUSES: readonly number[] = [403, 404];
 
@@ -60,10 +64,13 @@ export function useCaseAccessLoss({
   const previousParticipant = useRef(isParticipant);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
+  // 参加者でなくなったら、TODO の履歴・削除済みの一覧を取り除き直す（149-C）。この効果は、それらの部品が外れた後に走る
   useEffect(() => {
     if (isParticipant && !previousParticipant.current) handling.current = false;
+    if (!isParticipant && previousParticipant.current)
+      forgetTodoHistory(queryClient, userId, caseId);
     previousParticipant.current = isParticipant;
-  }, [isParticipant]);
+  }, [isParticipant, queryClient, userId, caseId]);
 
   // 画面を離れた後に届いた結果で、表示（状態・ダイアログ）や、移動先の部屋・スレッドのキャッシュに触れないため
   const mounted = useRef(false);
@@ -110,6 +117,9 @@ export function useCaseAccessLoss({
     const watched = [
       caseKeys.todos(userId, caseId),
       caseKeys.attachments(userId, caseId),
+      caseKeys.deletedTodos(userId, caseId),
+      // 履歴は TODO ごとのキーなので、案件までの前方一致（matchQuery は exact なしで前方一致）
+      caseKeys.caseTodoEvents(userId, caseId),
       ...(roomId === null ? [] : [messageKeys.room(roomId)]),
     ];
     return queryClient.getQueryCache().subscribe((event) => {

@@ -98,6 +98,8 @@ export const CASE_TODO_EDIT_TEXTS = {
   deleteConfirm: "削除する",
   deleted: "TODOを削除しました",
   deleteBody: (title: string) => `「${title}」を削除します。`,
+  /** 削除の確認の本文の後ろに出す案内（149-C） */
+  deleteRestoreHint: "削除したTODOは、削除済みの一覧から復元できます。",
   todoDeleted: "このTODOは削除されています",
   todoChanged:
     "ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください",
@@ -108,6 +110,32 @@ export const CASE_TODO_EDIT_TEXTS = {
   latest: (title: string, assignee: string) =>
     `最新の内容：${title}／担当：${assignee}`,
   retry: "再試行",
+} as const;
+
+/** S-17 の TODO の履歴・削除済みの一覧・復元（#149 の 149-C）。記録の文言のうち名前を含むものは、名前の部品の前後に置く */
+export const CASE_TODO_HISTORY_TEXTS = {
+  history: "履歴",
+  historyButton: (title: string) => `${title}の履歴`,
+  historyRegion: (title: string) => `${title}の変更履歴`,
+  historyLoading: "履歴を読み込み中です",
+  historyLoadError: "履歴を読み込めませんでした",
+  historyMoreError: "履歴の続きを読み込めませんでした",
+  historyEmpty: "記録はありません",
+  deleted: "削除済みのTODO",
+  deletedEmpty: "削除済みのTODOはありません",
+  deletedLoading: "削除済みのTODOを読み込み中です",
+  deletedLoadError: "削除済みのTODOを読み込めませんでした",
+  deletedMoreError: "削除済みのTODOの続きを読み込めませんでした",
+  deletedBy: "削除した人：",
+  restore: "復元",
+  restoreButton: (title: string) => `${title}を復元`,
+  restored: "TODOを復元しました",
+  retry: "再試行",
+  titleChange: (before: string, after: string) =>
+    `題名を「${before}」から「${after}」に変更`,
+  uncomplete: "完了を取り消し",
+  delete: "削除",
+  restoreEvent: "復元",
 } as const;
 
 /** S-17 の添付ファイル（#148） */

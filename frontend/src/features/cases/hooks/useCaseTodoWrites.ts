@@ -1,4 +1,4 @@
-// TODO の追加・完了・完了の取り消し・編集・削除（#149）。成功しても失敗しても、案件のキャッシュ（caseKeys.all。TODO の一覧を含む）を取り直す
+// TODO の追加・完了・完了の取り消し・編集・削除・復元（#149）。成功しても失敗しても、案件のキャッシュ（caseKeys.all。TODO の一覧を含む）を取り直す
 // （失敗は、ほかの人の操作で状態が変わったことによる場合があるため。147-B と同じ）。
 // どの書き込みにも案件ごとの mutationKey を付け、送信中かどうかを区画で1つにまとめる（useCaseTodoBusy）。
 import {
@@ -10,6 +10,7 @@ import {
   addCaseTodo,
   deleteCaseTodo,
   editCaseTodo,
+  restoreCaseTodo,
   setCaseTodoCompleted,
   type CaseTodoEdit,
 } from "../api/case-todo-api";
@@ -71,6 +72,20 @@ export function useDeleteCaseTodo(
     mutationKey: todoWriteKey(caseId),
     onError,
     mutationFn: (todoId: string) => deleteCaseTodo(caseId, todoId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
+  });
+}
+
+/** 復元（149-C）。onError は定義の側 */
+export function useRestoreCaseTodo(
+  caseId: string,
+  onError: (cause: unknown) => void,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: todoWriteKey(caseId),
+    onError,
+    mutationFn: (todoId: string) => restoreCaseTodo(caseId, todoId),
     onSettled: () => queryClient.invalidateQueries({ queryKey: caseKeys.all }),
   });
 }

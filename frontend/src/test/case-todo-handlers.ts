@@ -256,3 +256,207 @@ export const todoError = (
   message: string,
   extra: Record<string, unknown> = {},
 ) => HttpResponse.json({ code, message, ...extra }, { status });
+
+// ---- #149（149-C）TODO の履歴（EP-5-24）・削除済みの一覧（EP-5-25）・復元（EP-5-26）の架空の応答 ----
+// 応答の形は backend/src/routes/case-todos.history.test.ts の契約と同じ。カーソルは本物と同じく「前のページの最後の ID」で、
+// その ID より大きいものを ID 昇順で返す（件数の増減で境界が動いても、取り直しで重複・欠落が出ないことを確かめるため）。
+
+export type TodoEventKind =
+  | "create"
+  | "title_change"
+  | "assignee_change"
+  | "complete"
+  | "uncomplete"
+  | "delete"
+  | "restore"
+  | "auto_unassign";
+
+export type TodoEvent = {
+  id: string;
+  kind: TodoEventKind;
+  createdAt: string;
+  actor: TodoPerson;
+  title: string | null;
+  previousTitle: string | null;
+  assignee: TodoPerson | null;
+  previousAssignee: TodoPerson | null;
+};
+
+export type DeletedTodoItem = TodoItem & {
+  deletedAt: string;
+  deletedBy: TodoPerson;
+};
+
+/** 画面の文言（計画 plan-149c 5.5。画面の契約は CaseTodos.history.test.tsx の冒頭） */
+export const CASE_TODO_HISTORY_TEXTS = {
+  history: "履歴",
+  historyLoading: "履歴を読み込み中です",
+  historyLoadError: "履歴を読み込めませんでした",
+  historyMoreError: "履歴の続きを読み込めませんでした",
+  deletedToggle: "削除済みのTODO",
+  deletedRegion: "削除済みのTODO",
+  deletedEmpty: "削除済みのTODOはありません",
+  deletedLoading: "削除済みのTODOを読み込み中です",
+  deletedLoadError: "削除済みのTODOを読み込めませんでした",
+  deletedBy: "削除した人：",
+  restored: "TODOを復元しました",
+  deleteHint: "削除したTODOは、削除済みの一覧から復元できます。",
+  retry: "再試行",
+} as const;
+
+/** 記録の ID（ULID の形。n は 1〜99999） */
+export const todoEventId = (n: number) =>
+  `01JTESTEVNT149C${String(n).padStart(11, "0")}`;
+/** 記録の日時（n 分後。記録ごとに違う値） */
+export const todoEventAt = (n: number) =>
+  new Date(Date.UTC(2026, 10, 20, 0, 0, 0) + n * 60_000).toISOString();
+
+export function todoEvent(
+  n: number,
+  actor: TodoPerson,
+  overrides: Partial<TodoEvent> = {},
+): TodoEvent {
+  return {
+    id: todoEventId(n),
+    kind: "uncomplete",
+    createdAt: todoEventAt(n),
+    actor,
+    title: null,
+    previousTitle: null,
+    assignee: null,
+    previousAssignee: null,
+    ...overrides,
+  };
+}
+
+export function deletedTodo(
+  n: number,
+  deletedBy: TodoPerson,
+  overrides: Partial<DeletedTodoItem> = {},
+): DeletedTodoItem {
+  return {
+    ...todoItem(n),
+    deletedAt: todoEventAt(1000 + n),
+    deletedBy,
+    ...overrides,
+  };
+}
+
+type Failure = { status: number; code: string; message: string };
+
+export type TodoHistoryState = {
+  /** TODO の ID ごとの記録（ID 昇順＝古い順） */
+  events: Record<string, TodoEvent[]>;
+  /** 削除済みの TODO（ID 昇順＝追加した順） */
+  deleted: DeletedTodoItem[];
+  pageSize: number;
+  eventRequests: { todoId: string; cursor: string | null }[];
+  deletedRequests: (string | null)[];
+  /** 履歴の取得の応答を差し替える。more: true なら続き（cursor あり）だけ */
+  failEvents: (Failure & { more?: boolean }) | null;
+  failDeleted: Failure | null;
+  /** 履歴・削除済みの一覧の取得を保留する。null なら保留しない */
+  holdEvents: Promise<void> | null;
+  holdDeleted: Promise<void> | null;
+  /** 復元の記録（TODO の ID） */
+  restores: string[];
+  /** 復元の応答を差し替える。undefined なら既定（削除済みから通常の一覧へ移して 200） */
+  respondRestore?: (todoId: string) => Response | Promise<Response>;
+};
+
+function pageAfter<T extends { id: string }>(
+  all: readonly T[],
+  cursor: string | null,
+  pageSize: number,
+) {
+  const rest = [...all]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .filter((item) => cursor === null || item.id > cursor);
+  const items = rest.slice(0, pageSize);
+  const hasMore = rest.length > pageSize;
+  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+}
+
+const failure = (f: Failure) =>
+  HttpResponse.json({ code: f.code, message: f.message }, { status: f.status });
+
+/**
+ * 履歴（GET /api/cases/:caseId/todos/:todoId/events）・削除済みの一覧（GET /api/cases/:caseId/deleted-todos）・
+ * 復元（POST /api/cases/:caseId/todos/:todoId/restore）の架空の応答。既定の復元は、todos.items に ID 順で戻し、版を1進める。
+ */
+export function respondTodoHistory(
+  todos: TodoServerState,
+  options: Partial<
+    Omit<TodoHistoryState, "eventRequests" | "deletedRequests" | "restores">
+  > = {},
+): TodoHistoryState {
+  const state: TodoHistoryState = {
+    events: options.events ?? {},
+    deleted: [...(options.deleted ?? [])],
+    pageSize: options.pageSize ?? 100,
+    eventRequests: [],
+    deletedRequests: [],
+    failEvents: options.failEvents ?? null,
+    failDeleted: options.failDeleted ?? null,
+    holdEvents: options.holdEvents ?? null,
+    holdDeleted: options.holdDeleted ?? null,
+    restores: [],
+    respondRestore: options.respondRestore,
+  };
+  server.use(
+    http.get(
+      "/api/cases/:caseId/todos/:todoId/events",
+      async ({ request, params }) => {
+        const todoId = String(params.todoId);
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        state.eventRequests.push({ todoId, cursor });
+        if (state.holdEvents !== null) await state.holdEvents;
+        const fail = state.failEvents;
+        if (fail !== null && (fail.more !== true || cursor !== null))
+          return failure(fail);
+        return HttpResponse.json(
+          pageAfter(state.events[todoId] ?? [], cursor, state.pageSize),
+        );
+      },
+    ),
+    http.get("/api/cases/:caseId/deleted-todos", async ({ request }) => {
+      const cursor = new URL(request.url).searchParams.get("cursor");
+      state.deletedRequests.push(cursor);
+      if (state.holdDeleted !== null) await state.holdDeleted;
+      if (state.failDeleted !== null) return failure(state.failDeleted);
+      return HttpResponse.json(
+        pageAfter(state.deleted, cursor, state.pageSize),
+      );
+    }),
+    http.post(
+      "/api/cases/:caseId/todos/:todoId/restore",
+      async ({ params }) => {
+        const todoId = String(params.todoId);
+        state.restores.push(todoId);
+        if (state.respondRestore !== undefined)
+          return state.respondRestore(todoId);
+        const found = state.deleted.find((item) => item.id === todoId);
+        if (found === undefined)
+          return todoError(404, "NOT_FOUND", "TODOが見つかりません");
+        state.deleted = state.deleted.filter((item) => item.id !== todoId);
+        const restored: TodoItem = {
+          id: found.id,
+          title: found.title,
+          completed: found.completed,
+          version: found.version + 1,
+          assignee: found.assignee,
+          previousAssignee: found.previousAssignee,
+          completedAssignee: found.completedAssignee,
+        };
+        todos.items = [...todos.items, restored].sort((a, b) =>
+          a.id < b.id ? -1 : 1,
+        );
+        return HttpResponse.json({
+          ...restored,
+          progress: progressOf(todos.items),
+        });
+      },
+    ),
+  );
+  return state;
+}
