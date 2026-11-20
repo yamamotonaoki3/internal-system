@@ -417,7 +417,7 @@ function composeReopen(
       ),
       guard(changedCount),
     );
-  // 外す人の TODO の担当の書き換え（149-D 計画 6.3.4）。外す人が0人でも置き、n=0 で通す。条件は規則だけで、stillClosed の材料を変えない
+  // 外す人の TODO の担当の書き換え（docs/design/cases.md「149-D の設計」）。外す人が0人でも置き、n=0 で通す。条件は規則だけで、stillClosed の材料を変えない
   statements.push(
     ...unassignStatements(db, {
       scope: unassignScope,
@@ -485,7 +485,7 @@ function composeReopen(
   return { statements, updateAt };
 }
 
-/** 再開で外す人が担当の TODO の、対象の件数と記録の ID（149-D 計画 6.3.4） */
+/** 再開で外す人が担当の TODO の、対象の件数と記録の ID（docs/design/cases.md「149-D の設計」） */
 function readReopenUnassignPlan(db: Database, input: CaseReopenWriteInput) {
   return readUnassignPlan(
     db,
@@ -494,7 +494,7 @@ function readReopenUnassignPlan(db: Database, input: CaseReopenWriteInput) {
 }
 
 /**
- * 再開（選び直しつき）の batch の文（計画 150-B 6.3 の順）：前提 → 再開の監査 → 人ごとの監査 → 外す人の TODO の担当の書き換え（149-D）
+ * 再開（選び直しつき）の batch の文（docs/design/cases.md「150-B の設計」の順）：前提 → 再開の監査 → 人ごとの監査 → 外す人の TODO の担当の書き換え（149-D）
  * → 参加の行の削除 → 追加 → 通知 → 案件の更新 → 不変条件。条件つきの文は0行でも失敗しないため、必須の文の直後に件数の確認を置く
  */
 export async function buildReopenStatements(

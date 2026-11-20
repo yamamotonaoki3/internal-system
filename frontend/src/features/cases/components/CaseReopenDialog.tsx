@@ -24,6 +24,11 @@ type Props = {
   selfId: string;
   /** 詳細の参加者（読み込み中は undefined） */
   participants: CaseParticipant[] | undefined;
+  /** 詳細を取得中（最初の取得も取り直しも）。取得中は選ぶ段階・確認の段階を出さず、読み込み中にする（ダイアログの中の状態は保つ） */
+  loading: boolean;
+  /** 詳細の取得の失敗の文言（失敗していなければ undefined）。出ている間は選ぶ段階を出さず、再試行を出す */
+  loadError?: string;
+  onRetry: () => void;
   pending: boolean;
   /** 422 の、社員の検索の欄のエラー */
   searchError?: string;
@@ -57,6 +62,9 @@ function PeopleRegion({ title, people }: { title: string; people: Person[] }) {
 export function CaseReopenDialog({
   selfId,
   participants,
+  loading,
+  loadError,
+  onRetry,
   pending,
   searchError,
   error,
@@ -66,7 +74,7 @@ export function CaseReopenDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [stage, setStage] = useState<"select" | "confirm">("select");
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(new Set());
-  const [added, setAdded] = useState<Person[]>([]);
+  const [addedPicked, setAdded] = useState<Person[]>([]);
   const [q, setQ] = useState("");
   const search = useUserSearch(useSettledValue(q.trim(), SEARCH_DELAY_MS));
   const texts = CASE_STATUS_CHANGE_TEXTS.reopen;
@@ -76,11 +84,24 @@ export function CaseReopenDialog({
   }, []);
 
   const candidates = (participants ?? []).filter((p) => p.isActive);
+  const ready =
+    participants !== undefined && !loading && loadError === undefined;
+  // 取り直しで参加者が変わったら、確認の段階から選ぶ段階に戻す（利用者が見ていない一覧で送らせない）
+  const candidatesKey = candidates.map((p) => p.userId).join(",");
+  const [seenKey, setSeenKey] = useState(candidatesKey);
+  if (seenKey !== candidatesKey) {
+    setSeenKey(candidatesKey);
+    setStage("select");
+  }
   const fixedReasons = (p: CaseParticipant) => [
     ...(p.userId === selfId ? [CASE_REOPEN_TEXTS.self] : []),
     ...(p.autoRole === null ? [] : [AUTO_ROLE_LABELS[p.autoRole]]),
   ];
   const removable = (p: CaseParticipant) => fixedReasons(p).length === 0;
+  // 取り直しで、すでに参加者になっていた人は追加の対象から外す
+  const added = addedPicked.filter(
+    (p) => !candidates.some((c) => c.userId === p.userId),
+  );
   const leaving = candidates.filter(
     (p) => removable(p) && unchecked.has(p.userId),
   );
@@ -266,10 +287,19 @@ export function CaseReopenDialog({
           {error}
         </Alert>
       )}
-      {participants === undefined ? (
+      {!ready ? (
         <>
-          <p role="status">読み込み中です</p>
-          <Button variant="secondary" onClick={onClose}>
+          {loading || loadError === undefined ? (
+            <p role="status">読み込み中です</p>
+          ) : (
+            <Alert tone="error" role="alert">
+              <p>{loadError}</p>
+              <Button variant="secondary" disabled={pending} onClick={onRetry}>
+                {CASE_REOPEN_TEXTS.retry}
+              </Button>
+            </Alert>
+          )}
+          <Button variant="secondary" disabled={pending} onClick={onClose}>
             キャンセル
           </Button>
         </>

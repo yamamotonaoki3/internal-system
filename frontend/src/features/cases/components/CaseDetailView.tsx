@@ -93,6 +93,22 @@ function isForbidden(error: unknown): boolean {
   return isApiError(error) && error.status === 403;
 }
 
+/**
+ * 再開のダイアログに渡す、詳細の取得の状態。取得中（取り直しも）と 403（外された扱い。#308 がダイアログを閉じる）は読み込み中、
+ * それ以外の失敗は文言を渡す。古い詳細が残っていても、取り直しの最中・失敗の間は選ぶ・送るを出さない
+ */
+function reopenLoadState(detail: ReturnType<typeof useCaseDetail>): {
+  loading: boolean;
+  loadError: string | undefined;
+} {
+  const loading = detail.isFetching || isForbidden(detail.error);
+  return {
+    loading,
+    loadError:
+      detail.isError && !loading ? describeError(detail.error) : undefined,
+  };
+}
+
 type EditResult = { tone: "info" | "error"; lines: string[] };
 
 /** 内容の編集の基準：参加者は詳細の応答だけから（版も。取れていなければ null）、参加していない管理者は概要の応答だけから（expected） */
@@ -377,6 +393,8 @@ export function CaseDetailView({
           <CaseReopenDialog
             selfId={selfId}
             participants={detail.data?.participants}
+            {...reopenLoadState(detail)}
+            onRetry={() => void detail.refetch()}
             pending={statusChange.isPending}
             searchError={
               reopenInvalid?.field === "addUserIds"
