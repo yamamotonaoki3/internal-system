@@ -158,10 +158,9 @@ test("#149 149-C 5-4 AC-7・AC-10・AC-11・AC-12・AC-13・AC-14: 担当の変�
 
     // partner の画面（削除済みの一覧は開いていない）でも、復元の前に、通常の一覧から消え、進捗が変わることを再読み込みなしで確かめる
     const otherAfterDelete = todoSection(b.page);
-    await expect(otherAfterDelete.getByText(TITLE, { exact: true })).toHaveCount(
-      0,
-      { timeout: REFLECT_MS },
-    );
+    await expect(
+      otherAfterDelete.getByText(TITLE, { exact: true }),
+    ).toHaveCount(0, { timeout: REFLECT_MS });
     await expect(otherAfterDelete.getByText("0/1")).toBeVisible({
       timeout: REFLECT_MS,
     });
