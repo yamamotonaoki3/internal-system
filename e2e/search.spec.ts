@@ -15,7 +15,7 @@ const PUBLIC_ROOM = "01JTE2E1550000000000000C01";
 const PUBLIC_MESSAGE = "01M78ZTJC00000000001550001";
 const COMMON = "検索155共通";
 const WORDS = {
-  public: "公開室の語句",
+  public: "開放室の語句",
   private: "非公開室の語句",
   direct: "直接対話の語句",
   case: "案件室の語句",
@@ -206,12 +206,18 @@ test("#155 AC-3 E-1: 期間の絞り込み（JST の日付）：投稿の日の�
   await searchFromHeader(page, WORDS.public);
   await expect(resultRow(page, WORDS.public)).toHaveCount(1);
   const main = page.getByRole("main");
-  await main.getByText("絞り込み", { exact: true }).click();
+  // 絞り込みは折りたたまれている。検索し直した後に閉じるかは決めていないため、入力の前に、閉じていれば開く
+  const startDate = async (value: string) => {
+    const input = main.getByLabel("開始日");
+    if (!(await input.isVisible()))
+      await main.getByText("絞り込み", { exact: true }).click();
+    await input.fill(value);
+  };
   // シードの作成日時は 2026-11-12T23:00:00.000Z（JST では 2026-11-13 08:00）
-  await main.getByLabel("開始日").fill("2026-11-14");
+  await startDate("2026-11-14");
   await main.getByRole("button", { name: "検索", exact: true }).click();
   await expect(noMatch(page)).toBeVisible();
-  await main.getByLabel("開始日").fill("2026-11-13");
+  await startDate("2026-11-13");
   await main.getByRole("button", { name: "検索", exact: true }).click();
   await expect(resultRow(page, WORDS.public)).toHaveCount(1);
 });
