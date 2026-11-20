@@ -17,6 +17,7 @@
 //     （自分には出さない）。無効な人は「{名前}（退職者）」の文字だけで、ボタンも DM もない。未完了の現在の担当・完了時の担当・以前の担当で同じ。
 // jsdom には popover がないため、カードの開閉は toggle イベント（fireToggle）で再現する。
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { onlineManager } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEST_USER } from "../test/auth-handlers";
@@ -1107,5 +1108,167 @@ describe("#320 AC-1 一覧の自動の取り直し（2秒ごと）と編集の�
     expect(within(dialog).queryByRole("button", { name: "再試行" })).toBeNull();
     expect(disabled(saveOf(dialog))).toBe(false);
     expect(titleOf(dialog).value).toBe("[UNIT_TEST]320ふだんの入力");
+  });
+});
+
+describe("#320 AC-1 コードレビュー1回目の指摘", () => {
+  it("#320 AC-1: 409 の前にキャッシュがすでに最新で、409 の後の取り直しが同じ中身を返しても、ほかの描画のきっかけがなくても、読み込み中が終わり、最新の内容が出て、保存を押せる", async () => {
+    const hold = deferred();
+    // 開いた時点の一覧がすでに最新の版（version 2）。一覧の中身は 409 の前後で変わらない
+    const state = respondTodos(
+      [
+        todoItem(1, {
+          title: "[UNIT_TEST]320同じ中身の題名",
+          assignee: person(MEMBER),
+          version: 2,
+        }),
+      ],
+      {
+        people: PEOPLE,
+        respond: () => {
+          state.hold = hold.promise;
+          return changedConflict();
+        },
+      },
+    );
+    const { user } = renderPage(46);
+    const region = await section();
+    const dialog = await openEdit(user, region, "[UNIT_TEST]320同じ中身の題名");
+    await retitle(user, dialog, "[[UNIT_TEST]320同じ中身の入力");
+    await user.click(saveOf(dialog));
+    expect(
+      await within(dialog).findByText(LOADING_TEXT, { exact: false }),
+    ).toBeTruthy();
+    expect(disabled(saveOf(dialog))).toBe(true);
+    // 取り直しの応答（キャッシュと同じ中身）が届く。これ以外の描画のきっかけはない
+    state.hold = null;
+    hold.release();
+    expect(
+      await within(dialog).findByText(
+        `${CASE_TODO_TEXTS.latestPrefix}[UNIT_TEST]320同じ中身の題名／担当：${MEMBER.displayName}`,
+        { exact: false },
+      ),
+    ).toBeTruthy();
+    expect(dialog.textContent).not.toContain(LOADING_TEXT);
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]320同じ中身の入力");
+  });
+
+  it("#320 AC-1: 409 の後の取得が通信断で一時停止し、復帰後にキャッシュと同じ中身を取得しても、読み込み中が終わり、最新の内容が出て、保存を押せる", async () => {
+    const state = respondTodos(
+      [
+        todoItem(1, {
+          title: "[UNIT_TEST]320断の題名",
+          assignee: person(MEMBER),
+          version: 2,
+        }),
+      ],
+      {
+        people: PEOPLE,
+        respond: () => {
+          onlineManager.setOnline(false);
+          return changedConflict();
+        },
+      },
+    );
+    const { user } = renderPage(48);
+    const region = await section();
+    const dialog = await openEdit(user, region, "[UNIT_TEST]320断の題名");
+    try {
+      await retitle(user, dialog, "[[UNIT_TEST]320断の入力");
+      await user.click(saveOf(dialog));
+      expect(
+        await within(dialog).findByText(LOADING_TEXT, { exact: false }),
+      ).toBeTruthy();
+      const before = state.requests.length;
+      act(() => onlineManager.setOnline(true));
+      await waitFor(() =>
+        expect(state.requests.length).toBeGreaterThan(before),
+      );
+      expect(
+        await within(dialog).findByText(
+          `${CASE_TODO_TEXTS.latestPrefix}[UNIT_TEST]320断の題名／担当：${MEMBER.displayName}`,
+          { exact: false },
+        ),
+      ).toBeTruthy();
+      await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+      expect(titleOf(dialog).value).toBe("[UNIT_TEST]320断の入力");
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  describe("再送信中の「再試行」", () => {
+    const advance = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("#320 AC-1: 409 → 取得成功 → もう一度送っている間に、自動の取り直しが失敗して失敗の表示になっても、「再試行」は無効で、押しても取り直しは走らない。保存の応答を返すと、送信は2回で止まる", async () => {
+      const gate = deferred();
+      let attempts = 0;
+      const state = respondTodos([todoItem(1, { assignee: person(MEMBER) })], {
+        people: PEOPLE,
+        respond: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            state.items = [
+              todoItem(1, {
+                title: "[UNIT_TEST]320再送信の最新",
+                assignee: person(MEMBER),
+                version: 2,
+              }),
+            ];
+            return changedConflict();
+          }
+          await gate.promise;
+          return HttpResponse.json({
+            ...todoItem(1, { title: "[UNIT_TEST]320再送信の入力", version: 3 }),
+            progress: { done: 0, total: 1 },
+          });
+        },
+      });
+      const { user } = renderPage(47);
+      const region = await section();
+      const dialog = await openEdit(user, region, todoTitle(1));
+      await retitle(user, dialog, "[[UNIT_TEST]320再送信の入力");
+      await user.click(saveOf(dialog));
+      await within(dialog).findByText(
+        `${CASE_TODO_TEXTS.latestPrefix}[UNIT_TEST]320再送信の最新`,
+        { exact: false },
+      );
+      await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+      // もう一度送る（応答を止める）
+      await user.click(saveOf(dialog));
+      await waitFor(() => expect(state.writes).toHaveLength(2));
+      await waitFor(() => expect(disabled(saveOf(dialog))).toBe(true));
+      // 送信中に、自動の取り直しが失敗する
+      state.failWith = FAIL_500;
+      await advance(POLL_MS);
+      const retry = await within(dialog).findByRole("button", {
+        name: "再試行",
+      });
+      expect(
+        within(dialog).getByText(CASE_TODO_TEXTS.latestLoadFailed, {
+          exact: false,
+        }),
+      ).toBeTruthy();
+      expect(disabled(retry)).toBe(true);
+      const before = state.requests.length;
+      await user.click(retry);
+      await advance(100);
+      expect(state.requests).toHaveLength(before);
+      gate.release();
+      expect(
+        await within(region).findByText(CASE_TODO_TEXTS.updated),
+      ).toBeTruthy();
+      expect(state.writes).toHaveLength(2);
+    });
   });
 });

@@ -7,7 +7,13 @@
 // 取り直しが終わったかは、409 を受けた時点の一覧の取得の成功・失敗の回数を控え、それより増えたかで導く（時刻は比べない。状態をコピーしない）。
 // 409 の直後に invalidate が走り、取得中のものは取り消されて取り直される。なので、回数が増えたのは 409 の後に始まった取得の結果。
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
 import { caseTodoTitleSchema } from "../../../../../shared/case-todo-rules";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
@@ -52,39 +58,49 @@ type FetchCounts = { data: number; error: number };
 function latestOf(
   todos: ReturnType<typeof useCaseTodos>,
   todoId: string,
-  dataUpdateCount: number,
-  since: FetchCounts | null,
+  counts: FetchCounts,
+  recorded: FetchCounts | null,
 ): Latest {
-  if (since === null) return { kind: "none" };
+  if (recorded === null) return { kind: "none" };
+  // キャッシュが作り直されて回数が控えより小さくなったら、0 から数え直す（永久に読み込み中にしない）
+  const since =
+    counts.data < recorded.data || counts.error < recorded.error
+      ? { data: 0, error: 0 }
+      : recorded;
   if (
     todos.data !== undefined &&
     todos.status === "success" &&
-    dataUpdateCount > since.data
+    counts.data > since.data
   ) {
     const item = todos.data.pages
       .flatMap((page) => page.items)
       .find((candidate) => candidate.id === todoId);
     return item === undefined ? { kind: "missing" } : { kind: "found", item };
   }
-  if (todos.status === "error" && todos.errorUpdateCount > since.error)
+  if (todos.status === "error" && counts.error > since.error)
     return { kind: "failed" };
   return { kind: "loading" };
 }
 
-/** 一覧の取得の成功・失敗の回数（react-query の取得の状態から、描画のたびに読む） */
+/**
+ * 一覧の取得の成功・失敗の回数。キャッシュの変化を購読するので、データが変わらない成功（同じ内容の取得）でも描画が起きる。
+ * 回数は、キャッシュが作り直されると 0 に戻る。
+ */
 function useFetchCounts(caseId: string) {
   const queryClient = useQueryClient();
   const userId = useSignedInUserId();
   const key = caseKeys.todos(userId ?? "", caseId);
-  return {
-    now: (): FetchCounts => {
-      const state = queryClient.getQueryState(key);
-      return {
-        data: state?.dataUpdateCount ?? 0,
-        error: state?.errorUpdateCount ?? 0,
-      };
-    },
-  };
+  const subscribe = (notify: () => void) =>
+    queryClient.getQueryCache().subscribe(notify);
+  const data = useSyncExternalStore(
+    subscribe,
+    () => queryClient.getQueryState(key)?.dataUpdateCount ?? 0,
+  );
+  const error = useSyncExternalStore(
+    subscribe,
+    () => queryClient.getQueryState(key)?.errorUpdateCount ?? 0,
+  );
+  return { data, error };
 }
 
 const assigneeName = (todo: CaseTodo) => {
@@ -123,14 +139,14 @@ export function CaseTodoEditDialog({
     if (!isApiError(cause) || cause.status !== 409) return;
     if (cause.message === CASE_TODO_EDIT_TEXTS.todoDeleted) setDeleted(true);
     else if (cause.message === CASE_TODO_EDIT_TEXTS.todoChanged)
-      setSince(counts.now());
+      setSince(counts);
   });
 
   useEffect(() => {
     dialogRef.current?.showModal();
   }, []);
 
-  const latest = latestOf(todos, todo.id, counts.now().data, since);
+  const latest = latestOf(todos, todo.id, counts, since);
   // 最新の内容が届いたら、それを基準に比べ、その版で送る
   const base = latest.kind === "found" ? latest.item : todo;
   const blocked =
@@ -168,7 +184,8 @@ export function CaseTodoEditDialog({
   }
 
   function retry() {
-    setSince(counts.now());
+    if (pending) return;
+    setSince(counts);
     void todos.refetch();
   }
 
@@ -205,7 +222,7 @@ export function CaseTodoEditDialog({
           {latest.kind === "failed" && (
             <>
               <p>{CASE_TODO_EDIT_TEXTS.latestLoadFailed}</p>
-              <Button variant="secondary" onClick={retry}>
+              <Button variant="secondary" disabled={pending} onClick={retry}>
                 {CASE_TODO_EDIT_TEXTS.retry}
               </Button>
             </>
