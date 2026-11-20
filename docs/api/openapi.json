@@ -12279,68 +12279,110 @@
         }
       },
       "CaseEditBody": {
-        "type": "object",
-        "additionalProperties": false,
         "description": "変える項目だけを送る。version と expected は、どちらか1つだけを送る",
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "整形後に 1〜100 文字"
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 2000,
-            "description": "有効な参加者だけが送れる"
-          },
-          "clientId": {
-            "type": "string",
-            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
-            "description": "有効な取引先（いまと同じ値なら無効でもよい）"
-          },
-          "departmentIds": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-            },
-            "description": "変更後の担当部署の集合（1件以上・重複なし）"
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "詳細で見た版（有効な参加者が送る）"
-          },
-          "expected": {
+        "oneOf": [
+          {
             "type": "object",
             "additionalProperties": false,
-            "description": "概要で見た件名・取引先・担当部署の集合（参加していない管理者が送る）",
+            "description": "有効な参加者の本文（版で衝突を検知する）",
             "required": [
-              "title",
-              "clientId",
-              "departmentIds"
+              "version"
             ],
             "properties": {
               "title": {
-                "type": "string"
+                "$ref": "#/components/schemas/CaseEditTitle"
+              },
+              "description": {
+                "$ref": "#/components/schemas/CaseEditDescription"
               },
               "clientId": {
-                "type": "string",
-                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                "$ref": "#/components/schemas/CaseEditClientId"
               },
               "departmentIds": {
-                "type": "array",
-                "minItems": 1,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                "$ref": "#/components/schemas/CaseEditDepartmentIds"
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "詳細で見た版（有効な参加者が送る）"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "参加していない管理者の本文（概要で見た値で衝突を検知する）",
+            "required": [
+              "expected"
+            ],
+            "properties": {
+              "title": {
+                "$ref": "#/components/schemas/CaseEditTitle"
+              },
+              "description": {
+                "$ref": "#/components/schemas/CaseEditDescription"
+              },
+              "clientId": {
+                "$ref": "#/components/schemas/CaseEditClientId"
+              },
+              "departmentIds": {
+                "$ref": "#/components/schemas/CaseEditDepartmentIds"
+              },
+              "expected": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "概要で見た件名・取引先・担当部署の集合（参加していない管理者が送る）",
+                "required": [
+                  "title",
+                  "clientId",
+                  "departmentIds"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "departmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                    }
+                  }
                 }
               }
             }
           }
-        }
+        ]
+      },
+      "CaseEditTitle": {
+        "type": "string",
+        "description": "整形後に 1〜100 文字"
+      },
+      "CaseEditDescription": {
+        "type": "string",
+        "maxLength": 2000,
+        "description": "有効な参加者だけが送れる"
+      },
+      "CaseEditClientId": {
+        "type": "string",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+        "description": "有効な取引先（いまと同じ値なら無効でもよい）"
+      },
+      "CaseEditDepartmentIds": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "description": "変更後の担当部署の集合（1件以上・重複なし）"
       },
       "CaseEdited": {
         "type": "object",

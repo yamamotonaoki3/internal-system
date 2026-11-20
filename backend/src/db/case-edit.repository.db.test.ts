@@ -701,6 +701,31 @@ describe("#150 150-C 前提（計画 4.4 の editCondition）：崩れていた�
         return input;
       },
     },
+    // コードレビュー1回目の指摘2・決定 C-199(8)：担当部署を変えない版の方式の要求でも、読んだ集合と違えば崩れる
+    ...(
+      [
+        [
+          "件名だけ",
+          () => ({ title: "[UNIT_TEST]150C部署が変わった後の件名" }),
+        ],
+        [
+          "説明だけ",
+          () => ({ description: "[UNIT_TEST]150C部署が変わった後の説明" }),
+        ],
+        ["取引先だけ", () => ({ clientId: w.clientB.id })],
+      ] as const
+    ).map(([label, change]): Case => ({
+      name: `C-199(8)：${label}を変える版の方式で、読んだ後に担当部署の集合が変わった（版は進まない）`,
+      input: async () => {
+        const input = await inputFor(change());
+        await env.DB.prepare(
+          "INSERT INTO case_departments (case_id, department_id) VALUES (?, ?)",
+        )
+          .bind(room.id, w.deptH.id)
+          .run();
+        return input;
+      },
+    })),
     {
       name: "読んだ後に、足す部署のオーナーが交代した（自動参加させる人の集合が変わった）",
       input: async () => {

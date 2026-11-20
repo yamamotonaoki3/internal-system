@@ -60,10 +60,13 @@ export function useCaseAccessLoss({
   const previousParticipant = useRef(isParticipant);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
+  // 概要の取り直しが拒否より先に非参加を返した場合も、開いているダイアログ（参加者用の基準を含む）を閉じる。
+  // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける
   useEffect(() => {
     if (isParticipant && !previousParticipant.current) handling.current = false;
+    if (!isParticipant && previousParticipant.current) onLost();
     previousParticipant.current = isParticipant;
-  }, [isParticipant]);
+  }, [isParticipant, onLost]);
 
   // 画面を離れた後に届いた結果で、表示（状態・ダイアログ）や、移動先の部屋・スレッドのキャッシュに触れないため
   const mounted = useRef(false);

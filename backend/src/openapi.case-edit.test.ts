@@ -95,6 +95,23 @@ function propertyOf(schema: Schema, name: string): Schema {
   return {};
 }
 
+/**
+ * 本文の「項目があるか」の制約（required・oneOf〔ちょうど1つ〕・anyOf〔1つ以上〕・not）だけを、JSON Schema の意味で評価する。
+ * 値の型・pattern は、ほかのテストが確かめる
+ */
+function satisfiesPresence(
+  schema: Schema & { not?: Schema },
+  body: Record<string, unknown>,
+): boolean {
+  if (!(schema.required ?? []).every((name) => name in body)) return false;
+  const pass = (branch: Schema) => satisfiesPresence(resolve(branch), body);
+  if (schema.oneOf !== undefined && schema.oneOf.filter(pass).length !== 1)
+    return false;
+  if (schema.anyOf !== undefined && !schema.anyOf.some(pass)) return false;
+  if (schema.not !== undefined && pass(schema.not)) return false;
+  return true;
+}
+
 const editBody = () =>
   resolve(
     paths[CASE]?.patch?.requestBody?.content?.["application/json"]?.schema,
@@ -165,6 +182,34 @@ describe("#150 150-C API の仕様書：案件の再編集（PATCH /api/cases/{c
     expect([...(expected.required ?? [])].sort()).toEqual(
       ["clientId", "departmentIds", "title"].sort(),
     );
+  });
+
+  it("#150 Q3＝C（コードレビュー1回目の指摘3）: version と expected は排他の必須で、oneOf の枝がそれぞれ一方を required に持つ", () => {
+    const branches = (editBody().oneOf ?? []).map(resolve);
+    expect(branches.map((b) => [...(b.required ?? [])].sort()).sort()).toEqual([
+      ["expected"],
+      ["version"],
+    ]);
+  });
+
+  it("#150 Q3＝C（コードレビュー1回目の指摘3）: 両方なし・両方ありの本文は定義に合わず、どちらか1つの本文は合う", () => {
+    const expected = {
+      title: "[UNIT_TEST]150C",
+      clientId: VALID_ULID,
+      departmentIds: [VALID_ULID],
+    };
+    const body = editBody();
+    expect(satisfiesPresence(body, { title: "[UNIT_TEST]150C" })).toBe(false);
+    expect(satisfiesPresence(body, {})).toBe(false);
+    expect(
+      satisfiesPresence(body, {
+        version: 1,
+        expected,
+        title: "[UNIT_TEST]150C",
+      }),
+    ).toBe(false);
+    expect(satisfiesPresence(body, { version: 1 })).toBe(true);
+    expect(satisfiesPresence(body, { expected })).toBe(true);
   });
 
   it("#150 4.2: 200 の本文は caseId と titleFormatted（真偽）を必須で持ち、description・version を持たない", () => {

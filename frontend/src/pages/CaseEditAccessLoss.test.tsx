@@ -10,6 +10,7 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authKeys } from "../features/auth";
+import { caseKeys } from "../features/cases";
 import { TEST_USER } from "../test/auth-handlers";
 import {
   CASE_TEXTS,
@@ -158,5 +159,145 @@ describe("#150 150-C 編集の途中で外された人の画面（#308 の仕組
     expect(shows(TYPED)).toBe(false);
     expect(screen.queryByRole("button", { name: "内容を編集" })).toBeNull();
     expect(writes).toEqual([]);
+  });
+});
+
+/**
+ * コードレビュー1回目の指摘1：概要の取り直しが、詳細・メッセージの拒否より先に「非参加」を返す経路。
+ * 詳細・メッセージは参加者のまま応答し続ける（拒否を契機にする #308 の仕組みは動かない）
+ */
+function renderEditingCase(afterRemoval: () => ReturnType<typeof caseSummary>) {
+  const state = { summaryParticipant: true };
+  server.use(
+    http.get("/api/cases/:caseId", () =>
+      HttpResponse.json(
+        state.summaryParticipant ? caseSummary(N) : afterRemoval(),
+      ),
+    ),
+    http.get("/api/cases/:caseId/detail", () =>
+      HttpResponse.json(
+        caseDetail(N, {
+          description: SECRET,
+          participants: [PARTICIPANT_CREATOR, SELF],
+        }),
+      ),
+    ),
+    http.get("/api/rooms/:roomId/messages", () =>
+      HttpResponse.json({ items: [], nextCursor: null, hasMore: false }),
+    ),
+    http.put(
+      "/api/rooms/:roomId/read-position",
+      () => new HttpResponse(null, { status: 204 }),
+    ),
+  );
+  respondChoices();
+  respondSimilar(false);
+  const { writes } = respondCaseEdit();
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, refetchOnWindowFocus: false },
+      mutations: { retry: false },
+    },
+  });
+  const session = {
+    user: TEST_USER,
+    mustChangePassword: false,
+    reauthenticatedAt: null,
+    permissions: [],
+  };
+  client.setQueryData(authKeys.session, session);
+  server.use(http.get("/api/auth/session", () => HttpResponse.json(session)));
+  const user = userEvent.setup({
+    advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[`/cases/${caseId(N)}`]}>
+        <Routes>
+          <Route path="/cases/:caseId" element={<CaseDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  /** サーバーで外された後、概要だけが先に取り直される */
+  async function removeBySummaryFirst() {
+    state.summaryParticipant = false;
+    await act(async () => {
+      await client.refetchQueries({
+        queryKey: caseKeys.summary(TEST_USER.id, caseId(N)),
+      });
+    });
+  }
+  return { user, writes, removeBySummaryFirst };
+}
+
+async function openAndType(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText(SECRET);
+  const button = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "内容を編集",
+  });
+  await waitFor(() => expect(button.disabled).toBe(false));
+  await user.click(button);
+  const dialog = await screen.findByRole("dialog", {
+    name: "案件の内容の編集",
+  });
+  const description = within(dialog).getByRole("textbox", { name: /説明/ });
+  await user.type(description, typed(TYPED));
+  // 否定の確認が空振りしないよう、外される前には両方が画面にあることを確かめる
+  expect(shows(TYPED)).toBe(true);
+  expect(shows(SECRET)).toBe(true);
+}
+
+describe("#150 150-C 概要の取り直しが先に非参加を返す経路（コードレビュー1回目の指摘1）", () => {
+  it("#150 4.6・#308・C-199: 説明を入力中に、概要が先に非参加になると、ダイアログが閉じ、説明の初期値・入力値が残らない", async () => {
+    const { user, writes, removeBySummaryFirst } = renderEditingCase(() =>
+      outsiderSummary(N),
+    );
+    await openAndType(user);
+
+    await removeBySummaryFirst();
+
+    await waitFor(() =>
+      expect(screen.getByText(CASE_TEXTS.participantsOnly)).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "案件の内容の編集" }),
+    ).toBeNull();
+    expect(shows(SECRET)).toBe(false);
+    expect(shows(TYPED)).toBe(false);
+    expect(screen.queryByRole("button", { name: "内容を編集" })).toBeNull();
+    expect(writes).toEqual([]);
+  });
+
+  it("#150 4.6・#308・C-199: 管理の資格のある人が参加者から外されると、参加者用の基準（説明）が残らず、開き直すと説明の欄のない方式になる", async () => {
+    const { user, writes, removeBySummaryFirst } = renderEditingCase(() =>
+      outsiderSummary(N, { canManage: true }),
+    );
+    await openAndType(user);
+
+    await removeBySummaryFirst();
+
+    await waitFor(() =>
+      expect(screen.getByText(CASE_TEXTS.participantsOnly)).toBeTruthy(),
+    );
+    expect(shows(SECRET)).toBe(false);
+    expect(shows(TYPED)).toBe(false);
+    expect(screen.queryByRole("textbox", { name: /説明/ })).toBeNull();
+    expect(writes).toEqual([]);
+
+    // 開き直すと、概要から作る expected の方式（説明の欄がない）になる
+    const dialogs = screen.queryAllByRole("dialog", {
+      name: "案件の内容の編集",
+    });
+    expect(dialogs).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "内容を編集" }));
+    const reopened = await screen.findByRole("dialog", {
+      name: "案件の内容の編集",
+    });
+    expect(
+      within(reopened).queryByRole("textbox", { name: /説明/ }),
+    ).toBeNull();
+    expect(shows(SECRET)).toBe(false);
+    expect(shows(TYPED)).toBe(false);
   });
 });

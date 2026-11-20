@@ -707,8 +707,13 @@ function editCondition(input: CaseEditWriteInput): SQL {
   const parts: SQL[] = [
     sql`(${isParticipant} OR ${canManageSql(actorId, K_ID)})`,
   ];
+  // 版の方式でも担当部署の集合を確かめる：担当部署の付け替えは版を進めないため（変える項目によらない）
   if ("version" in basis)
-    parts.push(sql`k.version = ${basis.version}`, isParticipant);
+    parts.push(
+      sql`k.version = ${basis.version}`,
+      isParticipant,
+      caseDepartmentsEqual(input.before.departmentIds),
+    );
   else
     parts.push(
       sql`k.title = ${basis.expected.title}`,
@@ -726,8 +731,9 @@ function editCondition(input: CaseEditWriteInput): SQL {
     const pending = pendingOwnersSql(K_ROOM, idsSql(addJson));
     const joinJson = jsonIds(input.joinUserIds);
     const n = input.joinUserIds.length;
+    if (!("version" in basis))
+      parts.push(caseDepartmentsEqual(input.before.departmentIds));
     parts.push(
-      caseDepartmentsEqual(input.before.departmentIds),
       sql`NOT EXISTS (SELECT 1 FROM json_each(${addJson}) na WHERE NOT EXISTS (
         SELECT 1 FROM departments nd WHERE nd.id = na.value AND nd.is_active = 1))`,
       sql`(SELECT COUNT(*) FROM (${pending})) = ${n}

@@ -141,6 +141,21 @@ const managerBody = () => ({
   title: "[UNIT_TEST]150C管理者の新しい件名",
 });
 
+/** 参加者の、担当部署を変えない本文（コードレビュー1回目の指摘2：件名だけ） */
+const participantTitleOnlyBody = () => ({
+  version: 1,
+  title: "[UNIT_TEST]150C参加者の件名だけ",
+});
+
+/** 版を進めずに、担当部署を付け替える（deptH を足す。既存の割り込みと同じ方法） */
+const addDeptHWithoutVersion = async () => {
+  await env.DB.prepare(
+    "INSERT INTO case_departments (case_id, department_id) VALUES (?, ?)",
+  )
+    .bind(room.id, w.deptH.id)
+    .run();
+};
+
 type Expected =
   | { code: "FORBIDDEN" }
   | { code: "VALIDATION_ERROR"; fields: string[] }
@@ -267,6 +282,20 @@ const REJECTIONS: Scenario[] = [
     expected: STALE,
   },
   {
+    name: "C-199(8) 参加者：件名だけの要求で、版を進めない担当部署の付け替え（deptH が足された）→ 409 stale",
+    actor: () => w.memberS1.id,
+    body: participantTitleOnlyBody,
+    interrupt: addDeptHWithoutVersion,
+    expected: STALE,
+  },
+  {
+    name: "C-199(8) 非参加の管理者：件名だけの要求で、版を進めない担当部署の付け替え（deptH が足された）→ 409 stale（expected）",
+    actor: () => w.memberD1.id,
+    body: managerBody,
+    interrupt: addDeptHWithoutVersion,
+    expected: STALE,
+  },
+  {
     name: "非参加の管理者：ほかの参加者が先に件名を変えた → 409 stale（expected）",
     actor: () => w.memberD1.id,
     body: managerBody,
@@ -314,6 +343,19 @@ describe("#150 150-C 同時の操作：読んだ後・書き込みの直前に�
       expect(result.ok, describeResult(result)).toBe(true);
       expect(recorder.writes).toBe(1);
     }
+  });
+
+  it("#150 6章・C-199(8): 割り込みなしなら、参加者の件名だけの要求も成功する（空振りしないことの確認）", async () => {
+    await resetWorld();
+    const recorder: Recorder = { writes: 0, afterInterrupt: null };
+    const result = await runWith(
+      w.memberS1.id,
+      participantTitleOnlyBody(),
+      async () => {},
+      recorder,
+    );
+    expect(result.ok, describeResult(result)).toBe(true);
+    expect(recorder.writes).toBe(1);
   });
 
   it.each(REJECTIONS)(
