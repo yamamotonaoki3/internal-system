@@ -9,6 +9,9 @@
 //     → 完了済みで担当を指定（409 todo_completed）→ 担当を変えるときだけ、新しい担当が有効な参加者でない（422）→ 終了中（409 closed）
 //     → 版が違う（409 todo_changed）→ いまと同じ値なら何も書かずに 200 → batch
 //   削除（149-B）：404 → 403 → perm.case.todo.edit → TODO がない（404）→ 終了中（409 closed）→ すでに削除済みなら何も書かずに 204 → batch
+//   履歴（149-C）：404 → 403（閲覧の文言）→ perm.case.view → TODO がない・ほかの案件（404。削除済みは 404 にしない）→ 読み取り（資格つき）
+//   削除済みの一覧（149-C）：404 → 403（閲覧の文言）→ perm.case.view → 読み取り（資格つき）。どちらも終了中でも読める
+//   復元（149-C）：404 → 403 → perm.case.todo.edit → TODO がない（404）→ 終了中（409 closed）→ 削除されていなければ何も書かずに 200 → batch
 // 非参加者（全体管理者・担当部署のオーナーを含む。R-76）には、TODO の有無・本文の誤り・案件の状態を区別させない（403 が先）。
 // batch が取り消されたら（CaseStateChangedError）、最初と同じ判定で読み直す。理由に当たればそれを返し、すでにその状態なら 200。
 // どれにも当たらなければ ID の順の逆転とみなし、確定済みの最大より大きい ID で作り直して batch 全体をやり直す（計画 6.9(3)・6.10）。
@@ -65,7 +68,10 @@ type TodoAction =
   | "case.todo.complete"
   | "case.todo.uncomplete"
   | "case.todo.edit"
-  | "case.todo.delete";
+  | "case.todo.delete"
+  | "case.todo.history"
+  | "case.todo.deleted_list"
+  | "case.todo.restore";
 
 const addBodySchema = z
   .object({
@@ -230,6 +236,18 @@ export function decideDelete(
   return null;
 }
 
+/** 復元の、認可の後の判定。削除されていなければ（すでに復元済み）何も書かずに、いまの項目と進捗を結果にする（決定 Q2） */
+export function decideRestore(
+  facts: TodoWriteFacts,
+): Decision | { result: EditResult } {
+  const todo = facts.todo;
+  if (todo === null) return todoNotFound();
+  if (facts.status !== "active") return conflict("closed");
+  if (!todo.deleted)
+    return { result: { ...todo.item, progress: facts.progress } };
+  return null;
+}
+
 /** 本文の誤り（fields は重ねない） */
 function validationError(issues: { path: PropertyKey[] }[]): AppError {
   return new AppError("VALIDATION_ERROR", VALIDATION_MESSAGE, {
@@ -343,6 +361,48 @@ export function createCaseTodoService(
     throw new AppError("SERVICE_UNAVAILABLE", BUSY_MESSAGE);
   }
 
+  /** 閲覧の門：404 → 403（閲覧の文言）→ perm.case.view */
+  async function viewGate(
+    actor: CaseTodoActor,
+    action: TodoAction,
+    caseId: string,
+    facts: TodoWriteFacts | null,
+  ): Promise<void> {
+    raiseIf(
+      actor,
+      action,
+      caseId,
+      decideGate(facts, PARTICIPANTS_ONLY_MESSAGE),
+    );
+    await authorize(actor, "perm.case.view");
+  }
+
+  /** 資格つきの読み取りの結果：案件がなければ 404、資格がなければ 403（認可の後の資格の喪失） */
+  function visiblePage<T>(
+    actor: CaseTodoActor,
+    action: TodoAction,
+    caseId: string,
+    page: T | "not_found" | "not_visible",
+  ): T {
+    if (page === "not_found")
+      deny(
+        actor,
+        action,
+        caseId,
+        "not_found",
+        new AppError("NOT_FOUND", NOT_FOUND_MESSAGE),
+      );
+    if (page === "not_visible")
+      deny(
+        actor,
+        action,
+        caseId,
+        "not_participant",
+        new AppError("FORBIDDEN", PARTICIPANTS_ONLY_MESSAGE),
+      );
+    return page;
+  }
+
   /** 完了・取り消しの共通の流れ */
   async function changeState(
     actor: CaseTodoActor,
@@ -410,40 +470,125 @@ export function createCaseTodoService(
       options: { limit: number; cursor: string | null },
     ) {
       const action = "case.todo.view";
-      const facts = await repository.findTodoWriteFacts({
-        caseId,
-        actorId: actor.userId,
-      });
-      raiseIf(
+      await viewGate(
         actor,
         action,
         caseId,
-        decideGate(facts, PARTICIPANTS_ONLY_MESSAGE),
+        await repository.findTodoWriteFacts({ caseId, actorId: actor.userId }),
       );
-      await authorize(actor, "perm.case.view");
       // 認可の後に無効化・参加の解除が確定した場合に備え、読み取りそのものに資格を入れている
-      const page = await repository.listTodos({
+      return visiblePage(
+        actor,
+        action,
         caseId,
-        viewerId: actor.userId,
-        ...options,
+        await repository.listTodos({
+          caseId,
+          viewerId: actor.userId,
+          ...options,
+        }),
+      );
+    },
+
+    /** 履歴（EP-5-24）。削除済みの TODO の履歴も返す */
+    async listTodoEvents(
+      actor: CaseTodoActor,
+      caseId: string,
+      todoId: string,
+      options: { limit: number; cursor: string | null },
+    ) {
+      const action = "case.todo.history";
+      const facts = await repository.findTodoWriteFacts({
+        caseId,
+        actorId: actor.userId,
+        todoId,
       });
-      if (page === "not_found")
-        deny(
-          actor,
-          action,
+      await viewGate(actor, action, caseId, facts);
+      if (present(facts).todo === null)
+        raiseIf(actor, action, caseId, todoNotFound());
+      return visiblePage(
+        actor,
+        action,
+        caseId,
+        await repository.listTodoEvents({
           caseId,
-          "not_found",
-          new AppError("NOT_FOUND", NOT_FOUND_MESSAGE),
-        );
-      if (page === "not_visible")
-        deny(
-          actor,
-          action,
+          todoId,
+          viewerId: actor.userId,
+          ...options,
+        }),
+      );
+    },
+
+    /** 削除済みの一覧（EP-5-25） */
+    async listDeletedTodos(
+      actor: CaseTodoActor,
+      caseId: string,
+      options: { limit: number; cursor: string | null },
+    ) {
+      const action = "case.todo.deleted_list";
+      await viewGate(
+        actor,
+        action,
+        caseId,
+        await repository.findTodoWriteFacts({ caseId, actorId: actor.userId }),
+      );
+      return visiblePage(
+        actor,
+        action,
+        caseId,
+        await repository.listDeletedTodos({
           caseId,
-          "not_participant",
-          new AppError("FORBIDDEN", PARTICIPANTS_ONLY_MESSAGE),
-        );
-      return page;
+          viewerId: actor.userId,
+          ...options,
+        }),
+      );
+    },
+
+    /** 復元（EP-5-26）。版は送らない（決定 Q2）。ほかの人がすでに復元していたら、何も書かずにいまの項目を返す */
+    async restoreTodo(
+      actor: CaseTodoActor,
+      caseId: string,
+      todoId: string,
+    ): Promise<EditResult> {
+      const action = "case.todo.restore";
+      const readFacts = () =>
+        repository.findTodoWriteFacts({
+          caseId,
+          actorId: actor.userId,
+          todoId,
+        });
+      const decide = async () => {
+        const facts = await readFacts();
+        return decideWriteGate(facts) ?? decideRestore(present(facts));
+      };
+      const first = await readFacts();
+      raiseIf(actor, action, caseId, decideWriteGate(first));
+      await authorize(actor, "perm.case.todo.edit");
+      const decision = decideRestore(present(first));
+      if (decision !== null && "result" in decision) return decision.result;
+      raiseIf(actor, action, caseId, decision);
+      // 記録は2件（auto_unassign → restore）になりうるので、ID を2つ昇順に用意する
+      let autoUnassignEventId = newUlid();
+      let eventId = ulidAfter(autoUnassignEventId);
+      return writeWithRetry(
+        actor,
+        action,
+        caseId,
+        async () => {
+          const restored = await repository.restoreTodo({
+            caseId,
+            actorId: actor.userId,
+            todoId,
+            autoUnassignEventId,
+            eventId,
+          });
+          return { ...restored.item, progress: restored.progress };
+        },
+        decide,
+        async () => {
+          autoUnassignEventId = idAfter(await repository.maxEventIdOverall());
+          eventId = ulidAfter(autoUnassignEventId);
+        },
+      );
     },
 
     /** 追加（EP-5-14）。body は検証前の本文（403 までの判定の後に形を確かめる。存在の非開示） */

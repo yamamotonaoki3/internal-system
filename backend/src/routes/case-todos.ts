@@ -127,5 +127,55 @@ export function caseTodoRoutes() {
           return c.json(changed);
         },
       )
+      // 履歴（149-C。EP-5-24）。削除済みの TODO の履歴も返す
+      .get(
+        "/:caseId/todos/:todoId/events",
+        noStore,
+        validate("param", todoParamSchema),
+        validate("query", listQuerySchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const { caseId, todoId } = c.req.valid("param");
+          const { limit } = c.req.valid("query");
+          const cursor = c.req.query("cursor") ?? null;
+          const page = await withCaseTodoService(c.env, (service) =>
+            service.listTodoEvents(actor, caseId, todoId, { limit, cursor }),
+          );
+          return c.json(page);
+        },
+      )
+      // 削除済みの一覧（149-C。EP-5-25）。/todos/deleted にしない（/todos/:todoId と紛れるため）
+      .get(
+        "/:caseId/deleted-todos",
+        noStore,
+        validate("param", caseParamSchema),
+        validate("query", listQuerySchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const { limit } = c.req.valid("query");
+          const cursor = c.req.query("cursor") ?? null;
+          const page = await withCaseTodoService(c.env, (service) =>
+            service.listDeletedTodos(actor, c.req.valid("param").caseId, {
+              limit,
+              cursor,
+            }),
+          );
+          return c.json(page);
+        },
+      )
+      // 復元（149-C。EP-5-26）。本文は受け取らない（版は送らない。決定 Q2）
+      .post(
+        "/:caseId/todos/:todoId/restore",
+        noStore,
+        validate("param", todoParamSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const { caseId, todoId } = c.req.valid("param");
+          const restored = await withCaseTodoService(c.env, (service) =>
+            service.restoreTodo(actor, caseId, todoId),
+          );
+          return c.json(restored);
+        },
+      )
   );
 }

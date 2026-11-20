@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import type { TodoWriteFacts } from "../db/case-todo.repository";
 import { AppError } from "../lib/app-error";
-import { decideDelete, decideEdit } from "./case-todo.service";
+import { decideDelete, decideEdit, decideRestore } from "./case-todo.service";
 
 const B = "01JTESTUSER149B0000000000B";
 const C = "01JTESTUSER149B0000000000C";
@@ -301,4 +301,66 @@ describe("#149 AC-1 149-B decideDelete（計画 6.2.2・10節 #24・#26）", () 
   ])("#149 AC-1 5-4 AC-8: %s の TODO は削除へ進む（null）", (_l, todo) => {
     expect(outcomeOf(decideDelete(factsOf(todo)))).toEqual({ kind: "pass" });
   });
+});
+
+// #149（149-C）計画 plan-149c 5.2・9.3（J1）：復元の判定 decideRestore（export する純粋関数。decideDelete と同じ並び）。
+// 判定の順：TODO がない 404 → 終了中 409 closed → 削除されていない（すでに復元済み）なら { result: いまの項目＋進捗 }（何も書かない。決定 Q2）
+//   → 削除済み・進行中なら null（batch へ進む）。
+// 契約（実装前の仮置き）：decideRestore(facts: TodoWriteFacts): Decision | { result: TodoItem & { progress: TodoProgress } } | null
+describe("#149 149-C decideRestore（計画 5.2・9.3 J1）", () => {
+  const item = {
+    id: "01JTESTTODO149C00000000001",
+    title: "[UNIT_TEST]149C見積書の作成",
+    completed: false,
+    version: 3,
+    assignee: { userId: B, displayName: "testuser_149c_b", isActive: true },
+    previousAssignee: null,
+    completedAssignee: null,
+  };
+
+  it("#149 149-C 5-4 AC-13 J1: TODO がないなら、終了中でも 404（理由 todo_not_found。終了中の 409 より先）", () => {
+    expect(
+      outcomeOf(decideRestore(factsOf(null, { status: "closed" }))),
+    ).toMatchObject({ code: "NOT_FOUND", status: 404, deny: "todo_not_found" });
+  });
+
+  it("#149 149-C 5-4 AC-9 J1: 終了中なら、削除されていなくても 409 closed（何も書かない 200 より先）", () => {
+    expect(
+      outcomeOf(
+        decideRestore(factsOf({ deleted: false }, { status: "closed" })),
+      ),
+    ).toMatchObject({ code: "CONFLICT", status: 409, reason: "closed" });
+  });
+
+  it("#149 149-C 5-4 AC-9 J1: 終了中で削除済みでも 409 closed", () => {
+    expect(
+      outcomeOf(
+        decideRestore(factsOf({ deleted: true }, { status: "closed" })),
+      ),
+    ).toMatchObject({ code: "CONFLICT", reason: "closed" });
+  });
+
+  it("#149 149-C 決定 Q2 J1: 進行中で削除されていない（すでに復元済み）なら、何も書かない結果で、いまの項目と進捗を返す", () => {
+    const decision = decideRestore(
+      factsOf({ deleted: false, item } as Partial<Todo>, {
+        progress: { done: 1, total: 4 },
+      }),
+    );
+    expect(outcomeOf(decision)).toEqual({ kind: "unchanged" });
+    expect(decision).toEqual({
+      result: { ...item, progress: { done: 1, total: 4 } },
+    });
+  });
+
+  it.each([
+    ["未完了", { completed: false }],
+    ["完了済み", { completed: true }],
+  ])(
+    "#149 149-C 5-4 AC-13 J1: 進行中で削除済み（%s）なら、復元へ進む（null）",
+    (_l, todo) => {
+      expect(
+        outcomeOf(decideRestore(factsOf({ deleted: true, ...todo }))),
+      ).toEqual({ kind: "pass" });
+    },
+  );
 });

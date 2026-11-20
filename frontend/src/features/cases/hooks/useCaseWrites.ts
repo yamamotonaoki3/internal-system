@@ -30,8 +30,29 @@ export function useAddCaseParticipant(caseId: string) {
   });
 }
 
+/** TODO の削除済みの一覧（exact）と履歴（TODO ごとのキーなので案件までの前方一致。ほかの案件の分は残す）。149-C */
+function todoHistoryFilters(userId: string, caseId: string): QueryFilters[] {
+  return [
+    { queryKey: caseKeys.deletedTodos(userId, caseId), exact: true },
+    { queryKey: caseKeys.caseTodoEvents(userId, caseId) },
+  ];
+}
+
 /**
- * 閲覧の資格を失った（または確かめられない）案件の中身のキャッシュを取り除く（進行中の取得も取り消す）：詳細・TODO・添付の一覧（外された人にファイル名を残さない）と、
+ * 参加者でなくなった後（部品が外れた後）に、TODO の履歴・削除済みの一覧のキャッシュを取り除く（149-C）。
+ * 片付けと、概要の更新が画面に届くまでの間に、開いていた履歴・削除済みの一覧の部品が描き直されると、取り除いたキーが作り直されうるため
+ */
+export function forgetTodoHistory(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+): void {
+  for (const filters of todoHistoryFilters(userId, caseId))
+    queryClient.removeQueries(filters);
+}
+
+/**
+ * 閲覧の資格を失った（または確かめられない）案件の中身のキャッシュを取り除く（進行中の取得も取り消す）：詳細・TODO・添付の一覧（外された人にファイル名を残さない）・TODO の履歴・削除済みの TODOと、
  * 部屋が分かっていれば、その部屋のメッセージとスレッド（スレッドのキーは部屋で絞れないので前方一致。表示中のものしか残らない）。
  * 開き直したとき、再取得の応答を待つ間に前の説明・参加者・やり取りを出さないため（コードレビュー1回目の重大1・#308 AC-2）
  */
@@ -54,7 +75,11 @@ export function forgetCaseContent(
           { queryKey: messageKeys.room(roomId) },
           { queryKey: ["messages", "thread"] },
         ];
-  const cancelled = [...exactKeys, ...roomFilters].map((filters) => {
+  const cancelled = [
+    ...exactKeys,
+    ...todoHistoryFilters(userId, caseId),
+    ...roomFilters,
+  ].map((filters) => {
     const cancelling = queryClient.cancelQueries(filters);
     queryClient.removeQueries(filters);
     return cancelling;

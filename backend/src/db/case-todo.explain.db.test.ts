@@ -335,3 +335,66 @@ describe("#149 149-D 決定 Q6 担当の列の索引と実行計画", () => {
     );
   });
 });
+
+// ---- #149（149-C）計画 plan-149c 9.2（X1・X2）：履歴・削除済みの一覧の読み取り ----
+// 必要な索引は既にある（計画 4節）。通らない場合は、索引の migration の要否を利用者に決めてもらう（計画 9.2）。
+describe("#149 149-C 計画 9.2 履歴・削除済みの一覧の実行計画", () => {
+  it("#149 149-C 5-4 AC-10 X1: 履歴の取得（1ページ目・続き）の記録の読み取りは、case_todo_events_todo_id_id_idx を使い、case_todo_events を全件走査しない", async () => {
+    for (const n of [1, 2, 3])
+      await env.DB.prepare(
+        `INSERT INTO case_todo_events (id, todo_id, case_id, kind, actor_id, title, previous_title, assignee_id, assignee_name,
+           previous_assignee_id, previous_assignee_name, created_at)
+         VALUES (?, ?, ?, 'uncomplete', ?, NULL, NULL, NULL, NULL, NULL, NULL, '2026-11-20T05:00:00.000Z')`,
+      )
+        .bind(eventIdAt(n), todoIdAt(1), room.id, w.memberS1.id)
+        .run();
+    const statements: Recorded[] = [];
+    const repository = createCaseTodoRepository(dbOf(statements));
+    const first = await repository.listTodoEvents({
+      caseId: room.id,
+      todoId: todoIdAt(1),
+      viewerId: w.memberS1.id,
+      limit: 2,
+      cursor: null,
+    });
+    if (typeof first === "string") throw new Error(first);
+    expect(first.nextCursor).not.toBeNull();
+    await repository.listTodoEvents({
+      caseId: room.id,
+      todoId: todoIdAt(1),
+      viewerId: w.memberS1.id,
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    await expectIndexed(
+      statements,
+      "case_todo_events",
+      "case_todo_events_todo_id_id_idx",
+    );
+  });
+
+  it("#149 149-C 5-4 AC-12 X2: 削除済みの一覧（1ページ目・続き）は、case_todos_case_id_id_idx を使い、case_todos を全件走査しない", async () => {
+    await env.DB.prepare(
+      "UPDATE case_todos SET deleted_at = '2026-11-20T05:00:00.000Z', deleted_by = ? WHERE case_id = ?",
+    )
+      .bind(w.memberS1.id, room.id)
+      .run();
+    const statements: Recorded[] = [];
+    const repository = createCaseTodoRepository(dbOf(statements));
+    const first = await repository.listDeletedTodos({
+      caseId: room.id,
+      viewerId: w.memberS1.id,
+      limit: 2,
+      cursor: null,
+    });
+    if (typeof first === "string") throw new Error(first);
+    expect(first.nextCursor).not.toBeNull();
+    await repository.listDeletedTodos({
+      caseId: room.id,
+      viewerId: w.memberS1.id,
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    await expectIndexed(statements, "case_todos", "case_todos_case_id_id_idx");
+  });
+});

@@ -88,6 +88,50 @@ function respondSwitchWorld() {
             },
       ),
     ),
+    // #149（149-C）履歴・削除済みの一覧（契約は CaseTodos.history.test.tsx の冒頭）
+    http.get(
+      "/api/cases/:caseId/todos/:todoId/events",
+      serve((user) => ({
+        items: [
+          {
+            id: "01JTESTEVNT149C00000000001",
+            kind: "create",
+            createdAt: "2026-11-20T00:01:00.000Z",
+            actor: {
+              userId: user.id,
+              displayName: `${markOf(user)}の操作者`,
+              isActive: true,
+            },
+            title: `${markOf(user)}の記録`,
+            previousTitle: null,
+            assignee: {
+              userId: user.id,
+              displayName: `${markOf(user)}の担当`,
+              isActive: true,
+            },
+            previousAssignee: null,
+          },
+        ],
+        nextCursor: null,
+      })),
+    ),
+    http.get(
+      "/api/cases/:caseId/deleted-todos",
+      serve((user) => ({
+        items: [
+          {
+            ...todoItem(9, { title: `${markOf(user)}の消したTODO` }),
+            deletedAt: "2026-11-20T00:02:00.000Z",
+            deletedBy: {
+              userId: user.id,
+              displayName: `${markOf(user)}の消した人`,
+              isActive: true,
+            },
+          },
+        ],
+        nextCursor: null,
+      })),
+    ),
     http.get(
       "/api/cases/:caseId/detail",
       serve((user) => caseDetail(N, { description: `${markOf(user)}の説明` })),
@@ -197,5 +241,42 @@ describe("#149 #284 S-17 の TODO を開いたまま利用者が替わる", () =
     expect(app.watch.hits).toEqual([]);
     expect(shows(`${A_MARK}の入力中`)).toBe(false);
     expect(screen.queryByRole("dialog", { name: "TODOの編集" })).toBeNull();
+  });
+
+  // #149（149-C）計画 plan-149c 5.5・9.8 F16：A が履歴・削除済みの一覧を開いたまま B に替わると、A の記録・削除済みの TODO が一度も描画されず、
+  // 開閉の状態（区画の部品の状態）も閉じる（B の画面で、A の開閉が引き継がれない）
+  it("#149 149-C #284 F16: A が TODO の履歴と削除済みの一覧を開いたまま B に替わると、A の記録・削除済みの TODO が一度も描画されず、開いていた一覧は閉じる", async () => {
+    const world = respondSwitchWorld();
+    const app = renderUserSwitchApp(`/cases/${caseId(N)}`, {
+      needles: [A_MARK],
+    });
+    await waitFor(() => expect(shows(`${A_MARK}の未完了`)).toBe(true));
+    await app.user.click(
+      await screen.findByRole("button", { name: `${A_MARK}の未完了の履歴` }),
+    );
+    await waitFor(() => expect(shows(`${A_MARK}の担当`)).toBe(true));
+    await app.user.click(
+      await screen.findByRole("button", { name: "削除済みのTODO" }),
+    );
+    await waitFor(() => expect(shows(`${A_MARK}の消したTODO`)).toBe(true));
+
+    const gate = deferred();
+    world.user = USER_B;
+    world.hold = gate.promise;
+    app.watch.arm();
+    act(() => {
+      app.client.setQueryData(authKeys.session, sessionOf(USER_B));
+    });
+    expect(app.watch.hits).toEqual([]);
+    gate.release();
+    await waitFor(() => expect(shows(`${B_MARK}のTODO`)).toBe(true));
+    expect(app.watch.hits).toEqual([]);
+    expect(shows(`${A_MARK}の担当`)).toBe(false);
+    expect(shows(`${A_MARK}の消したTODO`)).toBe(false);
+    const toggle = await screen.findByRole("button", {
+      name: "削除済みのTODO",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "削除済みのTODO" })).toBeNull();
   });
 });

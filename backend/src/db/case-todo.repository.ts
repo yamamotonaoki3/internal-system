@@ -8,7 +8,16 @@
 // ID は外から渡す。同じ案件の TODO・同じ TODO の記録に、渡した ID 以上がすでにあれば書かない（ID の順＝確定の順にするため。計画 6.9(3)）。
 // 記録の ID は、加えて記録の表の「全体」に、最初の ID 以上がないことを先頭の前提で確かめる（149-B 計画 6.1）。
 // 時計が戻って ulidAfter が「前＋1」を返しても、別の TODO の記録と主キーで衝突させないため。
-import { and, asc, eq, gt, isNull, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { cases, caseTodoEvents, caseTodos, users } from "../../db/schema";
 import { decodeCursor, toPage } from "../lib/cursor";
@@ -111,16 +120,66 @@ export type TodoUncompleteInput = TodoStateInput & {
   autoUnassignEventId: string;
 };
 
+/** 復元（149-C）の入力。autoUnassignEventId < eventId */
+export type TodoRestoreInput = TodoUncompleteInput;
+
+export type TodoEventKind =
+  | "create"
+  | "title_change"
+  | "assignee_change"
+  | "complete"
+  | "uncomplete"
+  | "delete"
+  | "restore"
+  | "auto_unassign";
+
+/** 履歴の1件。担当・前の担当の名前は記録した名前、操作した人はいまの表示名（計画 5.1） */
+export type TodoEvent = {
+  id: string;
+  kind: TodoEventKind;
+  createdAt: string;
+  actor: TodoPerson;
+  title: string | null;
+  previousTitle: string | null;
+  assignee: TodoPerson | null;
+  previousAssignee: TodoPerson | null;
+};
+
+export type TodoEventPage = { items: TodoEvent[]; nextCursor: string | null };
+
+export type DeletedTodoItem = TodoItem & {
+  deletedAt: string;
+  deletedBy: TodoPerson;
+};
+
+export type DeletedTodoPage = {
+  items: DeletedTodoItem[];
+  nextCursor: string | null;
+};
+
 /** 操作者が、案件（別名 vc）の有効な参加者であること（中身の読み取りの資格） */
 function visibleTo(caseId: string, viewerId: string): SQL {
   return sql`EXISTS (SELECT 1 FROM cases vc WHERE vc.id = ${caseId}
     AND ${activeChannelMember(sql`vc.channel_id`, viewerId)})`;
 }
 
+/** 案件（別名 k）の TODO（別名 t）で、extra を満たすものがあること */
+function todoInCaseWith(todoId: string, extra: SQL): SQL {
+  return sql`EXISTS (SELECT 1 FROM case_todos t WHERE t.id = ${todoId} AND t.case_id = k.id AND ${extra})`;
+}
+
 /** 案件（別名 k）の、削除されていない TODO（別名 t）で、extra を満たすものがあること */
 function liveTodoWith(todoId: string, extra: SQL): SQL {
-  return sql`EXISTS (SELECT 1 FROM case_todos t WHERE t.id = ${todoId} AND t.case_id = k.id
-    AND t.deleted_at IS NULL AND ${extra})`;
+  return todoInCaseWith(todoId, sql`t.deleted_at IS NULL AND ${extra}`);
+}
+
+/**
+ * 担当がいて、その人がいま案件の有効な参加者でないこと（完了の取り消し・復元で共用。定義元はここだけ）。
+ * 案件の部屋は副問い合わせで引くので、外側の別名（k）に頼らない
+ */
+function assigneeGoneSql(caseId: string, assignee: SQL): SQL {
+  const room = sql`(SELECT kr.channel_id FROM cases kr WHERE kr.id = ${caseId})`;
+  return sql`(${assignee} IS NOT NULL AND NOT ${activeChannelMember(room, assignee)})`;
 }
 
 const ONE = sql`1`;
@@ -135,39 +194,97 @@ function toProgress(row: { total: number; done: number } | undefined) {
   return { done: row.done, total: row.total };
 }
 
+/**
+ * 復元（149-C 計画 5.4）の書き込みの文の列：前提 → 記録 auto_unassign → 確認 → 記録 restore → 確認 → TODO の更新 → 確認。
+ * 前提：進行中・操作者が有効な参加者・TODO がその案件の削除済み・記録の ID が表の全体で新しい（最初の ID で確かめる。後の ID はそれより大きい）。
+ * 未完了で、担当がいま有効な参加者でなければ（batch の時点の状態で判定）担当を NULL にし（担当した時点の人と名前は残す）、記録 auto_unassign を残す。
+ * 完了済みは担当・完了の列を変えない（AC-13）。更新の後は前提（削除済み）が偽になるが、後ろの確認は前提を見ない
+ */
+export function buildRestoreTodoStatements(
+  db: Database,
+  input: TodoRestoreInput,
+) {
+  const condition = activeCaseWith(
+    input.caseId,
+    sql`${activeChannelMember(K_ROOM, input.actorId)}
+      AND ${todoInCaseWith(input.todoId, sql`t.deleted_at IS NOT NULL`)}`,
+  );
+  const gone = (t: SQL) =>
+    sql`(${t}.is_done = 0 AND ${assigneeGoneSql(input.caseId, sql`${t}.assignee_id`)})`;
+  const now = new Date().toISOString();
+  return [
+    assertStatement(
+      db,
+      input.caseId,
+      sql`${condition} AND ${eventIdsFreshSql(input.autoUnassignEventId)}`,
+    ),
+    db.insert(caseTodoEvents).select(
+      sql`SELECT ${input.autoUnassignEventId}, ct.id, ct.case_id, 'auto_unassign', ${input.actorId}, NULL, NULL,
+          ct.assignee_id, ct.recorded_assignee_name, NULL, NULL, ${now}
+          FROM case_todos ct WHERE ct.id = ${input.todoId} AND ${condition} AND ${gone(sql`ct`)}`,
+    ),
+    guardChanges(
+      db,
+      input.caseId,
+      sql`(SELECT CASE WHEN ${gone(sql`gt`)} THEN 1 ELSE 0 END FROM case_todos gt WHERE gt.id = ${input.todoId})`,
+    ),
+    db.insert(caseTodoEvents).select(
+      sql`SELECT ${input.eventId}, ct.id, ct.case_id, 'restore', ${input.actorId}, ct.title, NULL,
+          NULL, NULL, NULL, NULL, ${now}
+          FROM case_todos ct WHERE ct.id = ${input.todoId} AND ${condition}`,
+    ),
+    guardChanges(db, input.caseId, ONE),
+    db
+      .update(caseTodos)
+      .set({
+        deletedAt: null,
+        deletedBy: null,
+        assigneeId: sql`CASE WHEN ${gone(sql`"case_todos"`)} THEN NULL ELSE "case_todos"."assignee_id" END`,
+        version: sql`${caseTodos.version} + 1`,
+        updatedAt: now,
+      })
+      .where(and(eq(caseTodos.id, input.todoId), condition))
+      .returning({ id: caseTodos.id }),
+    guardChanges(db, input.caseId, ONE),
+  ] as const;
+}
+
 export function createCaseTodoRepository(db: Database) {
   const currentUser = alias(users, "au");
   const recordedUser = alias(users, "ru");
   const completedUser = alias(users, "cu");
 
-  /** 項目の行と、担当の有効性（同じ文で読む） */
+  /** 項目の列と、担当の有効性（同じ文で読む） */
+  const itemColumns = {
+    id: caseTodos.id,
+    title: caseTodos.title,
+    isDone: caseTodos.isDone,
+    version: caseTodos.version,
+    deletedAt: caseTodos.deletedAt,
+    assigneeId: caseTodos.assigneeId,
+    // 同じ表を3回結合するので、同じ名前の列が重ならないよう、選択項目に別名を付ける
+    assigneeName: sql<string | null>`${currentUser.displayName}`.as(
+      "assignee_name",
+    ),
+    assigneeActive: sql<number | null>`${currentUser.isActive}`.as(
+      "assignee_active",
+    ),
+    recordedAssigneeId: caseTodos.recordedAssigneeId,
+    recordedAssigneeName: caseTodos.recordedAssigneeName,
+    recordedActive: sql<number | null>`${recordedUser.isActive}`.as(
+      "recorded_active",
+    ),
+    completedAssigneeId: caseTodos.completedAssigneeId,
+    completedAssigneeName: caseTodos.completedAssigneeName,
+    completedActive: sql<number | null>`${completedUser.isActive}`.as(
+      "completed_active",
+    ),
+  };
+
+  /** 項目の行 */
   const itemRows = (where: SQL | undefined) =>
     db
-      .select({
-        id: caseTodos.id,
-        title: caseTodos.title,
-        isDone: caseTodos.isDone,
-        version: caseTodos.version,
-        deletedAt: caseTodos.deletedAt,
-        assigneeId: caseTodos.assigneeId,
-        // 同じ表を3回結合するので、同じ名前の列が重ならないよう、選択項目に別名を付ける
-        assigneeName: sql<string | null>`${currentUser.displayName}`.as(
-          "assignee_name",
-        ),
-        assigneeActive: sql<number | null>`${currentUser.isActive}`.as(
-          "assignee_active",
-        ),
-        recordedAssigneeId: caseTodos.recordedAssigneeId,
-        recordedAssigneeName: caseTodos.recordedAssigneeName,
-        recordedActive: sql<number | null>`${recordedUser.isActive}`.as(
-          "recorded_active",
-        ),
-        completedAssigneeId: caseTodos.completedAssigneeId,
-        completedAssigneeName: caseTodos.completedAssigneeName,
-        completedActive: sql<number | null>`${completedUser.isActive}`.as(
-          "completed_active",
-        ),
-      })
+      .select(itemColumns)
       .from(caseTodos)
       .leftJoin(currentUser, eq(currentUser.id, caseTodos.assigneeId))
       .leftJoin(recordedUser, eq(recordedUser.id, caseTodos.recordedAssigneeId))
@@ -237,6 +354,114 @@ export function createCaseTodoRepository(db: Database) {
         ),
       );
 
+  /** 案件の行と、その時点の閲覧の資格（一覧・履歴・削除済みの一覧で共通） */
+  const caseVisibleRow = (caseId: string, visible: SQL) =>
+    db
+      .select({
+        visible: sql<number>`CASE WHEN ${visible} THEN 1 ELSE 0 END`,
+      })
+      .from(cases)
+      .where(eq(cases.id, caseId))
+      .limit(1);
+
+  const deleter = alias(users, "du");
+  /** 削除済みの項目の行（項目の行に、削除した人のいまの表示名と有効性を足したもの） */
+  const deletedRows = (where: SQL | undefined) =>
+    db
+      .select({
+        ...itemColumns,
+        deletedBy: caseTodos.deletedBy,
+        deletedByName: sql<string | null>`${deleter.displayName}`.as(
+          "deleted_by_name",
+        ),
+        deletedByActive: sql<number | null>`${deleter.isActive}`.as(
+          "deleted_by_active",
+        ),
+      })
+      .from(caseTodos)
+      .leftJoin(currentUser, eq(currentUser.id, caseTodos.assigneeId))
+      .leftJoin(recordedUser, eq(recordedUser.id, caseTodos.recordedAssigneeId))
+      .leftJoin(
+        completedUser,
+        eq(completedUser.id, caseTodos.completedAssigneeId),
+      )
+      .leftJoin(deleter, eq(deleter.id, caseTodos.deletedBy))
+      .where(where);
+
+  const eventActor = alias(users, "ea");
+  const eventAssignee = alias(users, "eb");
+  const eventPrevious = alias(users, "ep");
+  /** 記録の行と、操作した人・担当・前の担当のいまの有効性（同じ表を3回結合するので、選択項目に別名を付ける） */
+  const eventRows = (where: SQL | undefined) =>
+    db
+      .select({
+        id: caseTodoEvents.id,
+        kind: caseTodoEvents.kind,
+        createdAt: caseTodoEvents.createdAt,
+        actorId: caseTodoEvents.actorId,
+        actorName: sql<string | null>`${eventActor.displayName}`.as(
+          "actor_name",
+        ),
+        actorActive: sql<number | null>`${eventActor.isActive}`.as(
+          "actor_active",
+        ),
+        title: caseTodoEvents.title,
+        previousTitle: caseTodoEvents.previousTitle,
+        assigneeId: caseTodoEvents.assigneeId,
+        assigneeName: caseTodoEvents.assigneeName,
+        assigneeActive: sql<number | null>`${eventAssignee.isActive}`.as(
+          "event_assignee_active",
+        ),
+        previousAssigneeId: caseTodoEvents.previousAssigneeId,
+        previousAssigneeName: caseTodoEvents.previousAssigneeName,
+        previousActive: sql<number | null>`${eventPrevious.isActive}`.as(
+          "event_previous_active",
+        ),
+      })
+      .from(caseTodoEvents)
+      .leftJoin(eventActor, eq(eventActor.id, caseTodoEvents.actorId))
+      .leftJoin(eventAssignee, eq(eventAssignee.id, caseTodoEvents.assigneeId))
+      .leftJoin(
+        eventPrevious,
+        eq(eventPrevious.id, caseTodoEvents.previousAssigneeId),
+      )
+      .where(where);
+
+  type EventRow = Awaited<ReturnType<typeof eventRows>>[number];
+
+  function toEvent(row: EventRow): TodoEvent {
+    const recorded = (
+      userId: string | null,
+      name: string | null,
+      active: number | null,
+    ) =>
+      userId === null
+        ? null
+        : {
+            userId,
+            displayName: requiredName(name),
+            isActive: active === 1,
+          };
+    return {
+      id: row.id,
+      kind: row.kind,
+      createdAt: row.createdAt,
+      actor: {
+        userId: row.actorId,
+        displayName: requiredName(row.actorName),
+        isActive: row.actorActive === 1,
+      },
+      title: row.title,
+      previousTitle: row.previousTitle,
+      assignee: recorded(row.assigneeId, row.assigneeName, row.assigneeActive),
+      previousAssignee: recorded(
+        row.previousAssigneeId,
+        row.previousAssigneeName,
+        row.previousActive,
+      ),
+    };
+  }
+
   /** 最大の ID（ID の作り直しの基準） */
   async function maxIdOf(query: Promise<{ id: string | null }[]>) {
     const [row] = await query;
@@ -257,13 +482,7 @@ export function createCaseTodoRepository(db: Database) {
           ? undefined
           : gt(caseTodos.id, decodeCursor(input.cursor).id);
       const [caseRows, rows, progressRows] = await db.batch([
-        db
-          .select({
-            visible: sql<number>`CASE WHEN ${visible} THEN 1 ELSE 0 END`,
-          })
-          .from(cases)
-          .where(eq(cases.id, input.caseId))
-          .limit(1),
+        caseVisibleRow(input.caseId, visible),
         itemRows(
           and(
             eq(caseTodos.caseId, input.caseId),
@@ -287,6 +506,91 @@ export function createCaseTodoRepository(db: Database) {
         items: page.items.map(toItem),
         nextCursor: page.nextCursor,
         progress: toProgress(progressRows[0]),
+      };
+    },
+
+    /**
+     * 履歴（149-C。EP-5-24）：古い順（記録の ID 昇順）。1つの batch で、案件と資格・記録を読む。
+     * 記録の読み取りにも資格を入れる（先に読んだ資格に頼らない）。資格がなければ中身を捨てる。削除済みの TODO の記録も返す
+     */
+    async listTodoEvents(input: {
+      caseId: string;
+      todoId: string;
+      viewerId: string;
+      limit: number;
+      cursor: string | null;
+    }): Promise<TodoEventPage | "not_found" | "not_visible"> {
+      const visible = visibleTo(input.caseId, input.viewerId);
+      const after =
+        input.cursor === null
+          ? undefined
+          : gt(caseTodoEvents.id, decodeCursor(input.cursor).id);
+      const [caseRows, rows] = await db.batch([
+        caseVisibleRow(input.caseId, visible),
+        eventRows(
+          and(
+            eq(caseTodoEvents.todoId, input.todoId),
+            eq(caseTodoEvents.caseId, input.caseId),
+            visible,
+            after,
+          ),
+        )
+          .orderBy(asc(caseTodoEvents.id))
+          .limit(input.limit + 1),
+      ]);
+      const [found] = caseRows;
+      if (found === undefined) return "not_found";
+      if (found.visible !== 1) return "not_visible";
+      const page = toPage(rows, input.limit, (row) => ({
+        v: row.id,
+        id: row.id,
+      }));
+      return { items: page.items.map(toEvent), nextCursor: page.nextCursor };
+    },
+
+    /** 削除済みの一覧（149-C。EP-5-25）：追加した順（TODO の ID 昇順）。資格の扱いは一覧と同じ。進捗は返さない */
+    async listDeletedTodos(input: {
+      caseId: string;
+      viewerId: string;
+      limit: number;
+      cursor: string | null;
+    }): Promise<DeletedTodoPage | "not_found" | "not_visible"> {
+      const visible = visibleTo(input.caseId, input.viewerId);
+      const after =
+        input.cursor === null
+          ? undefined
+          : gt(caseTodos.id, decodeCursor(input.cursor).id);
+      const [caseRows, rows] = await db.batch([
+        caseVisibleRow(input.caseId, visible),
+        deletedRows(
+          and(
+            eq(caseTodos.caseId, input.caseId),
+            isNotNull(caseTodos.deletedAt),
+            visible,
+            after,
+          ),
+        )
+          .orderBy(asc(caseTodos.id))
+          .limit(input.limit + 1),
+      ]);
+      const [found] = caseRows;
+      if (found === undefined) return "not_found";
+      if (found.visible !== 1) return "not_visible";
+      const page = toPage(rows, input.limit, (row) => ({
+        v: row.id,
+        id: row.id,
+      }));
+      return {
+        items: page.items.map((row) => ({
+          ...toItem(row),
+          deletedAt: requiredValue(row.deletedAt),
+          deletedBy: {
+            userId: requiredValue(row.deletedBy),
+            displayName: requiredName(row.deletedByName),
+            isActive: row.deletedByActive === 1,
+          },
+        })),
+        nextCursor: page.nextCursor,
       };
     },
 
@@ -489,9 +793,8 @@ export function createCaseTodoRepository(db: Database) {
         sql`${activeChannelMember(K_ROOM, input.actorId)}
           AND ${liveTodoWith(input.todoId, sql`t.is_done = 1`)}`,
       );
-      const room = sql`(SELECT kr.channel_id FROM cases kr WHERE kr.id = ${input.caseId})`;
       const assigneeGone = (assignee: SQL) =>
-        sql`(${assignee} IS NOT NULL AND NOT ${activeChannelMember(room, assignee)})`;
+        assigneeGoneSql(input.caseId, assignee);
       const noLaterEvent = (eventId: string) =>
         sql`NOT EXISTS (SELECT 1 FROM case_todo_events oe WHERE oe.todo_id = ${input.todoId} AND oe.id >= ${eventId})`;
       const now = new Date().toISOString();
@@ -662,7 +965,40 @@ export function createCaseTodoRepository(db: Database) {
       );
       if (updated.length === 0) throw new CaseStateChangedError();
     },
+
+    /**
+     * 復元（149-C。文の順は buildRestoreTodoStatements）。後ろで項目と進捗を読む。
+     * 前提が崩れたら CaseStateChangedError で、何も残さない
+     */
+    async restoreTodo(
+      input: TodoRestoreInput,
+    ): Promise<{ item: TodoItem; progress: TodoProgress }> {
+      const [, , , , , updated, , rows, progressRows] = await runWriteBatch(
+        () =>
+          db.batch([
+            ...buildRestoreTodoStatements(db, input),
+            itemRows(
+              and(
+                eq(caseTodos.id, input.todoId),
+                visibleTo(input.caseId, input.actorId),
+              ),
+            ).limit(1),
+            progressQuery(input.caseId, input.actorId),
+          ]),
+      );
+      const [row] = rows;
+      // 案件の行がないと、前提・確認の UPDATE は0行で失敗しないため、結果の行で確かめる
+      if (updated.length === 0 || row === undefined)
+        throw new CaseStateChangedError();
+      return { item: toItem(row), progress: toProgress(progressRows[0]) };
+    },
   };
+}
+
+/** 条件で NULL でないと決まっている列。ないのは表の不変条件が崩れたとき */
+function requiredValue(value: string | null): string {
+  if (value === null) throw new Error("TODO の削除の記録がありません");
+  return value;
 }
 
 /** 記録の ID の列から index 番目を取る。足りないのは呼び出し側の誤り */
