@@ -53,8 +53,8 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/search/api/search-api.ts`・`query-keys.ts` | `searchMessages`（応答は zod で検証）。キー`searchKeys.messages(利用者の ID, 条件)`＝`['search', 利用者の ID, 'messages', 条件]`、`searchKeys.user(利用者の ID)`＝その利用者の検索の全部 |
-| `frontend/src/features/search/hooks/useMessageSearch.ts` | 結果の取得（`useInfiniteQuery`）。キャッシュに持たない設定（下の「画面」） |
+| `frontend/src/features/search/api/search-api.ts`・`query-keys.ts` | `searchMessages`（応答は zod で検証）。キー`searchKeys.messages(利用者の ID, 条件, ページ数)`＝`['search', 利用者の ID, 'messages', 条件, ページ数]`、`searchKeys.user(利用者の ID)`＝その利用者の検索の全部 |
+| `frontend/src/features/search/hooks/useMessageSearch.ts` | 結果の取得（`useQuery`。見せるページ数を状態に持ち、取得のたびに1ページ目からその数だけ順に取る。`showMore`でページ数を増やす）。キャッシュに持たない設定（下の「画面」） |
 | `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調） |
 | `frontend/src/pages/SearchPage.tsx`、`frontend/src/App.tsx`（`/search`） | S-15。URL の`q`・`roomId`・`from`・`to`で検索する。`q`がなければ API を呼ばない |
 | `frontend/src/features/app-shell/Header.tsx` | `HeaderSearch`を置いた |
@@ -114,7 +114,7 @@
 
 ### 入力（`routes/search.ts`）
 
-- `q`：`searchKeywordSchema`（前後の空白を除いて1〜100文字。UTF-16 の単位）
+- `q`：`searchKeywordSchema`（前後の空白を除いて1〜100文字。UTF-16 の単位）。この API だけ、NUL（`\u0000`）を含む語を 422 にする（FTS5 は句の途中の NUL を文字列の終わりとして扱うため。共通の`searchKeywordSchema`は変えない）
 - `roomId`（任意。ULID）：見えない部屋を指定しても、0件の 200（存在を示さない）
 - `from`・`to`（任意。`YYYY-MM-DD`の JST の日付。両端を含む）：形・暦の検査は`jstDateSchema`。`from`が`to`より後なら 422
 - `limit`（1〜50。既定は`PAGE_LIMIT.default`の20）、`cursor`（不正は 422）。ほかのクエリの項目は拒否する（`strict`）
@@ -139,7 +139,7 @@
 
 ### 入力の無害化
 
-- `MATCH`の語は`toFtsPhrase`で全体を`"`で囲み、中の`"`を`""`にして1つの句にし、バインドで渡す。FTS5 の構文の文字（`*`・`^`・`:`・かっこ・`AND`・`OR`・`NOT`・`NEAR`など）を構文として解釈させない。空白を含む語も、空白を含めた1つの句（D-6）
+- `MATCH`の語は`toFtsPhrase`で全体を`"`で囲み、中の`"`を`""`にして1つの句にし、バインドで渡す。FTS5 の構文の文字（`*`・`^`・`:`・かっこ・`AND`・`OR`・`NOT`・`NEAR`など）を構文として解釈させない。空白を含む語も、空白を含めた1つの句（D-6）。NUL を含む語を渡されたら、`toFtsPhrase`は例外を投げる（API が先に 422 で拒否するので、来るのは呼び出し側の誤りだけ）
 - `instr`は`LIKE`を使わないので、`%`・`_`・`\`も文字として扱う
 
 ### 見える範囲（`search.repository.ts`）
@@ -163,7 +163,7 @@
 ### 抜粋と強調
 
 - 資格を確かめた後の、いまの本文に`toSearchText`を当て、その文の中で一致を探して切り出す（`buildExcerpt`）。索引と同じ文の上で探すので、記号をまたぐ一致（`申**請**手続`を「申請手続」で）も抜粋に出る。抜粋は記号を除いた文で、画面ではマークダウンとして描かない
-- 長さ：120 コードポイント。本文がそれ以下なら全体。長いときは、最初の一致の40 コードポイント前から切り出す。コードポイントの単位で切るので、サロゲートペアを切らない
+- 長さ：120 コードポイント。本文がそれ以下なら全体。長いときは、最初の一致の前に最大40 コードポイントを残して切り出す。語が長く、一致の長さと40の和が120を超えるときは、前に残す長さを縮め、一致の全体が抜粋に入るようにする。コードポイントの単位で切るので、サロゲートペアを切らない
 - 一致の位置（`findSearchMatches`）：英字（ASCII）だけ大小文字を区別しない。左から重ならずに数える。画面の強調（`HighlightedExcerpt`）も同じ部品を使う。ASCII 以外の大小文字は、trigram の一致と強調が合わない場合がある
 
 ### 記号を除く規則（`toSearchText`）
@@ -183,7 +183,9 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - ヘッダーの検索欄（`HeaderSearch`）から、前後の空白を除いた語で`/search?q=…`へ移る。語の検査は`searchKeywordSchema`を共有する（空・101文字以上は送らずにエラーを出す。サーバーでも検証する）
 - S-15（`SearchPage`）：語の欄と、折りたたんだ「絞り込み」（開始日・終了日）。送ると URL を書き換えて取り直す。部屋の絞り込みは URL の`roomId`を引き継ぐだけで、選ぶ部品はない
 - 結果：部屋の名前（DM は相手の表示名）・投稿者・日時・抜粋（一致を強調）。押すと元の場所のスレッドへ（チャンネル・案件の部屋は`/channels/<部屋>?thread=`、DM は`/dms/<部屋>?thread=`。返信は親のスレッド。案件の部屋は、チャンネルの画面が案件の画面へ移す）
-- 状態：読み込み中・0件（「一致するメッセージはありません」）・失敗と再試行・さらに表示。失敗したときは前の結果を出さない（「さらに表示」の失敗だけ、読み込み済みの分を残す）
+- 状態：読み込み中・0件（「一致するメッセージはありません」）・失敗と再試行・さらに表示
+- **取得のたびに1ページ目から取り直す**：`useMessageSearch`は、見せるページ数を状態とキーに持ち、1ページ目からその数だけ順に取る（カーソルは、同じ取り直しの中の直前のページから作る）。「さらに表示」はページ数を1つ増やし、先頭から取り直す。次のページだけを足す形では、途中で資格を失った部屋の行が前のページに残るため（コードレビューの重大な指摘への対応）。取得が完了した時点で出る行は、その時点のサーバーの応答の行だけになる
+- 「さらに表示」の取得の最中は、前の行を出さず、読み込み中だけを出す。取得中はボタンを押せない。失敗したら、取得済みの行も出さず、失敗の文言と再試行だけを出す（再試行は1ページ目から）。条件を変えると（`SearchPage`が結果の部品に`key`を付ける）、ページ数は1に戻る
 - **キャッシュに持たない**（抜粋は資格に左右されるため）：`staleTime: 0`・`gcTime: 0`・`retry: false`、画面を離れたら`searchKeys.user`を取り消して取り除く。`placeholderData`を使わず、前の結果を仮に出さない
 - **利用者の切り替え**：キーに利用者の ID を入れ、ADR-0030 の枠（`user-switch-guard.ts`）でも捨てられる
 - **資格の喪失**：`forgetCaseContent`が、その利用者の検索の結果を全部取り除く（どの案件の抜粋が入っているかをキーから決められないため）。別の作業 #323 が、資格を失ったときの後片付けを「ページごと読み込み直す」方式に変える予定で、その後はこの取り除きの扱いも合わせて見直す
@@ -200,7 +202,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - DB：`backend/src/db/search-fts5-capability.db.test.ts`（T-0。手元の D1 で trigram が使えること）、`search-index.db.test.ts`（状態の遷移・順序に依らない一致・7か所の書き込みの後の不一致0件・既存の戻り値）、`search-reindex.db.test.ts`（べき等・再開・分割の境目・migration の更新の試験）、`search.repository.db.test.ts`（一致・見える範囲と権限・期間・ページ・抜粋）、`search.explain.db.test.ts`（実行計画）、`cleanup-sql.search.db.test.ts`（後始末）。準備の部品は`backend/test/search-fixtures.ts`
 - 単体：`backend/src/lib/search-query.test.ts`、`backend/src/lib/search-text.test.ts`、`scripts/db-generate-args.test.mjs`
 - API：`backend/src/routes/search.test.ts`、`backend/src/services/search.service.test.ts`、`backend/src/openapi.search.test.ts`
-- 画面：`frontend/src/pages/SearchPage.test.tsx`、`SearchPage.userSwitch.test.tsx`、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.test.ts`。モックは`frontend/src/test/search-handlers.ts`
+- 画面：`frontend/src/pages/SearchPage.test.tsx`、`SearchPage.userSwitch.test.tsx`、`SearchPage.accessLoss.test.tsx`（資格を失った後の「さらに表示」・取り直しの失敗で、前の抜粋を残さない）、`SearchPage.pages.test.tsx`（取得の最中の表示、条件を変えたらページ数が1に戻る、3ページ目までのカーソル）、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.test.ts`。モックは`frontend/src/test/search-handlers.ts`
 - E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。[e2e.md](../testing/e2e.md)）
 - ヘッダーに「検索」のボタンが増えたため、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った
 
@@ -209,6 +211,9 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 | 項目 | 状態 |
 | --- | --- |
 | 本番の D1 での trigram、30万件の実測、Time Travel | #160 |
+| ウィンドウに戻ったときの取り直し（同じキー） | 応答が届くまでの間は、前の行が見えたまま。完了した時点で、置き換わるか消える |
+| 「さらに表示」の要求の数 | 押すたびに、読み込んだページ数の分の要求が出る。ページ数の上限は設けていない |
+| ヘッダーの検索欄（`SearchKeywordForm`）が素の`<input>`のままであること | 共通の`TextField`は、見えるラベルと余白を必ず出すため使っていない（ADR-0015 の「素の`input`にクラスを書かない」との関係）。**扱いは利用者に確認中** |
 | 本番での migration 0032・0033 の適用と、既存のメッセージの登録 | **本番に未適用**。#160 で、ほかの未適用の migration（0029〜0031）とまとめて、手順を示して承認を得てから。登録が終わるまで、既存のメッセージは検索に出ない |
 | `scripts/search-reindex-local.ts`が、Node の標準の`module.registerHooks`で、拡張子のない相対の import に`.ts`を補っていること | backend のコード（拡張子を省くバンドラの前提）を Node で直接読むための書き方。**ルールが決まっていない書き方で、利用者に確認中** |
 | 案件の資格の喪失の後片付け | #323 が「ページごと読み込み直す」方式に変える予定（上の「画面」） |

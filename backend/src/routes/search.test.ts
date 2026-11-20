@@ -494,3 +494,31 @@ describe("#155 AC-3 ページ（API）", () => {
     expect(collected).toEqual([...all].reverse());
   });
 });
+
+describe("#155 AC-3 A-1 制御文字（コードレビュー1回目の軽微）", () => {
+  it("#155 AC-3 A-1: NUL を含む q（前・中・後ろ、3文字以上・1〜2文字）は 422（fields に q）", async () => {
+    for (const q of [
+      "\u0000見積書",
+      "見積\u0000書",
+      "見積書\u0000",
+      "a\u0000",
+      "\u0000",
+    ])
+      await expect422({ q }, "q");
+  });
+
+  it("#155 AC-3 A-1: ほかの制御文字（改行・タブ・U+0001・U+007F）を含む q は 500 にならない（いまの動きは 200）", async () => {
+    await insertRow({ text: "制御文字の確認用" });
+    await buildSearchIndex();
+    for (const q of [
+      "制御\n文字",
+      "制御\t文字",
+      "制御\u0001文字",
+      "制御\u007f文字",
+      "\u0001a",
+    ]) {
+      const response = await get({ q });
+      expect({ q, status: response.status }).toEqual({ q, status: 200 });
+    }
+  });
+});

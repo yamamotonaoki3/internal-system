@@ -1,5 +1,5 @@
 // S-15 のメッセージの検索の結果。読み込み中・0件・失敗と再試行・さらに表示を出す。
-// 失敗したときは、前の結果を出さない（読み込み済みのページがある「さらに表示」の失敗だけ、読み込み済みの分を残す）。
+// 失敗したときは、前の結果を出さない（取得済みのページも含めて）。
 // 行のリンクは元の場所（チャンネル・案件の部屋は /channels、DM は /dms）の該当のスレッドへ。返信は親のスレッドを開く。
 import { Link } from "react-router";
 import { Button } from "../../../components/Button";
@@ -34,17 +34,16 @@ export function MessageSearchResults({
 }: {
   conditions: MessageSearchConditions;
 }) {
-  const search = useMessageSearch(conditions);
-  if (search.data === undefined) {
-    if (search.isError)
-      return <Failure onRetry={() => void search.refetch()} />;
+  const { query, showMore } = useMessageSearch(conditions);
+  // 失敗したら、取得済みの結果があっても出さない（資格を失った後の抜粋を残さない）。再試行は1ページ目から取り直す
+  if (query.isError) return <Failure onRetry={() => void query.refetch()} />;
+  if (query.data === undefined)
     return (
       <p role="status" className="text-text-muted">
         読み込み中です
       </p>
     );
-  }
-  const items = search.data.pages.flatMap((page) => page.items);
+  const { items, hasMore } = query.data;
   return (
     <>
       {items.length === 0 ? (
@@ -75,24 +74,14 @@ export function MessageSearchResults({
           ))}
         </ul>
       )}
-      {search.isError ? (
-        <Failure
-          onRetry={() =>
-            void (search.isFetchNextPageError
-              ? search.fetchNextPage()
-              : search.refetch())
-          }
-        />
-      ) : (
-        search.hasNextPage && (
-          <Button
-            variant="secondary"
-            disabled={search.isFetchingNextPage}
-            onClick={() => void search.fetchNextPage()}
-          >
-            さらに表示
-          </Button>
-        )
+      {hasMore && (
+        <Button
+          variant="secondary"
+          disabled={query.isFetching}
+          onClick={showMore}
+        >
+          さらに表示
+        </Button>
       )}
     </>
   );

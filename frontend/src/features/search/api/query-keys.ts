@@ -9,6 +9,10 @@ export type MessageSearchConditions = {
 
 export const searchKeys = {
   user: (userId: string) => ["search", userId] as const,
-  messages: (userId: string, conditions: MessageSearchConditions) =>
-    ["search", userId, "messages", conditions] as const,
+  /** pageCount は1ページ目から取るページ数（「さらに表示」で増える） */
+  messages: (
+    userId: string,
+    conditions: MessageSearchConditions,
+    pageCount: number,
+  ) => ["search", userId, "messages", conditions, pageCount] as const,
 };

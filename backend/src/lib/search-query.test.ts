@@ -13,6 +13,7 @@
 // データは架空（[UNIT_TEST]）。
 import { describe, expect, it } from "vitest";
 import { SEARCH_TRIGRAM_MIN_CODE_POINTS } from "../../../shared/search-rules";
+import { findSearchMatches } from "../../../shared/search-text";
 import { buildExcerpt, searchMethodOf, toFtsPhrase } from "./search-query";
 
 const hasLoneSurrogate = (text: string) =>
@@ -100,5 +101,35 @@ describe("#155 AC-3 U-1 buildExcerpt：抜粋の切り出し", () => {
       const shifted = `${"a".repeat(pad)}${text}`;
       expect(hasLoneSurrogate(buildExcerpt(shifted, "見積書"))).toBe(false);
     }
+  });
+});
+
+describe("#155 AC-3 U-1 buildExcerpt：長い語（コードレビュー1回目の軽微）", () => {
+  // 抜粋の上限（120 コードポイント）は変えない。語が 81〜100 コードポイントでも、一致の全体が抜粋に入り、強調の範囲が取れること
+  const lengths = [80, 81, 100];
+  const placements = {
+    途中: (term: string) => `${"あ".repeat(500)}${term}${"い".repeat(500)}`,
+    先頭: (term: string) => `${term}${"い".repeat(500)}`,
+    末尾: (term: string) => `${"あ".repeat(500)}${term}`,
+  } as const;
+  for (const length of lengths)
+    for (const [where, make] of Object.entries(placements))
+      it(`#155 AC-3 U-1: ${String(length)} コードポイントの語が本文の${where}にあるとき、抜粋は一致の全体を含み、120 コードポイント以内`, () => {
+        const term = "ほ".repeat(length);
+        const text = make(term);
+        const excerpt = buildExcerpt(text, term);
+        expect(excerpt).toContain(term);
+        expect([...excerpt].length).toBeLessThanOrEqual(120);
+        expect(text).toContain(excerpt);
+        expect(findSearchMatches(excerpt, term).length).toBeGreaterThanOrEqual(
+          1,
+        );
+      });
+});
+
+describe("#155 AC-3 U-1 toFtsPhrase：NUL（コードレビュー1回目の軽微）", () => {
+  it("#155 AC-3 U-1: NUL を含む語は句にしない（呼び出し側の誤りとして投げる。API は 422 で先に拒否する）", () => {
+    for (const term of ["\u0000abc", "ab\u0000c", "abc\u0000"])
+      expect(() => toFtsPhrase(term)).toThrow();
   });
 });

@@ -19,7 +19,8 @@ const searchQuerySchema = cursorQuerySchema({
   defaultLimit: PAGE_LIMIT.default,
 })
   .extend({
-    q: searchKeywordSchema,
+    // FTS5 は句の途中の NUL を文字列の終わりとして扱うため、この API だけ NUL を拒否する（共通の規則は変えない）
+    q: searchKeywordSchema.refine((value) => !value.includes("\u0000")),
     roomId: z.string().refine(isUlid).optional(),
     from: jstDateSchema.optional(),
     to: jstDateSchema.optional(),

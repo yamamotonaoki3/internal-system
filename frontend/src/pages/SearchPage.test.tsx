@@ -196,36 +196,61 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
     expect(within(main()).queryByRole("alert")).toBeNull();
   });
 
-  it("#155 AC-1 F-2: 続きがあれば「さらに表示」で次のページを足し、続きがなくなれば出さない", async () => {
+  // 取得の方式（要求の回数）に依らず、利用者に見えることと、次のページのカーソルで確かめる（追加の取得で1ページ目も取り直す方式でも、元の性質を弱めない）
+  it("#155 AC-1 F-2: 続きがあれば「さらに表示」で次のページを足し（重複・欠落なしに順に）、2ページ目は直前に取り直した1ページ目のカーソルで取る。続きがなくなれば出さない", async () => {
     const world = respondSearchPages([
       { items: [searchItem(1), searchItem(2)], nextCursor: "CURSOR1" },
       { items: [searchItem(3)], nextCursor: null },
     ]);
     const { user } = renderApp("/search?q=見積書");
     await waitFor(() => expect(resultRows()).toHaveLength(2));
+    // 表示の後に、1ページ目の応答のカーソルが変わる（取り直した1ページ目のカーソルを使うかを見分ける）
+    world.pages.set(null, {
+      items: [searchItem(1), searchItem(2)],
+      nextCursor: "CURSOR1B",
+    });
+    world.pages.set("CURSOR1B", { items: [searchItem(3)], nextCursor: null });
+    world.pages.delete("CURSOR1");
     await user.click(
       within(main()).getByRole("button", { name: "さらに表示" }),
     );
     await waitFor(() => expect(resultRows()).toHaveLength(3));
-    expect(world.requests.map((r) => r.cursor)).toEqual([null, "CURSOR1"]);
+    expect(
+      resultRows().map((row) => row.querySelector("a")?.getAttribute("href")),
+    ).toEqual(
+      [1, 2, 3].map(
+        (n) =>
+          `/channels/${searchItem(n).roomId}?thread=${searchItem(n).messageId}`,
+      ),
+    );
+    expect(world.requests.at(-1)?.cursor).toBe("CURSOR1B");
     expect(
       within(main()).queryByRole("button", { name: "さらに表示" }),
     ).toBeNull();
   });
 
-  it("#155 AC-1 F-2: 「さらに表示」の取得の失敗は、読み込み済みの結果を残したまま、エラーと再試行を出す", async () => {
+  // 統括の決定（2026-11-21）：計画 4.5（途中で資格を失っても前のページを残さない）にそろえ、失敗したら前の結果を出さない形に訂正した
+  it("#155 AC-1 F-2: 「さらに表示」の取得が失敗したら、前の結果を出さず、失敗の文言と再試行を出す。再試行で1ページ目から取り直して結果が出る", async () => {
     const world = respondSearchPages([
       { items: [searchItem(1)], nextCursor: "CURSOR1" },
       { items: [searchItem(2)], nextCursor: null },
     ]);
     const { user } = renderApp("/search?q=見積書");
     await waitFor(() => expect(resultRows()).toHaveLength(1));
+    const firstExcerpt = searchItem(1).excerpt;
+    expect(bodyText()).toContain(firstExcerpt);
     world.fail = { status: 500, times: 1 };
     await user.click(
       within(main()).getByRole("button", { name: "さらに表示" }),
     );
-    expect(await within(await pageMain()).findByRole("alert")).toBeDefined();
-    expect(resultRows()).toHaveLength(1);
+    const alert = await within(await pageMain()).findByRole("alert");
+    expect(alert.textContent).toContain("検索できませんでした");
+    expect(bodyText()).not.toContain(firstExcerpt);
+    const before = world.requests.length;
+    await user.click(within(main()).getByRole("button", { name: "再試行" }));
+    await waitFor(() => expect(bodyText()).toContain(firstExcerpt));
+    expect(world.requests.slice(before)[0]?.cursor).toBeNull();
+    expect(within(main()).queryByRole("alert")).toBeNull();
   });
 
   it("#155 AC-1 F-2: q がなければ API を呼ばない", async () => {

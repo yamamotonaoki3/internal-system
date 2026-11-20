@@ -34,7 +34,11 @@ export function SearchPage() {
         onSearch={(next) => setParams(next)}
       />
       {q !== undefined && (
-        <MessageSearchResults conditions={{ ...conditions, q }} />
+        // 条件が変わったら、見せるページ数を1に戻す
+        <MessageSearchResults
+          key={params.toString()}
+          conditions={{ ...conditions, q }}
+        />
       )}
     </section>
   );

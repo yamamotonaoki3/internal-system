@@ -854,7 +854,7 @@
 - **EP-4-01 の確定した形（Issue #155 の155-A。2026-11-20。C-200。上の表の元の記述は残す）**：正は`docs/api/openapi.json`（`searchMessages`）。設計は[search.md](../design/search.md)
   - クエリ：`q`（V-34。前後の空白を除いて1〜100文字。UTF-16 の単位で数える）、`roomId`（任意。ULID。見えない部屋は0件の`200`で、存在を示さない）、`from`・`to`（任意。JST の日付`YYYY-MM-DD`。両端を含む。`from`が`to`より後なら`422`）、`limit`（1〜**50**。既定20）、`cursor`。ほかの項目は`422`
   - 応答：`200`：`items`（`messageId`、`parentMessageId`（返信でなければ`null`）、`roomId`、`roomKind`（`channel`／`direct`／`case`）、`roomName`（DM は相手の表示名）、`author`（`id`・`displayName`）、`excerpt`（記号を除いた本文の、一致の前後。120文字〔コードポイント〕まで）、`createdAt`）、`nextCursor`。**総件数は返さない**。並びは作成日時の新しい順（同じなら ID の降順）
-  - エラー：`401`、`403`（`perm.search.message`がない）、`422`（`fields`）。`perm.dm.message.view`・`perm.case.view`がないときは、403 にせず、DM・案件の部屋を結果から除く
+  - エラー：`401`、`403`（`perm.search.message`がない）、`422`（`fields`。`q`が NUL〔`\u0000`〕を含むときも 422。FTS5 が句の途中の NUL を文字列の終わりとして扱うため、この API だけの規則）。`perm.dm.message.view`・`perm.case.view`がないときは、403 にせず、DM・案件の部屋を結果から除く
   - **`429`は作らない**（D-7）。上限（X-8）が未決定のため、#160 の実測の後に判断する
   - 検索の方式：3文字（コードポイント）以上は FTS5 trigram の`MATCH`、1〜2文字は`instr`（D-3。C-152 の`LIKE`を置き換え）。語は空白を含めて1つの句（D-6）
 
