@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import { Link } from "react-router";
 import { Button } from "../../components/Button";
 import { NotificationBell } from "../notifications";
+import { HeaderSearch } from "../search";
 import { StatusButton } from "../profile";
 import { AvatarMenuTrigger } from "./AvatarMenu";
 import { homeNavItem } from "./navigation";
@@ -40,6 +41,7 @@ export function Header({
         </Link>
       </div>
       <div className="flex items-center gap-2">
+        <HeaderSearch />
         <NotificationBell />
         <StatusButton />
         <div className="hidden md:block">

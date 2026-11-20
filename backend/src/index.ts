@@ -35,6 +35,7 @@ import {
 import { sampleUserRoutes } from "./routes/sample-users";
 import { setupRoutes } from "./routes/setup";
 import { threadReadPositionRoutes } from "./routes/thread-read-positions";
+import { searchRoutes } from "./routes/search";
 import { threadRoutes } from "./routes/threads";
 import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
@@ -51,6 +52,7 @@ export const app = createApp({
     { path: "/api/me/notifications", app: notificationRoutes() },
     { path: "/api/me/unread", app: unreadRoutes() },
     { path: "/api/me/threads", app: threadRoutes() },
+    { path: "/api/search", app: searchRoutes() },
     { path: "/api/me", app: meRoutes(withCredentials) },
     { path: "/api/users", app: userRoutes() },
     { path: "/api/admin/clients", app: adminClientRoutes() },

@@ -428,6 +428,36 @@ export const messages = sqliteTable(
   ],
 );
 
+// 検索の対応の表（#155・C-152(3)）。検索用の表 search_fts（FTS5 trigram。手で書いた migration で作り、ここには書かない）の rowid は、この表の id。
+// 中身（記号を除いた本文）は search_fts が持ち、ここは元の行との対応・絞り込みの列・写しの元の本文（source_body）を持つ。
+// 更新は backend/src/db/search-index.sql.ts の組だけで行う。元の行を消す後始末に縛られないよう、外部キーは張らない
+export const searchDocuments = sqliteTable(
+  "search_documents",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind").notNull(),
+    refId: text("ref_id").notNull(),
+    roomId: text("room_id"),
+    messageId: text("message_id"),
+    createdAt: text("created_at").notNull(),
+    sourceBody: text("source_body").notNull(),
+  },
+  (t) => [
+    check("search_documents_kind_check", sql`${t.kind} IN ('message')`),
+    uniqueIndex("search_documents_kind_ref_id_unique").on(t.kind, t.refId),
+    index("search_documents_room_id_created_at_id_idx").on(
+      t.roomId,
+      t.createdAt,
+      t.id,
+    ),
+    index("search_documents_kind_created_at_id_idx").on(
+      t.kind,
+      t.createdAt,
+      t.id,
+    ),
+  ],
+);
+
 // メッセージの指名。1人を本文の複数位置で指名でき、一覧は位置順に返す。
 export const messageMentions = sqliteTable(
   "message_mentions",

@@ -6,6 +6,7 @@ import {
   encryptLegalName,
   isValidPiiKey,
 } from "../backend/src/lib/pii-crypto.ts";
+import { generateArgs } from "./db-generate-args.ts";
 import {
   applyLocalEnvironment,
   loadLocalEnvironment,
@@ -262,21 +263,22 @@ function seedFile(options: string[]): string {
   return file;
 }
 
-function generateArgs(options: string[]): string[] {
-  if (options.length === 0) return ["generate"];
-  if (
-    options.length !== 2 ||
-    options[0] !== "--name" ||
-    !/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(options[1])
-  ) {
+/** 検索の索引の登録（#155）。手元の D1 だけ。追加の引数（Cloudflare 上の DB を指す指定を含む）と postgres の環境は拒否する */
+async function searchReindex(): Promise<void> {
+  const values = loadLocalEnvironment(environment as LocalEnvironment);
+  applyLocalEnvironment(values);
+  console.log(`環境：${environment}`);
+  if (options.length)
+    throw new LocalEnvironmentError("DB 操作に追加の引数は指定できません。");
+  if (values.DATABASE_URL)
     throw new LocalEnvironmentError(
-      "db:generate は --name と英数字の名前だけを指定できます。",
+      "search-reindex は D1 の手元の環境だけで使えます。",
     );
-  }
-  return ["generate", "--name", options[1]];
+  const { reindexLocalSearch } = await import("./search-reindex-local.ts");
+  await reindexLocalSearch(environment as LocalEnvironment);
 }
 
-main().catch((error) => {
+(operation === "search-reindex" ? searchReindex() : main()).catch((error) => {
   console.error(
     error instanceof LocalEnvironmentError
       ? error.message

@@ -476,7 +476,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | `features/cases/components/CaseAttachments.tsx` | S-17 の「添付ファイル」の区画。4つの状態（読み込み中・エラーと「再試行」・0件・あり）と、行・「次のページ」。「元のメッセージへ」は`features/threads`の`useThreadParam`で`?thread=`を開く |
 | `features/cases/components/CaseDetailView.tsx` | 参加者の本文に、`CaseTodoSection`の下・`CaseConversation`の上へ区画を差し込み、取得（`useCaseAttachments`）を持つ |
 | `features/cases/components/CaseConversation.tsx` | 自分の投稿・返信が成功したら、`caseKeys.attachments`を取り直す（投稿の`onPosted`と、返信の`onReplied`） |
-| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ） |
+| `features/cases/hooks/useCaseWrites.ts` | 退出の後片付け（`forgetCaseAfterLeave`）で、添付の一覧のキャッシュも取り除く（詳細・TODO の一覧と同じ）【Issue #155：`forgetCaseContent`は、検索の結果も`forgetSearchResults`で片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。[search.md](search.md)）。ほかのキーの片付けの方式は変えていない（#323）】 |
 | `features/cases/labels.ts` | 区画の文言（`CASE_ATTACHMENTS_TEXTS`） |
 | `features/messages/format-size.ts`・`index.ts` | 大きさの整形`formatAttachmentSize`（MB＝10^6 バイト・小数1桁）を、送信前の一覧（`AttachmentList.tsx`）から移して共通にした。`attachmentUrl`・`formatAttachmentSize`を公開の入口に足した |
 | `features/threads/components/ThreadLayout.tsx`・`ThreadPane.tsx` | 省略できる props `onReplied`。自分の返信が成功した後に呼ぶ（スレッド一覧の取り直しに加えて）。案件の画面だけが渡す |
@@ -1554,7 +1554,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 既存の案件への自動参加の補完 SQL（`backfill-case-auto-participants.sql`） | 作成済み・**どの環境にも未実行**。本番への実行は、利用者の承認が別に必要 |
 | 異動・再有効化で案件の参加の行が変わらないこと／外れること | コードは変えず、テストで固定した（147-C-2） |
 | 一覧の「進行中・終了」以外の状態（アーカイブ） | #151 |
-| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029、148-B-2 の migration 0030、149-D の migration 0031（索引だけ）は**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後） |
+| 本番の D1 への適用 | 147 の時点では migration がないため該当しない。149-A の migration 0029、148-B-2 の migration 0030、149-D の migration 0031（索引だけ）は**本番に未適用**（適用は、ほかの migration とまとめて、利用者の承認の後）【Issue #155（155-A）の migration 0032・0033（検索の表。0033 は手で書いた。ADR-0031）と、既存のメッセージの索引の登録（`reindexMessages`）も、次の区切りで同じく要る。#160 で手順を示して承認を得る。[search.md](search.md)】 |
 | API 仕様（`docs/api/openapi.json`）の ULID の`pattern` | 案件の経路だけ、実装の ULID の形と一致させた。ほかの経路を含む全体は Issue #289 |
 | 案件のやり取り（S-17）、終了した案件の読み取り専用、案件の権限の確認 | 148-A で実装済み（下の「148-A の設計」） |
 | 案件の添付の一覧と元の投稿への移動 | 148-B-1 で実装済み（下の「148-B-1 の設計」）。C-184(4) |

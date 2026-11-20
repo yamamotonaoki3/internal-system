@@ -42,6 +42,7 @@ import {
   retirementRequestRoutes,
 } from "./routes/retirement-requests";
 import { sampleUserRoutes } from "./routes/sample-users";
+import { searchRoutes } from "./routes/search";
 import { setupRoutes } from "./routes/setup";
 import { threadReadPositionRoutes } from "./routes/thread-read-positions";
 import { threadRoutes } from "./routes/threads";
@@ -108,6 +109,8 @@ const app = createApp({
     // #143-b：チャンネル管理（EP-2-42・EP-2-43）とアーカイブの一覧（EP-2-40）。index.ts と同じパスに組み込む
     { path: "/api/admin/channels", app: adminChannelRoutes() },
     { path: "/api/admin/deleted-items", app: adminDeletedItemRoutes() },
+    // #155：メッセージの検索（EP-4-01）。index.ts と同じパスに組み込む
+    { path: "/api/search", app: searchRoutes() },
   ],
 });
 

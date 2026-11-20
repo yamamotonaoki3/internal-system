@@ -10,6 +10,7 @@ import {
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { messageKeys } from "../../messages";
+import { searchKeys } from "../../search";
 import {
   addCaseParticipant,
   changeAttachmentVisibility,
@@ -87,7 +88,27 @@ export function forgetCaseContent(
     queryClient.removeQueries(filters);
     return cancelling;
   });
-  return Promise.all(cancelled).then(() => undefined);
+  return Promise.all([
+    ...cancelled,
+    forgetSearchResults(queryClient, userId),
+  ]).then(() => undefined);
+}
+
+/**
+ * 検索の結果（#155）の片付け。どの案件の部屋の抜粋が入っているかをキーから決められないため、その利用者の分を全部対象にする。
+ * removeQueries はキャッシュから外すだけで、表示中の画面（購読先）に知らせず、前の抜粋が描かれたまま残る。
+ * そのため、表示していない分は取り除き、表示中の分は resetQueries でデータを消して購読先に知らせ、いまの資格で取り直す。
+ * 取り直しの完了は待たない（取り消しの完了だけを待つ）
+ */
+function forgetSearchResults(
+  queryClient: QueryClient,
+  userId: string,
+): Promise<void> {
+  const filters = { queryKey: searchKeys.user(userId) };
+  const cancelling = queryClient.cancelQueries(filters);
+  queryClient.removeQueries({ ...filters, type: "inactive" });
+  void queryClient.resetQueries(filters);
+  return cancelling;
 }
 
 /**

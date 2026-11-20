@@ -102,7 +102,11 @@ test("#143-b b-AC-1・b-AC-2: オーナーが管理メニューから S-39 を�
 
   // ---- 名前で絞り込む（「検索」で確定） ----
   await page.getByLabel("名前で検索", { exact: true }).fill("chmgmt_priv");
-  await page.getByRole("button", { name: "検索", exact: true }).click();
+  // #155：ヘッダーにもメッセージの検索のボタン「検索」があるため、画面の本文（main）の中に絞って押す
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "検索", exact: true })
+    .click();
   await expect(rowOf(page, PUBLIC)).toHaveCount(0);
   await expect(rowOf(page, PRIVATE)).toBeVisible();
 
@@ -175,7 +179,11 @@ test("#143-b b-AC-1・b-AC-2: オーナーが管理メニューから S-39 を�
     label: "使用中",
   });
   await page.getByLabel("名前で検索", { exact: true }).fill("chmgmt_priv");
-  await page.getByRole("button", { name: "検索", exact: true }).click();
+  // #155：ヘッダーにもメッセージの検索のボタン「検索」があるため、画面の本文（main）の中に絞って押す
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "検索", exact: true })
+    .click();
   await expect(rowOf(page, PRIVATE)).toContainText("使用中");
 });
 

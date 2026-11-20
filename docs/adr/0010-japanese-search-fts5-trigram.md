@@ -50,3 +50,9 @@ FTS5の標準のトークナイザ`unicode61`は空白と記号でしか区切�
 - 索引は書き込みのたびに更新される。D1の書き込み行数の課金に効くため、実測で確かめる
 - 添付・案件の公開範囲の変更（C-10など）が索引に反映されるよう、検索結果は権限で絞り込む。検索の対象と公開範囲の細部は`docs/requirements/04-search.md`のとおり
 - 見直す条件：本番のD1でtrigramが動かない、p95で2秒を満たせない
+
+## 追記（2026-11-20。Issue #155 の155-A。元の記述は残す）
+
+- 1〜2文字の語は、`LIKE`ではなく`instr(lower(…), lower(…))`で探す（利用者の決定 D-3。社員一覧の検索〔C-168〕とそろえる）。境目は語のコードポイント数で3（`shared/search-rules.ts`の`SEARCH_TRIGRAM_MIN_CODE_POINTS`）。`lower()`は ASCII の英字だけを小文字にするため、大小文字の扱いは trigram と同じではない（[search.md](../design/search.md)）
+- 仮想の表と drizzle-kit の関係は、[ADR-0031](0031-search-fts-handwritten-migration.md)で決めた（手で書く migration。`schema.ts`に書かない。生成の後に差分が出ないことを確かめる）。索引は、外部の内容の表・トリガーを使わず、自分で中身を持つ表をアプリの側で更新する
+- 手元の D1（Miniflare）で、trigram の作成・日本語の3文字以上の`MATCH`・2文字の`MATCH`が0件になることを、テストで確かめた（`backend/src/db/search-fts5-capability.db.test.ts`）。本番の D1 での確認と、30万件の実測は #160 に残る。決定記録 C-200
