@@ -12,7 +12,7 @@
 1. 必要なものを入れる：Node.js（`.node-version` の版）と **Docker**。品質チェック（`npm run check`）のセキュリティのテスト（Semgrep・gitleaks・OSV-Scanner）が、Docker のイメージで動くため、D1・DB なしでも Docker が要ります。Windows・macOS は Docker Desktop、Linux は Docker Engine を入れて、起動しておきます（`docker info` で確かめる）。**Docker Desktop は、従業員250人以上または年間売上1000万ドル以上の会社が業務で使うときは有料です**（個人・小規模・教育・非営利は無料。条件は公式で確かめる）。導入と注意は `docs/testing/security.md`
 1. 依存を入れる：`npm install`（改行コードは LF に統一しています。既存のクローンは、`docs/project-rules.md` の「改行コード」の節の手順で作業ツリーを更新します）
 1. 開発用の環境変数を用意する：`.env.example` を `.env.development` にコピーして、`APP_ENV=development` と手元の値を入れる（Gitには入りません。項目の説明は `docs/secrets.md`）。不足は `npm run env:check` で確かめられます。初代全体管理者の初回セットアップ（`/setup`）を試すには、`SETUP_TOKEN` と `PII_ENCRYPTION_KEY` も自分で作って入れます（作り方は `docs/secrets.md` の「初回セットアップ用の項目」）。ログインと初回セットアップの試行制限には `LOGIN_THROTTLE_KEY` も要ります（作り方は `docs/secrets.md` の「ログインの試行制限用の項目」。未設定のときは、ログインと `/setup` の登録が 503 になります）。ログイン画面は http://localhost:5173/login です
-1. DB（手元の D1）を用意する：`.env.example`を`.env.development`へコピーして`APP_ENV=development`を設定し、`npm run db:migrate:local`でテーブルを作り、`npm run db:seed:local`で開発用の架空のデータを入れる
+1. DB（手元の D1）を用意する：`.env.example`を`.env.development`へコピーして`APP_ENV=development`を設定し、`npm run db:migrate:local`でテーブルを作り、`npm run db:seed:local`で開発用の架空のデータを入れる。続けて`node scripts/db-local.ts development search-reindex`で検索の索引を作る（実行しないと、シードのメッセージが検索に出ない）
 1. 開発サーバーを起動する：`npm run dev`（画面は http://localhost:5173/ 、API は http://localhost:5173/api/health ）
 1. 品質チェックとテストを実行する：`npm run check`（Docker が要る。初回は、セキュリティのテストのイメージを取得するため、通信と時間がかかります）
 
@@ -62,6 +62,7 @@ npm run docker:up:local
 | `npm run db:migrate:test`・`npm run db:seed:test`・`npm run db:reset:test` | 検証用D1（環境別保存先）にマイグレーション・シード・再作成を行う |
 | `npm run db:migrate:local` | 手元の D1 に、マイグレーションを適用する |
 | `npm run db:seed:local` | 開発用の架空のデータを入れる |
+| `node scripts/db-local.ts development search-reindex`（検証用は`test`） | 既存のメッセージの検索の索引を、手元の D1 に作る。シードの後に実行する（`--remote`などの追加の引数と、D1 でない環境は受け付けない） |
 | `npm run db:reset:local` | 手元の D1 を作り直す（マイグレーションとシードを、もう一度適用する） |
 | `npm run db:cleanup` | テストデータ（`testuser_` で始まるもの）だけを消す |
 
