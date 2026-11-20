@@ -2,7 +2,7 @@
 // 1 操作＝1 つの db.batch で、申請・担当部署・候補・監査・通知を一体で確定する（途中の文が失敗したら全体が取り消される）。
 // 最初の判定（Service）で確かめた DB の状態は、batch の中でも CASE WHEN … ELSE NULL で確かめ直し、崩れていれば NOT NULL 違反で
 // batch 全体を失敗させる。失敗は制約の表と列で専用エラーに変換し、未知の DB エラーは握りつぶさずそのまま再送出する。
-import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import { jstDateOf } from "../../../shared/case-rules";
 import {
   caseCreationRequestCandidates,
@@ -559,9 +559,11 @@ export function createCaseRequestRepository(db: Database) {
     },
 
     /** 同じ取引先の審査中の申請か案件（進行中・終了）に、整形後の件名が完全一致するものがあるか（5-3 AC-14・C-141(3)） */
+    /** excludeCaseId を渡すと、その案件自身は比べる相手から除く（審査中の申請の側は変えない） */
     async hasSimilarTitle(input: {
       clientId: string;
       title: string;
+      excludeCaseId?: string;
     }): Promise<boolean> {
       const rows = await db
         .select({ id: caseCreationRequests.id })
@@ -579,7 +581,13 @@ export function createCaseRequestRepository(db: Database) {
         .select({ id: cases.id })
         .from(cases)
         .where(
-          and(eq(cases.clientId, input.clientId), eq(cases.title, input.title)),
+          and(
+            eq(cases.clientId, input.clientId),
+            eq(cases.title, input.title),
+            input.excludeCaseId === undefined
+              ? undefined
+              : ne(cases.id, input.excludeCaseId),
+          ),
         )
         .limit(1);
       return caseRows.length > 0;

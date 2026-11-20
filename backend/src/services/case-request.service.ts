@@ -449,13 +449,16 @@ export function createCaseRequestService(
     /** 類似件名の確認：真偽と整形後の件名だけを返す（件名・申請者・件数は返さない） */
     async checkSimilarTitle(
       actor: CaseRequestActor,
-      input: { clientId: string; title: string },
+      input: { clientId: string; title: string; excludeCaseId?: string },
     ) {
       await authorize(actor);
       const formattedTitle = formatCaseTitle(input.title);
       const hasSimilar = await repository.hasSimilarTitle({
         clientId: input.clientId,
         title: formattedTitle,
+        ...(input.excludeCaseId === undefined
+          ? {}
+          : { excludeCaseId: input.excludeCaseId }),
       });
       return { hasSimilar, formattedTitle };
     },

@@ -64,13 +64,17 @@ export function useCaseAccessLoss({
   const previousParticipant = useRef(isParticipant);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
-  // 参加者でなくなったら、TODO の履歴・削除済みの一覧を取り除き直す（149-C）。この効果は、それらの部品が外れた後に走る
+  // 概要の取り直しが拒否より先に非参加を返した場合も、開いているダイアログ（参加者用の基準を含む）を閉じる。
+  // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける。
+  // あわせて、TODO の履歴・削除済みの一覧を取り除き直す（149-C）。この効果は、それらの部品が外れた後に走る
   useEffect(() => {
     if (isParticipant && !previousParticipant.current) handling.current = false;
-    if (!isParticipant && previousParticipant.current)
+    if (!isParticipant && previousParticipant.current) {
+      onLost();
       forgetTodoHistory(queryClient, userId, caseId);
+    }
     previousParticipant.current = isParticipant;
-  }, [isParticipant, queryClient, userId, caseId]);
+  }, [isParticipant, onLost, queryClient, userId, caseId]);
 
   // 画面を離れた後に届いた結果で、表示（状態・ダイアログ）や、移動先の部屋・スレッドのキャッシュに触れないため
   const mounted = useRef(false);

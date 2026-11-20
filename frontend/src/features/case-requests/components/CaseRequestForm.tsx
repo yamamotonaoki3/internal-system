@@ -28,6 +28,7 @@ import type {
   CreateCaseRequestInput,
 } from "../api/case-request-api";
 import { describeError, isApiError } from "../describe-error";
+import { TITLE_CAUTION } from "../labels";
 import { useCreateCaseRequest } from "../hooks/useCreateCaseRequest";
 import { useSettledValue } from "../../../lib/useSettledValue";
 import { useSimilarTitle } from "../hooks/useSimilarTitle";
@@ -37,9 +38,9 @@ import {
   type CaseRequestFormValues,
 } from "../schemas/case-request-form";
 import { CandidatePicker } from "./CandidatePicker";
+import { DepartmentCheckboxes } from "./DepartmentCheckboxes";
+import { SimilarTitleNotice } from "./SimilarTitleNotice";
 
-const TITLE_CAUTION =
-  "件名は参加していない人にも見える場合があります。機密情報を書かないでください";
 const SIMILAR_DELAY_MS = 400;
 const DUE_DATE_ERROR = "納期は今日以降の日付を選んでください";
 
@@ -125,42 +126,6 @@ function messageOf(
   return error !== undefined || invalid ? fallback : undefined;
 }
 
-function DepartmentCheckboxes({
-  departments,
-  value,
-  error,
-  onChange,
-}: {
-  departments: Choice[] | undefined;
-  value: string[];
-  error: string | undefined;
-  onChange: (next: string[]) => void;
-}) {
-  return (
-    <fieldset className="mb-4" aria-invalid={error ? true : undefined}>
-      <legend className="mb-1 text-sm font-bold">担当部署</legend>
-      {departments === undefined && <p>部署の候補を準備しています</p>}
-      {departments?.map((department) => (
-        <label key={department.id} className="mr-4 inline-flex gap-1">
-          <input
-            type="checkbox"
-            checked={value.includes(department.id)}
-            onChange={(event) =>
-              onChange(
-                event.target.checked
-                  ? [...value, department.id]
-                  : value.filter((id) => id !== department.id),
-              )
-            }
-          />
-          {department.name}
-        </label>
-      ))}
-      {error && <p className="mt-1 text-sm text-danger">{error}</p>}
-    </fieldset>
-  );
-}
-
 function DroppedNotices({ notices }: { notices: string[] }) {
   if (notices.length === 0) return null;
   return (
@@ -168,34 +133,6 @@ function DroppedNotices({ notices }: { notices: string[] }) {
       {notices.map((notice) => (
         <p key={notice}>{notice}</p>
       ))}
-    </Alert>
-  );
-}
-
-/** 類似件名の確認の結果。失敗は「類似なし」にせず、知らせて取り直せるようにする（送信は止めない） */
-function SimilarTitleNotice({
-  similar,
-}: {
-  similar: ReturnType<typeof useSimilarTitle>;
-}) {
-  if (similar.isError) {
-    return (
-      <Alert tone="error" role="alert">
-        <p>類似の件名を確認できませんでした</p>
-        <Button
-          variant="secondary"
-          disabled={similar.isFetching}
-          onClick={() => void similar.refetch()}
-        >
-          もう一度確認
-        </Button>
-      </Alert>
-    );
-  }
-  if (similar.data?.hasSimilar !== true) return null;
-  return (
-    <Alert tone="info" as="p">
-      似た案件があります
     </Alert>
   );
 }

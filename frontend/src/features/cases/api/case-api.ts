@@ -45,6 +45,8 @@ const pageSchema = z.object({
 });
 const detailSchema = summarySchema.extend({
   description: z.string(),
+  /** 案件の版（内容の編集の衝突の検知に送る。詳細だけにある） */
+  version: z.number().int(),
   channelId: z.string().min(1),
   createdBy: z.string().min(1),
   participants: z.array(
@@ -156,6 +158,35 @@ export async function reopenCase(
 }
 
 /** null は未定に戻す */
+/**
+ * 案件の内容の編集（EP-5-20）の本文：変える項目だけと、衝突の検知の値（参加者は詳細の version、参加していない管理者は概要で見た expected）
+ */
+export type CaseEditBody = {
+  title?: string;
+  description?: string;
+  clientId?: string;
+  departmentIds?: string[];
+} & (
+  | { version: number }
+  | { expected: { title: string; clientId: string; departmentIds: string[] } }
+);
+
+const editedSchema = z.object({
+  caseId: z.string().min(1),
+  titleFormatted: z.boolean(),
+});
+
+export async function editCase(
+  caseId: string,
+  body: CaseEditBody,
+): Promise<z.infer<typeof editedSchema>> {
+  const response = await apiClient.patch(
+    `/cases/${encodeURIComponent(caseId)}`,
+    body,
+  );
+  return editedSchema.parse(response.data);
+}
+
 export async function changeCaseDueDate(
   caseId: string,
   dueDate: string | null,

@@ -4801,6 +4801,16 @@
               "type": "string"
             },
             "description": "整形後に 1〜100 文字"
+          },
+          {
+            "name": "excludeCaseId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "description": "比べる相手から除く案件（再編集の画面が、編集中の案件自身を数えないために渡す）"
           }
         ],
         "responses": {
@@ -5578,6 +5588,88 @@
           },
           "404": {
             "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "editCase",
+        "summary": "案件の内容（件名・説明・取引先・担当部署）を再編集する（EP-5-20）",
+        "description": "有効な参加者、案件の担当部署のどれかのオーナー、全体管理者が編集できる（参加していなくてもよい）。説明は有効な参加者だけが変えられる。再認証は求めない。変える項目だけを送る。衝突の検知に、有効な参加者は詳細の version を、参加していない管理者は概要で見た件名・取引先・担当部署の集合（expected）を、どちらか1つ送る。判定の順は、案件がない（404）→ 編集できない（403）→ 権限 perm.case.edit → 参加していないのに description・version を送る（403「説明を変更できるのは参加者だけです」）→ 本文の形（422。caseNumber・dueDate・未知の項目は fields に項目名。version と expected の両方・どちらもない、または有効な参加者が expected を送ると fields: [\"version\"]）→ 終了中（409 closed）→ 版・expected がいまと違う（409 stale）→ 取引先をいまと違う値にするのに、ない・無効（422 fields: [\"clientId\"]）→ 新たに足す部署がない・無効（422 fields: [\"departmentIds\"]。すでに担当の無効な部署は残せる）。変える項目がなければ何も書かずに 200。案件番号・納期は変えない。追加した部署の有効なオーナーは自動で参加する。通知はしない。監査 case.edit（detail は caseId・changedFields と、変えた項目の前後・件数。説明の本文は入れない）を同じ batch で確定する。",
+        "parameters": [
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseEditBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "編集した（変える項目がなければ何もしない）。説明・版は返さない。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseEdited"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "編集できない（FORBIDDEN。参加者・担当部署のオーナー・全体管理者でない）、参加していないのに説明・版を送った、権限がない、または送信元不正（FORBIDDEN_ORIGIN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "案件がない（NOT_FOUND「案件が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "終了した案件（CONFLICT。reason: closed）、ほかの人が先に変更した（reason: stale）、自動参加させる人が続けて変わった（reason: retry）",
             "content": {
               "application/json": {
                 "schema": {
@@ -11126,7 +11218,8 @@
           "description",
           "channelId",
           "createdBy",
-          "participants"
+          "participants",
+          "version"
         ],
         "properties": {
           "id": {
@@ -11302,6 +11395,11 @@
                 }
               }
             }
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "案件の版（再編集の衝突の検知に使う。概要・一覧には返さない）"
           }
         }
       },
@@ -11663,6 +11761,7 @@
               "case.due_date.change",
               "case.close",
               "case.reopen",
+              "case.edit",
               "case.attachment.visibility.change",
               "message.delete",
               "audit_log.view"
@@ -11777,6 +11876,7 @@
               "case.due_date.change",
               "case.close",
               "case.reopen",
+              "case.edit",
               "case.attachment.visibility.change",
               "message.delete",
               "audit_log.view"
@@ -12438,6 +12538,129 @@
             ],
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "description": "納期（YYYY-MM-DD。日本時間の今日以降）。null は未定に戻す"
+          }
+        }
+      },
+      "CaseEditBody": {
+        "description": "変える項目だけを送る。version と expected は、どちらか1つだけを送る",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "有効な参加者の本文（版で衝突を検知する）",
+            "required": [
+              "version"
+            ],
+            "properties": {
+              "title": {
+                "$ref": "#/components/schemas/CaseEditTitle"
+              },
+              "description": {
+                "$ref": "#/components/schemas/CaseEditDescription"
+              },
+              "clientId": {
+                "$ref": "#/components/schemas/CaseEditClientId"
+              },
+              "departmentIds": {
+                "$ref": "#/components/schemas/CaseEditDepartmentIds"
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "詳細で見た版（有効な参加者が送る）"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "参加していない管理者の本文（概要で見た値で衝突を検知する）",
+            "required": [
+              "expected"
+            ],
+            "properties": {
+              "title": {
+                "$ref": "#/components/schemas/CaseEditTitle"
+              },
+              "description": {
+                "$ref": "#/components/schemas/CaseEditDescription"
+              },
+              "clientId": {
+                "$ref": "#/components/schemas/CaseEditClientId"
+              },
+              "departmentIds": {
+                "$ref": "#/components/schemas/CaseEditDepartmentIds"
+              },
+              "expected": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "概要で見た件名・取引先・担当部署の集合（参加していない管理者が送る）",
+                "required": [
+                  "title",
+                  "clientId",
+                  "departmentIds"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "type": "string",
+                    "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "departmentIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CaseEditTitle": {
+        "type": "string",
+        "description": "整形後に 1〜100 文字"
+      },
+      "CaseEditDescription": {
+        "type": "string",
+        "maxLength": 2000,
+        "description": "有効な参加者だけが送れる"
+      },
+      "CaseEditClientId": {
+        "type": "string",
+        "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+        "description": "有効な取引先（いまと同じ値なら無効でもよい）"
+      },
+      "CaseEditDepartmentIds": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "description": "変更後の担当部署の集合（1件以上・重複なし）"
+      },
+      "CaseEdited": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "titleFormatted"
+        ],
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "titleFormatted": {
+            "type": "boolean",
+            "description": "送った件名を整形して保存したら true（件名を送らなければ false）"
           }
         }
       },

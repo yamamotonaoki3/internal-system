@@ -44,6 +44,8 @@ export type CaseDetail = Omit<CaseSummary, "channelId"> & {
   channelId: string;
   createdBy: string;
   participants: CaseParticipant[];
+  /** #150（150-C）計画 4.2.1：案件の版（詳細だけ。概要・一覧には返らない） */
+  version: number;
 };
 
 export const CASE_CLIENT = {
@@ -152,6 +154,7 @@ export function caseDetail(
     description: `[UNIT_TEST]147A案件${n}の説明`,
     createdBy: PARTICIPANT_CREATOR.userId,
     participants: [PARTICIPANT_CREATOR, PARTICIPANT_RETIRED],
+    version: 1,
     ...rest,
     channelId: channelId ?? caseRoomId(n),
   };
@@ -290,6 +293,36 @@ export function respondCaseWrites(respond?: CaseWriteResponder) {
         caseId: String(params.caseId),
         dueDate: (write.body as { dueDate?: string | null } | undefined)
           ?.dueDate,
+      });
+    }),
+  );
+  return { writes };
+}
+
+// ---- #150（150-C）案件の内容の再編集（PATCH /api/cases/:caseId。EP-5-20） ----
+
+export type CaseEditWrite = { path: string; body: Record<string, unknown> };
+
+/**
+ * 再編集の架空の応答。respond を省くと 200 { caseId, titleFormatted: false } を返す。送った本文を writes に記録する。
+ * 応答の形は、バックエンドのテスト（backend/src/routes/cases.edit.test.ts）が決めた契約と同じ
+ */
+export function respondCaseEdit(
+  respond?: (write: CaseEditWrite) => Response | Promise<Response>,
+) {
+  const writes: CaseEditWrite[] = [];
+  server.use(
+    http.patch("/api/cases/:caseId", async ({ request, params }) => {
+      const text = await request.text();
+      const write: CaseEditWrite = {
+        path: new URL(request.url).pathname,
+        body: (text === "" ? {} : JSON.parse(text)) as Record<string, unknown>,
+      };
+      writes.push(write);
+      if (respond !== undefined) return respond(write);
+      return HttpResponse.json({
+        caseId: String(params.caseId),
+        titleFormatted: false,
       });
     }),
   );

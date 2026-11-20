@@ -65,6 +65,8 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | `frontend/src/features/case-requests/components/` | `CaseRequestWorkspace`（フォームと自分の申請をまとめ、下書きを1つだけ開く。「修正して再申請」でフォームを作り直す）・`CaseRequestForm`（申請フォーム）・`CandidatePicker`（追加の候補の検索と選択）・`MyCaseRequestList`（自分の申請）・`WithdrawDialog`（取り下げの確認） |
 | 〃（146-B） | `CaseRequestReviewList`（S-29の一覧。状態の絞り込み・4状態・承認のダイアログ`ApproveDialog`（同じファイルの中）・409の表示）・`RejectReasonDialog`（却下の理由。チャンネルの作成申請のダイアログとは共通化しない） |
 | `frontend/src/features/case-requests/components/MyCaseRequestList.tsx`（146-B） | 承認済みの行に案件番号を出す（`caseNumber`） |
+| `frontend/src/features/case-requests/components/DepartmentCheckboxes.tsx`・`SimilarTitleNotice.tsx`（#150 の 150-C） | `CaseRequestForm.tsx`の中にあった担当部署のチェックと類似件名の結果の表示を、案件の内容の再編集（S-17。`features/cases`の`CaseEditDialog`）と共用するために別ファイルへ移した（中身は同じ）。件名の欄の注意の文`TITLE_CAUTION`の定義元は`labels.ts`にした |
+| `frontend/src/features/case-requests/form-parts.ts`（#150 の 150-C） | 再編集が使う部品（上の2つ）・候補（`useClientChoices`・`useDepartmentChoices`）・`useSimilarTitle`・`caseRequestKeys`・`TITLE_CAUTION`の公開の入口。`index.ts`は案件の機能を参照する部品を含み、`features/cases`から参照すると循環になるため、別にした。`useSimilarTitle`は任意の`excludeCaseId`・`enabled`を受ける（キャッシュのキーにも含める） |
 | `frontend/src/features/case-requests/labels.ts`、`describe-error.ts` | 状態の表示名（5つ。`auto_cancelled`は「自動取消」）／通信の失敗の文言 |
 | `frontend/src/pages/CaseRequestPage.tsx` | S-18の構成だけ。APIや状態は持たない |
 | `frontend/src/pages/CaseApprovalsPage.tsx`（146-B） | S-29の構成だけ（見出し「案件作成の承認」と`CaseRequestReviewList`）。APIや状態は持たない |
@@ -133,7 +135,7 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 
 ### 類似件名の確認（GET /api/case-requests/similar-title）
 
-`perm.case.request.create`を認可し、`hasSimilar`と`formattedTitle`だけを返す。他人の件名・申請者・件数は返さない（真偽だけにして、推測の手がかりを最小にする）。比べる対象は、同じ取引先で整形後の件名が完全一致する**審査中**の申請。却下・取り下げ済み・自動取消・別の取引先は対象外。件名の整形後の長さの誤りは422。警告が出ても申請・承認は止めない。比べる対象に、146-Bで、同じ取引先で件名が完全一致する案件（進行中・終了。`cases`）を足した（5-3 AC-14・C-141(3)）。
+`perm.case.request.create`を認可し、`hasSimilar`と`formattedTitle`だけを返す。他人の件名・申請者・件数は返さない（真偽だけにして、推測の手がかりを最小にする）。比べる対象は、同じ取引先で整形後の件名が完全一致する**審査中**の申請。却下・取り下げ済み・自動取消・別の取引先は対象外。件名の整形後の長さの誤りは422。警告が出ても申請・承認は止めない。比べる対象に、146-Bで、同じ取引先で件名が完全一致する案件（進行中・終了。`cases`）を足した（5-3 AC-14・C-141(3)）。#150 の 150-C で、任意のクエリ`excludeCaseId`（ULID）を足した。渡すと、案件（`cases`）の側の比べる相手から、その案件自身を除く（案件の内容の再編集が、編集中の案件を「似た案件」に数えないため。審査中の申請の側は変えない。応答の形は変えず、比べる相手は全社員に見える概要の件名・取引先なので、新しく分かることはない）。[cases.md](cases.md)の「150-C の設計」。
 
 ### 件名の整形（`formatCaseTitle`）
 

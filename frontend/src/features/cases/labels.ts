@@ -60,6 +60,22 @@ export const CASE_STATUS_CHANGE_TEXTS = {
   },
 } as const;
 
+/** S-17 の内容の編集（#150 の 150-C）：ボタン・ダイアログ・欄のエラー・完了の表示 */
+export const CASE_EDIT_TEXTS = {
+  button: "内容を編集",
+  title: "案件の内容の編集",
+  caseNumber: "案件番号",
+  save: "保存",
+  cancel: "キャンセル",
+  saved: "案件の内容を保存しました",
+  formatted: "表記を整えて保存しました",
+  titleError: "件名は1〜100文字で入力してください",
+  descriptionError: "説明は2000文字以内で入力してください",
+  clientError: "取引先を選んでください",
+  departmentsError: "担当部署を1つ以上選んでください",
+  preparing: "取引先・部署の候補を準備しています",
+} as const;
+
 /** S-17 の再開のダイアログ（#150 の 150-B）：参加者の選び直し（決定 Q2・Q5） */
 export const CASE_REOPEN_TEXTS = {
   candidates: "再開の後も残す参加者",

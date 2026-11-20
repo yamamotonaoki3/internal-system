@@ -27,6 +27,7 @@ import { useCaseTodos } from "../hooks/useCaseTodos";
 import { useParticipantWrites } from "../hooks/useParticipantWrites";
 import {
   CASE_ACCESS_UNVERIFIED_TEXT,
+  CASE_EDIT_TEXTS,
   CASE_STATUS_CHANGE_TEXTS,
   closeTodoWarning,
   PARTICIPANTS_ONLY_TEXT,
@@ -35,13 +36,15 @@ import { CaseAttachments } from "./CaseAttachments";
 import { CaseConfirmDialog } from "./CaseConfirmDialog";
 import { CaseConversation } from "./CaseConversation";
 import { CaseDueDateDialog } from "./CaseDueDateDialog";
+import { CaseEditDialog, type CaseEditBasis } from "./CaseEditDialog";
 import { CaseHeader } from "./CaseHeader";
 import { CaseParticipantList } from "./CaseParticipantList";
 import { CaseParticipantManager } from "./CaseParticipantManager";
 import { CaseReopenDialog } from "./CaseReopenDialog";
 import { CaseTodoSection } from "./CaseTodoSection";
 
-type OpenDialog = "participants" | "dueDate" | "close" | "reopen" | null;
+type OpenDialog =
+  "participants" | "dueDate" | "close" | "reopen" | "edit" | null;
 type StatusChangeResult = { tone: "info" | "error"; text: string };
 /** 再開の 422（ダイアログの中に出す）。field は欄に結び付ける項目 */
 type ReopenInvalid = { field: string | undefined; text: string };
@@ -90,6 +93,121 @@ function isForbidden(error: unknown): boolean {
   return isApiError(error) && error.status === 403;
 }
 
+type EditResult = { tone: "info" | "error"; lines: string[] };
+
+/** 内容の編集の基準：参加者は詳細の応答だけから（版も。取れていなければ null）、参加していない管理者は概要の応答だけから（expected） */
+function editBasisOf(
+  item: CaseSummary,
+  detail: ReturnType<typeof useCaseDetail> | null,
+): CaseEditBasis | null {
+  if (detail !== null) {
+    if (!detail.isSuccess) return null;
+    const d = detail.data;
+    return {
+      caseNumber: d.caseNumber,
+      title: d.title,
+      description: d.description,
+      client: d.client,
+      departments: d.departments,
+      conflict: { version: d.version },
+    };
+  }
+  return {
+    caseNumber: item.caseNumber,
+    title: item.title,
+    description: null,
+    client: item.client,
+    departments: item.departments,
+    conflict: {
+      expected: {
+        title: item.title,
+        clientId: item.client.id,
+        departmentIds: item.departments.map((d) => d.id),
+      },
+    },
+  };
+}
+
+/** ヘッダーの下の操作の並びを出すか（納期の変更・終了／再開・内容の編集のどれかがある） */
+const hasHeaderActions = (item: CaseSummary, isParticipant: boolean) =>
+  item.canEditDueDate || isParticipant || item.canManage;
+
+/**
+ * 「内容を編集」：進行中で、有効な参加者か管理の資格のある人に出す（表示の制御。認可はサーバー）。
+ * 参加者は詳細が取れるまで押せない（基準を詳細の応答から作るため）。detail は参加者のときだけ渡す
+ */
+function CaseEditButton({
+  item,
+  detail,
+  onOpen,
+}: {
+  item: CaseSummary;
+  detail: ReturnType<typeof useCaseDetail> | null;
+  onOpen: (basis: CaseEditBasis) => void;
+}) {
+  if (item.status !== "active" || (detail === null && !item.canManage))
+    return null;
+  const basis = editBasisOf(item, detail);
+  return (
+    <Button
+      variant="secondary"
+      disabled={basis === null}
+      onClick={() => {
+        if (basis !== null) onOpen(basis);
+      }}
+    >
+      {CASE_EDIT_TEXTS.button}
+    </Button>
+  );
+}
+
+/** 内容の編集のダイアログ（basis があるときだけ）と、結果の表示（ダイアログの外） */
+function CaseEditPanel({
+  caseId,
+  basis,
+  result,
+  onResult,
+  onClose,
+}: {
+  caseId: string;
+  basis: CaseEditBasis | null;
+  result: EditResult | undefined;
+  onResult: (result: EditResult) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {basis !== null && (
+        <CaseEditDialog
+          caseId={caseId}
+          basis={basis}
+          onSaved={(titleFormatted) =>
+            onResult({
+              tone: "info",
+              lines: [
+                CASE_EDIT_TEXTS.saved,
+                ...(titleFormatted ? [CASE_EDIT_TEXTS.formatted] : []),
+              ],
+            })
+          }
+          onFailed={(text) => onResult({ tone: "error", lines: [text] })}
+          onClose={onClose}
+        />
+      )}
+      {result !== undefined && (
+        <Alert
+          tone={result.tone}
+          role={result.tone === "error" ? "alert" : "status"}
+        >
+          {result.lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </Alert>
+      )}
+    </>
+  );
+}
+
 /** 外されたかを確かめられないとき（#308）：中身を描かず、失敗の表示と再試行だけを出す */
 function UnverifiedAlert({ onRetry }: { onRetry: () => void }) {
   return (
@@ -127,9 +245,13 @@ export function CaseDetailView({
   const statusChange = useCaseStatusChange(caseId, roomId);
   const [statusResult, setStatusResult] = useState<StatusChangeResult>();
   const [reopenInvalid, setReopenInvalid] = useState<ReopenInvalid>();
+  // 内容の編集の基準（開いた時点の1つの応答から作り、開いている間は差し替えない。#150 の 150-C）と結果
+  const [editBasis, setEditBasis] = useState<CaseEditBasis | null>(null);
+  const [editResult, setEditResult] = useState<EditResult>();
   const closeDialog = useCallback(() => {
     setOpen(null);
     setVisibilityTarget(null);
+    setEditBasis(null);
   }, []);
   const accessLoss = useCaseAccessLoss({
     caseId,
@@ -210,13 +332,23 @@ export function CaseDetailView({
   }
 
   const statusAction = item.status === "active" ? "close" : "reopen";
+  function openEdit(basis: CaseEditBasis) {
+    setEditResult(undefined);
+    setEditBasis(basis);
+    setOpen("edit");
+  }
 
   /** ヘッダーの下の操作（納期の変更・終了・再開）と、終了・再開の確認・結果 */
   function renderStatusChange() {
     return (
       <>
-        {(item.canEditDueDate || isParticipant) && (
+        {hasHeaderActions(item, isParticipant) && (
           <div className="mb-4 flex flex-wrap gap-2">
+            <CaseEditButton
+              item={item}
+              detail={isParticipant ? detail : null}
+              onOpen={openEdit}
+            />
             {item.canEditDueDate && (
               <Button variant="secondary" onClick={() => setOpen("dueDate")}>
                 納期を変更
@@ -261,6 +393,16 @@ export function CaseDetailView({
             onClose={closeReopenDialog}
           />
         )}
+        <CaseEditPanel
+          caseId={caseId}
+          basis={editBasis}
+          result={editResult}
+          onResult={(next) => {
+            setEditResult(next);
+            close();
+          }}
+          onClose={close}
+        />
         {statusResult !== undefined && (
           <Alert
             tone={statusResult.tone}

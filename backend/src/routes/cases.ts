@@ -131,6 +131,24 @@ export function caseRoutes() {
           return c.body(null, 204);
         },
       )
+      // 案件の内容の再編集（#150 の 150-C。EP-5-20）。項目の形は Service が 403 までの判定の後に確かめる
+      .patch(
+        "/:caseId",
+        noStore,
+        validate("param", caseParamSchema),
+        validate("json", bodyEnvelopeSchema),
+        async (c) => {
+          const actor = actorOf(c);
+          const edited = await withCaseService(c.env, (service) =>
+            service.edit(
+              actor,
+              c.req.valid("param").caseId,
+              c.req.valid("json"),
+            ),
+          );
+          return c.json(edited);
+        },
+      )
       .patch(
         "/:caseId/due-date",
         noStore,

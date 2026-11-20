@@ -42,6 +42,7 @@ export const AUDIT_ACTIONS = [
   "case.due_date.change",
   "case.close",
   "case.reopen",
+  "case.edit",
   "case.attachment.visibility.change",
   "message.delete",
   "audit_log.view",
