@@ -1030,6 +1030,13 @@ describe("#149 149-C 5-4 AC-13 復元の前提を1つずつ崩す（計画 9.1 D
       (await todoEventsOf(todoIdAt(1))).filter((e) => e.kind === "restore"),
     ).toHaveLength(1);
   });
+
+  it("#149 149-C 計画 6.2・決定 C-198 AC-13: ない案件の ID での復元は、前提・確認の文では止まらず、結果の確認で CaseStateChangedError になり、何も残さない（成功の値を返さない）", async () => {
+    await seedDeleted();
+    await expectNothingChanged(() => restore({ caseId: MISSING_CASE_ID }));
+    expect((await todoRow(todoIdAt(1))).deleted_at).not.toBeNull();
+    expect(await todoEventsOf(todoIdAt(1))).toEqual([]);
+  });
 });
 
 describe("#149 149-C 計画 6節 D19・軽微2 担当者が外れることとの順の2通り", () => {
@@ -1225,5 +1232,172 @@ describe("#149 149-C 軽微1 復元の文の列（buildRestoreTodoStatements）�
       "auto_unassign",
       "restore",
     ]);
+  });
+});
+
+// db.batch の中の読み取りで、同じ名前の列（users の display_name・is_active を何度も結合する）の値が
+// 取り違えられないこと。担当・記録した人・完了した人・削除した人・操作した人を、すべて別の人・別の状態にして確かめる
+describe("#149 149-C 5-4 AC-6・AC-10・AC-12 D20 db.batch の中の読み取りで、結合した人の名前・退職者かどうかが取り違えられない", () => {
+  const NAME_S2 = "テスト削除者149C";
+  const NAME_I = "テスト無効者149C";
+
+  beforeEach(async () => {
+    await setDisplayName(w.memberS2.id, NAME_S2);
+    await setDisplayName(w.inactive.id, NAME_I);
+    await setUserActive(B(), false);
+    await setUserActive(w.memberS2.id, false);
+    await setUserActive(w.inactive.id, false);
+  });
+
+  /** T1：担当 A（有効。記録した名前は別）・完了した人 B（無効）・削除した人 S2（無効）。T2：担当なし・前の担当 I（無効）・削除した人 C（有効） */
+  async function seedMixed(deleted: boolean) {
+    await insertTodo({
+      id: todoIdAt(1),
+      caseId: room.id,
+      title: "[UNIT_TEST]149C全員別1",
+      createdBy: C(),
+      assigneeId: A(),
+      recordedAssigneeName: "記録名の旧A149C",
+      isDone: true,
+      completedAssigneeId: B(),
+      completedAssigneeName: "完了時のB149C",
+      ...(deleted ? { deletedBy: w.memberS2.id } : {}),
+    });
+    await insertTodo({
+      id: todoIdAt(2),
+      caseId: room.id,
+      title: "[UNIT_TEST]149C全員別2",
+      createdBy: C(),
+      recordedAssigneeId: w.inactive.id,
+      recordedAssigneeName: "記録名のI149C",
+      ...(deleted ? { deletedBy: C() } : {}),
+    });
+  }
+
+  it("#149 149-C 5-4 AC-6・AC-12 D20: 削除済みの一覧の、担当（いまの名前）・前の担当・完了した人・削除した人が、それぞれ別の人の名前と状態で返る", async () => {
+    await seedMixed(true);
+    const page = pageOf(await deletedList());
+    expect(page.items.map((i) => i.id)).toEqual([todoIdAt(1), todoIdAt(2)]);
+    expect(page.items[0]).toMatchObject({
+      assignee: person(A(), NAME_A, true),
+      previousAssignee: null,
+      completedAssignee: person(B(), "完了時のB149C", false),
+      deletedBy: person(w.memberS2.id, NAME_S2, false),
+    });
+    expect(page.items[1]).toMatchObject({
+      assignee: null,
+      previousAssignee: person(w.inactive.id, "記録名のI149C", false),
+      completedAssignee: null,
+      deletedBy: person(C(), NAME_C, true),
+    });
+  });
+
+  it("#149 149-C 5-4 AC-6 D20: 一覧の、担当（いまの名前）・前の担当・完了した人が、それぞれ別の人の名前と状態で返る", async () => {
+    await seedMixed(false);
+    const page = pageOf(
+      await withCaseTodos(env, (r) =>
+        r.listTodos({
+          caseId: room.id,
+          viewerId: A(),
+          limit: 100,
+          cursor: null,
+        }),
+      ),
+    );
+    expect(page.items).toEqual([
+      {
+        id: todoIdAt(1),
+        title: "[UNIT_TEST]149C全員別1",
+        completed: true,
+        version: 1,
+        assignee: person(A(), NAME_A, true),
+        previousAssignee: null,
+        completedAssignee: person(B(), "完了時のB149C", false),
+      },
+      {
+        id: todoIdAt(2),
+        title: "[UNIT_TEST]149C全員別2",
+        completed: false,
+        version: 1,
+        assignee: null,
+        previousAssignee: person(w.inactive.id, "記録名のI149C", false),
+        completedAssignee: null,
+      },
+    ]);
+  });
+
+  it("#149 149-C 5-4 AC-6・AC-10 D20: 履歴の、操作した人（いまの名前）・担当・前の担当（記録した名前）と、それぞれのいまの有効性が、記録ごとに別の人・別の状態で返る", async () => {
+    await insertTodo({
+      id: todoIdAt(1),
+      caseId: room.id,
+      title: T1_TITLE,
+      createdBy: A(),
+    });
+    // 操作した人・担当・前の担当の有効性が、記録ごとに（有効・無効・無効）（無効・有効・無効）（無効・無効・有効）になる
+    const events = [
+      [
+        eventIdAt(1),
+        A(),
+        B(),
+        "記録名のB149C",
+        w.memberS2.id,
+        "記録名のS2149C",
+      ],
+      [eventIdAt(2), B(), A(), "記録名のA149C", w.inactive.id, "記録名のI149C"],
+      [
+        eventIdAt(3),
+        w.memberS2.id,
+        w.inactive.id,
+        "記録名のI149C",
+        A(),
+        "記録名の旧A149C",
+      ],
+    ] as const;
+    for (const [
+      id,
+      actor,
+      assignee,
+      assigneeName,
+      previous,
+      previousName,
+    ] of events)
+      await env.DB.prepare(
+        `INSERT INTO case_todo_events (id, todo_id, case_id, kind, actor_id, title, previous_title, assignee_id, assignee_name,
+           previous_assignee_id, previous_assignee_name, created_at)
+         VALUES (?, ?, ?, 'assignee_change', ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          id,
+          todoIdAt(1),
+          room.id,
+          actor,
+          assignee,
+          assigneeName,
+          previous,
+          previousName,
+          CASEREQ_NOW,
+        )
+        .run();
+    const page = pageOf(await history());
+    expect(page.items.map((e) => e.id)).toEqual([
+      eventIdAt(1),
+      eventIdAt(2),
+      eventIdAt(3),
+    ]);
+    expect(page.items[0]).toMatchObject({
+      actor: person(A(), NAME_A, true),
+      assignee: person(B(), "記録名のB149C", false),
+      previousAssignee: person(w.memberS2.id, "記録名のS2149C", false),
+    });
+    expect(page.items[1]).toMatchObject({
+      actor: person(B(), NAME_B, false),
+      assignee: person(A(), "記録名のA149C", true),
+      previousAssignee: person(w.inactive.id, "記録名のI149C", false),
+    });
+    expect(page.items[2]).toMatchObject({
+      actor: person(w.memberS2.id, NAME_S2, false),
+      assignee: person(w.inactive.id, "記録名のI149C", false),
+      previousAssignee: person(A(), "記録名の旧A149C", true),
+    });
   });
 });
