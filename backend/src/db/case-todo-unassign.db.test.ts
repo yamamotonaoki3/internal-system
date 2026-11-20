@@ -68,6 +68,7 @@ import {
   withCases,
   type CaseParticipantWriteInput,
 } from "./case.repository";
+import { caseAssigneeScope, readUnassignPlan } from "./case-todo-unassign.sql";
 import { withDatabase, type Database } from "./database";
 
 const NAME_A = "テスト操作者149D";
@@ -558,6 +559,68 @@ describe("#149 149-D 計画 6.3.3 文の列（buildRemoveParticipantStatements�
     expect((await todoRow(todoIdAt(5))).assignee_id).toBeNull();
     const added = (await allEvents()).filter((e) => e.kind === "auto_unassign");
     expect(added.map((e) => e.todo_id)).toEqual([todoIdAt(2), todoIdAt(5)]);
+  });
+});
+
+describe("#149 149-D 先頭の前提：記録の ID の新しさ（計画 6.1・6.3.3。ミューテーション診断の追加）", () => {
+  // 「記録 ID ①②」は、Repository が読み直した plan で成功する側だけを見る。ここは、古い plan（読んだ後に ID が使われた）を直接渡す崩れる側
+  it.each([
+    ["最初の ID と同じ", futureIdAt(100)],
+    ["最初の ID より大きい（主キーの衝突は起きない）", futureIdAt(150)],
+  ])(
+    "#149 149-D 5-4 AC-6 先頭の前提: plan を読んだ後に、今回の最初の ID 以上の記録（%s）が入ると、batch 全体が取り消され（CaseStateChangedError）、参加の行・担当・記録・監査・版が前のまま",
+    async (_label, usedId) => {
+      await withDatabase(env, async (db) => {
+        const statements = [
+          ...(await buildRemoveParticipantStatements(
+            db,
+            inputOf(A(), B()),
+            planOf(2),
+          )),
+        ];
+        await insertTodoEvent({
+          id: usedId,
+          todoId: todoIdAt(5),
+          caseId: room.id,
+          kind: "create",
+          actorId: A(),
+        });
+        const before = await todoSnapshot();
+        await expect(runStatements(db, statements)).rejects.toBeInstanceOf(
+          CaseStateChangedError,
+        );
+        expect(await todoSnapshot()).toEqual(before);
+        expect(await participantIdsOf(room.roomId)).toContain(B());
+      });
+    },
+  );
+});
+
+describe("#149 149-D readUnassignPlan の記録の ID（計画 6.1。ミューテーション診断の追加）", () => {
+  it("#149 149-D 5-4 AC-6: 対象が2件なら idsJson は ID ちょうど2個で、昇順・重複なく、記録の表の全体の最大より大きい", async () => {
+    const m = futureIdAt(5);
+    await insertTodoEvent({
+      id: m,
+      todoId: todoIdAt(5),
+      caseId: room.id,
+      kind: "create",
+      actorId: A(),
+    });
+    const plan = await withDatabase(env, (db) =>
+      readUnassignPlan(db, caseAssigneeScope(room.id, B())),
+    );
+    const ids = JSON.parse(plan.idsJson) as string[];
+    expect(plan.n).toBe(2);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]! > m).toBe(true);
+    expect(ids[1]! > ids[0]!).toBe(true);
+  });
+
+  it("#149 149-D 5-4 AC-6: 対象が0件なら n=0・idsJson は空の配列", async () => {
+    const plan = await withDatabase(env, (db) =>
+      readUnassignPlan(db, caseAssigneeScope(room.id, w.ownerD.id)),
+    );
+    expect(plan).toEqual({ n: 0, idsJson: "[]" });
   });
 });
 
