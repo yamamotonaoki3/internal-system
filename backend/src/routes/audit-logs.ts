@@ -28,7 +28,7 @@ function isCalendarDate(text: string): boolean {
   );
 }
 
-const jstDateSchema = z
+export const jstDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine(isCalendarDate);

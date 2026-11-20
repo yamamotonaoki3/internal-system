@@ -56,6 +56,10 @@ PRAGMA defer_foreign_keys = off;
 DELETE FROM case_number_sequences WHERE client_id IN (SELECT id FROM clients WHERE name LIKE '%[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '%[E2E!_TEST]%' ESCAPE '!');
 -- メッセージ（#201）。外部キーの順：メッセージ → 参加者 → チャンネル → ルーム。投稿者がテストの利用者、またはテストの部署のチャンネルの部屋のものを消す。
 DELETE FROM messages WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR room_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!'));
+-- 検索の索引（#155）。外部キーを張らないため、メッセージを消した後に、元のメッセージがなくなった写しと、対応の行のない検索用の行を消す
+DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id NOT IN (SELECT id FROM messages));
+DELETE FROM search_documents WHERE kind = 'message' AND ref_id NOT IN (SELECT id FROM messages);
+DELETE FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents);
 -- チャンネルのアーカイブの記録（#143）。channel_id・archived_by・restored_by の外部キーのため、チャンネル・利用者より先に消す。テストの部署のチャンネルのものと、テストの利用者がアーカイブ・復元したもの。
 DELETE FROM channel_archive_events WHERE channel_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!')) OR archived_by IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR restored_by IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');
 -- 部署のチャンネルと参加者（#196）。外部キーの順：参加者 → チャンネル → ルーム。ルームは、チャンネルの行を持たなくなった kind='channel' のものだけを消す。

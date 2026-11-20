@@ -29,3 +29,15 @@ export function messageViewableBy(
   return sql`EXISTS (SELECT 1 FROM messages vmsg
     WHERE vmsg.id = ${messageId} AND ${roomViewableBy(sql`vmsg.room_id`, viewerId)})`;
 }
+
+/**
+ * 一覧・検索に DM の部屋を含めてよいか。includeDirect が偽（perm.dm.message.view がない）なら、DM でない部屋だけが真。
+ * 取得の後に除くとページの件数とカーソルがずれるため、SQL の条件で除く（案件の部屋の caseRoomListable と同じ作り）
+ */
+export function directRoomListable(
+  roomId: SQLWrapper,
+  includeDirect: boolean,
+): SQL {
+  if (includeDirect) return sql`1 = 1`;
+  return sql`NOT EXISTS (SELECT 1 FROM conversation_members dv WHERE dv.conversation_id = ${roomId})`;
+}

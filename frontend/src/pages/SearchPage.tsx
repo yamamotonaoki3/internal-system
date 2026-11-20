@@ -1,0 +1,41 @@
+// S-15 検索結果（/search）。URL の条件（q・roomId・from・to）で検索し、条件の欄から送ると URL を書き換えて取り直す。
+// q がなければ API を呼ばない。
+import { useSearchParams } from "react-router";
+import {
+  MessageSearchResults,
+  SearchConditionsForm,
+  type MessageSearchConditions,
+} from "../features/search";
+
+const CONDITION_NAMES = ["q", "roomId", "from", "to"] as const;
+
+function conditionsOf(
+  params: URLSearchParams,
+): Partial<MessageSearchConditions> {
+  const conditions: Partial<MessageSearchConditions> = {};
+  for (const name of CONDITION_NAMES) {
+    const value = params.get(name);
+    if (value !== null && value !== "") conditions[name] = value;
+  }
+  return conditions;
+}
+
+export function SearchPage() {
+  const [params, setParams] = useSearchParams();
+  const conditions = conditionsOf(params);
+  const { q } = conditions;
+  return (
+    <section className="mx-auto max-w-4xl rounded-lg bg-surface p-4 md:p-6">
+      <h1 className="mb-4 text-2xl font-bold">検索結果</h1>
+      <SearchConditionsForm
+        // URL が変わったら（ヘッダーから検索し直したとき等）、欄をいまの条件で作り直す
+        key={params.toString()}
+        conditions={conditions}
+        onSearch={(next) => setParams(next)}
+      />
+      {q !== undefined && (
+        <MessageSearchResults conditions={{ ...conditions, q }} />
+      )}
+    </section>
+  );
+}

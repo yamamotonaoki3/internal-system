@@ -4166,6 +4166,108 @@
         }
       }
     },
+    "/api/search/messages": {
+      "get": {
+        "operationId": "searchMessages",
+        "summary": "メッセージを検索する",
+        "description": "見てよい部屋（参加中の非公開・公開・当事者の DM・参加中の案件の部屋。アーカイブ済みのチャンネルは除く）の、未削除のメッセージ（返信を含む）を、記号を除いた本文で部分一致で探す。語が3文字（コードポイント）以上なら FTS5 trigram の MATCH（語全体を1つの句）、未満なら instr で探す。英字の大文字・小文字は区別しない。並びは作成日時の新しい順（同じなら ID の降順）。総件数は返さない。perm.search.message が必要（拒否は 403）。perm.dm.message.view がなければ DM を、perm.case.view がなければ案件の部屋を含めない（検索自体は 200）。見えない部屋を roomId に指定しても 200 で0件。検索語はログに出さない。回数の制限（429）は作らない（上限は #160 の実測の後に判断する）。GET で状態を変えない。",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "検索語。前後の空白を除いて1〜100文字（UTF-16 の単位で数える）"
+          },
+          {
+            "name": "roomId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            "description": "部屋で絞る（ULID）"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "この日（JST）以降に投稿されたもの。YYYY-MM-DD"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "この日（JST）までに投稿されたもの。YYYY-MM-DD。from より前の日付は 422"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "検索の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageSearchPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "operationId": "changeMyPassword",
@@ -8555,6 +8657,97 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ThreadListItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MessageSearchItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "messageId",
+          "parentMessageId",
+          "roomId",
+          "roomKind",
+          "roomName",
+          "author",
+          "excerpt",
+          "createdAt"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "parentMessageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "返信なら親の投稿の ID",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "roomId": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "roomKind": {
+            "type": "string",
+            "enum": [
+              "channel",
+              "direct",
+              "case"
+            ]
+          },
+          "roomName": {
+            "type": "string",
+            "description": "チャンネルはチャンネル名、DM は相手の表示名"
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "displayName"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "記号を除いた本文の、一致を含む部分（文字として表示する）"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MessageSearchPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageSearchItem"
             }
           },
           "nextCursor": {

@@ -1,0 +1,117 @@
+-- #155（155-A）E2E専用（e2e/search.spec.ts）の架空データ。メッセージの検索（4-1・S-15）を確かめる。
+-- 部署1件（[E2E_TEST]部署155）・取引先1件・社員3人・公開チャンネル1つ・非公開チャンネル1つ・A と C の DM 1つ・A が参加する案件1件（専用チャンネル）を入れる。
+--   e2euser_search155_a（A）：すべての部屋の参加者（公開・非公開・DM・案件）。検索・投稿・編集・削除をする本人
+--   e2euser_search155_b（B）：どの部屋にも参加していない。公開チャンネルのメッセージだけが検索に出ることを確かめる別の利用者
+--   e2euser_search155_c（C）：A との DM の相手
+-- 部屋ごとの本文は、互いに区別できる語にする（公開の語・非公開の語・DMの語・案件の語）。共通の語は「検索155共通」。
+-- 検索の索引（search_documents・search_fts）は、このシードの後に `node scripts/db-local.ts test search-reindex` で作る（spec の beforeAll。D-9）。
+-- 後始末は search-cleanup.sql（社員ID e2euser_search155_・部署名 [E2E_TEST]部署155・取引先名 テスト商事検索 [E2E_TEST]・下の固定の部屋のIDと、その索引の行だけ）。
+-- パスワードのハッシュは、既存の架空ログインfixture（e2euser_login_001）の行から参照して、ここに値を書かない。
+-- 本名は架空の平文で入れる（test 環境の seed-file が、e2euser_ の平文の本名を各利用者のIDで暗号化する）。
+INSERT INTO departments (id, name, name_normalized, is_active, created_at, description, version, updated_at)
+VALUES
+  ('01JTE2E1550000000000000D01', '[E2E_TEST]部署155', '[e2e_test]部署155', 1,
+   '2026-11-20T00:00:00.000Z', '', 1, '2026-11-20T00:00:00.000Z');
+
+INSERT INTO clients (id, code, name, name_normalized, is_active, version, created_at, updated_at)
+VALUES (
+  '01JTE2E1550000000000000Q01', 'QSE', 'テスト商事検索 [E2E_TEST]', 'テスト商事検索 [e2e_test]', 1, 1,
+  '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z'
+);
+
+INSERT INTO users (
+  id, login_id, login_id_normalized, display_name, legal_name,
+  email, email_normalized, department_id, password_hash, must_change_password, is_active
+)
+SELECT
+  '01JTE2E1550000000000000A01', 'e2euser_search155_a', 'e2euser_search155_a',
+  'E2E検索利用者A', 'テスト本名検索A',
+  'e2euser_search155_a@example.com', 'e2euser_search155_a@example.com',
+  '01JTE2E1550000000000000D01', password_hash, 0, 1
+FROM users WHERE login_id = 'e2euser_login_001';
+
+INSERT INTO users (
+  id, login_id, login_id_normalized, display_name, legal_name,
+  email, email_normalized, department_id, password_hash, must_change_password, is_active
+)
+SELECT
+  '01JTE2E1550000000000000A02', 'e2euser_search155_b', 'e2euser_search155_b',
+  'E2E検索利用者B', 'テスト本名検索B',
+  'e2euser_search155_b@example.com', 'e2euser_search155_b@example.com',
+  '01JTE2E1550000000000000D01', password_hash, 0, 1
+FROM users WHERE login_id = 'e2euser_login_001';
+
+INSERT INTO users (
+  id, login_id, login_id_normalized, display_name, legal_name,
+  email, email_normalized, department_id, password_hash, must_change_password, is_active
+)
+SELECT
+  '01JTE2E1550000000000000A03', 'e2euser_search155_c', 'e2euser_search155_c',
+  'E2E検索利用者C', 'テスト本名検索C',
+  'e2euser_search155_c@example.com', 'e2euser_search155_c@example.com',
+  '01JTE2E1550000000000000D01', password_hash, 0, 1
+FROM users WHERE login_id = 'e2euser_login_001';
+
+-- 検索（perm.search.message）・DM の閲覧・案件の閲覧は、一般のロールが持つ
+INSERT INTO user_role_assignments (id, user_id, role_id, scope_type, department_id, assigned_at) VALUES
+  ('01JTE2E1550000000000000R01', '01JTE2E1550000000000000A01', 'role_member', 'company', NULL, '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000R02', '01JTE2E1550000000000000A02', 'role_member', 'company', NULL, '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000R03', '01JTE2E1550000000000000A03', 'role_member', 'company', NULL, '2026-11-20T00:00:00.000Z');
+
+INSERT INTO rooms (id, kind, created_at) VALUES
+  ('01JTE2E1550000000000000C01', 'channel', '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000C02', 'channel', '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000K01', 'channel', '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000M01', 'direct', '2026-11-20T00:00:00.000Z');
+
+INSERT INTO channels (
+  room_id, department_id, name, name_normalized, description, visibility, purpose,
+  created_by, version, created_at, updated_at, deleted_at, deleted_by
+) VALUES
+  ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000D01', '[E2E_TEST]部署155の公開',
+   '[e2e_test]部署155の公開', '', 'public', 'normal', NULL, 1,
+   '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL, NULL),
+  ('01JTE2E1550000000000000C02', '01JTE2E1550000000000000D01', '[E2E_TEST]部署155の非公開',
+   '[e2e_test]部署155の非公開', '', 'private', 'normal', NULL, 1,
+   '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL, NULL),
+  ('01JTE2E1550000000000000K01', NULL, 'QSE-261120-0001',
+   'case:qse-261120-0001', '', 'private', 'case', '01JTE2E1550000000000000A01', 1,
+   '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z', NULL, NULL);
+
+INSERT INTO cases (
+  id, case_number, number_client_id, client_id, channel_id, request_id, title, description, due_date,
+  status, created_by, approved_by, version, created_at, updated_at
+) VALUES (
+  '01JTE2E1550000000000000S01', 'QSE-261120-0001', '01JTE2E1550000000000000Q01', '01JTE2E1550000000000000Q01',
+  '01JTE2E1550000000000000K01', '01JTE2E1550000000000000S02', '[E2E_TEST]検索の案件', '[E2E_TEST]検索の案件の説明',
+  NULL, 'active', '01JTE2E1550000000000000A01', '01JTE2E1550000000000000A01', 1,
+  '2026-11-20T00:00:00.000Z', '2026-11-20T00:00:00.000Z'
+);
+
+INSERT INTO case_departments (case_id, department_id)
+VALUES ('01JTE2E1550000000000000S01', '01JTE2E1550000000000000D01');
+
+INSERT INTO channel_members (channel_id, user_id, joined_at) VALUES
+  ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000A01', '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000C02', '01JTE2E1550000000000000A01', '2026-11-20T00:00:00.000Z'),
+  ('01JTE2E1550000000000000K01', '01JTE2E1550000000000000A01', '2026-11-20T00:00:00.000Z');
+
+-- A と C の DM。direct_key は2人の利用者IDを小さい順に ':' でつないだもの
+INSERT INTO conversations (room_id, direct_key, created_at) VALUES
+  ('01JTE2E1550000000000000M01',
+   '01JTE2E1550000000000000A01:01JTE2E1550000000000000A03',
+   '2026-11-20T00:00:00.000Z');
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+  ('01JTE2E1550000000000000M01', '01JTE2E1550000000000000A01'),
+  ('01JTE2E1550000000000000M01', '01JTE2E1550000000000000A03');
+
+-- 投稿。ID は ULID の形（時刻部分 2026-11-12T23:00:00.000Z = 01M78ZTJC0）で、後ろの16桁を連番にして昇順にする
+INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at) VALUES
+  ('01M78ZTJC00000000001550001', '01JTE2E1550000000000000C01', '01JTE2E1550000000000000A01',
+   'E2E検索利用者A', '[E2E_TEST]検索155共通・公開室の語句', '2026-11-12T23:00:00.000Z'),
+  ('01M78ZTJC00000000001550002', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000A01',
+   'E2E検索利用者A', '[E2E_TEST]検索155共通・非公開室の語句', '2026-11-12T23:00:00.000Z'),
+  ('01M78ZTJC00000000001550003', '01JTE2E1550000000000000M01', '01JTE2E1550000000000000A03',
+   'E2E検索利用者C', '[E2E_TEST]検索155共通・直接対話の語句', '2026-11-12T23:00:00.000Z'),
+  ('01M78ZTJC00000000001550004', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000A01',
+   'E2E検索利用者A', '[E2E_TEST]検索155共通・案件室の語句', '2026-11-12T23:00:00.000Z');

@@ -154,7 +154,10 @@ describe("#143-b F8: 利用者の切り替えと一覧のキー", () => {
     const { user } = renderApp("/channel-management");
     await waitFor(() => expect(rowWith(A_NAME)).toBeDefined());
     await user.selectOptions(screen.getByLabelText("状態"), "使用中");
-    await user.click(screen.getByRole("button", { name: "検索" }));
+    // #155：ヘッダーにもメッセージの検索のボタン「検索」があるため、画面の本文（main）の中に絞って押す
+    await user.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "検索" }),
+    );
     expect(rowWith(A_NAME)).toBeDefined();
     gate.release();
     await waitFor(() => expect(rowWith(B_NAME)).toBeDefined());

@@ -10,6 +10,7 @@ import {
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { messageKeys } from "../../messages";
+import { searchKeys } from "../../search";
 import {
   addCaseParticipant,
   changeAttachmentVisibility,
@@ -78,10 +79,13 @@ export function forgetCaseContent(
           { queryKey: messageKeys.room(roomId) },
           { queryKey: ["messages", "thread"] },
         ];
+  // 検索の結果（#155）は、どの案件の部屋の抜粋が入っているかをキーから決められないため、その利用者の分を全部取り除く
+  const searchFilters: QueryFilters[] = [{ queryKey: searchKeys.user(userId) }];
   const cancelled = [
     ...exactKeys,
     ...todoHistoryFilters(userId, caseId),
     ...roomFilters,
+    ...searchFilters,
   ].map((filters) => {
     const cancelling = queryClient.cancelQueries(filters);
     queryClient.removeQueries(filters);

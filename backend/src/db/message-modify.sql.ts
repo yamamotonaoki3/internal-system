@@ -15,6 +15,10 @@ import { auditLogInsert } from "./audit-log.repository";
 import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
+import {
+  removeStaleMessageIndexStatements,
+  syncMessageIndexStatements,
+} from "./search-index.sql";
 
 export function modifiable(messageId: string, userId: string): SQL {
   return sql`EXISTS (
@@ -48,11 +52,19 @@ export async function updateBodyIfModifiable(
 ): Promise<number> {
   const allowed = modifiable(input.messageId, input.userId);
   // 既存のRepository呼出しの互換経路。新しいAPIはroomIdを渡し、指名も同一batchで確定する。
+  // 索引の組（#155）は同じ batch の末尾に置く。拒否で0件でも、いまの行と一致する写しは消さない
+  const indexStatements = syncMessageIndexStatements(db, {
+    messageId: input.messageId,
+    sourceBody: input.body,
+  });
   if (input.roomId === undefined) {
-    const result = await db
-      .update(messages)
-      .set({ body: input.body, editedAt: input.editedAt })
-      .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`);
+    const [result] = await db.batch([
+      db
+        .update(messages)
+        .set({ body: input.body, editedAt: input.editedAt })
+        .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`),
+      ...indexStatements,
+    ]);
     return result.meta.changes;
   }
   try {
@@ -87,6 +99,7 @@ export async function updateBodyIfModifiable(
         .update(messages)
         .set({ body: input.body, editedAt: input.editedAt })
         .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`),
+      ...indexStatements,
     ]);
     return updated.meta.changes;
   } catch (error) {
@@ -134,6 +147,8 @@ export async function deleteIfModifiable(
       .where(
         sql`${messages.id} = ${input.messageId} AND ${modifiable(input.messageId, input.userId)}`,
       ),
+    // 検索の索引（#155）。削除が確定したときだけ、写しが対象外になって消える
+    ...removeStaleMessageIndexStatements(db, input.messageId),
   ]);
   return update.meta.changes;
 }

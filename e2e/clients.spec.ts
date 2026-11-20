@@ -58,7 +58,11 @@ test("#192 AC-2・AC-3・AC-4・AC-5・AC-7: 管理者は画面で登録・部�
   await page
     .getByRole("searchbox", { name: "取引先を検索" })
     .fill("CLIENT_192");
-  await page.getByRole("button", { name: "検索", exact: true }).click();
+  // #155：ヘッダーにもメッセージの検索のボタン「検索」があるため、画面の本文（main）の中に絞って押す
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "検索", exact: true })
+    .click();
   await expect(page.getByRole("row", { name: /EQA/ })).toBeVisible();
 
   await page

@@ -311,7 +311,10 @@ describe("#136 AC-1（1-2 AC-4）・AC-3（C-168(3)）S-20・S-27 からの DM �
     fireEvent.change(screen.getByLabelText("表示名で検索"), {
       target: { value: " 社員001 " },
     });
-    await user.click(screen.getByRole("button", { name: "検索" }));
+    // #155：ヘッダーにもメッセージの検索のボタン「検索」があるため、画面の本文（main）の中に絞って押す
+    await user.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "検索" }),
+    );
     await waitFor(() =>
       expect(
         world.listRequests.some((u) => u.searchParams.get("q") === "社員001"),

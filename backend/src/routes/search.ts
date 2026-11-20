@@ -1,0 +1,68 @@
+// Controller（ルート）：メッセージの検索（GET /api/search/messages。EP-4-01。#155）。
+// 入力の形の確認（422）と応答だけを行う。権限と見える範囲は Service・Repository が判定する。検索語はログに出さない。
+// 認証と送信元の確認（originCheck）は app.ts が /api/* に一括で適用する。GET は状態を変えない。回数の制限は作らない（D-7）。
+import { Hono } from "hono";
+import { z } from "zod";
+import { searchKeywordSchema } from "../../../shared/search-rules";
+import { actorOf } from "../lib/actor";
+import { cursorQuerySchema, PAGE_LIMIT } from "../lib/cursor";
+import { noStore } from "../lib/security";
+import { isUlid } from "../lib/ulid";
+import { validate } from "../lib/validation";
+import { withSearchService } from "../services/search.service";
+import { jstDateSchema } from "./audit-logs";
+
+/** 1ページの件数の上限（EP-4-01） */
+const SEARCH_PAGE_MAX = 50;
+
+const searchQuerySchema = cursorQuerySchema({
+  defaultLimit: PAGE_LIMIT.default,
+})
+  .extend({
+    q: searchKeywordSchema,
+    roomId: z.string().refine(isUlid).optional(),
+    from: jstDateSchema.optional(),
+    to: jstDateSchema.optional(),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(SEARCH_PAGE_MAX)
+      .default(PAGE_LIMIT.default),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.from !== undefined &&
+      value.to !== undefined &&
+      value.from > value.to
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: "終了日は開始日以降にしてください",
+      });
+  });
+
+export function searchRoutes() {
+  return new Hono<{ Bindings: Env }>().get(
+    "/messages",
+    noStore,
+    validate("query", searchQuerySchema),
+    async (c) => {
+      const actor = actorOf(c);
+      const { q, limit, cursor, roomId, from, to } = c.req.valid("query");
+      const page = await withSearchService(c.env, actor, (service) =>
+        service.searchMessages(actor, {
+          q,
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+          ...(roomId === undefined ? {} : { roomId }),
+          ...(from === undefined ? {} : { from }),
+          ...(to === undefined ? {} : { to }),
+        }),
+      );
+      return c.json(page);
+    },
+  );
+}
