@@ -1,7 +1,8 @@
 // S-15 の「案件」の区画。読み込み中・0件・失敗と再試行・さらに表示を出す。失敗したときは、取得済みのページも出さない。
-// 行は件名（語を強調）・案件番号・状態・取引先・担当部署・納期。押すと案件の画面（S-17。参加していない人には非公開の案内が出る）。
+// 行は件名（語を強調）・案件番号・状態・取引先・担当部署・納期・TODO の進捗（一覧の行と同じ部品）。押すと案件の画面（S-17。参加していない人には非公開の案内が出る）。
 import { Link } from "react-router";
 import { Button } from "../../../components/Button";
+import { CaseTodoProgress } from "../../cases";
 import type { CaseSearchItem } from "../api/search-api";
 import { useCaseSearch } from "../hooks/useCaseSearch";
 import { HighlightedExcerpt } from "./HighlightedExcerpt";
@@ -38,6 +39,11 @@ function CaseRow({ item, keyword }: { item: CaseSearchItem; keyword: string }) {
             <span>{item.dueDate}</span>
           </>
         )}
+        {" ・ "}
+        <span>
+          TODO：
+          <CaseTodoProgress progress={item.progress} />
+        </span>
       </p>
     </li>
   );

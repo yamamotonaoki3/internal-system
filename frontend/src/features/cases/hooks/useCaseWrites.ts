@@ -11,7 +11,7 @@ import type { PublicationVisibility } from "../../../../../shared/attachment-rul
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { channelKeys } from "../../channels";
 import { messageKeys } from "../../messages";
-import { searchKeys } from "../../search";
+import { searchKeys } from "../../search/keys";
 import { threadKeys } from "../../threads";
 import { unreadKeys } from "../../unread";
 import {
