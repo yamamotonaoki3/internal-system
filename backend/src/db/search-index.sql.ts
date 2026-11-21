@@ -67,13 +67,13 @@ export function syncMessageIndexStatements(
 // ---- 添付のファイル名（kind = 'attachment'）。名前は記号を除かずにそのまま写す（ファイル名の記号は名前の一部のため）。
 // 引数はメッセージの ID だけで、値はすべて DB のいまの行から写す。結び付け・削除・既存データの登録のどの順に実行されても、最後に索引はいまの行と一致する
 
-/** いまの行と一致しない添付の写し（元の添付が無い・結び付き・部屋・名前・日時が違う・メッセージが索引の対象でない）の、対応の表の行 */
+/** いまの行と一致しない添付の写し（元の添付が無い・削除済み〔#270〕・結び付き・部屋・名前・日時が違う・メッセージが索引の対象でない）の、対応の表の行 */
 const staleAttachmentDocuments = (messageId: string) => sql`
   SELECT d.id FROM search_documents d
   WHERE d.kind = 'attachment' AND d.message_id = ${messageId}
     AND NOT EXISTS (
       SELECT 1 FROM message_attachments a JOIN messages m ON m.id = a.message_id
-      WHERE a.id = d.ref_id AND a.message_id = d.message_id AND a.room_id = d.room_id
+      WHERE a.id = d.ref_id AND a.deleted_at IS NULL AND a.message_id = d.message_id AND a.room_id = d.room_id
         AND a.original_name = d.source_body AND m.created_at = d.created_at
         AND ${indexedMessage(sql`d.message_id`)} AND m.room_id = a.room_id)`;
 
@@ -107,7 +107,7 @@ export function syncAttachmentIndexStatements(
     db.insert(searchDocuments).select(sql`
       SELECT NULL, 'attachment', a.id, a.room_id, m.id, m.created_at, a.original_name
       FROM message_attachments a JOIN messages m ON m.id = a.message_id
-      WHERE ${indexedMessage(sql`${messageId}`)} AND m.room_id = a.room_id
+      WHERE ${indexedMessage(sql`${messageId}`)} AND m.room_id = a.room_id AND a.deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM search_documents d WHERE d.kind = 'attachment' AND d.ref_id = a.id)`),
     db.insert(searchFts).select(sql`
       SELECT d.id, d.source_body

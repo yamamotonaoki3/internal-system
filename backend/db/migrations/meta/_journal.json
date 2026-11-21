@@ -253,6 +253,13 @@
       "when": 1795227640336,
       "tag": "0035_change_search_document_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1795264880323,
+      "tag": "0036_add_attachment_deletion",
+      "breakpoints": true
     }
   ]
 }

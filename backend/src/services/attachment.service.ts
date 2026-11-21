@@ -11,8 +11,15 @@
 // 配信の判定の順：見えるか（attachment-visibility.sql.ts。見えなければ存在しない添付と同じ 404）
 //   → DM なら perm.dm.message.view（一覧と同じ）・案件専用チャンネルなら perm.case.view（#148。R-64）
 //   → perm.attachment.download（403）→ R2 から読む（実体がなければ 404）。
+// 削除（#270。EP-1-11）の判定の順（この順を変えない）：
+//   ① 見えるか（attachment-visibility.sql.ts。見えない・存在しない・削除済み・メッセージが削除済みは 404）→ 未投稿なら 409
+//   → ② 本人か（403。logger.audit に not_author）→ ③ perm.attachment.delete.own → ④ 部屋の状態（message.service の requireAttachmentDeletable）
+//   → ⑥ 再認証（最後）→ ⑦ 監査・印・索引の1回の batch（attachment-delete.sql.ts の deletable を条件にする）。
+//   ⑦が0行なら①〜④を読み直し、理由があればその応答、なければ 409。成功したら、同じ要求の中で実体の削除を1回試す（attachment-purge.ts）。
+//   後始末の失敗は 204 を変えず、error ログに残す（行は印つきで残り、attachmentPurgeJob が次の回に消す）。
 // ログにファイル名・保存先のキーを出さない。
 import { withAttachments } from "../db/attachment.repository";
+import type { PurgeTarget } from "../db/attachment-delete.sql";
 import { withMessages } from "../db/message.repository";
 import { withRoleAssignments } from "../db/role-assignment.repository";
 import { AppError } from "../lib/app-error";
@@ -32,10 +39,17 @@ import {
   type PublicationVisibility,
 } from "../../../shared/attachment-rules";
 import type { CronJob } from "../scheduled";
+import { purgeDeletedAttachments } from "./attachment-purge";
 import { createAppAuthorizer } from "./authorizer";
+import { assertRecentReauth } from "./credentials.service";
 import { createMessageService, type RoomWriteKind } from "./message.service";
 
-export type AttachmentActor = { userId: string; traceId: string };
+export type AttachmentActor = {
+  userId: string;
+  traceId: string;
+  /** 削除だけが使う（再認証の時刻） */
+  reauthenticatedAt?: string | null;
+};
 
 export type AttachmentUpload = {
   /** 元の名前。ない・読めない場合は null（422 にする） */
@@ -65,6 +79,12 @@ const VIDEO_HEAD_BYTES = 4096;
 const STORAGE_PREFIX = "attachments/";
 /** 未投稿の添付を残す時間（24時間） */
 const PENDING_LIFETIME_MS = 24 * 60 * 60 * 1000;
+/** 削除済みの添付の後始末の、1ページの行数と、1回の実行で試す行の上限（失敗した行も数える） */
+const PURGE_PAGE_SIZE = 100;
+const PURGE_LIMIT_PER_RUN = 500;
+type PurgeCursor = Pick<PurgeTarget, "deletedAt" | "id">;
+const PENDING_DELETE_MESSAGE =
+  "送信前の添付は、送信前の一覧で取り消してください";
 
 const invalid = (field: string, message: string) =>
   new AppError("VALIDATION_ERROR", message, { fields: [field] });
@@ -357,6 +377,37 @@ export function createAttachmentService(
       type: "company",
     });
 
+  // 削除してよいかを①〜④の順に確かめ、削除の対象を返す（⑥再認証・⑦書き込みは呼び出し側）
+  async function requireDeletable(
+    actor: AttachmentActor,
+    attachmentId: string,
+  ) {
+    const target = await withAttachments(env, (repository) =>
+      repository.findForDeletion(attachmentId, actor.userId),
+    );
+    if (target === null)
+      throw new AppError("NOT_FOUND", "添付が見つかりません");
+    const { messageId } = target;
+    if (messageId === null)
+      throw new AppError("CONFLICT", PENDING_DELETE_MESSAGE);
+    if (target.uploaderId !== actor.userId) {
+      createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
+        "attachment.delete",
+        attachmentId,
+        "failure",
+        { reason: "not_author" },
+      );
+      throw new AppError("FORBIDDEN", "他の人の添付は削除できません");
+    }
+    await withMessageRules((service) =>
+      service.requireAttachmentDeletable(actor, {
+        attachmentId,
+        roomId: target.roomId,
+      }),
+    );
+    return { ...target, messageId };
+  }
+
   return {
     async uploadToRoom(
       actor: AttachmentActor,
@@ -383,6 +434,38 @@ export function createAttachmentService(
         upload,
         parent.caseRoom,
       );
+    },
+    async remove(actor: AttachmentActor, attachmentId: string): Promise<void> {
+      const target = await requireDeletable(actor, attachmentId);
+      assertRecentReauth(actor.reauthenticatedAt ?? null, new Date());
+      const marked = await withAttachments(env, (repository) =>
+        repository.markDeleted({
+          attachmentId,
+          messageId: target.messageId,
+          roomId: target.roomId,
+          userId: actor.userId,
+          deletedAt: new Date().toISOString(),
+          traceId: actor.traceId,
+        }),
+      );
+      if (marked === 0) {
+        // 確認の後に状態が変わった。理由があればその応答、分からなくても成功にしない
+        await requireDeletable(actor, attachmentId);
+        throw new AppError(
+          "CONFLICT",
+          "状態が変わったため、削除できませんでした。読み込み直してからお試しください",
+        );
+      }
+      const logger = createLogger({
+        traceId: actor.traceId,
+        userId: actor.userId,
+      });
+      // 実体の削除を1回試す。後始末の失敗は削除の結果を変えず、error ログに残す
+      try {
+        await purgeDeletedAttachments(env, [target], logger);
+      } catch (error) {
+        logger.error("添付の後始末に失敗した", { error });
+      }
     },
     async download(
       actor: AttachmentActor,
@@ -480,6 +563,55 @@ export function attachmentCleanupJob(): CronJob {
       logger.info("attachment-cleanup：掃除を終了", {
         deletedRows: keys.length,
         failedObjects: failed,
+      });
+    },
+  };
+}
+
+/**
+ * 削除済みの添付の後始末（#270。Cron。既存の毎日の式 "17 18 * * *"〔日本時間 03:17〕に相乗りする）。
+ * (deleted_at, id) の昇順に1ページずつ読み、直前のページの最後のキーより後を次に読む（失敗して残った行を同じ実行で読み直さない）。
+ * 1回の実行で試す行は PURGE_LIMIT_PER_RUN まで。残りは次の回に、先頭から読む。
+ */
+export function attachmentPurgeJob(): CronJob {
+  return {
+    cron: "17 18 * * *",
+    name: "attachment-purge",
+    run: async (env) => {
+      const logger = createLogger();
+      let after: PurgeCursor | null = null;
+      let readRows = 0;
+      let purgedRows = 0;
+      let failedObjects = 0;
+      while (readRows < PURGE_LIMIT_PER_RUN) {
+        const cursor: PurgeCursor | null = after;
+        const rows: PurgeTarget[] = await withAttachments(env, (repository) =>
+          repository.listPurgeTargets(
+            cursor,
+            Math.min(PURGE_PAGE_SIZE, PURGE_LIMIT_PER_RUN - readRows),
+          ),
+        );
+        const last = rows.at(-1);
+        if (last === undefined) break;
+        readRows += rows.length;
+        const result = await purgeDeletedAttachments(env, rows, logger);
+        purgedRows += result.purgedRows;
+        failedObjects += result.failedObjects;
+        after = { deletedAt: last.deletedAt, id: last.id };
+      }
+      const resume = after;
+      const reachedLimit =
+        readRows >= PURGE_LIMIT_PER_RUN &&
+        (
+          await withAttachments(env, (repository) =>
+            repository.listPurgeTargets(resume, 1),
+          )
+        ).length > 0;
+      logger.info("attachment-purge：後始末を終了", {
+        readRows,
+        purgedRows,
+        failedObjects,
+        reachedLimit,
       });
     },
   };

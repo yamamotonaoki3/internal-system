@@ -352,3 +352,8 @@ export async function uploadAttachment(
 export function attachmentUrl(attachmentId: string): string {
   return `${apiClient.defaults.baseURL ?? "/api"}/attachments/${encodeURIComponent(attachmentId)}`;
 }
+
+/** 自分の添付を削除する（#270。EP-1-11。成功は 204）。再認証は呼び出し側（useDeleteAttachment）が挟む */
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  await apiClient.delete(`/attachments/${encodeURIComponent(attachmentId)}`);
+}

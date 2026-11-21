@@ -45,6 +45,7 @@ export const AUDIT_ACTIONS = [
   "case.edit",
   "case.attachment.visibility.change",
   "message.delete",
+  "attachment.delete",
   "audit_log.view",
 ] as const;
 
