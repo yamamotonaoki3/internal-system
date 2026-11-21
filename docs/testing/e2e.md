@@ -27,7 +27,7 @@
 
 - 検証用の開発サーバー（`npm run dev:test`）を Playwright が起動し、終わると止める。すでに動いているサーバーには向けない（ポートが使われていると失敗する）
 - 実行の前（`pretest:e2e`）に、`.env.test` の確認をする。DB があるプロジェクトでは、検証用の DB を初期化し（`npm run db:reset:test`）、E2E 用のシード（`e2e/seeds/`）を入れる。初期化の対象は検証用の DB だけで、開発用の DB には触れない
-- `npm run check` には入れない（ブラウザの導入が要り、時間がかかるため）。マージの前などに、`npm run test:e2e` を別に実行する
+- `npm run check` には入れない（ブラウザの導入が要り、時間がかかるため）。マージの前などに、`npm run test:e2e` を別に実行する（全件を流すときは、1つのコマンドではなく、spec ごとに1本ずつ実行する。ログインの試行制限に当たるため。#225。下の「全件を1回で流さず、spec ごとに実行する」の行）
 - 開発中は、新規・変更したspec、変更した画面・APIのspec、スモーク（`e2e/health.spec.ts`・`e2e/login.spec.ts`）を手で選んで実行する。全件（開発用・本番形）は、リリース前の検証（#160）と#189の最終確認の前、および範囲を広げる条件に当たる変更で実行する（[ADR0020](../adr/0020-test-scope-mutation-e2e.md)）
 
 ### シナリオの一覧
@@ -256,7 +256,7 @@
 - シード：`e2e/seeds/attachments.sql`（部署「[E2E_TEST] 添付」、社員`e2euser_att_a`・`_b`〔`@example.com`。パスワードのハッシュは既存の行から参照し、値を書かない〕、非公開チャンネル1つ、親の投稿1件。本文は`[E2E_TEST]`で始める）。後始末：`e2e/seeds/attachments-cleanup.sql`（社員ID`e2euser_att_`と部署名`[E2E_TEST] 添付`の識別子だけ。`message_attachments`を先に消し、残数を確かめる）。`beforeAll`・`afterAll`で流す。
 - **R2の手元の実体の後始末**：DBの行を消す**前に**、テストの部屋・利用者の添付の`storage_key`をDBから読み、`wrangler r2 object delete --local`で、手元の保存先（`.wrangler/state/test`のバケット`internal-system-attachments`）から1件ずつ消す。行を先に消すとキーが分からなくなり、実体が残る。本物のバケットには接続しない（`--local`と`--persist-to`を付ける）。`cleanup.sql`（`npm run db:cleanup:test`）は行だけを消し、R2の実体は消さない。
 - 本番形の`e2e-prod/markdown-csp.spec.ts`は、`page.route`で差し替える応答に、新しい必須の項目（`attachments`）を足した。#143で、チャンネルの詳細の見本に`version`・`manage`を足した。**応答の項目を必須で足したら、本番形のE2Eの見本にも足す**。
-- `shared/`の追加に当たるため、ADR-0020に従い、開発用の全件（`npm run test:e2e`）と本番形の全件（`npm run test:e2e:prod`）を、1つずつ順に実行する。
+- `shared/`の追加に当たるため、ADR-0020に従い、開発用の全件と本番形の全件を、**全 spec を、spec ごとに1本ずつ**順に実行する（`npm run test:e2e -- e2e/<spec>`・`npm run test:e2e:prod -- e2e/<spec>`）。全件を1つのコマンドで流すと、途中からログインの試行制限（#225）に当たって失敗するため（上の155行付近の「全件を1回で流さず、spec ごとに実行する」と同じ理由）。
 - 全件を1回で流さず、spec ごとに実行する：`npm run test:e2e -- e2e/attachments.spec.ts`
 
 ## 5. 後始末
