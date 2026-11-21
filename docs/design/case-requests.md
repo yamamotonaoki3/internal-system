@@ -296,6 +296,7 @@ Serviceの`loadDecidable`と`approve`・`reject`が、この順に行う。決�
 | 11 | 申請を`approved`にし、`case_id`・`decided_by`・`decided_at`を入れる | — |
 | 12 | 監査`case_request.approve`（「監査」の節）。案件・参加者・申請の更新の後に、同じbatchの中の値から`detail`を組み立て、`auditLogInsertWithDetailSql`で1回の`INSERT…SELECT`として入れる（行を入れてから書き換えない） | — |
 | 13 | 通知`case_request.approved`：申請者に送る。決裁者が申請者本人なら送らない（3-4 AC-3） | — |
+| 14 | 件名の索引の組`syncCaseTitleIndexStatements`（4文。Issue #155 の155-C）：作った案件のいまの件名を、検索の索引に写す。前提の確認の文の間に挟まず、末尾に置く（[search.md](search.md)の「件名の書き込みの経路」） | —（索引の文の結果は件数の判定に使わない） |
 
 - 申請者・担当部署の数は、batchの前に1回読む（`readDecisionFacts`。申請の後に変わらない）。batchの後に、`cases`を`request_id`で読み直して応答する。0行のときは成功にせず、エラーにする
 - 案件番号の形は「取引先のコード（英大文字3文字）-YYMMDD（日本時間の承認日）-4桁の連番」。連番は取引先ごと・年ごと。年が変わると0001から

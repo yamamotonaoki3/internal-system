@@ -3,6 +3,7 @@
 // DM は perm.dm.message.view、案件専用チャンネルは perm.case.view がある利用者にだけ含める（スレッドの一覧と同じ作り。検索自体は成功させる）。
 // 見える範囲（部屋の資格・削除済みの除外）の絞り込みは、Repository の SQL が LIMIT より前に行う。検索語はログに出さない。
 import { jstDayStart, jstNextDayStart } from "../db/audit-log.repository";
+import { withCases, type CaseRepository } from "../db/case.repository";
 import { withRoleAssignments } from "../db/role-assignment.repository";
 import { withSearch, type SearchRepository } from "../db/search.repository";
 import type { CursorPayload } from "../lib/cursor";
@@ -23,6 +24,13 @@ export type SearchMessagesInput = {
   to?: string;
 };
 
+export type SearchCasesInput = {
+  /** 前後の空白を除いた検索語（Route が検証済み） */
+  q: string;
+  limit: number;
+  cursor?: CursorPayload;
+};
+
 type Dependencies = {
   authorizer: Pick<ReturnType<typeof createAppAuthorizer>, "authorize" | "can">;
 };
@@ -33,23 +41,32 @@ export function withSearchService<T>(
   run: (service: ReturnType<typeof createSearchService>) => Promise<T>,
 ): Promise<T> {
   return withSearch(env, (repository) =>
-    withRoleAssignments(env, (roles) =>
-      run(
-        createSearchService(repository, {
-          authorizer: createAppAuthorizer(roles, {
-            logger: createLogger({
-              traceId: actor.traceId,
-              userId: actor.userId,
-            }),
-          }),
-        }),
+    withCases(env, (caseRepository) =>
+      withRoleAssignments(env, (roles) =>
+        run(
+          createSearchService(
+            {
+              searchMessages: repository.searchMessages,
+              searchCases: caseRepository.searchCases,
+            },
+            {
+              authorizer: createAppAuthorizer(roles, {
+                logger: createLogger({
+                  traceId: actor.traceId,
+                  userId: actor.userId,
+                }),
+              }),
+            },
+          ),
+        ),
       ),
     ),
   );
 }
 
 export function createSearchService(
-  repository: Pick<SearchRepository, "searchMessages">,
+  repository: Pick<SearchRepository, "searchMessages"> &
+    Pick<CaseRepository, "searchCases">,
   { authorizer }: Dependencies,
 ) {
   return {
@@ -83,6 +100,21 @@ export function createSearchService(
         ...(input.to === undefined
           ? {}
           : { createdBefore: jstNextDayStart(input.to) }),
+      });
+    },
+
+    /** 案件の検索（EP-4-02）：入口は概要と同じ権限。見える範囲は全案件なので、表示の判定（can）は使わない */
+    async searchCases(actor: SearchActor, input: SearchCasesInput) {
+      await authorizer.authorize(
+        { userId: actor.userId },
+        "perm.case.summary.view",
+        { type: "company" },
+      );
+      return repository.searchCases({
+        actorId: actor.userId,
+        term: input.q,
+        limit: input.limit,
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       });
     },
   };

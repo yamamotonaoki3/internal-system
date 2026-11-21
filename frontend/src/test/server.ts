@@ -17,6 +17,11 @@ export const server = setupServer(
   http.get("/api/dms", () =>
     HttpResponse.json({ items: [], nextCursor: null }),
   ),
+  // #155（155-C）：S-15 の「案件」の区画が案件の検索（GET /api/search/cases）を取るため、検索の画面を描画する全テストで
+  // 「未処理の通信」にならないよう、0件を既定の応答にする。個別のテストは test/search-handlers.ts の respondCaseSearch で上書きする。
+  http.get("/api/search/cases", () =>
+    HttpResponse.json({ items: [], nextCursor: null }),
+  ),
   // #147：サイドバーの「案件」の見出しの下（CaseSidebarSection）が参加中の進行中の案件（GET /api/cases）を取るため、枠を描画する全テストで空を既定の応答にする。
   // 個別のテストは test/case-handlers.tsx の respondCases で上書きする。
   http.get("/api/cases", () =>

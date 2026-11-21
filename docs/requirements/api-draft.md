@@ -856,8 +856,15 @@
   - 応答：`200`：`items`（`messageId`、`parentMessageId`（返信でなければ`null`）、`roomId`、`roomKind`（`channel`／`direct`／`case`）、`roomName`（DM は相手の表示名）、`author`（`id`・`displayName`）、`excerpt`（記号を除いた本文の、一致の前後。120文字〔コードポイント〕まで）、`createdAt`）、`nextCursor`。**総件数は返さない**。並びは作成日時の新しい順（同じなら ID の降順）
   - エラー：`401`、`403`（`perm.search.message`がない）、`422`（`fields`。`q`が NUL〔`\u0000`〕を含むときも 422。FTS5 が句の途中の NUL を文字列の終わりとして扱うため、この API だけの規則）。`perm.dm.message.view`・`perm.case.view`がないときは、403 にせず、DM・案件の部屋を結果から除く
   - **`429`は作らない**（D-7）。上限（X-8）が未決定のため、#160 の実測の後に判断する
-  - 【155-B（2026-11-21。C-201）】`items`の各行に、`matchedIn`（一致した対象の配列。`body`＝本文・`attachment`＝添付のファイル名。1つ以上で、`body` → `attachment`の順）と`matchedAttachments`（ファイル名が一致した添付の`id`・`name`の配列。添付の ID の昇順。本文だけの一致なら空）を足した。`matchedIn`が`attachment`を含むのは、`matchedAttachments`が1件以上のときだけ。名前だけの一致の`excerpt`は本文の先頭。入力・ほかの項目は変えていない。値の名前は、EP-4-02 の`matchedIn`（件名／メッセージ／TODO／公開可能添付名）とまだそろえていない（155-C で決める。**未決定**）
+  - 【155-B（2026-11-21。C-201）】`items`の各行に、`matchedIn`（一致した対象の配列。`body`＝本文・`attachment`＝添付のファイル名。1つ以上で、`body` → `attachment`の順）と`matchedAttachments`（ファイル名が一致した添付の`id`・`name`の配列。添付の ID の昇順。本文だけの一致なら空）を足した。`matchedIn`が`attachment`を含むのは、`matchedAttachments`が1件以上のときだけ。名前だけの一致の`excerpt`は本文の先頭。入力・ほかの項目は変えていない。値の名前は、EP-4-02 の`matchedIn`（件名／メッセージ／TODO／公開可能添付名）とまだそろえていない（155-C で決める。**未決定**）【155-C（C-202）で決めた：そろえず、API ごとに値の組を持つ（EP-4-02 は`title`・`caseNumber`・`client`）。元の記述は残す】
   - 検索の方式：3文字（コードポイント）以上は FTS5 trigram の`MATCH`、1〜2文字は`instr`（D-3。C-152 の`LIKE`を置き換え）。語は空白を含めて1つの句（D-6）
+- **EP-4-02 の確定した形（Issue #155 の155-C。2026-11-21。C-202。上の表の元の記述は残す）**：正は`docs/api/openapi.json`（`searchCases`）。設計は[search.md](../design/search.md)
+  - クエリ：`q`（EP-4-01 と同じ。V-34。前後の空白を除いて1〜100文字。NUL は`422`）、`limit`（1〜100。既定20）、`cursor`。ほかの項目は`422`。**`status`は作らない**（進行中と終了を両方返す）
+  - 一致の対象：件名（索引。3文字以上`MATCH`・1〜2文字`instr`）、案件番号（先頭からの一致。前後の空白とハイフン`-`を除き、大小文字を区別しない。C-117・C-120）、いまの取引先名（部分一致）。説明は対象にしない
+  - 応答：`200`：`items`（`id`、`caseNumber`、`title`、`status`（`active`／`closed`）、`client`（`id`・`name`・`isActive`）、`departments`（`id`・`name`・`isActive`の配列。すべての担当部署）、`dueDate`（日付または`null`）、`progress`（`done`・`total`。0件は`null`）、`isParticipant`、`matchedIn`（`title`／`caseNumber`／`client`の配列。1つ以上））、`nextCursor`。並びは案件 ID の降順。**総件数は返さない**。説明・参加者・参加者数・管理の資格・部屋の ID・最終更新・版は返さない
+  - エラー：`401`、`403`（`perm.case.summary.view`がない）、`422`（`fields`）。**`429`は作らない**（EP-4-01 と同じ。D-7）
+  - 見える範囲：すべての案件（概要・一覧と同じ）。参加しているかで結果の案件は変わらず、`isParticipant`だけが変わる
+  - **草案との違いと理由**：`caseId` → `id`、`client`の`code`を返さない、`department`（単数）→ `departments`（配列）。草案は合意前の案で、後の C-129・C-130 で担当部署が複数になり、実装済みの概要（EP-5-07）がこの名前のため、概要の項目の名前にそろえた（C-202(6)）。`code`は検索の結果の概要の項目に含まれず、番号の先頭3文字は発行時の取引先のコードで、いまの取引先のコードの代わりにならない。`matchedIn`の値は、草案の「件名／メッセージ／TODO／公開可能添付名」ではなく、155-C で一致を見る3つの項目にした（メッセージ・添付の一致は EP-4-01 が受け持つ。EP-4-01 の`matchedIn`〔`body`・`attachment`〕とは別の値の組で、API ごとに決める）。公開承認済みアーカイブの範囲（草案の参加者でない人の内容の検索）は #356、TODO は #357
 
 ## 9. 機能5：案件への問い合わせ
 
