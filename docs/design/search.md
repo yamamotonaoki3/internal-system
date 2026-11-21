@@ -24,7 +24,7 @@
 | ファイル | 役割 |
 | --- | --- |
 | `shared/search-rules.ts` | 検索語の検査`searchKeywordSchema`（前後の空白を除いて1〜100文字。上限は UTF-16 の単位で数える）と、方式の境目`SEARCH_TRIGRAM_MIN_CODE_POINTS`（3。コードポイントで数える）の**定義元**。`searchKeywordSchema`は、検索・メッセージの一覧の`q`・社員の検索（`GET /api/users`）の`q`・画面の検索欄が使う。#155 で、上限の判定を UTF-16 で数える形に変えた（zod の`max`はサロゲートペアを1文字と数えるため） |
-| `shared/case-rules.ts`（`caseNumberSearchKey`） | 案件番号の検索のキーの**定義元**（155-C）。前後の空白を除き、ASCII の`-`を位置に依らず除き、ASCII の英字を大文字にする。内部の空白は保つ。全角のハイフン・英数字は変えない（下の「既知の差」）。取引先名のキーは既存の`shared/client-rules.ts`の`clientNameKey`を使う |
+| `shared/case-rules.ts`（`caseNumberSearchKey`） | 案件番号の検索のキーの**定義元**（155-C）。前後の空白を除き、全角の英数字（Ａ〜Ｚ・ａ〜ｚ・０〜９）を半角に直し、ハイフンにあたる文字（`-`・U+FF0D・U+30FC・U+2212・U+2010・U+2013・U+2014。U+2015 は含めない）を位置に依らず除き、英字を大文字にする。内部の空白は全角・半角とも保つ（NFKC は使わない）。利用者の決定（C-202 (5)）で、全角で打った番号も半角と同じに引ける。件名・取引先名の照合は変えない。取引先名のキーは既存の`shared/client-rules.ts`の`clientNameKey`を使う |
 | `shared/search-text.ts` | 索引に入れる本文を作る`toSearchText`（マークダウンの記号を除く）と、一致の位置`findSearchMatches`の**定義元**。索引・抜粋・画面の強調が同じ規則で同じ文を見るよう、ここの1か所に置く。テストは`backend/src/lib/search-text.test.ts`（vitest の対象が backend と frontend だけのため） |
 
 ### バックエンド
@@ -65,10 +65,11 @@
 | `frontend/src/features/search/hooks/fetch-search-pages.ts` | `fetchSearchPages`：1ページ目から指定のページ数まで順に取る（取り消された取得は残りのページを取りにいかない）。メッセージ・案件の2つの区画で共通（155-C で`useMessageSearch.ts`から切り出した） |
 | `frontend/src/features/search/hooks/useMessageSearch.ts` | 結果の取得（`useQuery`。見せるページ数を状態に持ち、取得のたびに1ページ目からその数だけ順に取る。`showMore`でページ数を増やす）。キャッシュに持たない設定（下の「画面」）。155-C で、区画を離れたときの後始末を、メッセージのキー（`searchKeys.messagesAll`）だけにした |
 | `frontend/src/features/search/hooks/useCaseSearch.ts` | 案件の区画の取得（155-C）。取得の決まりは`useMessageSearch`と同じ。区画を離れたときの後始末は案件のキー（`searchKeys.casesAll`）だけ |
-| `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示。155-B で、ファイル名で一致した行の印と名前の一覧〔中の部品`MatchedAttachmentNames`〕）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調）。155-C で`CaseSearchResults`（案件の区画。中の部品`CaseRow`・`CaseSearchBody`） |
+| `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示。155-B で、ファイル名で一致した行の印と名前の一覧〔中の部品`MatchedAttachmentNames`〕）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調）。155-C で`CaseSearchResults`（案件の区画。中の部品`CaseRow`・`CaseSearchBody`。行の終わりに、`features/cases`の公開の入口（`index.ts`）から使う`CaseTodoProgress`で TODO の進捗を出す〔案件の一覧の行と同じ部品〕） |
+| `frontend/src/features/search/keys.ts` | 155-C で足した、検索のキー`searchKeys`だけの公開の入口。`index.ts`は`CaseSearchResults`を通じて`features/cases`を参照するため、`cases`側（`useCaseWrites.ts`）が`index.ts`を読むと循環になる。それを避けて、`cases`側はここを読む（前例：`features/case-requests/form-parts.ts`） |
 | `frontend/src/pages/SearchPage.tsx`、`frontend/src/App.tsx`（`/search`） | S-15。URL の`q`・`roomId`・`from`・`to`で検索する。`q`がなければ API を呼ばない。155-C で、案件の区画をメッセージの結果の上に置いた（案件の区画は`q`だけで取る） |
 | `frontend/src/features/app-shell/Header.tsx` | `HeaderSearch`を置いた |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`・`forgetSearchResults`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。下の「画面」）。155-C では変えていない（前方一致で、案件の区画のキーも一緒に片付く） |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`・`forgetSearchResults`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。下の「画面」）。155-C では片付けの動作は変えていない（前方一致で、案件の区画のキーも一緒に片付く）。`searchKeys`の読み込み先だけ、循環を避けるため`features/search/keys.ts`にした |
 
 ## 表の構成（migration 0032〜0035）
 
@@ -188,7 +189,7 @@
 - 語の**コードポイント数**が3以上：`search_fts MATCH`（trigram）
 - 3未満：`instr(lower(f.text), lower(語)) > 0`（D-3。社員一覧の検索〔C-168〕と同じ）。全件の走査になるため、部屋・期間の絞り込みと併用して件数を抑える（ADR-0010）
 - 上限（UTF-16）と境目（コードポイント）は、数え方が違うので別の定数にしている
-- 正規化するのは前後の空白の除去だけ。全角・半角、合成済み・結合文字は、別の文字として扱う（索引も同じ）。英字の大小文字は、3文字以上は trigram の規則（区別しない）、1〜2文字は`lower()`（ASCII の英字だけ区別しない）
+- 正規化するのは前後の空白の除去だけ。全角・半角、合成済み・結合文字は、別の文字として扱う（索引も同じ）。英字の大小文字は、3文字以上は trigram の規則（区別しない）、1〜2文字は`lower()`（ASCII の英字だけ区別しない）。ただし案件番号の検索のキー（`caseNumberSearchKey`）だけは、全角の英数字を半角にするなど別の整形をする（上の表）
 
 ### 入力の無害化
 
@@ -301,7 +302,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 3. その案件の件名の写しがなければ、いまの件名で対応の表に入れる
 4. 対応の表の行があり、検索用の表にまだ行がなければ、件名を入れる
 
-「いまの行と合う」写しの条件（どれか1つでも崩れたら、古い写しとして消す）：元の案件がある／`source_body`がいまの件名と同じ／`created_at`が案件の作成日時と同じ／`room_id`・`message_id`が NULL／検索用の表に行があり、その文が`source_body`と同じ。テストの不一致の数え（元の案件がない・件名が違う・作成日時が違う・案件に行がない・片方の表だけに行がある）より、消す条件は広い（部屋の列・検索用の表の文の食い違いも直す）。
+「いまの行と合う」写しの条件（どれか1つでも崩れたら、古い写しとして消す）：元の案件がある／`source_body`がいまの件名と同じ／`created_at`が案件の作成日時と同じ／`room_id`・`message_id`が NULL／検索用の表に行があり、その文が`source_body`と同じ。テストの不一致の数え（`backend/test/search-case-fixtures.ts`の`caseTitleIndexMismatches`）は、元の案件がない・件名が違う・作成日時が違う・案件に行がない・部屋・メッセージの列が NULL でない・検索用の表に行がない・検索用の文が違う・対応の行のない検索用の行、を数え、消す条件と同じ範囲を確かめる。
 
 性質（テストで固定した）：
 
@@ -366,7 +367,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 | 対象 | 一致の仕方 | 正規化 |
 | --- | --- | --- |
 | 件名 | 部分一致（索引） | 前後の空白の除去だけ（EP-4-01 と同じ）。英字の大小文字は、3文字以上は trigram の規則、1〜2文字は`lower()` |
-| 案件番号 | 先頭からの一致（C-117） | 前後の空白を除き、ASCII の`-`を位置に依らず除き、ASCII の英字を大文字に（`caseNumberSearchKey`。番号の側もハイフンを除いて大文字にして比べる）。内部の空白は保つ（内部に空白のある語は番号に一致しない）。ハイフンだけの語は番号では探さない |
+| 案件番号 | 先頭からの一致（C-117） | 前後の空白を除き、全角の英数字を半角に、ハイフンにあたる文字（27行目の表の定義元を参照）を位置に依らず除き、英字を大文字に（`caseNumberSearchKey`。番号の側もハイフンを除いて大文字にして比べる）。内部の空白は全角・半角とも保つ（内部に空白のある語は番号に一致しない）。ハイフンだけの語は番号では探さない |
 | 取引先名 | いまの名前の部分一致（取引先の管理の検索と同じ） | `clientNameKey`（前後の空白の除去と小文字化）と`name_normalized`。改名の前の名前では出ない |
 
 ### 画面（S-15 の「案件」の区画）
@@ -389,7 +390,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - 429 は作らない（D-7）。api-draft の EP-4-01 にある 429 は、上限（X-8）が未決定のため、#160 の実測の後に判断する（EP-4-02 も同じ）
 - 155-C：案件の検索は、メッセージの検索の SQL に混ぜず、案件を基の表にした別の文（EP-4-02）にした。案件ごとに1行なので重複が起きず、並び・カーソル・見える範囲を一覧とそろえられるため。前の版の「155-C に向けた注意」（結果を別の文で作るか、結合を分けるか）は、これで決まった
 - 155-C：`searchCases`はサブクエリを含むが、入力で条件が変わる検索なので Drizzle の通常の書き方を基本にし、件名の集合だけ`sql`で埋め込んだ（知見 db/sql-complexity の「両方に当てはまる場合」）。件名の集合の SQL は、検索用の表の形を1か所に置くため`search-index.sql.ts`に置いた
-- 155-C（計画と違えた点）：件名の集合を、`IN`ではなく WITH 句＋ LEFT JOIN で1回だけ参照する形にした（`matchedIn`のための件名の一致の判定と、WHERE の条件とで、検索用の表を読む段を1回にするため）。件名の一致の条件（種類・いまの件名との一致）は、`search-index.sql.ts`の`caseTitleHitsQuery`に、組の条件とは別にもう一度書いた。取得のページの部品を`fetch-search-pages.ts`に切り出した。合わない写しとして消す条件は、テストの不一致の数えより広い
+- 155-C（計画と違えた点）：件名の集合を、`IN`ではなく WITH 句＋ LEFT JOIN で1回だけ参照する形にした（`matchedIn`のための件名の一致の判定と、WHERE の条件とで、検索用の表を読む段を1回にするため）。件名の一致の条件（種類・いまの件名との一致）は、`search-index.sql.ts`の`caseTitleHitsQuery`に、組の条件とは別にもう一度書いた。取得のページの部品を`fetch-search-pages.ts`に切り出した。合わない写しとして消す条件は、テストの不一致の数え（`caseTitleIndexMismatches`）と同じ範囲
 - 155-C：再編集の batch に件名の組を毎回足し、文の上限を 12 から 16 に改めた（C-202(2)。件名が変わったときだけ足す案は、分岐が増え、件名の変化の見落としの危険が増えるため採らなかった）
 - 155-C：応答の項目の名前は、EP-4-02 の草案ではなく、実装済みの概要（EP-5-07）に合わせた（C-202(6)。[api-draft.md](../requirements/api-draft.md)の追記）
 
@@ -429,7 +430,6 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 | 孤立した検索用の行と、番号の使い回し | 対応の行のない検索用の行は、後始末の順・途中の失敗で残りうる（`cleanup.sql`が消す）。いまは`AUTOINCREMENT`で番号を使い回さないため誤った一致にならないが、採番の記録を失う操作（表の作り直しなど）をすると誤った一致になる。作り直しは ADR-0031 の追記の手順で行う |
 | 添付の付け替えと索引 | 添付を別のメッセージへ付け替えて、移った先 → 元の順に同期すると索引が欠ける（上の「順序に依らない範囲」）。いまは付け替えの経路がないため起きない |
 | 155-C に向けた注意（解消） | 155-C で、案件の結果を別の文（EP-4-02）で作ることにした（上の「設計の判断」）。メッセージの検索の SQL は変えていない |
-| 案件番号の全角の文字（155-C） | 全角のハイフン・全角の英数字は、`caseNumberSearchKey`で変換しない。全角で打った番号は、番号では一致しない（件名・取引先名に含まれれば、その項目で出る）。**扱いは利用者に確認中** |
 | 案件番号・取引先名の全件の走査（155-C） | `cases`・`clients`の全件を走査する。案件が少ない前提。30万件の規模での実測は #160 |
 | DB の上での件名の直接の書き換え（155-C） | 組を通らないため、次の再編集か`search-reindex`（本番は登録の処理）を通るまで、新しい件名では出ない。古い件名でも出ない（いまの件名との一致を検索の条件にしているため）。案件番号・取引先名では出る |
 | 案件の終了・再開の batch（155-C） | 件名を変えないため、組を足していない。件名を変える処理をこれらに足すときは、組も足す |
