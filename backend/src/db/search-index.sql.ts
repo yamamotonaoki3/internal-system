@@ -6,6 +6,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { searchDocuments } from "../../db/schema";
 import { toSearchText } from "../../../shared/search-text";
+import { searchMethodOf, toFtsPhrase } from "../lib/search-query";
 import type { BatchItem, Database } from "./database";
 
 // 検索用の表（FTS5。手で書いた migration 0033）。Drizzle の生成に乗せないため schema.ts には置かず、batch に入れる文を組むためだけにここで形を示す
@@ -114,4 +115,62 @@ export function syncAttachmentIndexStatements(
       WHERE d.kind = 'attachment' AND d.message_id = ${messageId}
         AND NOT EXISTS (SELECT 1 FROM search_fts f WHERE f.rowid = d.id)`),
   ];
+}
+
+// ---- 案件の件名（kind = 'case_title'）。件名は記号を除かずにそのまま写す。部屋・メッセージの列は NULL（メッセージの検索の部屋・期間の絞り込みに混ざらないため）。
+// 引数は案件の ID だけで、値はすべて DB のいまの行から写す。件名を変える batch（承認・再編集）の末尾に足す
+
+/** いまの案件の行と一致しない件名の写し（元の案件が無い・件名・作成日時が違う・部屋の列がある・検索用の文が違うか無い）の、対応の表の行 */
+const staleCaseTitleDocuments = (caseId: string) => sql`
+  SELECT d.id FROM search_documents d
+  WHERE d.kind = 'case_title' AND d.ref_id = ${caseId}
+    AND NOT (d.room_id IS NULL AND d.message_id IS NULL
+      AND EXISTS (SELECT 1 FROM cases k WHERE k.id = d.ref_id AND k.title = d.source_body AND k.created_at = d.created_at)
+      AND EXISTS (SELECT 1 FROM search_fts f WHERE f.rowid = d.id AND f.text = d.source_body))`;
+
+/** 古い件名の写しを消し、写しが無ければ、いまの件名で入れる */
+export function syncCaseTitleIndexStatements(
+  db: Database,
+  caseId: string,
+): [BatchItem, ...BatchItem[]] {
+  return [
+    db
+      .delete(searchFts)
+      .where(sql`${searchFts.rowid} IN (${staleCaseTitleDocuments(caseId)})`),
+    db
+      .delete(searchDocuments)
+      .where(
+        sql`${searchDocuments.id} IN (${staleCaseTitleDocuments(caseId)})`,
+      ),
+    // 列の並びは schema.ts の searchDocuments と同じ（id は採番に任せる）
+    db.insert(searchDocuments).select(sql`
+      SELECT NULL, 'case_title', k.id, NULL, NULL, k.created_at, k.title
+      FROM cases k
+      WHERE k.id = ${caseId}
+        AND NOT EXISTS (SELECT 1 FROM search_documents d WHERE d.kind = 'case_title' AND d.ref_id = k.id)`),
+    db.insert(searchFts).select(sql`
+      SELECT d.id, d.source_body
+      FROM search_documents d
+      WHERE d.kind = 'case_title' AND d.ref_id = ${caseId}
+        AND NOT EXISTS (SELECT 1 FROM search_fts f WHERE f.rowid = d.id)`),
+  ];
+}
+
+/**
+ * 件名が語に一致する案件の ID（列 case_id）を返す副問い合わせ。外側の案件に依らない集合として先に作る（案件ごとに検索用の表を引き直さない）。
+ * いまの件名と写しの元の件名が同じ行だけにする（索引が遅れても、古い件名で一致させない）
+ */
+export function caseTitleHitsQuery(db: Database, term: string) {
+  const condition =
+    searchMethodOf(term) === "match"
+      ? sql`search_fts MATCH ${toFtsPhrase(term)}`
+      : sql`instr(lower(f.text), lower(${term})) > 0`;
+  return db
+    .select({ caseId: sql<string>`d.ref_id`.as("case_id") })
+    .from(
+      sql`search_fts f JOIN search_documents d ON d.id = f.rowid JOIN cases tk ON tk.id = d.ref_id`,
+    )
+    .where(
+      sql`${condition} AND d.kind = 'case_title' AND d.source_body = tk.title`,
+    );
 }

@@ -1,7 +1,8 @@
 // S-15 検索結果（/search）。URL の条件（q・roomId・from・to）で検索し、条件の欄から送ると URL を書き換えて取り直す。
-// q がなければ API を呼ばない。
+// 案件の区画（語だけで取る）を、メッセージの結果の上に置く。q がなければ API を呼ばない。
 import { useSearchParams } from "react-router";
 import {
+  CaseSearchResults,
   MessageSearchResults,
   SearchConditionsForm,
   type MessageSearchConditions,
@@ -34,6 +35,10 @@ export function SearchPage() {
         conditions={conditions}
         onSearch={(next) => setParams(next)}
       />
+      {q !== undefined && (
+        // 案件の区画は語だけで取るので、部屋・期間を変えても作り直さない
+        <CaseSearchResults key={`cases:${q}`} q={q} />
+      )}
       {q !== undefined && (
         // 条件が変わったら、見せるページ数を1に戻す
         <MessageSearchResults

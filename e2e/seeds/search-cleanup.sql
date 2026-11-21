@@ -3,6 +3,7 @@
 -- search.sql が入れた固定の部屋だけを消す。検索の索引の行（search_documents・search_fts）は、消すメッセージの分と、元のメッセージのない分を消す。
 -- 155-B：添付の写し（kind = 'attachment'）は、固定の部屋・消すメッセージに結ぶ分と、元の添付のない分を消す。添付の行（message_attachments）は、
 --   メッセージより先に消す（R2 の実体は spec が先に消す）。残数の確認は、種類ごとの条件で数える（kind='message' は元のメッセージ、kind='attachment' は元の添付）。
+-- 155-C：案件の件名の写し（kind = 'case_title'）は、search.sql の案件の分と、元の案件のない分を消す（残数も数える）。
 -- 外部キーの順：検索の索引 → 既読位置 → リアクション → メッセージ → DM の当事者 → DM → 通知 → 監査 → セッション → 参加者
 --   → 案件の担当部署 → 案件 → チャンネル → ルーム → ロール → 社員 → 取引先 → 部署。
 -- LIKE のパターンは 50 バイト以内（D1）。部署名は先頭15文字の一致で絞る。
@@ -40,6 +41,19 @@ WHERE kind = 'attachment'
                        WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_search155!_%' ESCAPE '!')
                           OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01'))
     OR ref_id NOT IN (SELECT id FROM message_attachments));
+-- 155-C：案件の件名の写し（kind = 'case_title'）。search.sql の案件（S01）の分と、元の案件のない分を消す（search-reindex が既存の案件の件名も登録するため）
+DELETE FROM search_fts
+WHERE rowid IN (
+  SELECT id FROM search_documents
+  WHERE kind = 'case_title'
+    AND (ref_id = '01JTE2E1550000000000000S01'
+      OR ref_id IN (SELECT id FROM cases WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事検索 [E2E_TEST]'))
+      OR ref_id NOT IN (SELECT id FROM cases)));
+DELETE FROM search_documents
+WHERE kind = 'case_title'
+  AND (ref_id = '01JTE2E1550000000000000S01'
+    OR ref_id IN (SELECT id FROM cases WHERE client_id IN (SELECT id FROM clients WHERE name = 'テスト商事検索 [E2E_TEST]'))
+    OR ref_id NOT IN (SELECT id FROM cases));
 DELETE FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents);
 DELETE FROM message_attachments
 WHERE id LIKE '01JTE2E155B%'
@@ -125,4 +139,7 @@ SELECT
          OR ref_id NOT IN (SELECT id FROM message_attachments))) AS remaining_attachment_search_documents,
   (SELECT COUNT(*) FROM message_attachments
      WHERE id LIKE '01JTE2E155B%' OR room_id LIKE '01JTE2E155%' OR uploader_id LIKE '01JTE2E155%') AS remaining_message_attachments,
+  (SELECT COUNT(*) FROM search_documents
+     WHERE kind = 'case_title'
+       AND (ref_id = '01JTE2E1550000000000000S01' OR ref_id NOT IN (SELECT id FROM cases))) AS remaining_case_title_documents,
   (SELECT COUNT(*) FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents)) AS remaining_orphan_search_fts;

@@ -62,6 +62,9 @@ DELETE FROM search_documents WHERE kind = 'message' AND ref_id NOT IN (SELECT id
 -- 添付のファイル名の写し（#155）。添付・メッセージを消した後に、元の添付か結ぶメッセージのなくなった写しを消す
 DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'attachment' AND (ref_id NOT IN (SELECT id FROM message_attachments) OR message_id IS NULL OR message_id NOT IN (SELECT id FROM messages)));
 DELETE FROM search_documents WHERE kind = 'attachment' AND (ref_id NOT IN (SELECT id FROM message_attachments) OR message_id IS NULL OR message_id NOT IN (SELECT id FROM messages));
+-- 案件の件名の写し（#155）。案件を消した後に、元の案件のなくなった写しを消す
+DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'case_title' AND ref_id NOT IN (SELECT id FROM cases));
+DELETE FROM search_documents WHERE kind = 'case_title' AND ref_id NOT IN (SELECT id FROM cases);
 DELETE FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents);
 -- チャンネルのアーカイブの記録（#143）。channel_id・archived_by・restored_by の外部キーのため、チャンネル・利用者より先に消す。テストの部署のチャンネルのものと、テストの利用者がアーカイブ・復元したもの。
 DELETE FROM channel_archive_events WHERE channel_id IN (SELECT room_id FROM channels WHERE department_id IN (SELECT id FROM departments WHERE name LIKE '[UNIT!_TEST]%' ESCAPE '!' OR name LIKE '[E2E!_TEST]%' ESCAPE '!')) OR archived_by IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!') OR restored_by IN (SELECT id FROM users WHERE login_id LIKE 'testuser!_%' ESCAPE '!' OR login_id LIKE 'e2euser!_%' ESCAPE '!');

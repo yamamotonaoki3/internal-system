@@ -4269,6 +4269,82 @@
         }
       }
     },
+    "/api/search/cases": {
+      "get": {
+        "operationId": "searchCases",
+        "summary": "案件を検索する",
+        "description": "すべての案件（進行中・終了）を、件名・案件番号・取引先のいまの名前で探す。件名は語が3文字（コードポイント）以上なら FTS5 trigram の MATCH（語全体を1つの句）、未満なら instr。件名の写しが案件のいまの件名と違う行は一致させない。案件番号は語の前後の空白を除き、ASCII の「-」を位置に依らず除いて、先頭からの一致（英字の大文字・小文字は区別しない。途中の空白は保つ）。取引先名は部分一致（英字の大文字・小文字は区別しない）。説明は対象にしない。参加していない人にも、概要の項目だけを返す（説明・参加者・参加者数・管理の資格・部屋の ID・最終更新・版は返さない）。並びは案件 ID の降順。総件数は返さない。perm.case.summary.view が必要（拒否は 403）。検索語はログに出さない。回数の制限（429）は作らない。GET で状態を変えない。",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[^\u0000]*$"
+            },
+            "description": "検索語。前後の空白を除いて1〜100文字（UTF-16 の単位で数える）。NUL（U+0000）を含む語は 422"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "件数。既定は 20"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "次のページのカーソル（前の応答の nextCursor）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "検索の結果。Cache-Control: no-store",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseSearchPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "権限がない（FORBIDDEN）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/api/me/password": {
       "put": {
         "operationId": "changeMyPassword",
@@ -13732,6 +13808,145 @@
           },
           "publicationVisibility": {
             "$ref": "#/components/schemas/PublicationVisibility"
+          }
+        }
+      },
+      "CaseSearchItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "caseNumber",
+          "title",
+          "status",
+          "client",
+          "departments",
+          "dueDate",
+          "progress",
+          "isParticipant",
+          "matchedIn"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "caseNumber": {
+            "type": "string",
+            "description": "案件番号（英大文字3文字-YYMMDD-4桁）"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed"
+            ],
+            "description": "進行中・終了"
+          },
+          "client": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "isActive"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "isActive": {
+                "type": "boolean",
+                "description": "無効になった取引先は false"
+              }
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "isActive"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "isActive": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "納期（YYYY-MM-DD）。なければ null"
+          },
+          "progress": {
+            "description": "TODO の進捗（削除済みを除く完了数と全体数）。0件は null。数だけなので全員に返す（R-78）",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseTodoProgress"
+              }
+            ]
+          },
+          "isParticipant": {
+            "type": "boolean",
+            "description": "閲覧者が有効な参加者か"
+          },
+          "matchedIn": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "title",
+                "caseNumber",
+                "client"
+              ]
+            },
+            "description": "一致した対象（title → caseNumber → client の順）"
+          }
+        }
+      },
+      "CaseSearchPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseSearchItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

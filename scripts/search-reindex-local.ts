@@ -1,6 +1,6 @@
 // 既存のメッセージの検索の索引を、手元の D1 だけに作る（#155・D-9。node scripts/db-local.ts <環境> search-reindex から呼ぶ）。
 // wrangler の getPlatformProxy（Miniflare）で、db-local.ts の他の操作と同じ保存先（.wrangler/state/<環境>/v3）の D1 を開き、
-// 本番と同じ部品（backend/src/db/search-reindex.ts の reindexMessages）を呼ぶ。remote の結び付けは使わない（remoteBindings: false）。
+// 本番と同じ部品（backend/src/db/search-reindex.ts の reindexMessages・reindexCases）を呼ぶ。remote の結び付けは使わない（remoteBindings: false）。
 // 本文の値は画面に出さない（件数だけを出す）。
 import { registerHooks } from "node:module";
 import { existsSync } from "node:fs";
@@ -29,7 +29,7 @@ export async function reindexLocalSearch(
   const { getPlatformProxy } = await import("wrangler");
   const { drizzle } = await import("drizzle-orm/d1");
   const schema = await import("../backend/db/schema.ts");
-  const { reindexMessages } =
+  const { reindexCases, reindexMessages } =
     await import("../backend/src/db/search-reindex.ts");
   const proxy = await getPlatformProxy<{ DB: D1Database }>({
     persist: { path: `${localStatePath(environment)}/v3` },
@@ -49,11 +49,22 @@ export async function reindexLocalSearch(
       after = last;
       rounds += 1;
     }
+    // 案件の件名（#155・155-C）。メッセージを最後まで登録した後に、同じ形で最後まで繰り返す
+    let afterCase: string | null = null;
+    let caseRounds = 0;
+    for (;;) {
+      const last: string | null = await reindexCases(db, {
+        afterId: afterCase,
+      });
+      if (last === null) break;
+      afterCase = last;
+      caseRounds += 1;
+    }
     const counts = await proxy.env.DB.prepare(
       "SELECT (SELECT COUNT(*) FROM search_documents) AS documents, (SELECT COUNT(*) FROM search_fts) AS fts",
     ).first<{ documents: number; fts: number }>();
     console.log(
-      `検索の索引を作りました：${String(rounds)}回に分けて登録。対応の表 ${String(counts?.documents)}件・検索用の表 ${String(counts?.fts)}件`,
+      `検索の索引を作りました：メッセージ ${String(rounds)}回・案件 ${String(caseRounds)}回に分けて登録。対応の表 ${String(counts?.documents)}件・検索用の表 ${String(counts?.fts)}件`,
     );
   } finally {
     await proxy.dispose();

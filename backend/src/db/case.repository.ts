@@ -24,6 +24,8 @@ import {
   canRemoveParticipant,
   type CaseAutoRole,
 } from "../lib/case-participant-rules";
+import { caseNumberSearchKey } from "../../../shared/case-rules";
+import { clientNameKey } from "../../../shared/client-rules";
 import { afterCursor, toPage, type CursorPayload } from "../lib/cursor";
 import { ROLE_IDS } from "../lib/permissions";
 import { isUlid, newUlid } from "../lib/ulid";
@@ -47,6 +49,10 @@ import {
   recipientsUnchanged,
 } from "./channel-member.sql";
 import { withDatabase, type BatchItem, type Database } from "./database";
+import {
+  caseTitleHitsQuery,
+  syncCaseTitleIndexStatements,
+} from "./search-index.sql";
 import {
   createRoleAssignmentRepository,
   type RoleAssignmentRepository,
@@ -100,6 +106,25 @@ export type CaseDetailExtras = {
   participants: CaseParticipant[];
   /** 案件の版（再編集の衝突の検知に使う。概要・一覧には返さない：説明だけの更新を非参加者に知らせないため） */
   version: number;
+};
+
+export type CaseSearchMatch = "title" | "caseNumber" | "client";
+
+/** 案件の検索（EP-4-02）の行。全員に見える概要の項目だけ（説明・参加者・参加者数・管理の資格・部屋の ID・最終更新・版を持たない） */
+export type CaseSearchItem = Pick<
+  CaseSummary,
+  | "id"
+  | "caseNumber"
+  | "title"
+  | "status"
+  | "client"
+  | "departments"
+  | "dueDate"
+  | "progress"
+  | "isParticipant"
+> & {
+  /** 一致した対象（1つ以上。title → caseNumber → client の順） */
+  matchedIn: CaseSearchMatch[];
 };
 
 /** 詳細の応答：概要の項目と詳細だけの項目を、同じ読み取りの時点で読んだもの（#150 の 150-C 計画 4.2.1） */
@@ -745,14 +770,15 @@ function editCondition(input: CaseEditWriteInput): SQL {
 
 /**
  * 再編集の batch の文（計画 150-C 4.4 の順）：1 前提 → 2 監査 → 確認 → 3 担当部署の削除 → 確認 → 4 追加 → 確認
- * → 5 自動参加 → 確認 → 6 案件の更新（RETURNING）→ 確認 → 7 不変条件（担当部署が1件以上）。最大12文で、部署・人の数に比例しない。
+ * → 5 自動参加 → 確認 → 6 案件の更新（RETURNING）→ 確認 → 7 不変条件（担当部署が1件以上）→ 8 件名の索引の組。最大16文で、部署・人の数に比例しない。
+ * updateAt は 6 の位置（索引の組を末尾に足しても、更新の結果を読む位置がずれないよう、積んだ時点で決める）。
  * 後ろの文は案件の ID と進行中だけを見る（先頭を通れば、D1 の batch は1つのトランザクションで前提は保たれる。
  * 版を後ろで求めないのは、expected の方式で読んだ後に説明・納期だけが変わっても崩さないため）
  */
 export function buildEditStatements(
   db: Database,
   input: CaseEditWriteInput,
-): BatchItem[] {
+): { statements: BatchItem[]; updateAt: number } {
   const { caseId } = input;
   const condition = editCondition(input);
   const stillEditable = activeCaseWith(caseId, sql`1 = 1`);
@@ -810,6 +836,7 @@ export function buildEditStatements(
       ),
       guard(input.joinUserIds.length),
     );
+  const updateAt = statements.length;
   statements.push(
     db
       .update(cases)
@@ -830,8 +857,10 @@ export function buildEditStatements(
       caseId,
       sql`EXISTS (SELECT 1 FROM case_departments ld WHERE ld.case_id = ${caseId})`,
     ),
+    // 索引の組は末尾に置き、ガードとの間に挟まない。件名を変えない再編集でも、いまの行と同じなら何も変えない
+    ...syncCaseTitleIndexStatements(db, caseId),
   );
-  return statements;
+  return { statements, updateAt };
 }
 
 function cursorFor(row: { id: string }) {
@@ -841,43 +870,45 @@ function cursorFor(row: { id: string }) {
 
 export function createCaseRepository(db: Database) {
   /** 案件の行と、同じ文の中で決めた資格・参加者数 */
-  const selectRows = (actorId: string) => {
+  const rowFields = (actorId: string) => {
     const isParticipant = activeChannelMember(sql`${cases.channelId}`, actorId);
     const canManage = canManageSql(actorId, sql`${cases.id}`);
     // 外側の案件の ID は表の名前つきで渡し、内側の表には別名を付ける（#294）
     const todosOfCase = sql`FROM case_todos pt WHERE pt.case_id = ${sql`${cases.id}`} AND pt.deleted_at IS NULL`;
-    return db
-      .select({
-        id: cases.id,
-        caseNumber: cases.caseNumber,
-        title: cases.title,
-        status: cases.status,
-        dueDate: cases.dueDate,
-        // 案件の列と名前が重なる取引先の列には別名を付ける（db.batch の中では、同じ名前の列の値が取り違えられるため）
-        clientId: sql<string>`${clients.id}`.as("client_ref_id"),
-        clientName: sql<string>`${clients.name}`.as("client_ref_name"),
-        clientIsActive: sql<boolean>`${clients.isActive}`
-          .mapWith(clients.isActive)
-          .as("client_ref_is_active"),
-        isParticipant: sql<number>`CASE WHEN ${isParticipant} THEN 1 ELSE 0 END`,
-        canManage: sql<number>`CASE WHEN ${canManage} THEN 1 ELSE 0 END`,
-        canEditDueDate: sql<number>`CASE WHEN ${cases.status} = 'active' AND (${isParticipant} OR ${canManage}) THEN 1 ELSE 0 END`,
-        participantCount: sql<
-          number | null
-        >`CASE WHEN ${isParticipant} OR ${canManage} THEN (SELECT COUNT(*) FROM channel_members pc WHERE pc.channel_id = ${cases.channelId}) ELSE NULL END`,
-        // 管理の資格だけの人には、部屋の ID・やり取りの時刻を見せないため、参加者の条件だけで決める
-        lastActivityAt: sql<
-          string | null
-        >`CASE WHEN ${isParticipant} THEN (SELECT lm.created_at FROM messages lm WHERE lm.room_id = ${sql`${cases.channelId}`} AND lm.deleted_at IS NULL ORDER BY lm.id DESC LIMIT 1) ELSE NULL END`,
-        channelId: sql<
-          string | null
-        >`CASE WHEN ${isParticipant} THEN ${cases.channelId} ELSE NULL END`,
-        todoTotal: sql<number>`(SELECT COUNT(*) ${todosOfCase})`,
-        todoDone: sql<number>`(SELECT COALESCE(SUM(pt.is_done), 0) ${todosOfCase})`,
-      })
+    return {
+      id: cases.id,
+      caseNumber: cases.caseNumber,
+      title: cases.title,
+      status: cases.status,
+      dueDate: cases.dueDate,
+      // 案件の列と名前が重なる取引先の列には別名を付ける（db.batch の中では、同じ名前の列の値が取り違えられるため）
+      clientId: sql<string>`${clients.id}`.as("client_ref_id"),
+      clientName: sql<string>`${clients.name}`.as("client_ref_name"),
+      clientIsActive: sql<boolean>`${clients.isActive}`
+        .mapWith(clients.isActive)
+        .as("client_ref_is_active"),
+      isParticipant: sql<number>`CASE WHEN ${isParticipant} THEN 1 ELSE 0 END`,
+      canManage: sql<number>`CASE WHEN ${canManage} THEN 1 ELSE 0 END`,
+      canEditDueDate: sql<number>`CASE WHEN ${cases.status} = 'active' AND (${isParticipant} OR ${canManage}) THEN 1 ELSE 0 END`,
+      participantCount: sql<
+        number | null
+      >`CASE WHEN ${isParticipant} OR ${canManage} THEN (SELECT COUNT(*) FROM channel_members pc WHERE pc.channel_id = ${cases.channelId}) ELSE NULL END`,
+      // 管理の資格だけの人には、部屋の ID・やり取りの時刻を見せないため、参加者の条件だけで決める
+      lastActivityAt: sql<
+        string | null
+      >`CASE WHEN ${isParticipant} THEN (SELECT lm.created_at FROM messages lm WHERE lm.room_id = ${sql`${cases.channelId}`} AND lm.deleted_at IS NULL ORDER BY lm.id DESC LIMIT 1) ELSE NULL END`,
+      channelId: sql<
+        string | null
+      >`CASE WHEN ${isParticipant} THEN ${cases.channelId} ELSE NULL END`,
+      todoTotal: sql<number>`(SELECT COUNT(*) ${todosOfCase})`,
+      todoDone: sql<number>`(SELECT COALESCE(SUM(pt.is_done), 0) ${todosOfCase})`,
+    };
+  };
+  const selectRows = (actorId: string) =>
+    db
+      .select(rowFields(actorId))
       .from(cases)
       .innerJoin(clients, eq(clients.id, cases.clientId));
-  };
 
   type Row = Awaited<
     ReturnType<ReturnType<typeof selectRows>["where"]>
@@ -1098,6 +1129,79 @@ export function createCaseRepository(db: Database) {
       const page = toPage(rows, input.limit, cursorFor);
       return {
         items: await toSummaries(page.items),
+        nextCursor: page.nextCursor,
+      };
+    },
+
+    /**
+     * 検索（EP-4-02）：件名（索引）・案件番号（ハイフンを除いた先頭からの一致）・いまの取引先名（部分一致）のどれかに一致する案件。
+     * 見える範囲は一覧の all と同じ全案件。並びは案件 ID の降順。件名の候補は WITH 句で先に集合にし、外側で OR・カーソル・LIMIT をかける
+     */
+    async searchCases(input: {
+      actorId: string;
+      term: string;
+      limit: number;
+      cursor?: CursorPayload;
+    }): Promise<{ items: CaseSearchItem[]; nextCursor: string | null }> {
+      const titleHits = db
+        .$with("title_hits")
+        .as(caseTitleHitsQuery(db, input.term));
+      const numberKey = caseNumberSearchKey(input.term);
+      // ハイフンだけの語で、全件の番号の先頭に一致させない
+      const numberMatched =
+        numberKey === ""
+          ? sql`0`
+          : sql`instr(upper(replace(${cases.caseNumber}, '-', '')), ${numberKey}) = 1`;
+      const clientMatched = sql`instr(${clients.nameNormalized}, ${clientNameKey(input.term)}) > 0`;
+      const titleMatched = sql`${titleHits.caseId} IS NOT NULL`;
+      const conditions: SQL[] = [
+        sql`(${titleMatched} OR ${numberMatched} OR ${clientMatched})`,
+      ];
+      if (input.cursor !== undefined)
+        conditions.push(
+          afterCursor({ sort: cases.id, id: cases.id }, input.cursor, "desc"),
+        );
+      const rows = await db
+        .with(titleHits)
+        .select({
+          ...rowFields(input.actorId),
+          titleMatched: sql<number>`CASE WHEN ${titleMatched} THEN 1 ELSE 0 END`,
+          numberMatched: sql<number>`CASE WHEN ${numberMatched} THEN 1 ELSE 0 END`,
+          clientMatched: sql<number>`CASE WHEN ${clientMatched} THEN 1 ELSE 0 END`,
+        })
+        .from(cases)
+        .innerJoin(clients, eq(clients.id, cases.clientId))
+        .leftJoin(titleHits, eq(titleHits.caseId, cases.id))
+        .where(and(...conditions))
+        .orderBy(desc(cases.id))
+        .limit(input.limit + 1);
+      const page = toPage(rows, input.limit, cursorFor);
+      const summaries = await toSummaries(page.items);
+      return {
+        items: page.items.map((row, index) => {
+          const summary = summaries[index];
+          if (summary?.id !== row.id)
+            throw new Error("検索の行と概要の並びが合いません");
+          const matchedIn: CaseSearchMatch[] = [
+            ...(row.titleMatched === 1 ? (["title"] as const) : []),
+            ...(row.numberMatched === 1 ? (["caseNumber"] as const) : []),
+            ...(row.clientMatched === 1 ? (["client"] as const) : []),
+          ];
+          // WHERE で一致を求めているので、どれも無い行は返らないはず。返ったら SQL の誤りとして止める
+          if (matchedIn.length === 0) throw new Error("一致の対象のない行です");
+          return {
+            id: summary.id,
+            caseNumber: summary.caseNumber,
+            title: summary.title,
+            status: summary.status,
+            client: summary.client,
+            departments: summary.departments,
+            dueDate: summary.dueDate,
+            progress: summary.progress,
+            isParticipant: summary.isParticipant,
+            matchedIn,
+          };
+        }),
         nextCursor: page.nextCursor,
       };
     },
@@ -1346,9 +1450,7 @@ export function createCaseRepository(db: Database) {
 
     /** 再編集（EP-5-20。文の順は buildEditStatements）。前提が崩れていたら CaseStateChangedError で、何も残さない */
     async editCase(input: CaseEditWriteInput): Promise<void> {
-      const statements = buildEditStatements(db, input);
-      // 案件の更新（RETURNING）は、件数の確認・不変条件の2文の前
-      const updateAt = statements.length - 3;
+      const { statements, updateAt } = buildEditStatements(db, input);
       const results = await runWriteBatch(() =>
         db.batch(statements as [BatchItem, ...BatchItem[]]),
       );

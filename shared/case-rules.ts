@@ -81,3 +81,15 @@ export const caseDueDateSchema = z
 export function isDueDateBeforeToday(dueDate: string, now: Date): boolean {
   return dueDate < jstDateOf(now).date;
 }
+
+/**
+ * 案件番号の検索のキー（C-117・C-120・#155 の利用者の決定）：前後の空白を除き、ASCII の「-」を位置に依らず除き、ASCII の英字を大文字にする。
+ * 途中の空白は保つ（途中に空白のある語は番号に一致させない）。全角のハイフン・英数字は変えない（扱いが決まっていないため）。
+ * 空になったら、番号では探さない
+ */
+export function caseNumberSearchKey(term: string): string {
+  return term
+    .trim()
+    .replaceAll("-", "")
+    .replace(/[a-z]/g, (char) => char.toUpperCase());
+}
