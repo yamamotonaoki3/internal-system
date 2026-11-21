@@ -486,6 +486,15 @@ describe("#155 4-2 AC-3 R-1 全角で打った番号も一致する（利用者�
   });
 });
 
+describe("#155 4-2 AC-3 C-202 (5) U+2015（水平線）入りの語は番号に一致しない", () => {
+  it("#155 C-202 (5): 半角の「QZN-2611」では番号で出て、U+2015 入りの「QZN\u20152611」では0件", async () => {
+    expect(
+      (await search("QZN-2611")).items.map((i) => [i.id, i.matchedIn]),
+    ).toEqual([[ids.num, ["caseNumber"]]]);
+    expect(await idsOf("QZN\u20152611")).toEqual([]);
+  });
+});
+
 describe("#155 4-2 AC-3 R-1 取引先名の一致（利用者の決定：いまの名前の部分一致・大小文字を区別しない）", () => {
   it.each([
     { name: "名前の途中の一部（3文字）", term: "尾精機" },

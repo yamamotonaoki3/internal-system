@@ -84,3 +84,9 @@ describe("#155 4-2 AC-3 全角で打った番号も、半角と同じキーに�
     expect(caseNumberSearchKey("ＱＺＮ　２６１１")).toBe("QZN　2611");
   });
 });
+
+describe("#155 4-2 AC-3 C-202 (5) U+2015（水平線）は、ハイフンにあたる文字に入れない", () => {
+  it("#155 C-202 (5): 「QZN\u20152611」の U+2015 は取り除かれず、キーに残る（「QZN\u20152611」）", () => {
+    expect(caseNumberSearchKey("QZN\u20152611")).toBe("QZN\u20152611");
+  });
+});
