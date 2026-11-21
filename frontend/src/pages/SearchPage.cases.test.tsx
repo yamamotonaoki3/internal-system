@@ -733,7 +733,7 @@ describe("#337 AC-6 q が空白だけのとき", () => {
     );
   });
 
-  it("#337 AC-6（対照）: 前後に空白のある語は言葉ありとして扱われ、案内の文は出ず、前後の空白を除いた語で検索が行われる", async () => {
+  it("#337 AC-6（対照）: 前後に空白のある語は言葉ありとして扱われ、案内の文は出ず、URL の値のまま（前後の空白を除かずに）検索が行われる", async () => {
     const messages = respondSearch([searchItem(1)]);
     const cases = respondCaseSearch([caseSearchItem(1)]);
     renderApp("/search?q=%20%E8%AA%9E%E3%80%80");
@@ -741,8 +741,30 @@ describe("#337 AC-6 q が空白だけのとき", () => {
     await waitFor(() => expect(messages.requests.length).toBeGreaterThan(0));
     await waitFor(() => expect(cases.requests.length).toBeGreaterThan(0));
     expect(within(body).queryByText(GUIDE)).toBeNull();
-    // API に渡る q が除いた語かそのままかは、いまの動きを固定しない（サーバーが前後の空白を除く）。除いた後の語が同じであること
-    expect(messages.requests.map((r) => r.q?.trim())).toEqual(["語"]);
-    expect(cases.requests.map((r) => r.q?.trim())).toEqual(["語"]);
+    // 直す前の動き：URL の値を、そのまま（前後の空白を除かずに）渡す。前後の空白はサーバーの検証（searchTermSchema）が除く
+    expect(messages.requests.map((r) => r.q)).toEqual([" 語　"]);
+    expect(cases.requests.map((r) => r.q)).toEqual([" 語　"]);
   });
+
+  // q 以外（roomId・from・to）は、空白だけでも「ないもの」にしない。不正な値として、そのまま API へ渡し、サーバーの検証（422）の結果をエラーとして出す
+  for (const name of ["from", "to", "roomId"] as const) {
+    it(`#337 AC-6: 有効な q ＋ 空白だけの ${name} は、外されずにそのまま検索の要求に渡り、422 ならエラーを出す。案件の検索は q だけを受ける`, async () => {
+      const messages = respondSearch([searchItem(1)]);
+      messages.fail = { status: 422, times: 99 };
+      const cases = respondCaseSearch([caseSearchItem(1)]);
+      renderApp(`/search?q=%E8%AA%9E&${name}=%20`);
+      const body = await pageMain();
+      const alert = await within(body).findByRole("alert");
+      expect(alert.textContent).toContain("検索できませんでした");
+      expect(messages.requests.length).toBeGreaterThan(0);
+      for (const request of messages.requests) {
+        expect(request.q).toBe("語");
+        expect(request[name]).toBe(" ");
+      }
+      await waitFor(() => expect(cases.requests.length).toBeGreaterThan(0));
+      for (const request of cases.requests) {
+        expect(request.q).toBe("語");
+      }
+    });
+  }
 });
