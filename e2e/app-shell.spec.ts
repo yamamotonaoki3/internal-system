@@ -628,6 +628,21 @@ async function expectHeaderStable(page: Page) {
   await expectNoHorizontalScroll(page);
 }
 
+/**
+ * ヘッダーのステータスが確定する（プロフィールの取得が終わり、「確認中」でなくなる）のを、自動の待ちで待つ。
+ * 確定の前後で文字の幅が変わるため、測るのは確定の後。高さと横のはみ出しは、確定の前後の両方で確かめる（変わらないこと）。
+ */
+async function measureAfterStatusSettled(page: Page) {
+  await expectHeaderStable(page);
+  await expect(
+    page
+      .getByRole("banner")
+      .getByRole("button", { name: /^ステータス：\s*在席$/ }),
+  ).toBeVisible();
+  await expectHeaderStable(page);
+  return visibleTextLines(page);
+}
+
 function headerSearchForm(page: Page): Locator {
   return page
     .getByRole("banner")
@@ -638,8 +653,7 @@ test("#337 AC-5: 360px（スマホ）のヘッダーは、高さ 48・見えて�
   page,
 }) => {
   await openHome(page, SIZES.mobile);
-  await expectHeaderStable(page);
-  const texts = await visibleTextLines(page);
+  const texts = await measureAfterStatusSettled(page);
   expect(texts.map((t) => t.text)).toEqual(
     expect.arrayContaining(["メニューを開く", "internal-system", "通知"]),
   );
@@ -707,8 +721,7 @@ test("#337 AC-5: 1280px（パソコン）のヘッダーは、高さ 48・見え
   page,
 }) => {
   await openHome(page, SIZES.desktop);
-  await expectHeaderStable(page);
-  const texts = await visibleTextLines(page);
+  const texts = await measureAfterStatusSettled(page);
   expect(texts.map((t) => t.text)).toEqual(
     expect.arrayContaining([
       "internal-system",

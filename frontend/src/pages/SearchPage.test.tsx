@@ -338,6 +338,8 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
       guide.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(body.queryByRole("list", { name: "検索結果の一覧" })).toBeNull();
+    // 案件の区画（見出し「案件」）も出ない（#155 4-2。案内の文と同時に出ない）
+    expect(body.queryByRole("region", { name: "案件" })).toBeNull();
     expect(world.requests).toEqual([]);
   });
 

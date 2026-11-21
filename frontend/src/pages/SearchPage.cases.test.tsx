@@ -655,7 +655,9 @@ describe("#155 4-2 AC-1 F-3 案件の区画を外したときの後始末（useC
       within(form).getByRole("searchbox", { name: "検索する言葉" }),
       "見積書",
     );
-    await user.click(within(form).getByRole("button", { name: "検索" }));
+    await user.click(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    );
     const back = await pageMain();
     expect(
       await within(caseRegion(back)).findByText("案件を読み込み中です"),
