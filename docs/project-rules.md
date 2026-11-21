@@ -30,6 +30,7 @@
 | AGENTS.md「実装の進め方」のコードレビュー（別の AI） | 文書・テストだけの差分は、CI の成功だけでマージしてよい | [0028](adr/0028-lighter-process-and-narrowed-scope.md) |
 | Skill「実装の進め方」の「複数のIssueを続けて進める条件」 | 依存しない Issue を、別の worktree で2件まで並列に進める。Stryker・E2E・Codex などの重い処理は同時に動かさない | [0028](adr/0028-lighter-process-and-narrowed-scope.md) |
 | Skill「品質チェックの道具」「テスト」の「手元とCIで共通の`npm run check`で、プロジェクト全体に対して実行する」、AGENTS.md「完了の定義」2 | 2026-11-16（Issue #271）から、手元では全体の`npm run check`を実行せず、変えたファイルの lint・format、型チェック、関係するテストのファイル、関係する E2E にする。全体は CI（`check`）が実行し、完了の定義の「プロジェクト全体に対して通っている」は CI の成功で満たす。CI が失敗したら原因を直す | [0028](adr/0028-lighter-process-and-narrowed-scope.md)（2026-11-16 の追加、#271） |
+| Skill「env-deploy」の「本番 DB の変更」の、前の版に切り戻しても動くようにする | 本番への最初のまとまった適用（migration 0013 から、出す版に含まれる最後の migration まで）の**1回だけ**、前の版が新しい構造の上で動くことを確かめずに、利用を止めて migration からデプロイまでを続けて行う。戻すときは、アプリと DB を組で戻す（アプリだけを戻さない）。使える条件：本番に利用者がいない・検証用の D1 での通しのリハーサルが済んでいる・戻す先の時点が保持期間の内。社員が使い始めた後は、元の決まりに戻す。手順は`docs/operations/production-first-rollout.md` | [0032](adr/0032-first-production-rollout-stop-and-apply-at-once.md)（2026-11-21、#351） |
 
 ## このプロジェクトのルール
 

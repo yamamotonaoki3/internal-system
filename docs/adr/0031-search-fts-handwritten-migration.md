@@ -99,7 +99,7 @@
 
 - 写しを消した後に登録し直すのを忘れると、既存のメッセージ・添付が検索に出ない。誤った一致は出ない（古い文が1行も残らないため）
 - 手元の DB：既存の手元の DB に migration を当てた後は、`node scripts/db-local.ts <development|test> search-reindex`で登録し直す（README）。テストの DB は、テストの準備が登録する。E2E は spec の準備が登録し直す
-- 本番：0032 以降が未適用で、索引は空。#160 の次の区切りで、0032〜0035 を当てた後に登録する
+- 本番：0032 以降が未適用で、索引は空。0013 以降をまとめて当てる最初の適用（[ADR-0032](0032-first-production-rollout-stop-and-apply-at-once.md)。手順書 [production-first-rollout.md](../operations/production-first-rollout.md)）で、0032〜0035 を続けて当て、工程 7 で登録する（0034 の時点で写しは空）
 - `0035`は生成のままで`PRAGMA foreign_keys`の行を含むが、`search_documents`はほかの表から参照されないため、ADR-0025 の置き換えは要らなかった
 
 ### 確かめたこと・確かめていないこと
