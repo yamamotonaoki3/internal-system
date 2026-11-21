@@ -1250,17 +1250,176 @@ describe("#363 概要の失敗の間に画面が作り直されても、後で�
     },
   );
 
-  // R-5：一度も参加者だったことがない案件を最初から非参加で開いたときは、片付け・失った扱いをしない（main の動きを保つ）。
-  // 既存のテスト（CaseDetailPage.test.tsx の #147 5-1 AC-14）は、非公開の表示と詳細を取らないことは確かめるが、片付けが走らないことは確かめていない。
-  // 参加者だった記録がないので、記録を根拠に消してはいけない（誤って消す直し方を検出する）。
-  it("#363 R-5 AC-3: 参加者だったことがない案件を、最初から非参加で開いても、キャッシュにある詳細を片付けない（これまでの動き）", async () => {
+  // コードレビュー2回目（重大）：画面を外している間に、概要のキャッシュが 404・非参加になった（購読者がいないので、片付けは走らない）。
+  // 戻ったときには、すでに 404 または非参加で作り直される。5xx の時点で片付けていた main と同じく、前の参加者としての詳細・TODO は消える（AC-2・AC-3）。
+  // 画面を外している間に、同じ QueryClient で概要だけを取り直し、キャッシュの状態を条件で待ってから戻る。
+  async function leaveWithSummaryFailed500() {
+    const w = world();
+    const rendered = renderPage();
+    await waitForFullView();
+    w.summaryFail = { status: 500 };
+    await act(async () => {
+      await rendered.client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(rendered.client.getQueryData(DETAIL_KEY)).toBeDefined();
+    expect(rendered.client.getQueryData(TODOS_KEY)).toBeDefined();
+    await rendered.user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    await screen.findByRole("link", { name: "案件に戻る" });
+    return { w, ...rendered };
+  }
+
+  async function backToCase(user: ReturnType<typeof renderPage>["user"]) {
+    await user.click(screen.getByRole("link", { name: "案件に戻る" }));
+  }
+
+  it("#363 R-6 AC-2: 500 の後に画面を外し、外れている間に概要のキャッシュが 404 の失敗になってから戻ると、詳細・TODO のキャッシュが消える", async () => {
+    const { w, client, user } = await leaveWithSummaryFailed500();
+    w.summaryFail = { status: 404 };
+    await act(async () => {
+      await client.refetchQueries({ queryKey: SUMMARY_KEY, exact: true });
+    });
+    await waitFor(() => {
+      const state = client.getQueryState(SUMMARY_KEY);
+      expect(state?.status).toBe("error");
+      expect((state?.error as { status?: number } | null)?.status).toBe(404);
+    });
+    // 前の参加者としての値が、まだ残っている（この条件で戻る）
+    expect(client.getQueryData(DETAIL_KEY)).toBeDefined();
+    await backToCase(user);
+    expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+    await waitFor(() => {
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    });
+  });
+
+  // R-7：期待は AC-3（非参加になったら、参加者だけの中身を取り除く）と、main の動き（5xx で参加者でなくなった時点で、詳細・TODO を取り除いていた）から決めた。
+  // この場合、キャッシュの data 自体が非参加に置き換わるので、「キャッシュの概要が参加者」だけでは、参加者だったことは分からない。
+  it("#363 R-7 AC-3: 500 の後に画面を外し、外れている間に概要が成功して参加者でなくなってから戻ると、詳細・TODO のキャッシュが消え、非公開の表示になる", async () => {
+    const { w, client, user } = await leaveWithSummaryFailed500();
+    w.summaryFail = null;
+    w.participant = false;
+    await act(async () => {
+      await client.refetchQueries({ queryKey: SUMMARY_KEY, exact: true });
+    });
+    await waitFor(() => {
+      const state = client.getQueryState(SUMMARY_KEY);
+      expect(state?.status).toBe("success");
+      expect(
+        client.getQueryData<{ isParticipant: boolean }>(SUMMARY_KEY)
+          ?.isParticipant,
+      ).toBe(false);
+    });
+    expect(client.getQueryData(DETAIL_KEY)).toBeDefined();
+    await backToCase(user);
+    await waitForSwitched();
+    await waitFor(() => {
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    });
+  });
+
+  // R-8：喪失の応答（404）の取得が、画面を離れる前から続いていて、離れた後に返る。
+  it("#363 R-8 AC-2: 500 の後、概要の取り直し（404）の応答を保留したまま画面を外し、離れてから応答が返り、戻ると、詳細・TODO のキャッシュが消える", async () => {
+    const w = world();
+    const { client, user } = renderPage();
+    await waitForFullView();
+    w.summaryFail = { status: 500 };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    // 次の取り直しは 404 だが、応答を保留する
+    const gate = deferred();
+    w.summaryFail = { status: 404 };
+    w.summaryGate = gate.promise;
+    const summaryBefore = w.calls.summary;
+    void client.refetchQueries({ queryKey: SUMMARY_KEY, exact: true });
+    await waitFor(() => expect(w.calls.summary).toBeGreaterThan(summaryBefore));
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    await screen.findByRole("link", { name: "案件に戻る" });
+    expect(client.getQueryData(DETAIL_KEY)).toBeDefined();
+    // 応答を返す（画面は外れたまま）
+    w.summaryGate = null;
+    gate.release();
+    await waitFor(() => {
+      const state = client.getQueryState(SUMMARY_KEY);
+      expect(state?.status).toBe("error");
+      expect((state?.error as { status?: number } | null)?.status).toBe(404);
+    });
+    await backToCase(user);
+    expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+    await waitFor(() => {
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    });
+  });
+
+  // R-9：片付けが済んだ後に、作り直しを重ねても、壊れない
+  it("#363 R-9 AC-2: 404 で片付いた後、一覧へ移って戻ることを2回重ねても、エラーにならず、「案件が見つかりません」のまま、詳細・TODO のキャッシュは消えたまま", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const w = world();
+    const { client, user } = renderPage();
+    await waitForFullView();
+    w.summaryFail = { status: 500 };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    w.summaryFail = { status: 404 };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+    await waitFor(() => {
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    });
+    for (let round = 0; round < 2; round += 1) {
+      await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+      await screen.findByRole("link", { name: "案件に戻る" });
+      await backToCase(user);
+      expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+      await advance(POLL_MS);
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    }
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  // R-5：統括の決定（設計）。概要で「参加者でない」ことが確かめられた（成功して非参加・404）ときは、この画面で参加者だったかに関わらず、
+  // 参加者だけの中身（詳細・TODO のキャッシュ）を消す。根拠：Skill「security」（資格のない人に、中身を残さない）。
+  // 記録を別に持たないので、作り直し・応答と離脱の重なりのどの順序でも取りこぼさない。main は消さなかったが、確かめられた非参加の人に中身を残さない方へそろえる。
+  // 「資格を失った」ことの表示（確かめられない表示）は、参加者だったことを見ていないので出ない。
+  it("#363 R-5 AC-3: 参加者だったことがない案件を、最初から非参加で開くと、非公開の表示になり、キャッシュにある詳細（目印の値）は消える", async () => {
     const w = world();
     w.participant = false;
     const rendered = renderPage();
     const sentinelDetail = { sentinel: "[UNIT_TEST]363既存の詳細" };
     rendered.client.setQueryData(DETAIL_KEY, sentinelDetail);
     await waitForSwitched();
+    await waitFor(() =>
+      expect(rendered.client.getQueryData(DETAIL_KEY)).toBeUndefined(),
+    );
     await advance(POLL_MS * 2);
-    expect(rendered.client.getQueryData(DETAIL_KEY)).toEqual(sentinelDetail);
+    expect(rendered.client.getQueryData(DETAIL_KEY)).toBeUndefined();
+    expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+  });
+
+  it("#363 R-5b AC-2: 参加者だったことがない案件を、最初から 404 で開くと、「案件が見つかりません」になり、キャッシュにある詳細（目印の値）は消える", async () => {
+    const w = world();
+    w.summaryFail = { status: 404 };
+    const rendered = renderPage();
+    const sentinelDetail = { sentinel: "[UNIT_TEST]363既存の詳細404" };
+    rendered.client.setQueryData(DETAIL_KEY, sentinelDetail);
+    expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+    await waitFor(() =>
+      expect(rendered.client.getQueryData(DETAIL_KEY)).toBeUndefined(),
+    );
+    await advance(POLL_MS * 2);
+    expect(rendered.client.getQueryData(DETAIL_KEY)).toBeUndefined();
+    expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
   });
 });
