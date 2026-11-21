@@ -64,7 +64,9 @@ async function searchFromHeader(page: Page, term: string) {
   const box = form.getByRole("searchbox", { name: "検索する言葉" });
   await box.fill(term);
   await expect(box).toHaveValue(term);
-  await form.getByRole("button", { name: "検索", exact: true }).click();
+  await form
+    .getByRole("button", { name: "メッセージを検索", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/search\?/);
   const main = page.getByRole("main");
   await expect(

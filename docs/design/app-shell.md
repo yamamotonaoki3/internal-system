@@ -28,7 +28,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | スレッド一覧 | 作らない（#121の時点）。**Issue #137で作った**（`primaryNavItems`に「スレッド」（`/threads`、S-35）を足した。権限の条件は付けない。サイドバーに未読の合計は出さない（#240で検討）。[threads.md](threads.md)） | — |
 | 自分専用の整理スペース | 作らない | #144 |
 | アーカイブの項目（全体管理者・担当部署のオーナーだけ） | 作らない（#121の時点）。**Issue #143の143-bで作った**（サイドバーの下の方、管理メニューの外の独立した項目。`navigation.ts`の`archiveNavItem`を、`SidebarNav.tsx`が`AdminMenu`の下に、`perm.channel.delete`を持つときだけ出す。ドロワーにも同じ部品で出る。S-38を開く。[channels.md](channels.md)） | 案件のアーカイブの行は #151 |
-| ヘッダーの検索 | 作らない | #155 |
+| ヘッダーの検索 | 作らない（#121の時点）。**Issue #155の155-Aで作り、Issue #337で、768px未満では出さない形にした**（`HeaderSearch`。768px以上だけ、検索欄とボタン「メッセージを検索」を出す。768px未満の入口は、ドロワーの先頭のリンク。[search.md](search.md)） | スマホ幅のヘッダーに置く、アイコンだけの検索ボタンは後の Issue |
 | ヘッダーの通知 | 作らない（#121の時点）。**Issue #124で作った**（`NotificationBell`。押すとS-14へ直接移る。[notifications.md](notifications.md)） | — |
 | 下部メニューの「通知」 | 作らない（#121の時点）。**Issue #124で作った**（ホーム → 通知 → 自分）。**Issue #136で「DM」を足した**（ホーム → DM → 通知 → 自分） | — |
 | ヘッダーのステータスボタン | 作らない（#121の時点）。**Issue #130で作った**（`StatusButton`。[profile-status.md](profile-status.md)） | — |
@@ -53,9 +53,9 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 | `SidebarNav.tsx` | サイドバーとドロワーが共用するメニューの中身。参加中のチャンネルのセクション（`JoinedChannelsSection`。Issue #200）、その直後のダイレクトメッセージのセクション（`DmSection`。Issue #136）、`primaryNavItems`のリンク、下部の`AdminMenu` |
 | `AdminMenu.tsx` | 管理メニュー。`visibleAdminGroups`の結果が0件なら何も描画しない。まとまりごとの開閉は`<details>`と`<summary>` |
 | `MobileNav.tsx` | `<nav aria-label="下部メニュー">`。768px未満だけ表示。「ホーム」「DM」（Issue #136。`/dms`へのリンク）「通知」（Issue #124。`/notifications`へのリンク）のリンクと「自分」（アバターメニューを開くボタン） |
-| `Drawer.tsx` | スマホのメニュー。ネイティブ`<dialog>`を`showModal()`で開く。中身は`SidebarNav` |
+| `Drawer.tsx` | スマホのメニュー。ネイティブ`<dialog>`を`showModal()`で開く。`<nav aria-label="メインメニュー">`の中は、先頭に検索（S-15）へのリンク「メッセージを検索」（`navigation.ts`の`searchNavItem`。押すと閉じる。Issue #337）、その後ろに`SidebarNav` |
 | `AvatarMenu.tsx` | `AvatarMenuProvider`（popover本体と開閉状態）と`AvatarMenuTrigger`（開くボタン。`variant`が`avatar`ならヘッダー用、`self`なら下部メニューの「自分」）。中身は、`/profile`へのリンク「プロフィール設定」、`StatusPicker`（ステータスの切り替え）、`/password`へのリンク、`LogoutButton`の順（Issue #130。`StatusPicker`は`features/profile/index.ts`から使う） |
-| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`dmsNavItem`（DM。サイドバーでは`DmSection`が出すため、下部メニューが使う。Issue #136）・`notificationsNavItem`（通知。サイドバーには置かず、ヘッダーのベルと下部メニューが使う。Issue #124）・`primaryNavItems`（ホーム・「チャンネルを探す」（Issue #200）・「社員一覧」（Issue #130））・`adminNavGroups`、純粋関数`visibleAdminGroups` |
+| `navigation.ts` | 固定リンクの定義の**唯一の登録場所**。型`NavItem`・`AdminNavItem`・`AdminNavGroup`・`Permission`、`homeNavItem`・`dmsNavItem`（DM。サイドバーでは`DmSection`が出すため、下部メニューが使う。Issue #136）・`notificationsNavItem`（通知。サイドバーには置かず、ヘッダーのベルと下部メニューが使う。Issue #124）・`searchNavItem`（メッセージの検索。`SidebarNav`には置かず、`Drawer.tsx`の先頭だけが使う。パソコン幅はヘッダーに検索欄があるため。Issue #337）・`primaryNavItems`（ホーム・「チャンネルを探す」（Issue #200）・「社員一覧」（Issue #130））・`adminNavGroups`、純粋関数`visibleAdminGroups` |
 | `nav-link-classes.ts` | リンクの見た目のクラスの固定の表`NAV_LINK_CLASSES`（現在のページは色だけでなく太字でも示す） |
 | `main-content.ts` | `MAIN_CONTENT_ID`（本文のid）・`DESKTOP_QUERY`（768px以上のメディアクエリ）・`focusMainContent`（幅の変更でメニューを閉じたときのフォーカスの移し先） |
 
@@ -75,8 +75,8 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 - ランドマーク：`header`（banner）、`nav`（名前「メインメニュー」と「下部メニュー」）、`main`（1つだけ）
 - スキップリンク「本文へ移動」：最初のTabで見え（`sr-only`を`focus:not-sr-only`で解除）、Enterで`#main-content`にフォーカスを移す
-- 768px以上（パソコン表示）：左にサイドバー、ヘッダー右にステータスのボタン（色つきの丸＋文字）とアバターのボタン。メニューボタンと下部メニューは出ない
-- 768px未満（スマホ表示）：サイドバーは出ず、ヘッダー左に「メニューを開く」ボタン、ヘッダー右にステータスのボタン（色つきの丸だけ。文字は読み上げ用に残す）、下に下部メニュー（ホーム・自分）。ヘッダーにアバターは出さず、「自分」から同じアバターメニューを開く
+- 768px以上（パソコン表示）：左にサイドバー、ヘッダー右に検索欄とボタン「メッセージを検索」（`HeaderSearch`）、ステータスのボタン（色つきの丸＋文字）とアバターのボタン。メニューボタンと下部メニューは出ない
+- 768px未満（スマホ表示）：サイドバーは出ず、ヘッダー左に「メニューを開く」ボタン、ヘッダー右にステータスのボタン（色つきの丸だけ。文字は読み上げ用に残す）、下に下部メニュー（ホーム・自分）。ヘッダーに検索欄・検索ボタンは出さず（高さ48を保つため）、検索はドロワーの先頭のリンクから開く。ヘッダーにアバターは出さず、「自分」から同じアバターメニューを開く
 - 表示の切り替えは、メディアクエリではなくTailwindの`md:`のクラスで行う（`hidden md:block`など）。そのため、jsdomでは両方がDOMに描画される（単体テストはロールと名前で絞る）。実際の出し分けはE2Eで確かめる
 - 現在のページのリンクは`aria-current="page"`と、太字・背景色で示す
 
@@ -100,8 +100,8 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 
 ### ヘッダー右の部品
 
-- `Header.tsx`の右側に、**検索 → 通知 → ステータス → アバター**の順で、1行ずつ足す（今は通知（Issue #124）・ステータス（Issue #130）・アバター。検索は未実装）。通知は`NotificationBell`で、`features/notifications/index.ts`を通して使う。ステータスは`StatusButton`で、popoverで5種類と戻り予定を選ぶ（`StatusPicker`のヒント文：入力してから種類を押すと一緒に送る／同じ種類をもう一度押すと戻り予定だけ変える／在席を選ぶと消える）。アバターメニューと同じ`popover="auto"`なので、同時に開くのは1つだけ
-- スマホ幅での扱い：検索・通知はアイコン（通知は今は文字のまま。アイコン化は後続）、ステータスは色つきの丸だけ。アバターはヘッダーに出さず、下部メニューの「自分」から開く（今の作りと同じ）
+- `Header.tsx`の右側に、**検索 → 通知 → ステータス → アバター**の順で、1行ずつ足す（今は検索（Issue #155。`HeaderSearch`）・通知（Issue #124）・ステータス（Issue #130）・アバター）。通知は`NotificationBell`で、`features/notifications/index.ts`を通して使う。ステータスは`StatusButton`で、popoverで5種類と戻り予定を選ぶ（`StatusPicker`のヒント文：入力してから種類を押すと一緒に送る／同じ種類をもう一度押すと戻り予定だけ変える／在席を選ぶと消える）。アバターメニューと同じ`popover="auto"`なので、同時に開くのは1つだけ
+- スマホ幅での扱い：検索はヘッダーに出さず（`HeaderSearch`が、検索の form ごと、768px未満では隠れる。`hidden md:block`）、ドロワーの先頭のリンク「メッセージを検索」から開く（Issue #337）。ヘッダーに置くアイコンだけの検索ボタンは後の Issue（通知のアイコン化と一緒に）。通知は今は文字のまま（アイコン化は後続）、ステータスは色つきの丸だけ。アバターはヘッダーに出さず、下部メニューの「自分」から開く（今の作りと同じ）
 
 ### アバターメニューの項目
 
@@ -168,6 +168,7 @@ Issue #121（親 #108）で実装した、ログイン後の全画面が使う�
 - フォーカスの戻り先は、閉じた理由で決め、**一度だけ**戻す。通常の終了は開いたボタン（`drawerOpenerRef`）へ。幅の変更による終了は`#main-content`へ（`close`イベント側で、非表示になる開いたボタンへ戻そうとしない）
 - Tabの循環：実ブラウザ（Chromium）のモーダル`dialog`は背面を`inert`にするだけで、端の部品でTabを押すとフォーカスがブラウザ側へ抜けるため、`handleKeyDown`で端から反対の端へ回す
 - 開いたまま768px以上になると、`matchMedia`の`change`で閉じ、フォーカスを`#main-content`へ移す。767pxに戻しても閉じたまま
+- 中身の並び：見出し「メニュー」と閉じるボタンの行 → `<nav aria-label="メインメニュー">`（先頭に「メッセージを検索」のリンク（`searchNavItem`）→ `SidebarNav`）。開いたときのフォーカスは「メニューを閉じる」のままで、Tab の次が検索のリンクになる。端から端へ回す仕組みは、リンクを足しても変わらない
 - ドロワーの中にログアウトは置かない（アバターメニューの「ログアウト」と重ならないようにするため）
 
 ## 実機で見つかった不具合の記録（toggleイベントは非同期で届く）
@@ -190,7 +191,8 @@ jsdomは、メディアクエリを適用せず、`<dialog>`の`showModal`・`cl
 | --- | --- |
 | 属性とイベントへの反応（単体） | `frontend/src/features/app-shell/`の`*.test.tsx`（`AppShell`・`AdminMenu`・`AvatarMenu`・`Drawer`・`MobileNav`）、`navigation.test.ts`・`navigation.channels.test.ts`（「チャンネルを探す」。Issue #200）、`navigation.dms.test.ts`（DM。Issue #136）、`frontend/src/features/auth/components/RequireAuth.states.test.tsx`、`frontend/src/pages/HomePage.test.tsx` |
 | スタブ | 全テスト共通の最小のスタブは`frontend/src/test/setup.ts`。幅の切り替えや開閉の呼び出しを確かめるテスト用の差し込みは`frontend/src/test/app-shell-harness.tsx`（`installDomStubs`・`pressEscapeOn`・`fireToggle`・`renderApp`・`respondShellUser`）。本番のコードにテスト都合の開閉処理は足さない |
-| 実ブラウザの動き（E2E） | `e2e/app-shell.spec.ts`。メディアクエリによる出し分け、Tab循環、背面が押せないこと、Esc、backdrop、popoverの外側クリックと最前面、幅の変更 |
+| 実ブラウザの動き（E2E） | `e2e/app-shell.spec.ts`。メディアクエリによる出し分け、Tab循環、背面が押せないこと、Esc、backdrop、popoverの外側クリックと最前面、幅の変更。360と1280で、ヘッダーの高さ48・見えている文字の折り返しなし・横のはみ出しなし、検索の出し分け（360はヘッダーに検索欄・ボタンなし、ドロワーの先頭のリンクから`/search`へ移れる。1280は検索欄の幅・ボタンの高さ・ラベルが画面に見えないこと）（Issue #337） |
+| ヘッダーの検索と再認証（単体） | `frontend/src/features/search/components/HeaderSearch.reauth.test.tsx`（`App`全体を描画し、再認証を通った後も、検索欄の語が残ること。枠が作り直される退行を検出する。Issue #337）。ドロワーの先頭のリンクと、サイドバーに「メッセージを検索」がないことは`Drawer.test.tsx` |
 | 本番形（CSP） | `e2e-prod/csp-style.spec.ts` |
 
 - 単体テストで確かめるのは、対象のid・属性（`popover`・`popovertarget`・`aria-controls`・`aria-expanded`）、`toggle`イベント（`newState`を持つもの）による状態の反映、`cancel`・`close`イベントへの反応、パネル内に「ログアウト」があること、まで

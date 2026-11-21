@@ -203,3 +203,62 @@ describe("#121 AC-1 Drawer", () => {
     expect(document.activeElement).not.toBe(screen.getByRole("main"));
   });
 });
+
+// #337 AC-5：スマホ幅の検索の入口。ドロワーの nav のいちばん上に「メッセージを検索」（/search へのリンク）を置く。パソコンのサイドバーには置かない。
+// 幅による出し分け（ヘッダーの検索の form を 768px 未満で隠すこと）は jsdom では分からないため e2e/app-shell.spec.ts で確かめる。
+describe("#337 AC-5 Drawer の検索のリンク", () => {
+  it("#337 AC-5: nav の中の最初のリンクが「メッセージを検索」で、/search を指す", async () => {
+    const { user, opener } = await renderDrawer();
+    await user.click(opener);
+    const dialog = within(await screen.findByRole("dialog"));
+    const links = within(dialog.getByRole("navigation")).getAllByRole("link");
+    expect(links[0]?.textContent).toBe("メッセージを検索");
+    expect(links[0]?.getAttribute("href")).toBe("/search");
+  });
+
+  it("#337 AC-5: 「メッセージを検索」を選ぶと、ドロワーが閉じ、/search へ移る", async () => {
+    const { user, opener } = await renderDrawer();
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("link", { name: "メッセージを検索" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("path").textContent).toBe("/search");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "検索結果" }),
+    ).toBeDefined();
+  });
+
+  it("#337 AC-5: /search を開いているときは、このリンクに aria-current=page が付く（ほかの項目と同じ）", async () => {
+    respondShellUser();
+    const { user } = renderApp("/search");
+    await screen.findByRole("heading", { level: 1, name: "検索結果" });
+    await user.click(screen.getByRole("button", { name: "メニューを開く" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(
+      dialog
+        .getByRole("link", { name: "メッセージを検索" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it("#337 AC-5: パソコンのサイドバーには「メッセージを検索」のリンクを出さない（ドロワーが閉じている間、画面のどこにもリンクがない）", async () => {
+    await renderDrawer();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("link", { name: "メッセージを検索" })).toBeNull();
+    const sidebar = screen.getByRole("navigation", { name: "メインメニュー" });
+    expect(
+      within(sidebar).queryByRole("link", { name: "メッセージを検索" }),
+    ).toBeNull();
+  });
+
+  it("#337 AC-5: ドロワーを開いたときのフォーカスは、今までどおり「メニューを閉じる」", async () => {
+    const { user, opener } = await renderDrawer();
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: /閉じる/ });
+    await waitFor(() => expect(document.activeElement).toBe(close));
+  });
+});

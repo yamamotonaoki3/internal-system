@@ -3,24 +3,26 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { searchKeywordSchema } from "../../../../../shared/search-rules";
 import { Button } from "../../../components/Button";
-import { FieldMessages, useFieldIds } from "../../../components/FieldMessages";
+import { TextField } from "../../../components/TextField";
 
 export function SearchKeywordForm({
   label,
   initialKeyword = "",
+  submitLabel = "検索",
   onSearch,
   children,
 }: {
   /** form の名前（role=search のランドマークの名前） */
   label: string;
   initialKeyword?: string;
+  /** 送信ボタンの名前。同じ画面に「検索」のボタンが並ぶ場所（ヘッダー）では、区別できる名前にする */
+  submitLabel?: string;
   onSearch: (keyword: string) => void;
   /** 語の欄の後ろに置く、ほかの条件の欄 */
   children?: ReactNode;
 }) {
   const [value, setValue] = useState(initialKeyword);
   const [error, setError] = useState<string | undefined>(undefined);
-  const { id, hintId, errorId, describedBy } = useFieldIds(undefined, error);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,19 +39,16 @@ export function SearchKeywordForm({
     <form role="search" aria-label={label} onSubmit={submit} noValidate>
       <div className="flex items-start gap-2">
         <div className="flex-1">
-          <input
-            id={id}
+          <TextField
+            label="検索する言葉"
+            hideLabel
             type="search"
-            aria-label="検索する言葉"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={describedBy}
+            error={error}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            className="min-h-11 md:min-h-10 w-full rounded-md border border-border-strong bg-surface px-3 text-base"
           />
-          <FieldMessages hintId={hintId} errorId={errorId} error={error} />
         </div>
-        <Button type="submit">検索</Button>
+        <Button type="submit">{submitLabel}</Button>
       </div>
       {children}
     </form>

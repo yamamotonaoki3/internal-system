@@ -130,19 +130,73 @@ const resultRow = (page: Page, text: string): Locator =>
 const noMatch = (page: Page) =>
   page.getByRole("main").getByText("一致するメッセージはありません");
 
+/**
+ * ヘッダーから検索する。入力の前に、モーダルのダイアログ（削除の確認・再認証）が閉じていることを確かめる（開いている間は背面に入力できないため）。
+ * やり直し（toPass）では通さない。入れた語が入っていることを確かめてから送り、URL の q が語と同じになるまで待つ。
+ */
 async function searchFromHeader(page: Page, term: string) {
   const form = headerSearch(page);
   const box = form.getByRole("searchbox", { name: "検索する言葉" });
-  // 再認証の直後などに画面の枠が作り直されると、入れた語が消えることがある。入れて送り、移るまでをやり直す
-  await expect(async () => {
-    await box.fill(term);
-    await expect(box).toHaveValue(term, { timeout: 1_000 });
-    await form.getByRole("button", { name: "検索", exact: true }).click();
-    await expect(page).toHaveURL(/\/search\?/, { timeout: 2_000 });
-  }).toPass({ timeout: 15_000 });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await box.fill(term);
+  await expect(box).toHaveValue(term);
+  await form
+    .getByRole("button", { name: "メッセージを検索", exact: true })
+    .click();
+  await expect(page).toHaveURL(
+    (url) => url.pathname === "/search" && url.searchParams.get("q") === term,
+  );
   await expect(
     page.getByRole("main").getByRole("heading", { level: 1, name: "検索結果" }),
   ).toBeVisible();
+}
+
+const DELETED_TEXT = "このメッセージは削除されました";
+
+/**
+ * 自分の投稿を、確認のダイアログと再認証を経て削除し、今回の削除が終わったことを確かめる。
+ * - "required"：再認証のダイアログが必ず出る場合（ログインの直後など。reauthenticatedAt が無い）
+ * - "either"：直前の再認証が有効な間は出ない。再認証のダイアログと削除の要求の応答の、早いほうで分岐し、どちらも待つ（e2e/channel-management.spec.ts の confirmWithReauth と同じ形）
+ * 前の削除の跡で通らないよう、削除の跡の数が1つ増えることと、今回の本文の行がなくなることを確かめる。
+ */
+async function deleteOwnMessage(
+  page: Page,
+  body: string,
+  reauthMode: "required" | "either",
+) {
+  const log = page.getByRole("log");
+  const marks = log.getByText(DELETED_TEXT);
+  const row = log.getByRole("listitem").filter({ hasText: body });
+  // 一覧が出揃ってから、削除の前の跡の数を数える（読み込み前の 0 件を基準にしない）
+  await expect(row).toHaveCount(1);
+  const markedBefore = await marks.count();
+  await row.getByRole("button", { name: "削除", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "メッセージの削除" });
+  await expect(confirm).toBeVisible();
+  const sent = page.waitForResponse(
+    (r) =>
+      r.request().method() === "DELETE" &&
+      new URL(r.url()).pathname.startsWith("/api/messages/"),
+  );
+  await confirm.getByRole("button", { name: "削除する", exact: true }).click();
+  const reauth = page.getByRole("dialog", { name: "再認証" });
+  const first =
+    reauthMode === "required"
+      ? ("reauth" as const)
+      : await Promise.race([
+          reauth.waitFor({ state: "visible" }).then(() => "reauth" as const),
+          sent.then(() => "sent" as const),
+        ]);
+  if (first === "reauth") {
+    await expect(reauth).toBeVisible();
+    await reauth.getByLabel("パスワード", { exact: true }).fill(PASSWORD);
+    await reauth.getByRole("button", { name: "再認証", exact: true }).click();
+  }
+  expect((await sent).status()).toBe(204);
+  await expect(reauth).toHaveCount(0);
+  await expect(confirm).toHaveCount(0);
+  await expect(marks).toHaveCount(markedBefore + 1);
+  await expect(log.getByText(body)).toHaveCount(0);
 }
 
 let a: Guarded | undefined;
@@ -245,24 +299,9 @@ test("#155 AC-3 E-1: 投稿の後に引け、編集の後は新しい語で引�
   await searchFromHeader(page, "検索155新規");
   await expect(noMatch(page)).toBeVisible();
 
-  // 削除（確認と再認証を経る）
+  // 削除（確認と再認証を経る）。A はログインの直後で、まだ再認証していないため、再認証のダイアログが必ず出る
   await page.goto(`/channels/${PUBLIC_ROOM}`);
-  await page
-    .getByRole("log")
-    .getByRole("listitem")
-    .filter({ hasText: "検索155編集後の投稿文" })
-    .getByRole("button", { name: "削除", exact: true })
-    .click();
-  const confirm = page.getByRole("dialog", { name: "メッセージの削除" });
-  await confirm.getByRole("button", { name: "削除する", exact: true }).click();
-  const reauth = page.getByRole("dialog", { name: "再認証" });
-  if (await reauth.isVisible()) {
-    await reauth.getByLabel("パスワード", { exact: true }).fill(PASSWORD);
-    await reauth.getByRole("button", { name: "再認証", exact: true }).click();
-  }
-  await expect(page.getByRole("log")).toContainText(
-    "このメッセージは削除されました",
-  );
+  await deleteOwnMessage(page, "検索155編集後の投稿文", "required");
 
   await searchFromHeader(page, "検索155編集後");
   await expect(noMatch(page)).toBeVisible();
@@ -276,6 +315,8 @@ test("#155 AC-3 E-1: 期間の絞り込み（JST の日付）：投稿の日の�
   // 絞り込みは折りたたまれている。検索し直した後に閉じるかは決めていないため、入力の前に、閉じていれば開く
   const startDate = async (value: string) => {
     const input = main.getByLabel("開始日");
+    // 画面が出揃う前に、開いている欄をもう一度押して閉じないよう、要約が出てから見えるかを判定する
+    await expect(main.getByText("絞り込み", { exact: true })).toBeVisible();
     if (!(await input.isVisible()))
       await main.getByText("絞り込み", { exact: true }).click();
     await input.fill(value);
@@ -359,22 +400,8 @@ test("#155 AC-3 155-B E-1: 添付つきで投稿すると名前で引け、そ�
   await expect(row.getByText(MARKER, { exact: true })).toBeVisible();
 
   await page.goto(`/channels/${PUBLIC_ROOM}`);
-  await page
-    .getByRole("log")
-    .getByRole("listitem")
-    .filter({ hasText: "検索155添付つきの投稿文" })
-    .getByRole("button", { name: "削除", exact: true })
-    .click();
-  const confirm = page.getByRole("dialog", { name: "メッセージの削除" });
-  await confirm.getByRole("button", { name: "削除する", exact: true }).click();
-  const reauth = page.getByRole("dialog", { name: "再認証" });
-  if (await reauth.isVisible()) {
-    await reauth.getByLabel("パスワード", { exact: true }).fill(PASSWORD);
-    await reauth.getByRole("button", { name: "再認証", exact: true }).click();
-  }
-  await expect(page.getByRole("log")).toContainText(
-    "このメッセージは削除されました",
-  );
+  // 直前の削除（4件目）から、再認証が有効な間は出ない。出る場合は入れる
+  await deleteOwnMessage(page, "検索155添付つきの投稿文", "either");
 
   await searchFromHeader(page, POSTED_NAME);
   await expect(noMatch(page)).toBeVisible();

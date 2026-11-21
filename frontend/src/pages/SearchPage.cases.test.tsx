@@ -655,7 +655,9 @@ describe("#155 4-2 AC-1 F-3 案件の区画を外したときの後始末（useC
       within(form).getByRole("searchbox", { name: "検索する言葉" }),
       "見積書",
     );
-    await user.click(within(form).getByRole("button", { name: "検索" }));
+    await user.click(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    );
     const back = await pageMain();
     expect(
       await within(caseRegion(back)).findByText("案件を読み込み中です"),
@@ -691,4 +693,78 @@ describe("#155 4-2 AC-2 F-1 案件の行の、無い項目の表示", () => {
     expect(textOf(none ?? null)).not.toContain("納期");
     expect(textOf(none ?? null)).not.toMatch(/・\s*・/);
   });
+});
+
+// #337 AC-6：q が空白だけ（半角・全角・混在）のときは、q がないときと同じ（案内の文。区画なし・API なし・エラーなし）。
+// 共通の検証（searchKeywordSchema）は前後の空白を除いて空なら拒否する。URL からの読み取りだけが空白を除かず、案内が出ずに検索が行われ 422 になっていた。
+describe("#337 AC-6 q が空白だけのとき", () => {
+  const GUIDE = "検索する言葉を入れて、『検索』を押してください。";
+  const BLANKS = [
+    ["半角の空白だけ", "%20"],
+    ["全角の空白だけ", "%E3%80%80%E3%80%80"],
+    ["半角と全角の混在", "%20%E3%80%80%20"],
+  ] as const;
+
+  async function expectAsNoKeyword(path: string) {
+    const messages = respondSearch([searchItem(1)]);
+    const cases = respondCaseSearch([caseSearchItem(1)]);
+    renderApp(path);
+    const body = await pageMain();
+    expect(await within(body).findAllByText(GUIDE)).toHaveLength(1);
+    expect(within(body).queryByRole("region", { name: "案件" })).toBeNull();
+    expect(
+      within(body).queryByRole("list", { name: "検索結果の一覧" }),
+    ).toBeNull();
+    expect(within(body).queryByRole("alert")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messages.requests).toEqual([]);
+    expect(cases.requests).toEqual([]);
+  }
+
+  for (const [label, encoded] of BLANKS) {
+    it(`#337 AC-6: q が${label}のとき、案内の文が1つだけ出て、案件・メッセージの区画も API の呼び出しもエラーの表示もない`, async () => {
+      await expectAsNoKeyword(`/search?q=${encoded}`);
+    });
+  }
+
+  it("#337 AC-6: 期間だけの指定＋空白だけの q も、言葉なしと同じ", async () => {
+    await expectAsNoKeyword(
+      "/search?q=%20%E3%80%80&from=2026-11-01&to=2026-11-02",
+    );
+  });
+
+  it("#337 AC-6（対照）: 前後に空白のある語は言葉ありとして扱われ、案内の文は出ず、URL の値のまま（前後の空白を除かずに）検索が行われる", async () => {
+    const messages = respondSearch([searchItem(1)]);
+    const cases = respondCaseSearch([caseSearchItem(1)]);
+    renderApp("/search?q=%20%E8%AA%9E%E3%80%80");
+    const body = await pageMain();
+    await waitFor(() => expect(messages.requests.length).toBeGreaterThan(0));
+    await waitFor(() => expect(cases.requests.length).toBeGreaterThan(0));
+    expect(within(body).queryByText(GUIDE)).toBeNull();
+    // 直す前の動き：URL の値を、そのまま（前後の空白を除かずに）渡す。前後の空白はサーバーの検証（searchTermSchema）が除く
+    expect(messages.requests.map((r) => r.q)).toEqual([" 語　"]);
+    expect(cases.requests.map((r) => r.q)).toEqual([" 語　"]);
+  });
+
+  // q 以外（roomId・from・to）は、空白だけでも「ないもの」にしない。不正な値として、そのまま API へ渡し、サーバーの検証（422）の結果をエラーとして出す
+  for (const name of ["from", "to", "roomId"] as const) {
+    it(`#337 AC-6: 有効な q ＋ 空白だけの ${name} は、外されずにそのまま検索の要求に渡り、422 ならエラーを出す。案件の検索は q だけを受ける`, async () => {
+      const messages = respondSearch([searchItem(1)]);
+      messages.fail = { status: 422, times: 99 };
+      const cases = respondCaseSearch([caseSearchItem(1)]);
+      renderApp(`/search?q=%E8%AA%9E&${name}=%20`);
+      const body = await pageMain();
+      const alert = await within(body).findByRole("alert");
+      expect(alert.textContent).toContain("検索できませんでした");
+      expect(messages.requests.length).toBeGreaterThan(0);
+      for (const request of messages.requests) {
+        expect(request.q).toBe("語");
+        expect(request[name]).toBe(" ");
+      }
+      await waitFor(() => expect(cases.requests.length).toBeGreaterThan(0));
+      for (const request of cases.requests) {
+        expect(request.q).toBe("語");
+      }
+    });
+  }
 });

@@ -102,7 +102,7 @@ Issue #171（親 #108）で実装した、フロントエンドのスタイル�
 | --- | --- | --- |
 | `PageLayout` | 画面の一番外側。`main` と画面の `h1` を作る。1画面に1つ | `title`、`width`（`narrow`：入力中心の狭い画面、`default`：既定） |
 | `Button` | 操作のボタン。`type` の既定は `"button"`（フォームを意図せず送信しない）。送信ボタンだけ `type="submit"` を渡す | `variant`（`primary`：主な操作、`secondary`：補助、`danger`：取り消せない操作、`ghost`：枠も背景もない控えめな操作。メニューを開くボタンなど。#121）、`button` の標準の属性 |
-| `TextField` | ラベルつきのテキスト入力。ヒントとエラーを `aria-describedby` で結ぶ。`ref` が `input` に渡る（react-hook-form の `register` が使える） | `label`、`hint`、`error`、`input` の標準の属性 |
+| `TextField` | ラベルつきのテキスト入力。ヒントとエラーを `aria-describedby` で結ぶ。`ref` が `input` に渡る（react-hook-form の `register` が使える） | `label`、`hint`、`error`、`hideLabel`（ラベルの要素は残し、画面からだけ隠す。読み上げと入力欄との結び付きは保ち、外側の余白も付けない。ヘッダーの検索欄など、見える見出しが別にある場所で使う。#337）、`input` の標準の属性 |
 | `SelectField` | 選択肢から1つ選ぶ欄（所属部署など）。ヒントとエラーを`aria-describedby`で結ぶ。`ref`が`select`に渡る（react-hook-formの`register`が使える） | `label`、`hint`、`error`、`select`の標準の属性、選択肢（`option`）は子として渡す |
 | `SecretField` | パスワード・トークンなど、伏せて入力する欄。表示・非表示のボタンが付く | `TextField` に加えて `toggleLabels`（ボタンの読み上げ名） |
 | `Alert` | 画面内の通知。`role` は呼び出し側が渡したものだけ付く（勝手に読み上げさせない） | `tone`（`error`・`info`・`warning`）、`role` |

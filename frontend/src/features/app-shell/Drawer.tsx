@@ -8,8 +8,11 @@ import {
   type MouseEvent,
   type RefObject,
 } from "react";
+import { NavLink } from "react-router";
 import { Button } from "../../components/Button";
 import { DESKTOP_QUERY, focusMainContent } from "./main-content";
+import { NAV_LINK_CLASSES } from "./nav-link-classes";
+import { searchNavItem } from "./navigation";
 import { SidebarNav } from "./SidebarNav";
 
 type DrawerProps = {
@@ -117,6 +120,16 @@ export function Drawer({ id, open, onOpenChange, openerRef }: DrawerProps) {
           </Button>
         </div>
         <nav aria-label="メインメニュー">
+          <NavLink
+            to={searchNavItem.to}
+            end
+            onClick={() => onOpenChange(false)}
+            className={({ isActive }) =>
+              isActive ? NAV_LINK_CLASSES.active : NAV_LINK_CLASSES.idle
+            }
+          >
+            {searchNavItem.label}
+          </NavLink>
           <SidebarNav onNavigate={() => onOpenChange(false)} />
         </nav>
       </div>
