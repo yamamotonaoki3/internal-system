@@ -54,7 +54,6 @@ export function useCaseAccessLoss({
   roomId,
   isParticipant,
   outsider = !isParticipant,
-  wasParticipant = isParticipant,
   onLost,
 }: {
   caseId: string;
@@ -62,15 +61,10 @@ export function useCaseAccessLoss({
   roomId: string | null;
   isParticipant: boolean;
   /**
-   * 概要が、成功して非参加、または 404 で失敗している（資格を失った証拠がある）。概要の取り直しが 5xx・通信の失敗のときは偽（#363）。
+   * 概要が、成功して非参加、または 404 で失敗している（参加者でないことが確かめられた）。概要の取り直しが 5xx・通信の失敗のときは偽（#363）。
    * 本番の呼び出しは必ず渡す。省くと、非参加（!isParticipant）と同じ扱い
    */
   outsider?: boolean;
-  /**
-   * この利用者・案件の概要のキャッシュに残る値（取り直しが失敗していても前の成功の値）が参加者（#363）。
-   * 部品が作られたときだけ使う。省くと isParticipant と同じ
-   */
-  wasParticipant?: boolean;
   /** 中身を描かなくなるとき（開いているダイアログを閉じる）。参照が変わらない関数を渡す */
   onLost: () => void;
 }) {
@@ -79,17 +73,19 @@ export function useCaseAccessLoss({
   // 同じ参加の期間の中で、確かめ・後片付けを重ねない印（参加者のままの 403 で循環させないため）
   const handling = useRef(false);
   const previousParticipant = useRef(isParticipant);
-  // 参加者としての概要を受け取ったか。概要が一時的に失敗しても（5xx・通信の失敗）、資格を失ったとは見なさず、印は残す。
-  // 失敗の間に部品が作り直されても印を失わないよう、キャッシュに残る前の概要（wasParticipant）からも始める（#363）。
-  // 既に資格を失った証拠がある（片付け済み）ときは始めない：作り直すたびに片付けを重ねないため
-  const participantSeen = useRef(
-    isParticipant || (wasParticipant && !outsider),
-  );
+  // この画面で参加者としての概要を受け取ったか（資格を失ったことの表示・ダイアログを閉じる onLost の条件）。
+  // 概要が一時的に失敗しても（5xx・通信の失敗）、資格を失ったとは見なさず、印は残す
+  const participantSeen = useRef(isParticipant);
+  // 片付けを、参加者でないと確かめられた状態に「なったとき」だけ走らせる印。偽から始め、作られた時点で既に確かめられていても1回片付ける
+  const previousOutsider = useRef(false);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
-  // 概要の取り直しが拒否より先に非参加を返した場合も、開いているダイアログ（参加者用の基準を含む）を閉じる。
+  // 概要で参加者でないことが確かめられたら（成功して非参加・404）、この画面で参加者だったかに関わらず、参加者だけの中身
+  // （forgetCaseContent の対象）を取り除き、一覧のこの案件の行から参加者だけの項目を消す（149-C・#323・#363）。
+  // 参加者だった記録を作り直しをまたいで持たない：離れている間に概要が非参加に置き換わると、記録が残らないため（#363）。
+  // 一覧の行も消す：非参加が確かめられた時点で、一覧に残る参加者だけの値（最終更新・部屋の ID、参加中の行）を、前に参加者だったかで区別できないため。
+  // 5xx・通信の失敗（outsider が偽）では片付けない（#363 AC-1）。
   // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける。
-  // あわせて、参加者だけの中身（forgetCaseContent の対象）を取り除き直し、一覧のこの案件の行から参加者だけの項目を消す（149-C・#323）。
   // この効果は、それらの部品が外れた後に走るため、拒否を契機にした片付けの後に部品が作り直したキーも、ここで消える
   useEffect(() => {
     if (isParticipant && !previousParticipant.current) handling.current = false;
@@ -97,9 +93,12 @@ export function useCaseAccessLoss({
     if (outsider && participantSeen.current) {
       participantSeen.current = false;
       onLost();
+    }
+    if (outsider && !previousOutsider.current) {
       void forgetCaseContent(queryClient, userId, caseId, roomId);
       void forgetCaseInLists(queryClient, userId, caseId);
     }
+    previousOutsider.current = outsider;
     previousParticipant.current = isParticipant;
   }, [isParticipant, outsider, onLost, queryClient, userId, caseId, roomId]);
 

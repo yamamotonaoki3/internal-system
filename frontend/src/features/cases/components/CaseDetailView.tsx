@@ -85,11 +85,6 @@ function isParticipantOf(summary: ReturnType<typeof useCaseSummary>): boolean {
   return summary.isSuccess && summary.data.isParticipant;
 }
 
-/** キャッシュに残る概要が参加者。取り直しが失敗していても、前の成功の値は data に残る（#363） */
-function wasParticipantOf(summary: ReturnType<typeof useCaseSummary>): boolean {
-  return summary.data?.isParticipant === true;
-}
-
 /** 資格を失った証拠がある：概要が成功して非参加、または 404。5xx・通信の失敗は含めない（#363） */
 function isOutsiderOf(summary: ReturnType<typeof useCaseSummary>): boolean {
   return summary.isSuccess
@@ -287,7 +282,6 @@ export function CaseDetailView({
     roomId,
     isParticipant,
     outsider: isOutsiderOf(summary),
-    wasParticipant: wasParticipantOf(summary),
     onLost: closeDialog,
   });
 
