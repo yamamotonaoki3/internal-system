@@ -1,7 +1,7 @@
-// #149（149-C）#308・計画 plan-149c 5.5「資格を失ったとき」：useCaseAccessLoss は、参加者だった人が参加者でなくなったとき「だけ」、
-// TODO の履歴・削除済みの一覧のキャッシュを取り除く（参加者だけの中身の後片付け forgetCaseContent の一部）。
-//   (i) 参加者のままの再描画では残す、(ii) 最初から参加者でない描画では何も取り除かない（ほかの利用者・ほかの案件も）、
-//   (iii) 参加者 → 非参加で、その案件の分だけ消える（ほかの案件・ほかの利用者の分は残る）。非参加のままの再描画や、非参加 → 参加でも消さない。
+// #149（149-C）#308・計画 plan-149c 5.5「資格を失ったとき」：useCaseAccessLoss は、参加者でないことが確かめられたとき、
+// TODO の履歴・削除済みの一覧のキャッシュを取り除く（参加者だけの中身の後片付け forgetCaseContent の一部）。#363 から、参加者だったかには依らない。
+//   (i) 参加者のままの再描画では残す、(ii) 最初から参加者でない描画では、この案件・この利用者の分が消え、ほかの利用者・ほかの案件の分は残る（#363）、
+//   (iii) 参加者 → 非参加で、その案件の分だけ消える（ほかの案件・ほかの利用者の分は残る）。片付けの後の再描画や、非参加 → 参加でも消さない。
 // キーは期待の独立のため、配列で直接書く。データは架空（testuser_・[UNIT_TEST]）。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
@@ -81,11 +81,23 @@ describe("#149 149-C #308 履歴・削除済みの一覧のキャッシュは、
     expect(remaining(client)).toHaveLength(ALL_KEYS.length);
   });
 
-  it("#149 149-C #308 (ii): 最初から参加者でない人の描画では、何も取り除かない（ほかの利用者・ほかの案件の分も、この案件の分も）", () => {
+  // #363 で変更：以前は「最初から参加者でない描画では何も取り除かない」だった。
+  // 非参加が確かめられている人のメモリに、参加者だけの中身を残さない（Skill「security」）。作り直しや、離れている間の喪失を取りこぼさないため、
+  // 参加者だったかの記録には頼らない。ただし、ほかの利用者・ほかの案件の分を巻き込んで消さない性質は、そのまま守る。
+  it("#149 149-C #308 / #363 (ii): 最初から参加者でない（非参加が確かめられている）描画では、この案件・この利用者の履歴・削除済みの一覧は消え、ほかの利用者・ほかの案件の分は残る。再描画しても、それ以上は消えない", () => {
     const { client, rerender } = setup(false);
-    expect(remaining(client)).toHaveLength(ALL_KEYS.length);
+    expect(has(client, HISTORY)).toBe(false);
+    expect(has(client, DELETED)).toBe(false);
+    expect(has(client, OTHER_CASE_HISTORY)).toBe(true);
+    expect(has(client, OTHER_CASE_DELETED)).toBe(true);
+    expect(has(client, OTHER_USER_HISTORY)).toBe(true);
+    expect(has(client, OTHER_USER_DELETED)).toBe(true);
+    // 消した後に作り直されたキャッシュは、再描画では消さない（片付けは1回だけ）
+    client.setQueryData([...DELETED], { pages: [] });
     rerender({ isParticipant: false });
-    expect(remaining(client)).toHaveLength(ALL_KEYS.length);
+    expect(has(client, DELETED)).toBe(true);
+    expect(has(client, OTHER_CASE_HISTORY)).toBe(true);
+    expect(has(client, OTHER_USER_DELETED)).toBe(true);
   });
 
   it("#149 149-C #308 (iii): 参加者から非参加になったときだけ、その案件の履歴（全 TODO）・削除済みの一覧が消え、ほかの案件・ほかの利用者の分は残る", () => {
