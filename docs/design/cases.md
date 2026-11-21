@@ -1322,7 +1322,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | --- | --- |
 | `backend/src/routes/cases.ts` | `PATCH /:caseId`。パスの形（ULID）と本文の外枠だけを検証し、Service に渡す。項目の形は、403 までの判定の後に Service で確かめる（存在・状態・説明の有無を漏らさないため。147-B の追加・150-B の再開と同じ形）。応答に`noStore` |
 | `backend/src/services/case.service.ts` | `editBodySchema`（`strict`。変える項目と、`version`か`expected`のどちらか1つ）・`decideEdit`（export。最初の判定と読み直しで同じ順。判定の内側を`isStale`・`decideEditTargets`に分けた）・`edit`（判定の順・読み直し・やり直し）・`changedFieldsOf`（いまの値と違う項目だけを選ぶ）。拒否の`logger.audit`の理由は`not_found`・`cannot_edit`・`description_participants_only`（409・422 は、ほかの操作と同じく残さない）。`detail`は、先に読んだ概要を資格の判定にだけ使い、応答は`findDetailExtras`の値をそのまま返す |
-| `backend/src/db/case.repository.ts` | `findEditFacts`（判定の材料を1回の`db.batch`で読む）・`buildEditStatements`（export。文の配列を組む）・`editCase`（それを`db.batch`で実行）。`findDetailExtras`は概要の項目・担当部署・`version`も同じ batch で読む。`selectRows`の取引先の列に別名を付けた（下の「設計の判断」） |
+| `backend/src/db/case.repository.ts` | `findEditFacts`（判定の材料を1回の`db.batch`で読む）・`buildEditStatements`（export。文の配列と、案件の更新の位置`updateAt`を返す。#155 の155-C で戻り値を`{ statements, updateAt }`に変え、末尾に件名の索引の組を足した）・`editCase`（それを`db.batch`で実行し、`updateAt`の位置の結果を読む）。#155 の155-C で、案件の検索`searchCases`も足した（[search.md](search.md)）。`findDetailExtras`は概要の項目・担当部署・`version`も同じ batch で読む。`selectRows`の取引先の列に別名を付けた（下の「設計の判断」） |
 | `backend/src/lib/audit-actions.ts` | 操作`case.edit`を足した（対象の種類`case`は 147-B で足した） |
 | `backend/src/routes/case-requests.ts`・`services/case-request.service.ts`・`db/case-request.repository.ts` | 類似件名の確認に任意のクエリ`excludeCaseId`を足した（下の「類似件名」） |
 | `docs/api/openapi.json` | EP-5-20 の契約（`CaseEditBody`〔`oneOf`：`version`の枝か`expected`の枝。どちらも`strict`。共通の項目は`CaseEditTitle`・`CaseEditDescription`・`CaseEditClientId`・`CaseEditDepartmentIds`を参照〕・200・403・404・409 の`closed`・`stale`・`retry`・422）、`CaseDetail.version`、監査の操作の列挙、similar-title のクエリ。`CaseSummary`は変えない |
@@ -1412,10 +1412,11 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 | 5 | 自動参加（`joinUserIds`が1人以上のときだけ。参加の行の挿入） | `guardChanges(人数)` |
 | 6 | 案件の更新（**指定した列だけ**＋版を現在の値から+1＋更新日時。`RETURNING`） | `guardChanges(1)` |
 | 7 | 末尾の不変条件`assertStatement`（担当部署が1件以上。C-130(1)） | — |
+| 8 | 件名の索引の組`syncCaseTitleIndexStatements`（4文。#155 の155-C。件名を変えない再編集でも毎回。[search.md](search.md)の「件名の書き込みの経路」） | — |
 
-- **文の数は最大12**（1＋2＋2＋2＋2＋2＋1。部署・人の数に比例しない）。D1 の1文の束縛値の上限（100）に収まることは、DB のテストが、生成したすべての文について確かめる
+- **文の数は最大16**（1＋2＋2＋2＋2＋2＋1＋4。部署・人の数に比例しない。#155 の155-C で、件名の索引の組の4文を足して 12 から改めた。C-202(2) による C-199(9) の置き換え）。D1 の1文の束縛値の上限（100）に収まることは、DB のテストが、生成したすべての文について確かめる
 - **後ろの文（3〜6）は、案件の ID と進行中だけを見る**。先頭の前提を通れば、D1 の`db.batch`は1つのトランザクションで、途中に別の要求が割り込まないため前提は保たれる。版の一致を後ろの文で求めないのは、`expected`の方式で、読んだ後に説明・納期だけが変わると後ろの文が0行になり、500 になるため
-- **取り消しの仕組みと、案件がないときの扱い**：`assertStatement`・`guardChanges`が偽になると全体が取り消される（150-B と同じ）。案件がないとき、条件つきの更新・削除は0行でエラーにならず、件数の確認も0行で通ってしまうので、`editCase`が、案件の更新の`RETURNING`が0行なら`CaseStateChangedError`にする。監査は`onlyWhen`で0行になるので、案件がなくても監査だけが残ることはない
+- **取り消しの仕組みと、案件がないときの扱い**：`assertStatement`・`guardChanges`が偽になると全体が取り消される（150-B と同じ）。案件がないとき、条件つきの更新・削除は0行でエラーにならず、件数の確認も0行で通ってしまうので、`editCase`が、案件の更新の`RETURNING`が0行なら`CaseStateChangedError`にする。読む位置は、`buildEditStatements`が更新の文を積んだ時点で決め、文の配列と一緒に返す（`{ statements, updateAt }`。再開の`composeReopen`と同じ形）。前は末尾からの添字で読んでいたが、155-C で末尾に件名の索引の組を足すと位置がずれ、索引の文の結果を読んで、存在しない案件への再編集を拒否できなくなるため。索引の組は更新の後ろにあり、いまの件名を写すので、拒否された再編集で正しい写しを上書きしない。監査は`onlyWhen`で0行になるので、案件がなくても監査だけが残ることはない
 - **触れないもの**：`case_number`・`number_client_id`・チャンネル・通知・外れた部署のオーナーの参加の行（C-133(2)）・`due_date`・`cases.description`（指定しない限り）
 
 ### 監査（`case.edit`）
@@ -1493,7 +1494,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - **監査の`onlyWhen`を使う**：`auditLogInsertWithDetailSql`は条件を付けられないため、案件がないときに監査だけが残る。`detail`は SQL ではなく、読んだ材料から組む
 - **`form-parts.ts`を`case-requests/index.ts`と別にした**：`index.ts`は案件の機能（`cases`）を参照する部品を含む。`cases`から`index.ts`を参照すると循環になるため、再編集が使う部品・候補・類似件名だけを`form-parts.ts`から公開した（既存の機能どうしの公開の入口の決まりの範囲で、循環を避ける）
 - **`TITLE_CAUTION`の定義元は`case-requests/labels.ts`の1か所**。申請の画面と再編集の両方が参照する
-- **D1 の1つの batch の文の数の上限は未確認**（150-B と同じ）。最大12文にして、150-A・150-B と同じ桁に収めた。手元のテスト（Miniflare）が確かめるのは、120部署・多数のオーナーで動くことと、全文の束縛値が 100 以下であることだけで、本番の D1 の上限の証明ではない
+- **D1 の1つの batch の文の数の上限は未確認**（150-B と同じ）。最大12文にして、150-A・150-B と同じ桁に収めた（#155 の155-C で、件名の索引の組を足して最大16文。同じ桁のまま）。手元のテスト（Miniflare）が確かめるのは、120部署・多数のオーナーで動くことと、全文の束縛値が 100 以下であることだけで、本番の D1 の上限の証明ではない
 
 ## 資格を失ったときの画面の切り替え（#308）
 

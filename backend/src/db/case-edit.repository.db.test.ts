@@ -9,7 +9,8 @@
 //   - 文を差し替えて（計画 4.4 の件数の確認）：余分な削除・余分な追加・自動参加 0 行（重大2）・余分な自動参加・更新 0 行・監査 0 行・
 //     末尾の不変条件（担当部署 1 件以上）で全体が取り消される（差し替えない文の列は成功する＝仕組みの確認）
 //   - 2回目 重大2：expected の方式で、読んだ後に説明・納期だけが変わっても成功し、ほかの人の値は残る。版の方式では同じ変化で崩れる
-//   - D1 の上限：部署 120 件の追加・兼任のオーナー多数で成り立ち、生成したすべての文の束縛値が 100 以下、文の数が 12 以下
+//   - D1 の上限：部署 120 件の追加・兼任のオーナー多数で成り立ち、生成したすべての文の束縛値が 100 以下、文の数が 16 以下
+//     （#155 155-C：利用者の決定〔2026-11-21〕で、件名の索引の組〔4文〕を末尾に足すため、C-199 の最大12文を16文に改めた）
 // 判定の順・応答は Service・結合のテストで確かめ、ここでは重ねない。
 // 契約（実装前の仮置き。計画 150-C 4.3・4.4。実装の担当へ。テストが決めた形）：backend/src/db/case.repository.ts に
 //   export type CaseEditFacts（services/case-edit.decide.test.ts の冒頭を参照）
@@ -22,8 +23,9 @@
 //     title?, description?, client?: { id, code, name }, departmentIds?: readonly string[], // 変える項目だけ（件名は整形後）
 //     joinUserIds: readonly string[],
 //   }
-//   export function buildEditStatements(db: Database, input: CaseEditWriteInput): BatchItem[]（計画 4.4 の順：1 前提 → 2 監査 → 2a →
-//     3 部署の削除 → 3a → 4 部署の追加 → 4a → 5 自動参加 → 5a → 6 案件の更新〔RETURNING〕→ 6a → 7 不変条件。件数の確認は対象の文の直後）
+//   export function buildEditStatements(db: Database, input: CaseEditWriteInput): { statements: BatchItem[]; updateAt: number }
+//     （計画 4.4 の順：1 前提 → 2 監査 → 2a → 3 部署の削除 → 3a → 4 部署の追加 → 4a → 5 自動参加 → 5a → 6 案件の更新〔RETURNING〕→ 6a → 7 不変条件。
+//     件数の確認は対象の文の直後。#155 155-C 計画 R1-1：末尾に件名の索引の組を足し、updateAt は 6 の案件の更新の文の位置）
 //   createCaseRepository(db).editCase(input: CaseEditWriteInput): Promise<void>（前提が崩れていたら CaseStateChangedError）
 // 監査の detail（計画 4.4。変えた項目のキーだけ）：caseId、changedFields（"title,description,client,departments" のうち変えたものを、この順に「,」でつなぐ）、
 //   titleBefore・titleAfter、descriptionChanged: true、clientIdBefore・clientCodeBefore・clientNameBefore・clientIdAfter・clientCodeAfter・clientNameAfter、
@@ -778,7 +780,7 @@ describe("#150 150-C 前提（計画 4.4 の editCondition）：崩れていた�
 
 // ---- 計画 4.4：文を差し替えて、各変更の直後の件数の確認を試す ----
 
-type Statements = ReturnType<typeof buildEditStatements>;
+type Statements = ReturnType<typeof buildEditStatements>["statements"];
 type Item = Statements[number];
 
 type Compiled = { sql: string; params: unknown[] };
@@ -854,7 +856,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
   it("#150 4.4: 差し替えない文の列は、そのまま db.batch に渡すと成り立つ（差し替えの仕組みの確認）", async () => {
     const input = await inputFor(baseChange());
     await withDatabase(env, async (db) => {
-      await runStatements(db, [...buildEditStatements(db, input)]);
+      await runStatements(db, [...buildEditStatements(db, input).statements]);
     });
     expect(await caseDepartmentIdsOf(room.id)).toEqual(
       sorted([w.deptS.id, w.deptD.id, extraDept.id]),
@@ -875,7 +877,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const wider = buildEditStatements(db, {
           ...input,
           departmentIds: [w.deptD.id, extraDept.id],
-        });
+        }).statements;
         statements[indexOf(statements, DELETE_DEPARTMENTS)] = wider[
           indexOf(wider, DELETE_DEPARTMENTS)
         ] as Item;
@@ -887,7 +889,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const wider = buildEditStatements(db, {
           ...input,
           departmentIds: [w.deptS.id, w.deptD.id, extraDept.id, spareDept.id],
-        });
+        }).statements;
         statements[indexOf(statements, INSERT_DEPARTMENTS)] = wider[
           indexOf(wider, INSERT_DEPARTMENTS)
         ] as Item;
@@ -899,7 +901,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const narrow = buildEditStatements(db, {
           ...input,
           departmentIds: [w.deptS.id, w.deptD.id],
-        });
+        }).statements;
         statements[indexOf(statements, INSERT_DEPARTMENTS)] = narrow[
           indexOf(narrow, INSERT_DEPARTMENTS)
         ] as Item;
@@ -917,7 +919,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const wider = buildEditStatements(db, {
           ...input,
           joinUserIds: [...input.joinUserIds, w.noDept.id],
-        });
+        }).statements;
         statements[indexOf(statements, INSERT_MEMBERS)] = wider[
           indexOf(wider, INSERT_MEMBERS)
         ] as Item;
@@ -929,7 +931,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const narrow = buildEditStatements(db, {
           ...input,
           joinUserIds: input.joinUserIds.slice(0, 1),
-        });
+        }).statements;
         statements[indexOf(statements, INSERT_MEMBERS)] = narrow[
           indexOf(narrow, INSERT_MEMBERS)
         ] as Item;
@@ -964,7 +966,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
         const everything = buildEditStatements(db, {
           ...input,
           departmentIds: [],
-        });
+        }).statements;
         statements[deleteAt] = everything[
           indexOf(everything, DELETE_DEPARTMENTS)
         ] as Item;
@@ -982,7 +984,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
       expect(input.joinUserIds.length).toBe(2);
       const before = await caseEditSnapshot();
       await withDatabase(env, async (db) => {
-        const statements = [...buildEditStatements(db, input)];
+        const statements = [...buildEditStatements(db, input).statements];
         swap(db, statements, input);
         await expect(runStatements(db, statements)).rejects.toBeInstanceOf(
           CaseStateChangedError,
@@ -994,7 +996,7 @@ describe("#150 150-C 計画 4.4 各変更の直後の件数の確認（文を差
 });
 
 describe("#150 150-C D1 の上限（1文 100 パラメータ・batch の文の数。計画 12）", () => {
-  it("#150 D1 の上限: 部署 120 件を足し、兼任のオーナー 60 人（1人2部署）が自動参加する再編集が1回で成り立ち、すべての文の束縛値が 100 以下・文は 12 以下", async () => {
+  it("#150 D1 の上限: 部署 120 件を足し、兼任のオーナー 60 人（1人2部署）が自動参加する再編集が1回で成り立ち、すべての文の束縛値が 100 以下・文は 16 以下（#155 155-C で 12 から改めた）", async () => {
     const departments = await insertBulkDepartments(120);
     const owners = await insertBulkEditUsers(60, w.deptS.id);
     await assignOwners(
@@ -1011,9 +1013,9 @@ describe("#150 150-C D1 の上限（1文 100 パラメータ・batch の文の�
     });
     expect(input.joinUserIds).toHaveLength(60);
     await withDatabase(env, async (db) => {
-      const statements = buildEditStatements(db, input);
+      const { statements } = buildEditStatements(db, input);
       expect(statements.length).toBeGreaterThan(0);
-      expect(statements.length).toBeLessThanOrEqual(12);
+      expect(statements.length).toBeLessThanOrEqual(16);
       const counts = statements.map((s) => compiledOf(s).params.length);
       expect(
         counts.every((n) => n <= 100),
@@ -1145,4 +1147,61 @@ describe("#150 150-C 取引先の有効性は、取引先を変えるときだ�
     await expect(edit(input)).rejects.toBeInstanceOf(CaseStateChangedError);
     expect(await caseEditSnapshot()).toEqual(before);
   });
+});
+
+// ---- #155 155-C 計画 R1-1：末尾に件名の索引の組を足しても、案件の更新の結果を読む位置がずれないこと ----
+
+describe("#155 155-C R1-1 再編集の結果を読む位置（updateAt）", () => {
+  beforeEach(prepareSwapWorld);
+
+  it.each([
+    { name: "件名・部署を変える（自動参加あり）", change: baseChange },
+    {
+      name: "件名だけを変える",
+      change: () => ({ title: "[UNIT_TEST]155C位置の確認の件名" }),
+    },
+    {
+      name: "説明だけを変える",
+      change: () => ({ description: "[UNIT_TEST]155C位置の確認の説明" }),
+    },
+  ])(
+    "#155 R1-1: $name とき、updateAt は案件の更新（RETURNING）の文の位置で、末尾の文ではない",
+    async ({ change }) => {
+      const input = await inputFor(change());
+      await withDatabase(env, async (db) => {
+        const { statements, updateAt } = buildEditStatements(db, input);
+        expect(updateAt).toBe(indexOf(statements, UPDATE_CASE_RETURNING));
+        expect(updateAt).toBeLessThan(statements.length - 1);
+      });
+    },
+  );
+});
+
+// ---- #155 155-C project-rules 53行：索引の組は batch の末尾に置き、ガード（changes() を見る文）との間に挟まない ----
+
+describe("#155 155-C 再編集の batch の、件名の索引の組の位置", () => {
+  beforeEach(prepareSwapWorld);
+
+  it.each([
+    { name: "件名・部署を変える（自動参加あり）", change: baseChange },
+    {
+      name: "件名だけを変える",
+      change: () => ({ title: "[UNIT_TEST]155C末尾の確認の件名" }),
+    },
+  ])(
+    "#155 project-rules 53: $name とき、索引の文（search_documents・search_fts）は末尾に続けて並び、その後に案件のガード・前提の確認の文が無い",
+    async ({ change }) => {
+      const input = await inputFor(change());
+      await withDatabase(env, async (db) => {
+        const { statements } = buildEditStatements(db, input);
+        const isIndex = statements.map((item) =>
+          /search_documents|search_fts/i.test(compiledOf(item).sql),
+        );
+        const first = isIndex.indexOf(true);
+        expect(first).toBeGreaterThan(0);
+        expect(isIndex.slice(first).every(Boolean)).toBe(true);
+        expect(isIndex.slice(0, first).some(Boolean)).toBe(false);
+      });
+    },
+  );
 });

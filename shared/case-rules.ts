@@ -81,3 +81,27 @@ export const caseDueDateSchema = z
 export function isDueDateBeforeToday(dueDate: string, now: Date): boolean {
   return dueDate < jstDateOf(now).date;
 }
+
+/**
+ * 案件番号の検索で、ハイフンとして取り除く文字（#155 の利用者の決定）：
+ * 「-」・全角のハイフン（U+FF0D）・長音符（U+30FC）・マイナス記号（U+2212）・ハイフン（U+2010）・エンダッシュ（U+2013）・エムダッシュ（U+2014）。
+ * 件名の整形の HYPHENS とは対象が違う（U+2015 などは決定に入っていないため含めない）
+ */
+const CASE_NUMBER_SEARCH_HYPHENS = /[-－ー−‐–—]/g;
+/** 半角に直す全角の英数字 */
+const FULL_WIDTH_ALPHANUMERIC = /[０-９Ａ-Ｚａ-ｚ]/g;
+
+/**
+ * 案件番号の検索のキー（C-117・C-120・#155 の利用者の決定）：前後の空白（全角を含む）を除き、全角の英数字を半角に直し、
+ * ハイフンにあたる文字を位置に依らず除き、英字を大文字にする。途中の空白は全角・半角とも保つ（途中に空白のある語は番号に一致させない）。
+ * NFKC は使わない（途中の全角の空白まで変わるため）。空になったら、番号では探さない
+ */
+export function caseNumberSearchKey(term: string): string {
+  return term
+    .trim()
+    .replace(FULL_WIDTH_ALPHANUMERIC, (char) =>
+      String.fromCharCode(char.charCodeAt(0) - FULL_WIDTH_OFFSET),
+    )
+    .replace(CASE_NUMBER_SEARCH_HYPHENS, "")
+    .replace(/[a-z]/g, (char) => char.toUpperCase());
+}

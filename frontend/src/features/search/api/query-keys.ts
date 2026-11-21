@@ -9,10 +9,17 @@ export type MessageSearchConditions = {
 
 export const searchKeys = {
   user: (userId: string) => ["search", userId] as const,
+  /** メッセージの区画の全体（区画を離れるときの後始末に使う。ほかの区画の取得は止めない） */
+  messagesAll: (userId: string) => ["search", userId, "messages"] as const,
   /** pageCount は1ページ目から取るページ数（「さらに表示」で増える） */
   messages: (
     userId: string,
     conditions: MessageSearchConditions,
     pageCount: number,
   ) => ["search", userId, "messages", conditions, pageCount] as const,
+  /** 案件の区画の全体（区画を離れるときの後始末に使う） */
+  casesAll: (userId: string) => ["search", userId, "cases"] as const,
+  /** 案件の区画は語だけで取る（部屋・期間で絞らない） */
+  cases: (userId: string, q: string, pageCount: number) =>
+    ["search", userId, "cases", { q }, pageCount] as const,
 };

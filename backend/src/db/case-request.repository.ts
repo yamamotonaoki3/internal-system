@@ -28,6 +28,7 @@ import {
 } from "./audit-log.repository";
 import { withDatabase, type BatchItem, type Database } from "./database";
 import { notificationInserts } from "./notification.repository";
+import { syncCaseTitleIndexStatements } from "./search-index.sql";
 import {
   createRoleAssignmentRepository,
   type RoleAssignmentRepository,
@@ -814,6 +815,8 @@ export function createCaseRequestRepository(db: Database) {
           kind: "case_request.approved",
           targetId: requestId,
         }),
+        // 14. 件名の索引（末尾に置き、前提の確認の文の間に挟まない。いまの案件の行を写す）
+        ...syncCaseTitleIndexStatements(db, caseId),
       ];
       await runBatch("approve", () => db.batch(statements));
       const created = await db
