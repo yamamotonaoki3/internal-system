@@ -15,6 +15,7 @@ import {
   auditRowsOf,
   cleanupAttachmentDeleteScenario,
   deletionOf,
+  jsonLogs,
   markAttachmentDeleted,
   recordingBucket,
 } from "../../test/attachment-delete-fixtures";
@@ -223,6 +224,37 @@ describe("#270 AC-2 指摘2 拒否されなければ、権限を確かめて進�
     });
     expect(outcome.error).toMatchObject({ code: "REAUTH_REQUIRED" });
     expect(outcome.calls.map((call) => call.permission)).toContain(PERMISSION);
+    await expectUntouched(outcome.deletes);
+  });
+});
+
+// ---- ミューテーションで見つかった見逃し（#270）：他人の添付の削除の、拒否の監査 ----
+// 根拠：設計 docs/design/attachments.md「添付の削除」の判定の順 ②「403。logger.audit に attachment.delete・失敗・not_author」、
+//   要件 1-6 AC-4・R-34（他人の添付の削除は、どのロールでも不可）。監査は「誰が（行為者）・何を・どの対象に・結果」（C-30）。
+describe("#270 AC-2（R-34）他人の添付の削除の、拒否の監査", () => {
+  it("#270 AC-2: 他人の添付を消そうとすると、監査ログに attachment.delete・対象の添付・failure・理由 not_author・行為者（消そうとした人）が1件残る", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const outcome = await removeAs(world.bob.userId);
+    expect(outcome.error).toMatchObject({ code: "FORBIDDEN", status: 403 });
+    const audits = jsonLogs(lines).filter(
+      (line) => line.attributes?.log_type === "audit",
+    );
+    expect(audits).toHaveLength(1);
+    const [audit] = audits as (ReturnType<typeof jsonLogs>[number] & {
+      user_id?: string;
+      trace_id?: string;
+    })[];
+    expect(audit?.body).toBe(ATTACHMENT_DELETE_ACTION);
+    expect(audit?.user_id).toBe(world.bob.userId);
+    expect(typeof audit?.trace_id).toBe("string");
+    expect(audit?.attributes).toMatchObject({
+      target: attachmentId,
+      result: "failure",
+      reason: "not_author",
+    });
     await expectUntouched(outcome.deletes);
   });
 });

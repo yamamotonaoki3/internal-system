@@ -426,3 +426,160 @@ describe("#270 指摘1 失敗の記録（purge_failed_at）", () => {
     expect((await purgeStateOf(left.id))?.purge_failed_at).toBeNull();
   });
 });
+
+// ---- ミューテーション・条件を1つずつ外す確かめで見つかった見逃し（#270）：読む位置（カーソル）・ページ・上限 ----
+// 根拠：計画 4.4（1ページ 100 行・1回 500 行・失敗した行も数える・同じ実行で2回試さない）と、コードレビューの指摘1の直し
+//   （失敗したことのない行を (deleted_at, id) の順に先に、その後に失敗したことのある行を (purge_failed_at, id) の順に。
+//    失敗したことのある行は、この実行の開始より前に失敗した行だけを読む）。設計 docs/design/attachments.md「添付の削除」。
+// ページの大きさ・上限は、本番の定数を読み込まず、テストの側に独立して書く。
+const PAGE_SIZE = 100;
+const OLD_FAILURE = "2026-01-01T00:00:00.000Z";
+
+/** seedDeleted で入れた行（ID の昇順に並んだ連続の範囲）に、まとめて失敗の時刻を書く（状態の準備） */
+async function markRangeFailed(
+  rows: readonly { id: string }[],
+  failedAt: string,
+) {
+  const first = rows[0]?.id;
+  const last = rows.at(-1)?.id;
+  if (first === undefined || last === undefined)
+    throw new Error("行がありません");
+  await env.DB.prepare(
+    "UPDATE message_attachments SET purge_failed_at = ? WHERE id >= ? AND id <= ? AND deleted_at IS NOT NULL",
+  )
+    .bind(failedAt, first, last)
+    .run();
+}
+
+/** D1 を包み、後始末の対象を読む SELECT（purge_failed_at AS purgeFailedAt を返す文）の、最後の値（LIMIT）を記録する */
+function limitRecordingDb(real: D1Database) {
+  const limits: number[] = [];
+  const db = new Proxy(real, {
+    get(target, property, receiver) {
+      if (property === "prepare")
+        return (query: string) => {
+          const statement = target.prepare(query);
+          if (!/purge_failed_at AS purgeFailedAt/i.test(query))
+            return statement;
+          const bind = statement.bind.bind(statement);
+          statement.bind = (...values: unknown[]) => {
+            limits.push(Number(values.at(-1)));
+            return bind(...values);
+          };
+          return statement;
+        };
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db, limits };
+}
+
+describe("#270 AC-5・指摘1 読む位置（カーソル）：1回の実行で、すべての行をちょうど1回ずつ試す", () => {
+  it("#270 AC-5・指摘1: 失敗したことのない行が1ページ（100行）を超え（150行）、その後ろに失敗したことのある行（30行）があっても、180行を重複なし・抜けなしで、失敗したことのない行を先に試す", async () => {
+    const fresh = await seedDeleted(150, (n) => isoAt(n));
+    const failed = await seedDeleted(30, (n) => isoAt(n), { offset: 150 });
+    await markRangeFailed(failed, OLD_FAILURE);
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toHaveLength(180);
+    expect(new Set(recorded.deletes).size).toBe(180);
+    expect(recorded.deletes.slice(0, 150)).toEqual(fresh.map((r) => r.key));
+    expect([...recorded.deletes.slice(150)].sort()).toEqual(
+      failed.map((r) => r.key).sort(),
+    );
+    expect(await remainingDeletedIds()).toEqual([]);
+  });
+
+  it("#270 AC-5・指摘1: 失敗したことのある行が1ページを超え（150行・同じ失敗の時刻で id だけ違う）、ページの境目にまたがっても、重複なし・抜けなし", async () => {
+    const fresh = await seedDeleted(5, (n) => isoAt(n));
+    const failed = await seedDeleted(150, () => isoAt(1), { offset: 5 });
+    await markRangeFailed(failed, OLD_FAILURE);
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toHaveLength(155);
+    expect(new Set(recorded.deletes).size).toBe(155);
+    expect(recorded.deletes.slice(0, 5)).toEqual(fresh.map((r) => r.key));
+    // 失敗の時刻が同じなら id の昇順（(purge_failed_at, id) の順）
+    expect(recorded.deletes.slice(5)).toEqual(failed.map((r) => r.key));
+    expect(await remainingDeletedIds()).toEqual([]);
+  });
+
+  it("#270 AC-5・指摘1: 失敗したことのある行が1ページを超え（150行・失敗の時刻が行ごとに違う）ても、失敗の時刻の古い順に、重複なし・抜けなし", async () => {
+    // ID の昇順と失敗の時刻の順を逆にする（id ではなく purge_failed_at が先の順であることも確かめる）
+    const failed = await seedDeleted(150, () => isoAt(1));
+    for (let start = 0; start < failed.length; start += 50)
+      await env.DB.batch(
+        failed
+          .slice(start, start + 50)
+          .map((row, i) =>
+            env.DB.prepare(
+              "UPDATE message_attachments SET purge_failed_at = ? WHERE id = ?",
+            ).bind(
+              new Date(
+                Date.parse(OLD_FAILURE) + (1_000 - start - i) * 1_000,
+              ).toISOString(),
+              row.id,
+            ),
+          ),
+      );
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toEqual(failed.map((r) => r.key).reverse());
+    expect(await remainingDeletedIds()).toEqual([]);
+  });
+
+  it("#270 AC-5・指摘1: 失敗したことのある行（150行）の実体の削除がすべて失敗し、失敗の時刻の記録まで失敗しても（行は古い失敗の時刻のまま残る）、同じ実行で2回試さない", async () => {
+    const failed = await seedDeleted(150, () => isoAt(1));
+    await markRangeFailed(failed, OLD_FAILURE);
+    const recorded = recordingBucket(bucket(), () => true);
+    const failing = failingStatementDb(
+      env.DB,
+      /update\s+["`]?message_attachments["`]?\s+set\s+["`]?purge_failed_at/i,
+    );
+    await runJob({ ATTACHMENTS: recorded.bucket, DB: failing.db });
+    expect(failing.state.replaced).toBeGreaterThan(0);
+    expect(recorded.deletes).toHaveLength(150);
+    expect(new Set(recorded.deletes).size).toBe(150);
+    expect(await remainingDeletedIds()).toHaveLength(150);
+  });
+
+  it("#270 AC-5・指摘1: この実行の開始より後に失敗の時刻が書かれた行（同時に動いた別の実行が失敗を書いた行）は、失敗したことのない行が2ページ目に続いても、この実行では試さない", async () => {
+    const fresh = await seedDeleted(150, (n) => isoAt(n));
+    // deleted_at は失敗したことのない行より新しい（2ページ目の範囲に入る）
+    const [later] = await seedDeleted(1, () => isoAt(10_000), {
+      offset: 150,
+    });
+    if (later === undefined) throw new Error("行を作れませんでした");
+    await markRangeFailed([later], "2999-01-01T00:00:00.000Z");
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toEqual(fresh.map((r) => r.key));
+    expect(await remainingDeletedIds()).toEqual([later.id]);
+  });
+
+  it("#270 AC-5・指摘1: すべて失敗する 450行（失敗したことのない行）＋100行（失敗したことのある行）でも、1回に試すのは上限の500行までで、重複しない", async () => {
+    await seedDeleted(450, (n) => isoAt(n));
+    const failed = await seedDeleted(100, (n) => isoAt(n), { offset: 450 });
+    await markRangeFailed(failed, OLD_FAILURE);
+    const recorded = recordingBucket(bucket(), () => true);
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toHaveLength(RUN_LIMIT);
+    expect(new Set(recorded.deletes).size).toBe(RUN_LIMIT);
+    expect(purgeInfo()[0]?.attributes).toMatchObject({
+      readRows: RUN_LIMIT,
+      reachedLimit: true,
+    });
+  });
+
+  it("#270 AC-5: 1回に読むのは1ページ100行まで（どの読み出しも LIMIT は100以下）で、500行を超える数は読まない", async () => {
+    await seedDeleted(RUN_LIMIT + 50, (n) => isoAt(n));
+    const recorded = recordingBucket(bucket());
+    const wrapped = limitRecordingDb(env.DB);
+    await runJob({ ATTACHMENTS: recorded.bucket, DB: wrapped.db });
+    expect(wrapped.limits.length).toBeGreaterThan(0);
+    for (const limit of wrapped.limits)
+      expect(limit).toBeLessThanOrEqual(PAGE_SIZE);
+    expect(recorded.deletes).toHaveLength(RUN_LIMIT);
+  });
+});

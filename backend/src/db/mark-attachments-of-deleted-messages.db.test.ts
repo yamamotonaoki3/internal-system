@@ -152,3 +152,45 @@ describe("#270 AC-9 削除済みのメッセージの添付に、印を付ける
     expect(await targetCount()).toBe(0);
   });
 });
+
+// ---- 条件を1つずつ外す確かめで見つかった見逃し（#270）：触れない行に、NULL を書き直していないこと ----
+// 根拠：計画 4.8・SQL の先頭のコメント「削除されていないメッセージの添付・未投稿の添付・既に印のある添付には触れない」。
+//   条件を外すと、触れない行にも NULL（同じ値）が書かれ、値だけでは差が出ないため、変更された行の数（changes）で確かめる。
+describe("#270 AC-9 補完の SQL が変える行の数", () => {
+  it("#270 AC-9: 変更された行の数は、流す前の対象の数（1件）と一致し、削除されていないメッセージの添付・未投稿の添付・既に印のある添付を数えない", async () => {
+    const live = await attach(await post(false));
+    const pending = await attach(null);
+    const deletedMessage = await post(true);
+    const target = await attach(deletedMessage);
+    const already = await attach(deletedMessage);
+    await markAttachmentDeleted(already, author.userId);
+    expect(await targetCount()).toBe(1);
+    const results = await runBackfill();
+    const changes = results.reduce(
+      (sum, result) => sum + (result.meta.changes ?? 0),
+      0,
+    );
+    expect(changes).toBe(1);
+    expect(await deletionOf(target)).toEqual({
+      deleted_at: MESSAGE_DELETED_AT,
+      deleted_by: deleter.userId,
+    });
+    for (const id of [live, pending])
+      expect(await deletionOf(id)).toEqual({
+        deleted_at: null,
+        deleted_by: null,
+      });
+  });
+
+  it("#270 AC-9: 2回目に流したときに変更される行の数は 0（べき等）", async () => {
+    await attach(await post(true));
+    await attach(await post(false));
+    await runBackfill();
+    const results = await runBackfill();
+    const changes = results.reduce(
+      (sum, result) => sum + (result.meta.changes ?? 0),
+      0,
+    );
+    expect(changes).toBe(0);
+  });
+});

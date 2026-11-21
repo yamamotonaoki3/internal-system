@@ -12,8 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanupAttachmentDeleteScenario,
   markAttachmentDeleted,
+  purgeStateOf,
 } from "../../test/attachment-delete-fixtures";
-import { insertAttachmentRow } from "../../test/attachment-fixtures";
+import {
+  attachmentRow,
+  insertAttachmentRow,
+} from "../../test/attachment-fixtures";
 import {
   TEST_TAG,
   insertChannel,
@@ -31,7 +35,11 @@ import {
   markDeleted,
   type ModifyUser,
 } from "../../test/message-modify-fixtures";
-import { deletable } from "./attachment-delete.sql";
+import {
+  deletable,
+  deletePurgedRow,
+  markPurgeFailed,
+} from "./attachment-delete.sql";
 import { withDatabase } from "./database";
 
 let dept: SeededDepartment;
@@ -231,5 +239,80 @@ describe("#270 AC-2・AC-4 deletable の事例表（対象でない添付が別�
   it("#270 AC-2: 本人の添付でも、別の利用者を指定すると偽", async () => {
     const id = await attach(room, await post(room));
     expect(await isDeletable(id, other.userId)).toBe(false);
+  });
+});
+
+// ---- ミューテーション・条件を1つずつ外す確かめで見つかった見逃し（#270） ----
+// 根拠：要件 docs/requirements/01-messaging.md 1-6 AC-4（自分の添付だけを削除できる）・設計 docs/design/attachments.md の「添付の削除」
+//   （deletable の条件「アップロードしたのが本人で、結び付いたメッセージが modifiable を満たす」）と、
+//   後始末の順「印 → R2 の実体 → 行の物理削除。行の削除は印のある行だけを条件にする」（attachment-delete.sql.ts の契約）。
+describe("#270 AC-2・AC-4 deletable：メッセージの投稿者とアップロードした人が別の行", () => {
+  it("#270 AC-2（R-34）: メッセージの投稿者は本人だが、添付のアップロードは別の人の行は、投稿者本人にとって偽", async () => {
+    // Service の②（本人か）を通らない組み合わせ。ふつうは作られないため、行を直接作り、SQL の層だけで確かめる
+    const id = await attach(room, await post(room), other.userId);
+    expect(await isDeletable(id)).toBe(false);
+    expect(await isDeletable(decoy)).toBe(true);
+  });
+
+  it("#270 AC-2（R-34）: 同じ行は、アップロードした人（投稿者でない）にとっても偽（modifiable を満たさない）", async () => {
+    const id = await attach(room, await post(room), other.userId);
+    expect(await isDeletable(id, other.userId)).toBe(false);
+  });
+});
+
+describe("#270 AC-5 後始末の書き込みは、削除の印のある行だけ", () => {
+  it("#270 AC-5: deletePurgedRow は、削除の印のない（生きている）添付の行を消さず、0 を返す", async () => {
+    const id = await attach(room, await post(room));
+    const changes = await withDatabase(env, (db) => deletePurgedRow(db, id));
+    expect(changes).toBe(0);
+    expect(await attachmentRow(id)).not.toBeNull();
+    expect(await purgeStateOf(id)).toEqual({
+      deleted_at: null,
+      deleted_by: null,
+      purge_failed_at: null,
+    });
+  });
+
+  it("#270 AC-5: deletePurgedRow は、未投稿の添付の行も消さない", async () => {
+    const id = await attach(room, null);
+    const changes = await withDatabase(env, (db) => deletePurgedRow(db, id));
+    expect(changes).toBe(0);
+    expect(await attachmentRow(id)).not.toBeNull();
+  });
+
+  it("#270 AC-5（対照）: deletePurgedRow は、印のある行だけを1行消し、1 を返す。ほかの行は残る", async () => {
+    const id = await attach(room, await post(room));
+    await markAttachmentDeleted(id, author.userId);
+    const changes = await withDatabase(env, (db) => deletePurgedRow(db, id));
+    expect(changes).toBe(1);
+    expect(await attachmentRow(id)).toBeNull();
+    expect(await attachmentRow(decoy)).not.toBeNull();
+  });
+
+  it("#270 AC-5: markPurgeFailed は、削除の印のない行に失敗の時刻を書かず、0 を返す", async () => {
+    const id = await attach(room, await post(room));
+    const changes = await withDatabase(env, (db) =>
+      markPurgeFailed(db, id, "2026-11-22T00:00:00.000Z"),
+    );
+    expect(changes).toBe(0);
+    expect(await purgeStateOf(id)).toEqual({
+      deleted_at: null,
+      deleted_by: null,
+      purge_failed_at: null,
+    });
+  });
+
+  it("#270 AC-5（対照）: markPurgeFailed は、印のある行に失敗の時刻だけを書き、1 を返す（deleted_at・deleted_by は変えない）", async () => {
+    const id = await attach(room, await post(room));
+    await markAttachmentDeleted(id, author.userId, "2026-11-21T00:00:00.000Z");
+    const changes = await withDatabase(env, (db) =>
+      markPurgeFailed(db, id, "2026-11-22T00:00:00.000Z"),
+    );
+    expect(changes).toBe(1);
+    expect(await purgeStateOf(id)).toEqual({
+      deleted_at: "2026-11-21T00:00:00.000Z",
+      deleted_by: author.userId,
+      purge_failed_at: "2026-11-22T00:00:00.000Z",
+    });
   });
 });
