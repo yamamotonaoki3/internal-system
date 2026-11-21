@@ -630,3 +630,155 @@ describe("#155 4-2 AC-1 I-2 件名の索引と cases の不一致の数え（わ
     );
   });
 });
+
+describe("#155 4-2 AC-1 I-2 組は、写しの形の崩れも直す（計画 2章の写しの形：部屋・メッセージの列は NULL・検索用の文は件名。組を当てると、いまの行と一致する）", () => {
+  it.each([
+    {
+      name: "写しの部屋の列が NULL でない",
+      breakIt: () =>
+        env.DB.prepare(
+          "UPDATE search_documents SET room_id = ? WHERE kind = 'case_title' AND ref_id = ?",
+        )
+          .bind(room.roomId, room.id)
+          .run(),
+      broken: { wrongColumns: 1 },
+    },
+    {
+      name: "写しのメッセージの列が NULL でない",
+      breakIt: () =>
+        env.DB.prepare(
+          "UPDATE search_documents SET message_id = ? WHERE kind = 'case_title' AND ref_id = ?",
+        )
+          .bind(room.roomId, room.id)
+          .run(),
+      broken: { wrongColumns: 1 },
+    },
+    {
+      name: "検索用の行が無い（対応の行だけ）",
+      breakIt: () =>
+        env.DB.prepare(
+          "DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'case_title' AND ref_id = ?)",
+        )
+          .bind(room.id)
+          .run(),
+      broken: { withoutFts: 1 },
+    },
+    {
+      name: "検索用の行の文が件名と違う",
+      breakIt: () =>
+        env.DB.prepare(
+          "UPDATE search_fts SET text = ? WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'case_title' AND ref_id = ?)",
+        )
+          .bind("[UNIT_TEST]155C壊れた検索用の文", room.id)
+          .run(),
+      broken: { wrongFtsText: 1 },
+    },
+  ])(
+    "#155 I-2: $name → 先に1件と数え、組を当てると不一致が0件になり、いまの件名で引ける",
+    async ({ breakIt, broken }) => {
+      await breakIt();
+      expect(await caseTitleIndexMismatches()).toEqual({
+        ...NO_CASE_TITLE_MISMATCH,
+        ...broken,
+      });
+      await runCaseTitleIndexStatements(room.id);
+      expect(await caseTitleIndexMismatches()).toEqual(NO_CASE_TITLE_MISMATCH);
+      expect(await ftsMatchCaseIds(OLD_WORD)).toEqual([room.id]);
+      expect(await caseTitleIndexRowsOf(room.id)).toHaveLength(1);
+    },
+  );
+});
+
+describe("#155 4-2 AC-1 I-1 組は、その案件の件名の写しだけを扱う（ほかの種類・ほかの案件の行に触れない。SQL の条件を外す手での確認で見つけた不足）", () => {
+  it("#155 I-1: 同じ ref_id の、種類の違う行（kind=message）は、組を当てても消えず、検索用の行も足されない（対照：その案件の件名の写しは直る）", async () => {
+    // 種類の違う行：部屋の列があり（件名の写しとしては崩れた形）、検索用の行が無い
+    const otherKind = await insertCaseTitleIndexRow({
+      caseId: room.id,
+      kind: "message",
+      roomId: room.roomId,
+      messageId: room.roomId,
+      createdAt: CASEREQ_NOW,
+      sourceBody: "[UNIT_TEST]155C種類の違う行",
+      withFts: false,
+    });
+    await env.DB.prepare("UPDATE cases SET title = ? WHERE id = ?")
+      .bind(NEW_TITLE, room.id)
+      .run();
+    await runCaseTitleIndexStatements(room.id);
+    // 対照：件名の写しは新しい件名に直る
+    expect(await ftsMatchCaseIds(NEW_WORD)).toEqual([room.id]);
+    const kept = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM search_documents WHERE id = ?1) AS documents,
+              (SELECT COUNT(*) FROM search_fts WHERE rowid = ?1) AS fts`,
+    )
+      .bind(otherKind)
+      .first<{ documents: number; fts: number }>();
+    expect(kept).toEqual({ documents: 1, fts: 0 });
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM search_documents WHERE id = ?").bind(
+        otherKind,
+      ),
+    ]);
+  });
+
+  it("#155 I-1: ほかの案件の崩れた写し（件名が違う・検索用の行が無い）は、この案件の組では直さない（対照：この案件の写しは直る）", async () => {
+    const other = await seedCase({
+      n: 1775,
+      clientId: w.clientA.id,
+      code: "QZA",
+      title: "[UNIT_TEST]155C別の案件の件名",
+      createdBy: w.memberS1.id,
+      departmentIds: [w.deptS.id],
+    });
+    await runCaseTitleIndexStatements(other.id);
+    await env.DB.prepare("UPDATE cases SET title = ? WHERE id = ?")
+      .bind("[UNIT_TEST]155C別の案件の新しい件名", other.id)
+      .run();
+    const third = await seedCase({
+      n: 1776,
+      clientId: w.clientA.id,
+      code: "QZA",
+      title: "[UNIT_TEST]155C三つ目の案件の件名",
+      createdBy: w.memberS1.id,
+      departmentIds: [w.deptS.id],
+    });
+    await insertCaseTitleIndexRow({
+      caseId: third.id,
+      createdAt: CASEREQ_NOW,
+      sourceBody: "[UNIT_TEST]155C三つ目の案件の件名",
+      withFts: false,
+    });
+    await env.DB.prepare("UPDATE cases SET title = ? WHERE id = ?")
+      .bind(NEW_TITLE, room.id)
+      .run();
+    expect(await caseTitleIndexMismatches()).toEqual({
+      ...NO_CASE_TITLE_MISMATCH,
+      wrongTitle: 2,
+      withoutFts: 1,
+    });
+    await runCaseTitleIndexStatements(room.id);
+    expect(await ftsMatchCaseIds(NEW_WORD)).toEqual([room.id]);
+    // ほかの2件の崩れは残る（それぞれの組か、登録の処理で直す）
+    expect(await caseTitleIndexMismatches()).toEqual({
+      ...NO_CASE_TITLE_MISMATCH,
+      wrongTitle: 1,
+      withoutFts: 1,
+    });
+  });
+
+  it("#155 I-2: 元の案件の無い写しは、ほかの案件と件名・作成日時が同じでも、組を当てると消える（案件の実在は ref_id で確かめる）", async () => {
+    const created = (await caseRow(room.id)).created_at;
+    await insertCaseTitleIndexRow({
+      caseId: MISSING_CASE_ID,
+      createdAt: created,
+      sourceBody: OLD_TITLE,
+    });
+    expect(await caseTitleIndexMismatches()).toEqual({
+      ...NO_CASE_TITLE_MISMATCH,
+      missingCase: 1,
+    });
+    await runCaseTitleIndexStatements(MISSING_CASE_ID);
+    expect(await caseTitleIndexMismatches()).toEqual(NO_CASE_TITLE_MISMATCH);
+    expect(await ftsMatchCaseIds(OLD_WORD)).toEqual([room.id]);
+  });
+});
