@@ -436,21 +436,54 @@ describe("#155 4-2 AC-3 R-1 案件番号の一致（利用者の決定：前方�
   });
 });
 
-describe("#155 4-2 AC-3 R-1 既知の差（統括の決定 2026-11-21・利用者に確認中）：全角の文字は番号の一致に当たらない", () => {
-  // 利用者の決定は半角だけを扱う（ASCII の「-」を除き、ASCII の英字の大小を無視する）。全角は変換しないことを、いまの決まりとして固定する
+describe("#155 4-2 AC-3 R-1 全角で打った番号も一致する（利用者の決定 2026-11-21。以前の「全角は番号に当たらない」を置き換えた）", () => {
   it.each([
-    { name: "全角のハイフン（－）", term: "QZN－2611" },
-    { name: "長音符（ー）", term: "QZNー2611" },
-    { name: "全角のダッシュ（―）", term: "QZN―2611" },
     { name: "全角の英字", term: "ＱＺＮ-2611" },
+    { name: "全角の小文字の英字", term: "ｑｚｎ-2611" },
     { name: "全角の数字", term: "QZN-２６１１" },
+    { name: "全角のハイフン（U+FF0D）", term: "QZN\uFF0D2611" },
+    { name: "長音符（U+30FC）", term: "QZN\u30FC2611" },
+    { name: "マイナス記号（U+2212）", term: "QZN\u22122611" },
+    {
+      name: "ハイフン・ダッシュの混在（U+2010・U+2013・U+2014）",
+      term: "Q\u2010Z\u2013N\u20142611",
+    },
+    { name: "全角の番号の全体", term: "ＱＺＮ－２６１１１７－１７１１" },
   ])(
-    "#155 4-2 AC-3 既知の差: $name を含む「$term」は0件（対照：半角の「QZN-2611」では出る）",
+    "#155 4-2 AC-3: $name「$term」で、その案件だけが出て、matchedIn は caseNumber だけ",
     async ({ term }) => {
-      expect(await idsOf("QZN-2611")).toEqual([ids.num]);
-      expect(await idsOf(term)).toEqual([]);
+      const page = await search(term);
+      expect(page.items.map((i) => i.id)).toEqual([ids.num]);
+      expect(page.items[0]?.matchedIn).toEqual(["caseNumber"]);
     },
   );
+
+  it("#155 4-2 AC-3: 全角でも、番号の途中にだけある語（Ｎ－２６１１１７）は0件（対照：全角の先頭からの語では出る）", async () => {
+    expect(await idsOf("ＱＺＮ－２６１１")).toEqual([ids.num]);
+    expect(await idsOf("Ｎ－２６１１１７－１７１１")).toEqual([]);
+  });
+
+  it("#155 4-2 AC-3: ハイフンにあたる文字だけの語（－・ーー）は番号の腕を使わず0件", async () => {
+    expect(await idsOf("\uFF0D")).toEqual([]);
+    expect(await idsOf("\u30FC\u30FC")).toEqual([]);
+  });
+
+  it("#155 4-2 AC-1 R-1: 件名・取引先名の照合は、全角と半角を同じにしない（全角の「ＱＺＭ－２６１１」は番号だけで一致し、件名・取引先名の「QZM-2611」には当たらない）", async () => {
+    // 対照：半角では件名・番号・取引先名のすべてで一致する
+    expect((await search("qzm-2611")).items[0]?.matchedIn).toEqual([
+      "title",
+      "caseNumber",
+      "client",
+    ]);
+    const page = await search("ＱＺＭ－２６１１");
+    expect(page.items.map((i) => i.id)).toEqual([ids.triple]);
+    expect(page.items[0]?.matchedIn).toEqual(["caseNumber"]);
+  });
+
+  it("#155 4-2 AC-1 R-1: 全角の英字の件名の語（ＺＥＰＨＹＲＩＮＥ）は、半角の件名に一致しない（対照：半角では出る）", async () => {
+    expect(await idsOf("zephyrine")).toEqual([ids.eng]);
+    expect(await idsOf("ＺＥＰＨＹＲＩＮＥ")).toEqual([]);
+  });
 });
 
 describe("#155 4-2 AC-3 R-1 取引先名の一致（利用者の決定：いまの名前の部分一致・大小文字を区別しない）", () => {

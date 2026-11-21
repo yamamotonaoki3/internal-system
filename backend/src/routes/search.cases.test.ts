@@ -272,6 +272,24 @@ describe("#155 4-2 AC-1 155-C 応答の形と、再編集の反映", () => {
     expect(byClient.items[0]?.matchedIn).toEqual(["client"]);
   });
 
+  it("#155 4-2 AC-3: 全角で打った案件番号（全角の英数字・全角のハイフン・長音符）でも、API から引ける（利用者の決定 2026-11-21）", async () => {
+    const full = joined.caseNumber
+      .slice(0, 8)
+      .replace(/[A-Z0-9]/g, (c) =>
+        String.fromCharCode(c.charCodeAt(0) + 0xfee0),
+      );
+    for (const q of [
+      full.replace("-", "\uFF0D"),
+      full.replace("-", "\u30FC"),
+    ]) {
+      const page = await ok({ q });
+      expect(page.items.map((i) => i.id)).toContain(joined.id);
+      expect(page.items.find((i) => i.id === joined.id)?.matchedIn).toEqual([
+        "caseNumber",
+      ]);
+    }
+  });
+
   it("#155 4-2 AC-1 I-1: 再編集（EP-5-20）で件名を変えると、再読み込みなしの次の検索で、新しい件名で出て、古い件名では出ない", async () => {
     expect(await idsOf("若草会館の案件")).toEqual([joined.id]);
     const edited = await apiRequest("PATCH", editPath(joined.id), {
