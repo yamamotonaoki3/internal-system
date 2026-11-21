@@ -54,6 +54,33 @@ export async function deletionOf(
     .first<AttachmentDeletion>();
 }
 
+export type AttachmentPurgeState = AttachmentDeletion & {
+  purge_failed_at: string | null;
+};
+
+/**
+ * 削除の列と、実体の削除に最後に失敗した時刻（purge_failed_at。コードレビューの指摘1の直しで足す列）。行がなければ null。
+ * 列がまだない（実装前）ときは、ここで失敗する
+ */
+export async function purgeStateOf(
+  attachmentId: string,
+): Promise<AttachmentPurgeState | null> {
+  return env.DB.prepare(
+    "SELECT deleted_at, deleted_by, purge_failed_at FROM message_attachments WHERE id = ?",
+  )
+    .bind(attachmentId)
+    .first<AttachmentPurgeState>();
+}
+
+/** 実体の削除に失敗したことがある状態を直接作る（状態の準備。時刻は ISO 8601 の文字列） */
+export async function markPurgeFailed(attachmentId: string, failedAt: string) {
+  await env.DB.prepare(
+    "UPDATE message_attachments SET purge_failed_at = ? WHERE id = ?",
+  )
+    .bind(failedAt, attachmentId)
+    .run();
+}
+
 /** 削除済みの状態を直接作る（API を通さない） */
 export async function markAttachmentDeleted(
   attachmentId: string,

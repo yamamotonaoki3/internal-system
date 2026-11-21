@@ -1,6 +1,6 @@
 // #270（270-A）計画 4.7・7章「migration」・project-rules（148-B-2 の migration の更新の試験）：既存の行がある DB に、
-// 添付の削除の列（deleted_at・deleted_by）と部分索引（message_attachments_deleted_at_idx。(deleted_at, id)・条件 deleted_at IS NOT NULL）を足す
-// migration を適用しても、既存の行が壊れないこと。2列はすべて NULL（削除されていない）であること。
+// 添付の削除の列（deleted_at・deleted_by・purge_failed_at）と部分索引（message_attachments_deleted_at_idx。(deleted_at, id)・条件 deleted_at IS NOT NULL）を足す
+// migration を適用しても、既存の行が壊れないこと。3列はすべて NULL（削除されていない）であること。
 // 方法：attachment-publication.upgrade.db.test.ts と同じ（テストでだけ使う空の D1〔MIGRATION_UPGRADE_DB〕に直前までを適用 → 行を写す → 対象だけを適用）。
 // migration は番号で決め打ちせず、message_attachments に deleted_at を足すものを選ぶ。
 // データは架空（testuser_casereq_・[UNIT_TEST]・@example.com）。
@@ -106,7 +106,7 @@ afterEach(async () => {
 });
 
 describe("#270 計画 4.7 migration の更新（既存の行がある状態から）", () => {
-  it("#270 AC-1: 既存の添付の件数・列・結び付けが保たれ、deleted_at・deleted_by はすべて NULL。部分索引 (deleted_at, id) がある", async () => {
+  it("#270 AC-1: 既存の添付の件数・列・結び付けが保たれ、deleted_at・deleted_by・purge_failed_at はすべて NULL。部分索引 (deleted_at, id) がある", async () => {
     const db = upgradeDb();
     const { before, target } = splitMigrations();
     await applyD1Migrations(db, before);
@@ -165,10 +165,12 @@ describe("#270 計画 4.7 migration の更新（既存の行がある状態か�
     const columns = await columnsOf(db, "message_attachments");
     expect(columns).toContain("deleted_at");
     expect(columns).toContain("deleted_by");
+    // コードレビューの指摘1の直し：0036 は3列（実体の削除に最後に失敗した時刻 purge_failed_at を足す）
+    expect(columns).toContain("purge_failed_at");
     expect((await db.prepare(select).all()).results).toEqual(beforeRows);
     const marked = await db
       .prepare(
-        "SELECT COUNT(*) AS n FROM message_attachments WHERE deleted_at IS NOT NULL OR deleted_by IS NOT NULL",
+        "SELECT COUNT(*) AS n FROM message_attachments WHERE deleted_at IS NOT NULL OR deleted_by IS NOT NULL OR purge_failed_at IS NOT NULL",
       )
       .first<{ n: number }>();
     expect(marked?.n).toBe(0);

@@ -3,7 +3,7 @@
 // 判定の順（計画 4.2。この順を変えない）：
 //   共通のゲート（未ログイン 401・送信元 403 FORBIDDEN_ORIGIN）→ param の形（422）
 //   → ① 見えるか（見えない・存在しない・削除済み・メッセージが削除済みは 404。区別しない）→ 未投稿（409）
-//   → ② 本人か（403。logger.audit attachment.delete failure not_author）→ ③ perm.attachment.delete.own（Service のテスト）
+//   → ② 本人か（403。logger.audit attachment.delete failure not_author）→ ③ perm.attachment.delete.own（全ロールが持つため、ここでは確かめない。拒否は services/attachment.service.delete.test.ts の偽の authorizer で確かめる）
 //   → ④ 部屋の状態（未参加 403、部署が無効 409、DM の相手が無効 409、案件の終了 409 は attachments.delete.case-room.test.ts）
 //   → ⑥ 再認証（なし・5分を超えたら 403 REAUTH_REQUIRED。最後）→ ⑦ 書き込み（印・監査・索引の1回の batch）→ 204
 // 実体（計画 4.4）：印 → R2 の delete → 行の物理削除、の順で、同じ要求の中で1回試す。R2 が失敗しても 204 で、行は印つきで残り、error ログに残す。
@@ -24,6 +24,7 @@ import {
   failingStatementDb,
   jsonLogs,
   markAttachmentDeleted,
+  purgeStateOf,
   recordingBucket,
 } from "../../test/attachment-delete-fixtures";
 import {
@@ -59,6 +60,7 @@ import {
   type ModifyUser,
 } from "../../test/message-modify-fixtures";
 import { cleanupSearchIndex } from "../../test/search-fixtures";
+import { attachmentPurgeJob } from "../services/attachment.service";
 import { BAD_ORIGIN, codeOf } from "../../test/thread-fixtures";
 
 const ONE_MINUTE = 60_000;
@@ -508,6 +510,24 @@ describe("#270 AC-5 実体（R2）の削除の失敗", () => {
     const logs = [...logLines, ...errorLines].join("\n");
     expect(logs).not.toContain(seeded.targetKey);
     expect(logs).not.toContain(NAME);
+  });
+
+  it("#270 指摘1・AC-5: R2 の削除が失敗した行には purge_failed_at が入り（deleted_at・deleted_by は変わらない）、後の定期の処理（R2 が戻った後）で、実体も行も消える", async () => {
+    const seeded = await seedPosted();
+    const recorded = recordingBucket(bucket(), () => true);
+    const response = await rawRequest("DELETE", attachmentPath(seeded.target), {
+      token: author.token,
+      envOverrides: { ATTACHMENTS: recorded.bucket },
+    });
+    expect(response.status).toBe(204);
+    const failed = await purgeStateOf(seeded.target);
+    expect(failed?.deleted_by).toBe(author.userId);
+    expect(failed?.deleted_at).toMatch(ISO);
+    expect(failed?.purge_failed_at).toMatch(ISO);
+
+    await attachmentPurgeJob().run(env);
+    expect(await attachmentRow(seeded.target)).toBeNull();
+    expect(await storedKeys()).toEqual([seeded.keptKey]);
   });
 
   it("#270 AC-5: R2 の削除の後に行の削除が失敗しても 204。実体はなく、行は印つきで残る（次の定期の処理が消す）", async () => {

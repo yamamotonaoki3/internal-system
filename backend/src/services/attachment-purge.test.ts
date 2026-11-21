@@ -19,6 +19,8 @@ import {
   deletionOf,
   failingStatementDb,
   jsonLogs,
+  markPurgeFailed,
+  purgeStateOf,
   recordingBucket,
 } from "../../test/attachment-delete-fixtures";
 import {
@@ -298,5 +300,129 @@ describe("#270 AC-5 計画 4.4 進め方（(deleted_at, id) の順・1ページ1
     await runJob();
     expect(await remainingDeletedIds()).toEqual([]);
     expect(purgeInfo()[0]?.attributes).toMatchObject({ readRows: 500 });
+  });
+});
+
+// ---- コードレビューの指摘1：失敗し続ける行が、後ろの行に進むのを止めない ----
+// 根拠：Issue #270 のコードレビューの指摘1と、決めた直し方。
+//   - 列 purge_failed_at（text・NULL 可。実体の削除に最後に失敗した時刻）を足す（migration 0036 を作り直して3列にする）
+//   - 失敗した行には purge_failed_at に、その時刻を書く（deleted_at・deleted_by は変えない）
+//   - 定期の処理は「失敗したことのない行を (deleted_at, id) の順に先に。その後に、失敗したことのある行を purge_failed_at の古い順」に読む
+//   - 失敗した行も、次の回以降に、もう一度試される
+// 読む順の SQL の書き方は写さず、動き（どの行がいつ消えるか・R2 の delete の呼ばれた順）で確かめる。
+// 1回の上限は 500 行（上の「1回の実行は500行まで」の既存のテストが、本番の値が 500 であることを確かめている。ここでは同じ値をテストの側で書く）。
+const RUN_LIMIT = 500;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+describe("#270 指摘1 失敗し続ける行が、後ろの行を永久に止めない", () => {
+  it("#270 指摘1・AC-5: 先頭の500行（上限と同じ数）の実体の削除が必ず失敗しても、その後ろの消せる行は、2回目の実行で、R2 からも表からも消える。失敗する行は表に残る", async () => {
+    const failing = await seedDeleted(RUN_LIMIT, (n) => isoAt(n));
+    const failingKeys = new Set(failing.map((row) => row.key));
+    const [healthy] = await seedDeleted(1, () => isoAt(RUN_LIMIT + 10), {
+      withObjects: true,
+      offset: RUN_LIMIT,
+    });
+    if (healthy === undefined) throw new Error("消せる行を作れませんでした");
+
+    const first = recordingBucket(bucket(), (key) => failingKeys.has(key));
+    await runJob({ ATTACHMENTS: first.bucket });
+    // 1回目は上限を使い切っていてよい（消せる行が残っていてもよい）。何も壊れていないことだけを確かめる
+    expect(first.deletes.length).toBeLessThanOrEqual(RUN_LIMIT);
+
+    const second = recordingBucket(bucket(), (key) => failingKeys.has(key));
+    await runJob({ ATTACHMENTS: second.bucket });
+    expect(second.deletes).toContain(healthy.key);
+    expect(await attachmentRow(healthy.id)).toBeNull();
+    expect(await storedKeys()).not.toContain(healthy.key);
+    // 失敗する行は、表に残り、印（deleted_at）も残る（見えないまま）
+    const remaining = await remainingDeletedIds();
+    expect(remaining).toHaveLength(RUN_LIMIT);
+    expect([...remaining].sort()).toEqual(failing.map((row) => row.id).sort());
+  });
+
+  it("#270 指摘1・AC-5: 実体の削除に失敗したことのある行も、次の回に、もう一度試される（成功すれば、R2 からも表からも消える）", async () => {
+    const [row] = await seedDeleted(1, () => isoAt(1), { withObjects: true });
+    if (row === undefined) throw new Error("行を作れませんでした");
+    await markPurgeFailed(row.id, "2026-01-01T00:00:00.000Z");
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toEqual([row.key]);
+    expect(await attachmentRow(row.id)).toBeNull();
+    expect(await storedKeys()).toEqual([]);
+  });
+
+  it("#270 指摘1・AC-5: 失敗した1回目の次の回で、行を試す順は『失敗したことのない行（deleted_at の順）→ 失敗したことのある行（失敗の時刻の古い順）』", async () => {
+    // A：最も古い deleted_at。失敗した時刻は新しい／B：次に古い deleted_at。失敗した時刻は古い／C：最も新しい deleted_at。失敗したことがない
+    const [a, b, c] = await seedDeleted(3, (n) => isoAt(n + 1));
+    if (a === undefined || b === undefined || c === undefined)
+      throw new Error("行を作れませんでした");
+    await markPurgeFailed(a.id, "2026-02-02T00:00:00.000Z");
+    await markPurgeFailed(b.id, "2026-01-01T00:00:00.000Z");
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toEqual([c.key, b.key, a.key]);
+  });
+
+  it("#270 指摘1・AC-5: 失敗したことのない行どうしは、これまでどおり (deleted_at, id) の昇順に試す", async () => {
+    // ID の最も小さい行の deleted_at を最も新しくして、id ではなく deleted_at が先であることを確かめる
+    const rows = await seedDeleted(3, (n) => (n === 0 ? isoAt(100) : isoAt(n)));
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    expect(recorded.deletes).toEqual([
+      rows[1]?.key,
+      rows[2]?.key,
+      rows[0]?.key,
+    ]);
+  });
+});
+
+describe("#270 指摘1 失敗の記録（purge_failed_at）", () => {
+  it("#270 指摘1・AC-5: 実体の削除に失敗した行には purge_failed_at が入り、deleted_at・deleted_by は変わらない。成功した行は表から消える", async () => {
+    const rows = await seedDeleted(3, (n) => isoAt(n + 1), {
+      withObjects: true,
+    });
+    const failed = rows[1];
+    if (failed === undefined) throw new Error("行を作れませんでした");
+    const before = await purgeStateOf(failed.id);
+    expect(before?.purge_failed_at).toBeNull();
+    const startedAt = Date.now();
+    const recorded = recordingBucket(bucket(), (key) => key === failed.key);
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    const finishedAt = Date.now();
+
+    const after = await purgeStateOf(failed.id);
+    expect(after?.deleted_at).toBe(before?.deleted_at);
+    expect(after?.deleted_by).toBe(before?.deleted_by);
+    expect(after?.purge_failed_at).toMatch(ISO);
+    const failedMs = Date.parse(after?.purge_failed_at ?? "");
+    expect(failedMs).toBeGreaterThanOrEqual(startedAt);
+    expect(failedMs).toBeLessThanOrEqual(finishedAt);
+    for (const row of [rows[0], rows[2]])
+      expect(await attachmentRow(row?.id ?? "")).toBeNull();
+  });
+
+  it("#270 指摘1・AC-5: 前にも失敗した行が、また失敗すると、purge_failed_at は新しい時刻になる（deleted_at は変わらない）", async () => {
+    const [row] = await seedDeleted(1, () => isoAt(1), { withObjects: true });
+    if (row === undefined) throw new Error("行を作れませんでした");
+    const old = "2026-01-01T00:00:00.000Z";
+    await markPurgeFailed(row.id, old);
+    const recorded = recordingBucket(bucket(), () => true);
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    const after = await purgeStateOf(row.id);
+    expect(after?.purge_failed_at).toMatch(ISO);
+    expect(Date.parse(after?.purge_failed_at ?? "")).toBeGreaterThan(
+      Date.parse(old),
+    );
+    expect(after?.deleted_at).toBe(isoAt(1));
+  });
+
+  it("#270 指摘1・AC-5: 失敗していない（成功した）実行では、まだ試していない行の purge_failed_at は NULL のまま", async () => {
+    // 1回の上限で試されなかった行に、失敗の印を付けない
+    const rows = await seedDeleted(RUN_LIMIT + 1, (n) => isoAt(n + 1));
+    const recorded = recordingBucket(bucket());
+    await runJob({ ATTACHMENTS: recorded.bucket });
+    const left = rows.find((row) => !recorded.deletes.includes(row.key));
+    if (left === undefined) throw new Error("試されなかった行がありません");
+    expect((await purgeStateOf(left.id))?.purge_failed_at).toBeNull();
   });
 });

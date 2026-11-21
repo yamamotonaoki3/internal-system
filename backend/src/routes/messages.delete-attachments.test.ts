@@ -4,11 +4,13 @@
 // - R2 の失敗：応答は 204 のまま。添付の行は印（deleted_at・deleted_by）つきで残り、error ログにキー・名前を出さない（毎日の後始末が消す）
 // - 断られた削除（他人）：添付も実体も変わらない
 // データは架空（testuser_mdelatt_、[UNIT_TEST]、@example.com）。
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEXT_BYTES } from "../../test/attachment-files";
 import {
   cleanupAttachmentDeleteScenario,
   deletionOf,
+  purgeStateOf,
   recordingBucket,
 } from "../../test/attachment-delete-fixtures";
 import {
@@ -31,6 +33,7 @@ import {
   messageItemPath,
   type ModifyUser,
 } from "../../test/message-modify-fixtures";
+import { attachmentPurgeJob } from "../services/attachment.service";
 
 const NAME = "[UNIT_TEST]メッセージと消える添付.txt";
 let author: ModifyUser;
@@ -129,6 +132,28 @@ describe("#270 AC-6 メッセージの削除で、添付の実体の削除を要
     const logs = [...logLines, ...errorLines].join("\n");
     for (const key of target.keys) expect(logs).not.toContain(key);
     expect(logs).not.toContain(NAME);
+  });
+
+  it("#270 指摘1・AC-6: R2 の削除が失敗した添付には purge_failed_at が入り、後の定期の処理（R2 が戻った後）で、実体も行も消える。204 は変わらない", async () => {
+    const target = await seedWithAttachments(2);
+    const recorded = recordingBucket(bucket(), () => true);
+    const response = await rawRequest(
+      "DELETE",
+      messageItemPath(target.messageId),
+      {
+        token: author.token,
+        envOverrides: { ATTACHMENTS: recorded.bucket },
+      },
+    );
+    expect(response.status).toBe(204);
+    for (const id of target.ids)
+      expect((await purgeStateOf(id))?.purge_failed_at).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
+
+    await attachmentPurgeJob().run(env);
+    for (const id of target.ids) expect(await attachmentRow(id)).toBeNull();
+    expect(await storedKeys()).toEqual([]);
   });
 
   it("#270 AC-6: 他人がメッセージを消そうとして断られた（403）ときは、添付の印も実体も変わらず、R2 を呼ばない", async () => {
