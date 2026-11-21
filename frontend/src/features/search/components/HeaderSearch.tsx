@@ -4,15 +4,19 @@ import { SearchKeywordForm } from "./SearchKeywordForm";
 
 export function HeaderSearch() {
   const navigate = useNavigate();
+  // 768px 未満では form ごと出さない（ヘッダーが崩れるため）。入口はドロワーの先頭のリンク（navigation.ts の searchNavItem）
   return (
-    <SearchKeywordForm
-      label="メッセージの検索"
-      onSearch={(q) =>
-        void navigate({
-          pathname: "/search",
-          search: createSearchParams({ q }).toString(),
-        })
-      }
-    />
+    <div className="hidden md:block">
+      <SearchKeywordForm
+        label="メッセージの検索"
+        submitLabel="メッセージを検索"
+        onSearch={(q) =>
+          void navigate({
+            pathname: "/search",
+            search: createSearchParams({ q }).toString(),
+          })
+        }
+      />
+    </div>
   );
 }

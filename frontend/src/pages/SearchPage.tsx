@@ -1,5 +1,5 @@
 // S-15 検索結果（/search）。URL の条件（q・roomId・from・to）で検索し、条件の欄から送ると URL を書き換えて取り直す。
-// q がなければ API を呼ばない。
+// q がなければ API を呼ばず、検索を促す案内の文を出す。
 import { useSearchParams } from "react-router";
 import {
   MessageSearchResults,
@@ -27,6 +27,9 @@ export function SearchPage() {
   return (
     <section className="mx-auto max-w-4xl rounded-lg bg-surface p-4 md:p-6">
       <h1 className="mb-4 text-2xl font-bold">検索結果</h1>
+      {q === undefined && (
+        <p className="mb-3">検索する言葉を入れて、『検索』を押してください。</p>
+      )}
       <SearchConditionsForm
         // URL が変わったら（ヘッダーから検索し直したとき等）、欄をいまの条件で作り直す（欄の値は useState の初期値のため）。
         // 兄弟の結果の部品と key が重ならないよう、接頭辞で分ける
