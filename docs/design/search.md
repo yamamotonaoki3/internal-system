@@ -270,8 +270,9 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 
 ## 画面（S-15・ヘッダー）
 
-- ヘッダーの検索欄（`HeaderSearch`）から、前後の空白を除いた語で`/search?q=…`へ移る。語の検査は`searchKeywordSchema`を共有する（空・101文字以上は送らずにエラーを出す。サーバーでも検証する）
-- S-15（`SearchPage`）：語の欄と、折りたたんだ「絞り込み」（開始日・終了日）。送ると URL を書き換えて取り直す。部屋の絞り込みは URL の`roomId`を引き継ぐだけで、選ぶ部品はない
+- 入口は2つ（Issue #337）。①768px以上：ヘッダーの検索欄（`HeaderSearch`）から、前後の空白を除いた語で`/search?q=…`へ移る。②768px未満：ヘッダーには検索欄もボタンも出さず（高さ48を保つため。`HeaderSearch`が form ごと隠す）、ドロワーの先頭のリンク「メッセージを検索」（`navigation.ts`の`searchNavItem`。[app-shell.md](app-shell.md)）から`/search`を開く。語の検査は`searchKeywordSchema`を共有する（空・101文字以上は送らずにエラーを出す。サーバーでも検証する）
+- 語の欄（`SearchKeywordForm`）は、共通の`TextField`（`type="search"`、ラベル「検索する言葉」を`hideLabel`で画面から隠す）で作る。送信ボタンの名前は`submitLabel`で決め、既定は「検索」（S-15 の本文）。ヘッダーだけ「メッセージを検索」にする（同じ画面に「検索」のボタンが並び、名前で区別できなくなるため）。結果の画面の見出しは「検索結果」、ボタンは「検索」のまま
+- S-15（`SearchPage`）：言葉なし（`q`なし）で開いたときは、見出しの下に案内の文「検索する言葉を入れて、『検索』を押してください。」を1つだけ出し、結果の部品と検索の要求は出さない（`q`ありの読み込み中・結果あり・0件・失敗では出さない。Issue #337）。語の欄と、折りたたんだ「絞り込み」（開始日・終了日）。送ると URL を書き換えて取り直す。部屋の絞り込みは URL の`roomId`を引き継ぐだけで、選ぶ部品はない
 - 結果：部屋の名前（DM は相手の表示名）・投稿者・日時・抜粋（一致を強調）。押すと元の場所のスレッドへ（チャンネル・案件の部屋は`/channels/<部屋>?thread=`、DM は`/dms/<部屋>?thread=`。返信は親のスレッド。案件の部屋は、チャンネルの画面が案件の画面へ移す）
 - **ファイル名で一致した行**（155-B。B-4）：抜粋の下に、印「ファイル名で一致」と、一致したファイル名の一覧（`aria-label="一致したファイル名"`。複数なら全部。1件のメッセージの添付は最大10件）を出す。名前の中の一致は`HighlightedExcerpt`（`findSearchMatches`）で`<mark>`に強調し、名前は文字として描く。名前は**リンクにしない**（結果からファイルを直接開かせず、配信の経路を増やさないため）。行を押したときの移り先は、本文の一致と同じ（そのメッセージのスレッド）。長い名前は行の中で折り返し（`break-all`）、横にはみ出さない。本文だけの一致の行には、印も一覧も出さない
 - 応答の`matchedIn`と`matchedAttachments`が食い違う（片方だけ）ときは、zod の検証で取得の失敗として扱い、取得済みの行も出さない（統括の決定。印と名前の片方だけを出さないため）
@@ -302,7 +303,8 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
   - API：`backend/src/routes/search.attachments.test.ts`、`openapi.search.test.ts`・`services/search.service.test.ts`に事例を足した
   - 画面：`frontend/src/pages/SearchPage.attachments.test.tsx`、`SearchPage.accessLoss.test.tsx`に事例を足した
 - E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。155-B の事例も同じ spec。[e2e.md](../testing/e2e.md)）
-- ヘッダーに「検索」のボタンが増えたため、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った
+- ヘッダーに「検索」のボタンが増えたため（155-A）、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った。Issue #337 でヘッダーのボタンの名前を「メッセージを検索」にしたが、この絞り込みは変えていない
+- Issue #337 の画面のテスト：`frontend/src/components/TextField.test.tsx`（`hideLabel`）、`frontend/src/features/search/components/HeaderSearch.reauth.test.tsx`（再認証の後も、ヘッダーの検索欄の語が残ること。`App`全体を描画する）、`frontend/src/features/app-shell/Drawer.test.tsx`（先頭のリンク）、`SearchPage.test.tsx`（言葉なしの案内の文）。E2E は`e2e/app-shell.spec.ts`（360・1280 のヘッダー）と`e2e/search.spec.ts`
 
 ## 既知の差・未実施
 
@@ -311,7 +313,8 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 | 本番の D1 での trigram、30万件の実測、Time Travel | #160 |
 | ウィンドウに戻ったときの取り直し（同じキー） | 応答が届くまでの間は、前の行が見えたまま。完了した時点で、置き換わるか消える |
 | 「さらに表示」の要求の数 | 押すたびに、読み込んだページ数の分の要求が出る。ページ数の上限は設けていない |
-| ヘッダーの検索欄（`SearchKeywordForm`）が素の`<input>`のままであること | 共通の`TextField`は、見えるラベルと余白を必ず出すため使っていない（ADR-0015 の「素の`input`にクラスを書かない」との関係）。**扱いは利用者に確認中** |
+| ヘッダーの検索欄（`SearchKeywordForm`）が素の`<input>`だったこと | **解消した（Issue #337）**。`TextField`に`hideLabel`を足し、`SearchKeywordForm`は`TextField`で作る |
+| スマホ幅のヘッダーに置く、アイコンだけの検索ボタン | 作らない（アイコンの決まりがないため）。後の Issue（通知のアイコン化と一緒に）。いまの入口はドロワーの先頭のリンク |
 | 本番での migration 0032〜0035 の適用と、既存のメッセージ・添付の登録 | **本番に未適用**。0013 以降のほかの未適用の migration と一緒に、利用を止めて1回の作業で出す（[ADR-0032](../adr/0032-first-production-rollout-stop-and-apply-at-once.md)・手順書 [production-first-rollout.md](../operations/production-first-rollout.md)。#160 で承認を得てから）。登録が終わるまで、既存のメッセージ・添付は検索に出ない。0034・0035 の本物の D1 での確認は #160・#350 |
 | `scripts/search-reindex-local.ts`が、Node の標準の`module.registerHooks`で、拡張子のない相対の import に`.ts`を補っていること | backend のコード（拡張子を省くバンドラの前提）を Node で直接読むための書き方。**ルールが決まっていない書き方で、利用者に確認中** |
 | 案件の資格の喪失の後片付け | #323 が「ページごと読み込み直す」方式に変える予定（上の「画面」） |
