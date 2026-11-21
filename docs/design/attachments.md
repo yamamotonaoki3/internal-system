@@ -140,6 +140,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
   4. どれにも当たらない（読み直すまでに別の操作で状態が変わった） → 409「添付の状態が変わりました。もう一度お試しください」
 - 投稿・返信の既存の判定（見える・参加・権限・部屋の状態）が先で、添付の判定は後。IDの作り直しの再試行（`insertWithAttachments`が各試行を包む）でも同じ。
 - `perm.attachment.upload`は結び付けでは確かめない（アップロードのときに確かめ済み。結び付けは本人・部屋・文脈の一致で守る）。
+- 【#155 の155-B（2026-11-21）】結び付けの batch の末尾（メッセージの索引の組の後ろ）に、添付のファイル名の索引の組（`search-index.sql.ts`の`syncAttachmentIndexStatements`）がある。結び付けが取り消されれば、索引も残らない。メッセージの論理削除（`deleteIfModifiable`）の末尾には`removeStaleAttachmentIndexStatements`がある。アップロード（`insertPending`）・未投稿の掃除（`deletePendingBefore`）・公開範囲の変更（`changeVisibility`）は索引に触れない。**#270（添付の削除）など、今後`message_attachments`を変える処理を足すときは、同じ batch の末尾に索引の組を足す**（[search.md](search.md)の「添付の書き込みの経路」）
 
 ## 配信
 
@@ -252,7 +253,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 
 ## 関係するIssue・ADR
 
-- Issue #140（親：#133）。#270（添付の削除・添付だけの投稿）・#116（ウイルススキャン）・#141（アバター）・#155（ファイル名の検索）・#154（無効な部署への投稿）・#160（本番での確認・全体のミューテーション）に申し送る。
+- Issue #140（親：#133）。#270（添付の削除・添付だけの投稿）・#116（ウイルススキャン）・#141（アバター）・#155（ファイル名の検索。155-B で実装した。[search.md](search.md)）・#154（無効な部署への投稿）・#160（本番での確認・全体のミューテーション）に申し送る。
 - 決定：C-176（C-153の未決定の項目を置き換えた）。C-126・C-137・C-153・C-94に従う。
 - [ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)（検査の方式）・[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)（配信のヘッダーの扱い・`content_type`のCHECKをやめた理由）・[ADR-0012](../adr/0012-zero-trust-principle.md)（毎回認可する）・[ADR-0015](../adr/0015-style-foundation.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)（ミューテーションの範囲）。
 - 関連する設計書：[messages.md](messages.md)・[threads.md](threads.md)・[reactions.md](reactions.md)。

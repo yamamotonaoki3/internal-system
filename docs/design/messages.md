@@ -269,6 +269,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - 組は「いまの行の状態」と「渡した本文」だけで結果が決まるため、条件つきの UPDATE が0件（拒否）でも、いまの本文の写しは消えない
 - **メッセージの本文を書く処理を新しく足すときは、必ず同じ batch の末尾に組を足す**（漏れると検索に出ない・古い本文で引ける）。`backend/src/db/search-index.db.test.ts`の書き込みの一覧のテストにも足す
 - `backend/db/seeds/cleanup.sql`は、メッセージを消した後に、元のメッセージがなくなった索引の行を消す
+- 【155-B（2026-11-21）】投稿・返信の batch の末尾（メッセージの組の後ろ）に、添付のファイル名の組`syncAttachmentIndexStatements`を、`deleteIfModifiable`の末尾に`removeStaleAttachmentIndexStatements`を足した。本文の編集には足していない（添付は変わらず、メッセージの組は添付の写しに触れない）。経路の一覧は[search.md](search.md)の「添付の書き込みの経路」
 
 ## 関係するIssue・ADR
 
