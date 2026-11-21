@@ -16,8 +16,11 @@ function conditionsOf(
   const conditions: Partial<MessageSearchConditions> = {};
   for (const name of CONDITION_NAMES) {
     const value = params.get(name);
-    // 空白（全角を含む）だけの値は、ないものとして扱う（案内の文・結果の区画・API の呼び出しを同じ条件で決める）
-    if (value !== null && value.trim() !== "") conditions[name] = value;
+    if (value === null || value === "") continue;
+    // q だけは、空白（全角を含む）だけなら言葉なしとして扱う（案内の文・結果の区画・API の呼び出しを同じ条件で決める）。
+    // ほかの条件は、そのまま API に渡し、不正な値はこれまでどおりエラーにする
+    if (name === "q" && value.trim() === "") continue;
+    conditions[name] = value;
   }
   return conditions;
 }
