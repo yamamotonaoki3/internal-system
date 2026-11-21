@@ -1,7 +1,8 @@
 // #171 AC-2: 共通の TextField（SetupForm の中にあったものを移す）。ラベル・ヒント・エラーを結び付け、ref を input に渡す。
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TextField } from "./TextField";
 
 describe("#171 AC-2 TextField", () => {
@@ -66,5 +67,95 @@ describe("#171 AC-2 TextField", () => {
     const ref = createRef<HTMLInputElement>();
     render(<TextField label="参照" ref={ref} />);
     expect(ref.current).toBe(screen.getByLabelText("参照"));
+  });
+});
+
+// #337 AC-2: hideLabel。ラベルを画面から隠しても、label 要素は残し、入力欄と結び付ける（aria-label にしない）。
+// 視覚的な非表示（寸法・切り取り）と余白は jsdom では分からないため E2E（e2e/search.spec.ts）で確かめる。クラス名では確かめない。
+describe("#337 AC-2 TextField hideLabel", () => {
+  it("#337 AC-2: hideLabel のとき、label 要素が残り、for で入力欄に結び付く。hideLabel は input の属性として漏れない（React の警告が出ない）", () => {
+    const consoleError = vi.spyOn(console, "error");
+    render(<TextField label="検索する言葉" type="search" hideLabel />);
+    const input = screen.getByRole("searchbox", { name: "検索する言葉" });
+    expect(screen.getByLabelText("検索する言葉")).toBe(input);
+    const label = screen.getByText("検索する言葉");
+    expect(label.tagName).toBe("LABEL");
+    expect(label.getAttribute("for")).toBe(input.id);
+    expect(input.getAttribute("aria-label")).toBeNull();
+    expect(input.hasAttribute("hidelabel")).toBe(false);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("#337 AC-2: hideLabel のとき、エラーは aria-describedby でエラーの文と結び付き、aria-invalid=true になる", () => {
+    render(
+      <TextField
+        label="検索する言葉"
+        type="search"
+        hideLabel
+        error="検索する言葉を入力してください"
+      />,
+    );
+    const input = screen.getByRole("searchbox", { name: "検索する言葉" });
+    const error = screen.getByText("検索する言葉を入力してください");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe(error.id);
+  });
+
+  it("#337 AC-2: hideLabel のとき、ヒントとエラーの両方があっても、aria-describedby はヒント→エラーの順で結び付く", () => {
+    render(
+      <TextField
+        label="検索する言葉"
+        type="search"
+        hideLabel
+        hint="100文字まで"
+        error="長すぎます"
+      />,
+    );
+    const input = screen.getByRole("searchbox", { name: "検索する言葉" });
+    const hint = screen.getByText("100文字まで");
+    const error = screen.getByText("長すぎます");
+    expect(input.getAttribute("aria-describedby")).toBe(
+      `${hint.id} ${error.id}`,
+    );
+  });
+
+  it("#337 AC-2: hideLabel のとき、type・ref・値の入力は、これまでどおり input に届く", async () => {
+    const ref = createRef<HTMLInputElement>();
+    render(
+      <TextField label="検索する言葉" type="search" hideLabel ref={ref} />,
+    );
+    const input = screen.getByRole("searchbox", { name: "検索する言葉" });
+    expect(ref.current).toBe(input);
+    await userEvent.type(input, "見積書");
+    expect((input as HTMLInputElement).value).toBe("見積書");
+  });
+
+  it("#337 AC-2: hideLabel={false} は、渡さないときと同じ DOM（既存の使用箇所の見た目が変わらない）", () => {
+    const consoleError = vi.spyOn(console, "error");
+    const omitted = render(<TextField label="会社名" name="c" />);
+    const omittedHtml = omitted.container.innerHTML.replace(
+      /(id|for)="[^"]*"/g,
+      "",
+    );
+    omitted.unmount();
+    const explicit = render(
+      <TextField label="会社名" name="c" hideLabel={false} />,
+    );
+    expect(explicit.container.innerHTML.replace(/(id|for)="[^"]*"/g, "")).toBe(
+      omittedHtml,
+    );
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});
+
+// #337 AC-2: 既定（hideLabel なし）は、今のまま。ラベルは画面に出て、入力欄と結び付く
+describe("#337 AC-2 TextField 既定", () => {
+  it("#337 AC-2: hideLabel なしでも、ラベルと入力欄が結び付き、名前で引ける", () => {
+    render(<TextField label="会社名" />);
+    const input = screen.getByRole("textbox", { name: "会社名" });
+    expect(screen.getByLabelText("会社名")).toBe(input);
+    expect(screen.getByText("会社名").getAttribute("for")).toBe(input.id);
   });
 });

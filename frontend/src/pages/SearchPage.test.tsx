@@ -5,7 +5,7 @@
 //   shared/search-rules.ts の文言（「検索する言葉を入力してください」「検索する言葉は100文字以内で入力してください」）から決める。
 //
 // 契約（実装前の仮置き。画面の文言と構造。実装の担当へ）：
-//   ヘッダー（features/app-shell/Header.tsx）に <form role="search" aria-label="メッセージの検索">：入力欄（aria-label「検索する言葉」）とボタン「検索」。
+//   ヘッダー（features/app-shell/Header.tsx）に <form role="search" aria-label="メッセージの検索">：入力欄（名前「検索する言葉」）とボタン「メッセージを検索」（#337 AC-1。S-15 の本文のボタンは「検索」のまま）。
 //     送ると、前後の空白を除いた語で /search?q=<語> へ移る。空・空白だけ・101文字（UTF-16）は、入力欄の近くに上の文言を出し、移らない。
 //   pages/SearchPage.tsx（App.tsx の /search。レイアウトの子）：main の中に h1「検索結果」。検索の欄（同じく「検索する言葉」とボタン「検索」。いまの語を入れておく）。
 //     絞り込みは <details>（要約「絞り込み」）の中に、日付の入力欄「開始日」「終了日」（type=date）。値を入れて「検索」を押すと from・to を付けて取り直す。
@@ -72,6 +72,9 @@ async function pageMain(): Promise<HTMLElement> {
 /** 画面全体の文字（抜粋の強調 <mark> で要素が分かれても、文字としてつながった形で確かめる） */
 const bodyText = () => document.body.textContent ?? "";
 const path = () => screen.getByTestId("path").textContent;
+/** #337 AC-6：q がないときの案内の文（利用者の決定。S-15 のボタン名「検索」に合わせる） */
+const GUIDE = "検索する言葉を入れて、『検索』を押してください。";
+const guides = () => within(main()).queryAllByText(GUIDE);
 
 async function searchFromHeader(
   user: ReturnType<typeof renderApp>["user"],
@@ -81,8 +84,50 @@ async function searchFromHeader(
   const input = within(form).getByRole("searchbox", { name: "検索する言葉" });
   await user.clear(input);
   await user.type(input, text);
-  await user.click(within(form).getByRole("button", { name: "検索" }));
+  await user.click(
+    within(form).getByRole("button", { name: "メッセージを検索" }),
+  );
 }
+
+describe("#337 AC-1 ヘッダーのボタンの名前", () => {
+  it("#337 AC-1: ヘッダーの検索のボタンの名前は「メッセージを検索」で、ヘッダーの中に名前が「検索」のボタンはない", async () => {
+    respondSearch([]);
+    renderApp("/");
+    const form = await waitFor(headerForm);
+    expect(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    ).toBeDefined();
+    expect(
+      within(screen.getByRole("banner")).queryAllByRole("button", {
+        name: "検索",
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("#337 AC-1: S-15 の本文の検索のボタンは「検索」のまま（ヘッダーの「メッセージを検索」とは別）", async () => {
+    respondSearch([]);
+    renderApp("/search?q=見積書");
+    const body = within(await pageMain());
+    expect(body.getByRole("button", { name: "検索" })).toBeDefined();
+    expect(body.queryByRole("button", { name: "メッセージを検索" })).toBeNull();
+  });
+
+  it("#337 AC-2: ヘッダーの検索欄は、名前「検索する言葉」の searchbox で、空で送るとエラーを出して移らない", async () => {
+    const world = respondSearch([]);
+    const { user } = renderApp("/");
+    const form = await waitFor(headerForm);
+    const input = within(form).getByRole("searchbox", { name: "検索する言葉" });
+    await user.click(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    );
+    expect(
+      await within(form).findByText("検索する言葉を入力してください"),
+    ).toBeDefined();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(path()).toBe("/");
+    expect(world.requests).toEqual([]);
+  });
+});
 
 describe("#155 AC-1 F-1 ヘッダーの検索欄", () => {
   it("#155 AC-1 F-1: ヘッダーから送ると /search へ移り、前後の空白を除いた語で検索する", async () => {
@@ -104,7 +149,9 @@ describe("#155 AC-1 F-1 ヘッダーの検索欄", () => {
     const world = respondSearch([]);
     const { user } = renderApp("/");
     const form = await waitFor(headerForm);
-    await user.click(within(form).getByRole("button", { name: "検索" }));
+    await user.click(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    );
     expect(
       await within(form).findByText("検索する言葉を入力してください"),
     ).toBeDefined();
@@ -125,7 +172,9 @@ describe("#155 AC-1 F-1 ヘッダーの検索欄", () => {
       within(form).getByRole("searchbox", { name: "検索する言葉" }),
       { target: { value: "あ".repeat(101) } },
     );
-    await user.click(within(form).getByRole("button", { name: "検索" }));
+    await user.click(
+      within(form).getByRole("button", { name: "メッセージを検索" }),
+    );
     expect(
       await within(headerForm()).findByText(
         "検索する言葉は100文字以内で入力してください",
@@ -164,9 +213,13 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
     });
     const loading = await within(await pageMain()).findByText("読み込み中です");
     expect(loading.closest("[role='status']")).not.toBeNull();
+    // #337 AC-6：言葉があるときは、案内の文を出さない
+    expect(guides()).toHaveLength(0);
     gate.release();
     await waitFor(() => expect(resultRows()).toHaveLength(1));
     expect(within(main()).queryByText("読み込み中です")).toBeNull();
+    // #337 AC-6：結果があるときも、案内の文を出さない
+    expect(guides()).toHaveLength(0);
   });
 
   it("#155 AC-1 F-2: 0件のときは「一致するメッセージはありません」を出す", async () => {
@@ -180,6 +233,8 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
     expect(
       within(main()).queryByRole("button", { name: "さらに表示" }),
     ).toBeNull();
+    // #337 AC-6：0件のときも、案内の文を出さない
+    expect(guides()).toHaveLength(0);
   });
 
   it("#155 AC-1 F-2: 失敗は role=alert「検索できませんでした」と「再試行」。0件とは出さず、再試行で結果が出る", async () => {
@@ -191,6 +246,8 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
     expect(
       within(main()).queryByText("一致するメッセージはありません"),
     ).toBeNull();
+    // #337 AC-6：エラーのときも、案内の文を出さない
+    expect(guides()).toHaveLength(0);
     await user.click(within(main()).getByRole("button", { name: "再試行" }));
     await waitFor(() => expect(resultRows()).toHaveLength(1));
     expect(within(main()).queryByRole("alert")).toBeNull();
@@ -264,6 +321,69 @@ describe("#155 AC-1 F-2 S-15 の状態", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(world.requests).toEqual([]);
+  });
+
+  it("#337 AC-6: q がなければ、見出し「検索結果」の直下（語の欄の前）に、案内の文を1つだけ出し、結果の一覧は出さない", async () => {
+    const world = respondSearch([searchItem(1)]);
+    renderApp("/search");
+    const body = within(await pageMain());
+    const heading = body.getByRole("heading", { level: 1, name: "検索結果" });
+    const guide = await body.findByText(GUIDE);
+    expect(guides()).toHaveLength(1);
+    expect(
+      heading.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const input = body.getByRole("searchbox", { name: "検索する言葉" });
+    expect(
+      guide.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(body.queryByRole("list", { name: "検索結果の一覧" })).toBeNull();
+    expect(world.requests).toEqual([]);
+  });
+
+  it("#337 AC-6: q が空（?q=）でも、案内の文を出し、API を呼ばない", async () => {
+    const world = respondSearch([searchItem(1)]);
+    renderApp("/search?q=");
+    const body = within(await pageMain());
+    await body.findByText(GUIDE);
+    expect(guides()).toHaveLength(1);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(world.requests).toEqual([]);
+  });
+
+  it("#337 AC-6: 絞り込みの条件（期間）だけで q がないときも、案内の文を出し、API を呼ばない", async () => {
+    const world = respondSearch([searchItem(1)]);
+    renderApp("/search?from=2026-11-01&to=2026-11-02");
+    await within(await pageMain()).findByText(GUIDE);
+    expect(guides()).toHaveLength(1);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(world.requests).toEqual([]);
+  });
+
+  it("#337 AC-6: 案内の文は、読み上げの役割（status・alert）を持たない、ただの段落", async () => {
+    respondSearch([]);
+    renderApp("/search");
+    const guide = await within(await pageMain()).findByText(GUIDE);
+    expect(guide.tagName).toBe("P");
+    expect(guide.closest("[role='status'], [role='alert']")).toBeNull();
+  });
+
+  it("#337 AC-6: 語を入れて検索すると、案内の文は消える", async () => {
+    respondSearch([searchItem(1)]);
+    const { user } = renderApp("/search");
+    const body = within(await pageMain());
+    await body.findByText(GUIDE);
+    await user.type(
+      body.getByRole("searchbox", { name: "検索する言葉" }),
+      "見積書",
+    );
+    await user.click(body.getByRole("button", { name: "検索" }));
+    await waitFor(() => expect(resultRows()).toHaveLength(1));
+    expect(guides()).toHaveLength(0);
   });
 });
 

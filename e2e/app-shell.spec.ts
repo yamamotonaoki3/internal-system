@@ -560,3 +560,185 @@ anonymousTest(
     await expectNoHorizontalScroll(page);
   },
 );
+
+// ---- #337 AC-5：ヘッダーの高さ・折り返し・検索の入口（360 と 1280。配置は実ブラウザだけで分かる） ----
+
+const HEADER_HEIGHT = 48;
+
+type VisibleText = { text: string; lines: number };
+
+/**
+ * ヘッダーの中の、見えている文字ごとの行の数。文字の行は Range の getClientRects で数える（同じ高さの箱は1行）。
+ * 要素の高さ÷行の高さでは、最小の高さを持つボタン・リンクで 2 前後になり、行の数の証拠にならない。
+ * 読み上げ用に隠した文字（寸法が 1×1 以下で、はみ出しを切っている要素の中。display:none・visibility:hidden を含む）は、見えている文字に含めない。
+ */
+async function visibleTextLines(page: Page): Promise<VisibleText[]> {
+  return page.evaluate(() => {
+    const header = document.querySelector("header");
+    if (header === null) throw new Error("header がありません");
+    function hidden(element: Element | null): boolean {
+      for (let e = element; e !== null && e !== header; e = e.parentElement) {
+        const style = getComputedStyle(e);
+        if (style.display === "none" || style.visibility === "hidden")
+          return true;
+        const rect = e.getBoundingClientRect();
+        // 読み上げ用に隠した文字（sr-only）の形だけを外す：絶対配置・1×1 以下・はみ出しを切る。この3つがそろわなければ、見えている文字として数える
+        if (
+          style.position === "absolute" &&
+          rect.width <= 1 &&
+          rect.height <= 1 &&
+          (style.overflowX !== "visible" || style.overflowY !== "visible")
+        )
+          return true;
+      }
+      return false;
+    }
+    const result: { text: string; lines: number }[] = [];
+    const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
+    for (
+      let node = walker.nextNode();
+      node !== null;
+      node = walker.nextNode()
+    ) {
+      const text = (node.textContent ?? "").trim();
+      if (text === "" || hidden(node.parentElement)) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const boxes = Array.from(range.getClientRects())
+        .filter((box) => box.width > 0 && box.height > 0)
+        .sort((x, y) => x.top - y.top);
+      let lines = 0;
+      let lineTop = Number.NEGATIVE_INFINITY;
+      for (const box of boxes) {
+        if (box.top - lineTop >= box.height / 2) {
+          lines += 1;
+          lineTop = box.top;
+        }
+      }
+      result.push({ text, lines });
+    }
+    return result;
+  });
+}
+
+async function expectHeaderStable(page: Page) {
+  const box = await page.getByRole("banner").boundingBox();
+  if (box === null) throw new Error("ヘッダーの位置が取れません");
+  expect(box.height, "ヘッダーの高さ").toBeCloseTo(HEADER_HEIGHT, 0);
+  await expectNoHorizontalScroll(page);
+}
+
+function headerSearchForm(page: Page): Locator {
+  return page
+    .getByRole("banner")
+    .getByRole("search", { name: "メッセージの検索", includeHidden: true });
+}
+
+test("#337 AC-5: 360px（スマホ）のヘッダーは、高さ 48・見えている文字がすべて1行・横にはみ出さず、検索の欄とボタンは出ない。ステータスは丸だけで、そのボタンがヘッダーの中に収まる", async ({
+  page,
+}) => {
+  await openHome(page, SIZES.mobile);
+  await expectHeaderStable(page);
+  const texts = await visibleTextLines(page);
+  expect(texts.map((t) => t.text)).toEqual(
+    expect.arrayContaining(["メニューを開く", "internal-system", "通知"]),
+  );
+  // 読み上げ用に隠した文字（ステータスの名前）は、見えている文字に含まれない
+  expect(texts.map((t) => t.text)).not.toContain("在席");
+  expect(texts.map((t) => t.text).join("")).not.toContain("ステータス");
+  for (const { text, lines } of texts)
+    expect(lines, `「${text}」の行の数`).toBe(1);
+
+  // 検索の欄・ボタンは、ヘッダーに出ない（隠れているだけの form も、見えない）
+  const banner = page.getByRole("banner");
+  await expect(banner.getByRole("searchbox")).toHaveCount(0);
+  await expect(
+    banner.getByRole("button", { name: "メッセージを検索" }),
+  ).toHaveCount(0);
+  await expect(headerSearchForm(page)).toBeHidden();
+
+  // ステータスのボタン（丸を含む）は、ヘッダーの中（上下・右端の内側）に収まる。丸だけを DOM の構造で探さず、名前のあるボタンの位置で確かめる
+  const header = await banner.boundingBox();
+  const status = await banner
+    .getByRole("button", { name: /^ステータス/ })
+    .boundingBox();
+  if (header === null || status === null)
+    throw new Error("ヘッダーまたはステータスのボタンの位置が取れません");
+  expect(status.width).toBeGreaterThan(0);
+  expect(status.y).toBeGreaterThanOrEqual(header.y);
+  expect(status.y + status.height).toBeLessThanOrEqual(
+    header.y + header.height,
+  );
+  expect(status.x + status.width).toBeLessThanOrEqual(header.x + header.width);
+});
+
+test("#337 AC-5: 360px：「メニューを開く」→ ドロワーの先頭の「メッセージを検索」で、ドロワーが閉じて /search へ移り、案内の文が出る。語を入れて「検索」で URL の q がその語になる", async ({
+  page,
+}) => {
+  await openHome(page, SIZES.mobile);
+  await drawerOpener(page).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  const first = mainNav(page).getByRole("link").first();
+  await expect(first).toHaveText("メッセージを検索");
+  await first.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(/\/search$/);
+  const main = page.getByRole("main");
+  await expect(
+    main.getByRole("heading", { level: 1, name: "検索結果" }),
+  ).toBeVisible();
+  await expect(
+    main.getByText("検索する言葉を入れて、『検索』を押してください。"),
+  ).toBeVisible();
+  await main
+    .getByRole("searchbox", { name: "検索する言葉" })
+    .fill("e2euser_shell_337");
+  await main.getByRole("button", { name: "検索", exact: true }).click();
+  await expect(page).toHaveURL(
+    (url) =>
+      url.pathname === "/search" &&
+      url.searchParams.get("q") === "e2euser_shell_337",
+  );
+  await expectHeaderStable(page);
+});
+
+test("#337 AC-5: 1280px（パソコン）のヘッダーは、高さ 48・見えている文字がすべて1行・横にはみ出さず、検索の入力欄の幅は160以上・ボタン「メッセージを検索」の高さは40で、ラベルは画面に出ない", async ({
+  page,
+}) => {
+  await openHome(page, SIZES.desktop);
+  await expectHeaderStable(page);
+  const texts = await visibleTextLines(page);
+  expect(texts.map((t) => t.text)).toEqual(
+    expect.arrayContaining([
+      "internal-system",
+      "メッセージを検索",
+      "通知",
+      "在席",
+    ]),
+  );
+  // ラベル「検索する言葉」は、読み上げ用に隠れていて、見えている文字に含まれない
+  expect(texts.map((t) => t.text)).not.toContain("検索する言葉");
+  for (const { text, lines } of texts)
+    expect(lines, `「${text}」の行の数`).toBe(1);
+
+  const form = headerSearchForm(page);
+  await expect(form).toBeVisible();
+  const input = await form
+    .getByRole("searchbox", { name: "検索する言葉" })
+    .boundingBox();
+  const button = await form
+    .getByRole("button", { name: "メッセージを検索", exact: true })
+    .boundingBox();
+  if (input === null || button === null)
+    throw new Error("検索の欄またはボタンの位置が取れません");
+  expect(input.width, "入力欄の幅").toBeGreaterThanOrEqual(160);
+  expect(button.height, "ボタンの高さ").toBeCloseTo(40, 0);
+  // Playwright の toBeVisible は、画面外・1×1 に隠した文字も可視とするため、ラベルは寸法で確かめる
+  const label = await form
+    .getByText("検索する言葉", { exact: true })
+    .boundingBox();
+  if (label === null) throw new Error("ラベルの位置が取れません");
+  expect(label.width).toBeLessThanOrEqual(1);
+  expect(label.height).toBeLessThanOrEqual(1);
+});
