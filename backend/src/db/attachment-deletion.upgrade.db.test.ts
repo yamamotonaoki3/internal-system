@@ -41,7 +41,8 @@ function splitMigrations() {
       (q) =>
         /message_attachments/.test(q) &&
         /deleted_at/.test(q) &&
-        /(ADD\s+COLUMN|CREATE\s+TABLE)/i.test(q),
+        // drizzle の生成は `ADD \`deleted_at\``（COLUMN なし）。書き換え（ADR-0024）では `ADD COLUMN` になる
+        /(ADD(\s+COLUMN)?\s|CREATE\s+TABLE)/i.test(q),
     ),
   );
   if (index < 0) throw new Error("添付の削除の migration が見つかりません");

@@ -383,6 +383,9 @@ describe("#155 AC-3 D-14 migration の更新の試験（既存の行がある DB
         .results,
     ).toEqual(messagesBefore);
 
+    // 登録の処理（今のコード）は message_attachments.deleted_at を読む。検索と関係しない残りの migration（添付の削除の列など）も当ててから実行する
+    await applyD1Migrations(db, testEnv.TEST_MIGRATIONS);
+
     const upgraded = drizzle(db, { schema });
     let after: string | null = null;
     for (let round = 0; round < 100; round += 1) {

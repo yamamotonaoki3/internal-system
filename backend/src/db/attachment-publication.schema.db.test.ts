@@ -70,8 +70,11 @@ describe("#148 AC-8 migration：message_attachments.publication_visibility", () 
   });
 
   it("#148 AC-8 D2: 既存の列（#140 の11列）は変わらず、足したのは publication_visibility の1列だけ", async () => {
+    // #270 計画 4.7（migration 0036）で deleted_at・deleted_by の2列が足された。それ以外の増減はないこと
     expect((await columns()).map((c) => c.name).sort()).toEqual(
       [
+        "deleted_at",
+        "deleted_by",
         "id",
         "room_id",
         "thread_parent_id",

@@ -17,7 +17,7 @@ INSERT INTO users (
   email, email_normalized, department_id, password_hash, must_change_password, is_active
 )
 SELECT
-  '01JTE2E270000000000000A01', 'e2euser_attdel_a', 'e2euser_attdel_a',
+  '01JTE2E2700000000000000A01', 'e2euser_attdel_a', 'e2euser_attdel_a',
   'E2E添付削除利用者A', 'テスト本名添付削除A',
   'e2euser_attdel_a@example.com', 'e2euser_attdel_a@example.com',
   '01JTE2E2700000000000000D01', password_hash, 0, 1
@@ -25,7 +25,7 @@ FROM users WHERE login_id = 'e2euser_login_001';
 
 -- 添付のアップロード・削除（perm.attachment.delete.own）は、一般のロールが持つ
 INSERT INTO user_role_assignments (id, user_id, role_id, scope_type, department_id, assigned_at) VALUES
-  ('01JTE2E2700000000000000R01', '01JTE2E270000000000000A01', 'role_member', 'company', NULL, '2026-11-21T00:00:00.000Z');
+  ('01JTE2E2700000000000000R01', '01JTE2E2700000000000000A01', 'role_member', 'company', NULL, '2026-11-21T00:00:00.000Z');
 
 INSERT INTO rooms (id, kind, created_at) VALUES
   ('01JTE2E2700000000000000C01', 'channel', '2026-11-21T00:00:00.000Z');
@@ -39,4 +39,4 @@ INSERT INTO channels (
    '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z', NULL, NULL);
 
 INSERT INTO channel_members (channel_id, user_id, joined_at) VALUES
-  ('01JTE2E2700000000000000C01', '01JTE2E270000000000000A01', '2026-11-21T00:00:00.000Z');
+  ('01JTE2E2700000000000000C01', '01JTE2E2700000000000000A01', '2026-11-21T00:00:00.000Z');
