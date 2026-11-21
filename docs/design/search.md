@@ -1,8 +1,8 @@
-# メッセージの検索（S-15・ヘッダーの検索欄。Issue #155 の155-A・155-B）
+# メッセージと案件の検索（S-15・ヘッダーの検索欄。Issue #155 の155-A・155-B・155-C）
 
 ## 目的
 
-キーワードで、自分が見られるメッセージだけを、本文と添付のファイル名から検索し、結果から元のやり取りへ移れるようにする（4-1 AC-1〜AC-3、Issue #155 の AC-1〜AC-4）。検索の方式は、D1 の FTS5 の`trigram`（C-152・[ADR-0010](../adr/0010-japanese-search-fts5-trigram.md)）。検索用の表の migration は手で書く（[ADR-0031](../adr/0031-search-fts-handwritten-migration.md)）。コードは書き写さず、ファイル名・関数名で指す。
+キーワードで、自分が見られるメッセージだけを、本文と添付のファイル名から検索し、結果から元のやり取りへ移れるようにする（4-1 AC-1〜AC-3、Issue #155 の AC-1〜AC-4）。155-C で、案件を件名・案件番号・取引先名で検索し、結果の概要から案件の画面（S-17）へ移れるようにした（4-2 AC-1〜AC-3。案件の検索は下の「案件の検索（155-C）」）。検索の方式は、D1 の FTS5 の`trigram`（C-152・[ADR-0010](../adr/0010-japanese-search-fts5-trigram.md)）。検索用の表の migration は手で書く（[ADR-0031](../adr/0031-search-fts-handwritten-migration.md)）。コードは書き写さず、ファイル名・関数名で指す。
 
 ## 範囲
 
@@ -11,10 +11,11 @@
 | 155-A で作ったもの | 検索用の表（`search_documents`・`search_fts`。migration 0032・0033）／索引の更新の部品と、メッセージの本文を書く7か所への組み込み／既存のメッセージの登録の処理と、手元での実行（`search-reindex`）／`GET /api/search/messages`（EP-4-01。部屋・期間の絞り込み、カーソル）／S-15（メッセージの結果）とヘッダーの検索欄／案件の資格を失ったときの、検索のキャッシュの取り除き |
 | 155-B で作ったもの | 添付のファイル名の索引（種類`attachment`）／種類の CHECK を変える migration（0034 で写しを空にし、0035 で表を作り直す。ADR-0031 の追記）／投稿・返信の結び付けと論理削除の batch への、添付の組の組み込み／既存の添付の登録（`reindexMessages`を広げた）／EP-4-01 の応答の`matchedIn`・`matchedAttachments`／S-15 の「ファイル名で一致」の印と、一致したファイル名の一覧（利用者の決定 B-1〜B-5。C-201） |
 | 155-B で作らなかったもの | 「ファイル名だけ」の絞り込み（B-5）／結果のファイル名からファイルを直接開くこと（B-4）／添付の中身の検索 |
-| 後の子 | 155-C：案件の件名・案件番号・取引先名（種類`case_title`。CHECK はすでに通す。EP-4-02。S-15 の案件の結果） |
-| 親 #155 の残り（延期） | 全社員公開アーカイブの、参加していない人向けの検索（D-4。公開承認の仕組みがまだない）。TODO の検索（D-5。C-152 の「後から追加できる」） |
+| 155-C で作ったもの | 案件の件名の索引（種類`case_title`。migration なし）／承認による作成・再編集の batch への、件名の組の組み込み／既存の案件の登録（`reindexCases`）と、手元の`search-reindex`での続けての登録／`GET /api/search/cases`（EP-4-02。件名・案件番号・取引先名）／S-15 の「案件」の区画（利用者の決定と統括の決定。C-202）。これで、検索の対象は、メッセージの本文・添付のファイル名・案件（件名・案件番号・取引先名）になった |
+| 155-C で作らなかったもの | 説明での検索（4-2 AC-1 の対象にない）／状態の絞り込み／担当部署名・発行時の取引先名での一致（発行時の取引先名は C-129・C-130 で未決定）／案件のアーカイブ（機能がない） |
+| #155 の外に移したもの（延期） | 全社員公開アーカイブの、参加していない人向けの検索（D-4。公開承認の仕組みがまだない）→ #356。TODO の検索（D-5。C-152 の「後から追加できる」）→ #357。#155 は155-C で閉じる（利用者の決定 2026-11-21） |
 | 作らなかったもの | 検索の回数の制限（429。D-7。上限が X-8 で未決定のため、#160 の実測の後に判断）／総件数の表示／部屋の絞り込みを選ぶ部品（URL の`roomId`だけを引き継ぐ）／4-1 AC-4【案】の「参加していません」の表示（C-144 の案で、決定ではない）／添付の中身の検索 |
-| #160 に回すもの | 本物の D1 での trigram の確認、30万件の実測（語1・2・3・10・50・100文字。p95 2秒）、Time Travel の確認、本番での migration 0032〜0035 の適用と既存のメッセージ・添付の登録 |
+| #160 に回すもの | 本物の D1 での trigram の確認、30万件の実測（語1・2・3・10・50・100文字。p95 2秒。155-C の案件の検索を含む）、Time Travel の確認、本番での migration 0032〜0035 の適用と既存のメッセージ・添付・案件の登録（本番で登録する経路は #353） |
 
 ## ファイルと役割
 
@@ -23,6 +24,7 @@
 | ファイル | 役割 |
 | --- | --- |
 | `shared/search-rules.ts` | 検索語の検査`searchKeywordSchema`（前後の空白を除いて1〜100文字。上限は UTF-16 の単位で数える）と、方式の境目`SEARCH_TRIGRAM_MIN_CODE_POINTS`（3。コードポイントで数える）の**定義元**。`searchKeywordSchema`は、検索・メッセージの一覧の`q`・社員の検索（`GET /api/users`）の`q`・画面の検索欄が使う。#155 で、上限の判定を UTF-16 で数える形に変えた（zod の`max`はサロゲートペアを1文字と数えるため） |
+| `shared/case-rules.ts`（`caseNumberSearchKey`） | 案件番号の検索のキーの**定義元**（155-C）。前後の空白を除き、ASCII の`-`を位置に依らず除き、ASCII の英字を大文字にする。内部の空白は保つ。全角のハイフン・英数字は変えない（下の「既知の差」）。取引先名のキーは既存の`shared/client-rules.ts`の`clientNameKey`を使う |
 | `shared/search-text.ts` | 索引に入れる本文を作る`toSearchText`（マークダウンの記号を除く）と、一致の位置`findSearchMatches`の**定義元**。索引・抜粋・画面の強調が同じ規則で同じ文を見るよう、ここの1か所に置く。テストは`backend/src/lib/search-text.test.ts`（vitest の対象が backend と frontend だけのため） |
 
 ### バックエンド
@@ -33,17 +35,19 @@
 | `backend/db/migrations/0033_add_search_fts.sql` | 検索用の表`search_fts`（FTS5・`trigram`）。**手で書いた**（ADR-0031）。`schema.ts`には書かない |
 | `backend/db/migrations/0034_clear_search_index.sql` | `search_fts`と`search_documents`の行を全部消す。**手で書いた**（ADR-0031 の追記。次の作り直しで採番の記録を失っても、古い文が新しい行に結び付かないようにするため）。155-B |
 | `backend/db/migrations/0035_change_search_document_kinds.sql` | `search_documents`の作り直し（CHECK を3つの種類に変える）。生成物のまま。155-B |
-| `backend/src/db/search-index.sql.ts` | 索引の更新の文の組`syncMessageIndexStatements`・`removeStaleMessageIndexStatements`と、添付のファイル名の組`syncAttachmentIndexStatements`・`removeStaleAttachmentIndexStatements`（155-B）。検索用の表の形（batch に入れる文を組むためのもの）は、このファイルの中だけに置く |
+| `backend/src/db/search-index.sql.ts` | 索引の更新の文の組`syncMessageIndexStatements`・`removeStaleMessageIndexStatements`と、添付のファイル名の組`syncAttachmentIndexStatements`・`removeStaleAttachmentIndexStatements`（155-B）、案件の件名の組`syncCaseTitleIndexStatements`と、件名が語に一致する案件の ID の集合`caseTitleHitsQuery`（155-C）。検索用の表の形（batch に入れる文を組むためのもの）は、このファイルの中だけに置く |
 | `backend/src/db/message.repository.ts`・`reply-insert.sql.ts`・`message-modify.sql.ts` | メッセージの本文を書く batch の末尾に、索引の組を足した。投稿・返信・論理削除には、添付の組も足した（下の「書き込みへの組み込み」） |
-| `backend/src/db/search-reindex.ts` | 既存のメッセージと、その添付のファイル名の登録`reindexMessages` |
+| `backend/src/db/search-reindex.ts` | 既存のメッセージと、その添付のファイル名の登録`reindexMessages`。既存の案件の件名の登録`reindexCases`（155-C） |
+| `backend/src/db/case-request.repository.ts`（`approve`）、`backend/src/db/case.repository.ts`（`buildEditStatements`・`editCase`） | 承認による案件の作成と再編集の batch の末尾に、件名の組を足した（155-C。下の「件名の書き込みの経路」） |
+| `backend/src/db/case.repository.ts`（`searchCases`） | 案件の検索の SQL（EP-4-02。155-C）。一覧の選択の項目（`rowFields`。一覧の`selectRows`から切り出した）と概要の組み立て（`toSummaries`）を使い回す。返す型は`CaseSearchItem` |
 | `backend/src/db/search.repository.ts` | 検索の SQL（`createSearchRepository`の`searchMessages`）。一致の条件・見える範囲・メッセージ単位のまとめ・絞り込み・並び・カーソル・抜粋・`matchedIn`と`matchedAttachments`（`matchesOf`） |
 | `backend/src/db/room-visibility.sql.ts` | `directRoomListable`を足した（`perm.dm.message.view`がない人の一覧・検索から DM の部屋を除く。案件の部屋の`caseRoomListable`と同じ作り） |
 | `backend/src/lib/search-query.ts` | `toFtsPhrase`（語を1つの句にする）・`searchMethodOf`（`match`か`instr`か）・`buildExcerpt`（抜粋の切り出し） |
-| `backend/src/services/search.service.ts` | 権限の判定と、JST の日付を UTC の境目に直すこと（`createSearchService`・`withSearchService`） |
-| `backend/src/routes/search.ts` | `GET /api/search/messages`の入力の検査（422）と応答。`backend/src/index.ts`が`/api/search`に登録する |
+| `backend/src/services/search.service.ts` | 権限の判定と、JST の日付を UTC の境目に直すこと（`createSearchService`・`withSearchService`）。155-C で`searchCases`（`perm.case.summary.view`で`authorize`してから Repository を呼ぶ） |
+| `backend/src/routes/search.ts` | `GET /api/search/messages`と`GET /api/search/cases`（155-C）の入力の検査（422）と応答。`q`の検査は2つのルートで同じ式（NUL の拒否を含む）。`backend/src/index.ts`が`/api/search`に登録する |
 | `backend/src/routes/audit-logs.ts`（`jstDateSchema`）、`backend/src/db/audit-log.repository.ts`（`jstDayStart`・`jstNextDayStart`） | JST の日付の検査と境目の部品に`export`を付けた（同じ規則を2か所に書かないため。計画の外の変更） |
-| `backend/db/seeds/cleanup.sql` | メッセージを消した後に、元のメッセージがなくなった索引の行と、対応の行のない検索用の行を消す。155-B で、元の添付か結ぶメッセージのなくなった添付の写しも消す |
-| `docs/api/openapi.json` | EP-4-01 の API 仕様（155-B で`MessageSearchItem`に`matchedIn`・`matchedAttachments`） |
+| `backend/db/seeds/cleanup.sql` | メッセージを消した後に、元のメッセージがなくなった索引の行と、対応の行のない検索用の行を消す。155-B で、元の添付か結ぶメッセージのなくなった添付の写しも消す。155-C で、元の案件のなくなった件名の写しも消す |
+| `docs/api/openapi.json` | EP-4-01 の API 仕様（155-B で`MessageSearchItem`に`matchedIn`・`matchedAttachments`）。155-C で EP-4-02（`searchCases`） |
 
 ### スクリプト
 
@@ -51,18 +55,20 @@
 | --- | --- |
 | `scripts/db-generate-args.ts` | `db:generate`の引数の検査`generateArgs`。引数なし・`--name <名前>`・`--custom --name <名前>`だけを通す（`scripts/db-local.ts`から切り出した。テストは`scripts/db-generate-args.test.mjs`。`npm test`の`node --test`に足した） |
 | `scripts/db-local.ts`（`search-reindex`） | 手元の D1 だけで、既存のメッセージの索引を作る。追加の引数（`--remote`など）と、D1 でない環境（`DATABASE_URL`がある環境）は拒否する |
-| `scripts/search-reindex-local.ts` | `reindexLocalSearch`。wrangler の`getPlatformProxy`（`remoteBindings: false`）で、`db-local.ts`の他の操作と同じ保存先の D1 を開き、`reindexMessages`を最後まで繰り返す。本文は画面に出さず、件数だけを出す |
+| `scripts/search-reindex-local.ts` | `reindexLocalSearch`。wrangler の`getPlatformProxy`（`remoteBindings: false`）で、`db-local.ts`の他の操作と同じ保存先の D1 を開き、`reindexMessages`を最後まで繰り返し、続けて`reindexCases`を同じ形（最後に読んだ案件の ID から続け、`null`で終わる）で最後まで繰り返す（155-C）。本文・件名は画面に出さず、回数と件数だけを出す |
 
 ### フロントエンド
 
 | ファイル | 役割 |
 | --- | --- |
-| `frontend/src/features/search/api/search-api.ts`・`query-keys.ts` | `searchMessages`（応答は zod で検証。155-B で`matchedIn`〔1つ以上〕・`matchedAttachments`を足し、「`matchedIn`が`attachment`を含む ⇔ `matchedAttachments`が1件以上」を確かめる。食い違う応答は、取得の失敗として扱う）。キー`searchKeys.messages(利用者の ID, 条件, ページ数)`＝`['search', 利用者の ID, 'messages', 条件, ページ数]`、`searchKeys.user(利用者の ID)`＝その利用者の検索の全部 |
-| `frontend/src/features/search/hooks/useMessageSearch.ts` | 結果の取得（`useQuery`。見せるページ数を状態に持ち、取得のたびに1ページ目からその数だけ順に取る。`showMore`でページ数を増やす）。キャッシュに持たない設定（下の「画面」） |
-| `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示。155-B で、ファイル名で一致した行の印と名前の一覧〔中の部品`MatchedAttachmentNames`〕）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調） |
-| `frontend/src/pages/SearchPage.tsx`、`frontend/src/App.tsx`（`/search`） | S-15。URL の`q`・`roomId`・`from`・`to`で検索する。`q`がなければ API を呼ばない |
+| `frontend/src/features/search/api/search-api.ts`・`query-keys.ts` | `searchMessages`（応答は zod で検証。155-B で`matchedIn`〔1つ以上〕・`matchedAttachments`を足し、「`matchedIn`が`attachment`を含む ⇔ `matchedAttachments`が1件以上」を確かめる。食い違う応答は、取得の失敗として扱う）。キー`searchKeys.messages(利用者の ID, 条件, ページ数)`＝`['search', 利用者の ID, 'messages', 条件, ページ数]`、`searchKeys.user(利用者の ID)`＝その利用者の検索の全部。155-C で、`searchCases`（応答は zod で検証。`matchedIn`は1つ以上）と、キー`searchKeys.cases(利用者の ID, 語, ページ数)`＝`['search', 利用者の ID, 'cases', { q }, ページ数]`、区画ごとの全体のキー`searchKeys.messagesAll`・`searchKeys.casesAll`を足した（どれも`searchKeys.user`の前方一致に入る） |
+| `frontend/src/features/search/hooks/fetch-search-pages.ts` | `fetchSearchPages`：1ページ目から指定のページ数まで順に取る（取り消された取得は残りのページを取りにいかない）。メッセージ・案件の2つの区画で共通（155-C で`useMessageSearch.ts`から切り出した） |
+| `frontend/src/features/search/hooks/useMessageSearch.ts` | 結果の取得（`useQuery`。見せるページ数を状態に持ち、取得のたびに1ページ目からその数だけ順に取る。`showMore`でページ数を増やす）。キャッシュに持たない設定（下の「画面」）。155-C で、区画を離れたときの後始末を、メッセージのキー（`searchKeys.messagesAll`）だけにした |
+| `frontend/src/features/search/hooks/useCaseSearch.ts` | 案件の区画の取得（155-C）。取得の決まりは`useMessageSearch`と同じ。区画を離れたときの後始末は案件のキー（`searchKeys.casesAll`）だけ |
+| `frontend/src/features/search/components/` | `HeaderSearch`（ヘッダーの検索欄）、`SearchKeywordForm`（語の入力欄。ヘッダーと S-15 で共用）、`SearchConditionsForm`（語と、折りたたんだ期間の絞り込み）、`MessageSearchResults`（読み込み中・0件・失敗と再試行・さらに表示。155-B で、ファイル名で一致した行の印と名前の一覧〔中の部品`MatchedAttachmentNames`〕）、`HighlightedExcerpt`（抜粋の中の一致を`<mark>`で強調）。155-C で`CaseSearchResults`（案件の区画。中の部品`CaseRow`・`CaseSearchBody`） |
+| `frontend/src/pages/SearchPage.tsx`、`frontend/src/App.tsx`（`/search`） | S-15。URL の`q`・`roomId`・`from`・`to`で検索する。`q`がなければ API を呼ばない。155-C で、案件の区画をメッセージの結果の上に置いた（案件の区画は`q`だけで取る） |
 | `frontend/src/features/app-shell/Header.tsx` | `HeaderSearch`を置いた |
-| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`・`forgetSearchResults`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。下の「画面」） |
+| `frontend/src/features/cases/hooks/useCaseWrites.ts`（`forgetCaseContent`・`forgetSearchResults`） | 案件の資格を失ったときに、その利用者の検索の結果（`searchKeys.user`）も片付ける（取り消し → 表示していない分の取り除き → 表示中の分の`resetQueries`。下の「画面」）。155-C では変えていない（前方一致で、案件の区画のキーも一緒に片付く） |
 
 ## 表の構成（migration 0032〜0035）
 
@@ -70,6 +76,7 @@
 - `search_fts`（FTS5。`text`の1列。`tokenize='trigram'`）：中身（記号を除いた本文）を自分で持つ。外部の内容の表・トリガーは使わない
 - **rowid ＝`search_documents.id`**。整数の番号は検索用の表との対応にだけ使い、並び・カーソルには使わない（更新のたびに採番し直すため）
 - 添付の写し（`kind = 'attachment'`）の各列：`ref_id`＝添付の ID、`room_id`＝添付の部屋、`message_id`＝結ぶメッセージ、`created_at`＝**メッセージの**作成日時（アップロードの時刻ではない。期間・並びをメッセージの結果とそろえるため）、`source_body`と検索用の表の`text`＝`original_name`を**記号を除かずにそのまま**（B-3。ファイル名の`_`・`*`などは名前の一部のため。`toSearchText`を当てない）
+- 案件の件名の写し（`kind = 'case_title'`。155-C）の各列：`ref_id`＝案件の ID、`room_id`と`message_id`＝**NULL**（案件の部屋の ID を入れない。メッセージの検索の部屋・期間の絞り込みに混ざらないため。案件の資格は案件の決まりで決める）、`created_at`＝`cases.created_at`、`source_body`と検索用の表の`text`＝いまの件名を**記号を除かずにそのまま**（件名にマークダウンはない。B-3 と同じ考え）。メッセージの検索の SQL は、メッセージとの内部結合と種類ごとの適格の条件で件名の行を落とすので、変えていない
 - **表を作り直すとき**：作り直しは採番の記録を失い、番号が使い回されうる。対応の行のない古い検索用の行が残っていると、新しい行に古い文が結び付くため、作り直しの前に写しを全部消し（0034）、生成のままの作り直し（0035）の後に登録し直す。今後の作り直しもこの手順にする（[ADR-0031](../adr/0031-search-fts-handwritten-migration.md)の追記）
 
 ## 索引の更新（`search-index.sql.ts`）
@@ -278,10 +285,100 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - 状態：読み込み中・0件（「一致するメッセージはありません」）・失敗と再試行・さらに表示
 - **取得のたびに1ページ目から取り直す**：`useMessageSearch`は、見せるページ数を状態とキーに持ち、1ページ目からその数だけ順に取る（カーソルは、同じ取り直しの中の直前のページから作る）。「さらに表示」はページ数を1つ増やし、先頭から取り直す。次のページだけを足す形では、途中で資格を失った部屋の行が前のページに残るため（コードレビューの重大な指摘への対応）。取得が完了した時点で出る行は、その時点のサーバーの応答の行だけになる
 - 「さらに表示」の取得の最中は、前の行を出さず、読み込み中だけを出す。取得中はボタンを押せない。失敗したら、取得済みの行も出さず、失敗の文言と再試行だけを出す（再試行は1ページ目から）。条件を変えると（`SearchPage`が結果の部品に`key`を付ける）、ページ数は1に戻る
-- **キャッシュに持たない**（抜粋は資格に左右されるため）：`staleTime: 0`・`gcTime: 0`・`retry: false`、画面を離れたら`searchKeys.user`を取り消して取り除く。`placeholderData`を使わず、前の結果を仮に出さない
+- **キャッシュに持たない**（抜粋は資格に左右されるため）：`staleTime: 0`・`gcTime: 0`・`retry: false`、区画を離れたら、その区画のキー（155-C から`searchKeys.messagesAll`。前は`searchKeys.user`）を取り消して取り除く。`placeholderData`を使わず、前の結果を仮に出さない
 - **利用者の切り替え**：キーに利用者の ID を入れ、ADR-0030 の枠（`user-switch-guard.ts`）でも捨てられる
 - **資格の喪失**：`forgetCaseContent`が`forgetSearchResults`（`useCaseWrites.ts`）を呼び、その利用者の検索の結果（`['search', 利用者の ID]`）を全部片付ける（どの案件の抜粋が入っているかをキーから決められないため）。順は、取り消し → 表示していない分の取り除き（`removeQueries`の`type: 'inactive'`）→ `resetQueries`（表示中の分のデータを消して購読している画面に知らせ、いまの資格で取り直す）。`removeQueries`だけでは表示中の画面に知らせず、出ている抜粋が残るため（2回目のコードレビューの重大な指摘への対応）。取り直しの完了は待たず、取り消しの完了だけを待つ。案件のほかのキーの片付けの方式は変えていない
 - **取り消し**：取得は`signal`で取り消せる（`searchMessages`に渡す）。取り消された取得は、残りのページを取りにいかない。別の作業 #323 が、資格を失ったときの後片付けを「ページごと読み込み直す」方式に変える予定で、その後はこの取り除きの扱いも合わせて見直す
+
+## 案件の検索（155-C）
+
+### 件名の組（`syncCaseTitleIndexStatements`）
+
+`syncCaseTitleIndexStatements(db, caseId)`は、次の4つの文の組を返す。引数は案件の ID だけで、値はすべて DB のいまの案件の行から写す（呼び出し側は件名を渡さない）。
+
+1. その案件の件名の写しのうち、いまの行と合わないものを、検索用の表から消す
+2. 同じ条件で、対応の表の行を消す
+3. その案件の件名の写しがなければ、いまの件名で対応の表に入れる
+4. 対応の表の行があり、検索用の表にまだ行がなければ、件名を入れる
+
+「いまの行と合う」写しの条件（どれか1つでも崩れたら、古い写しとして消す）：元の案件がある／`source_body`がいまの件名と同じ／`created_at`が案件の作成日時と同じ／`room_id`・`message_id`が NULL／検索用の表に行があり、その文が`source_body`と同じ。テストの不一致の数え（元の案件がない・件名が違う・作成日時が違う・案件に行がない・片方の表だけに行がある）より、消す条件は広い（部屋の列・検索用の表の文の食い違いも直す）。
+
+性質（テストで固定した）：
+
+- **べき等・順序に依らない**：結果は案件のいまの行だけで決まり、`ref_id`（案件の ID）だけで写しを見分けるため、何度・どの順で実行しても、最後の状態に一致する（添付の付け替えのような問題は起きない）
+- **保証の範囲は、同じ batch の中**：組は件名を変える batch の末尾に入り、batch が取り消されれば索引も元のまま。拒否された再編集（前提の崩れ・存在しない案件）では、件名の写しは変わらない。DB の上で件名を直接書き換えるなど、組を通らない変更は、次の再編集か登録まで直らない（下の「既知の差」）
+- 束縛値は案件の ID だけ（D1 の1文 100 個に遠い）。件数の判定に、組の文の結果（`meta.changes`）を使わない
+
+### 件名の書き込みの経路
+
+アプリのコードで案件の件名を書くのは、承認による作成と再編集の2つだけ（案件の削除・アーカイブはない）。
+
+| 経路 | 場所 | 件名の組 | 理由 |
+| --- | --- | --- | --- |
+| 承認による作成 | `case-request.repository.ts`の`approve`の batch | 末尾（通知の後ろ）に足した | 作られた案件が、承認と同時に件名で出る |
+| 再編集 | `case.repository.ts`の`buildEditStatements`の batch | 末尾（不変条件の確認の後ろ）に足した。**件名を変えない再編集でも毎回**足す（いまの行と同じなら何も変えない。件名の変化の判定を分けないため） | 新しい件名で出て、古い件名で出ない |
+| 既存の分の登録 | `search-reindex.ts`の`reindexCases` | 案件ごとに1つの batch で組を実行する | シード・既存の案件の登録 |
+| 終了・再開・参加者の追加と削除・納期の変更 | `changeStatus`・`buildReopenStatements`・参加者の処理・`changeDueDate` | 何もしない | 件名・作成日時を変えない。状態・参加の有無は、検索の時に元の表で読む |
+| 取引先の改名・無効化、部署の改名・無効化 | 取引先・部署の処理 | 何もしない | 取引先名・部署名は索引に入れず、検索の時にいまの値で読む |
+
+組は、前提の確認・ガード（`changes()`を見る文）の間に挟まず、末尾に置く（[project-rules.md](../project-rules.md)の検索の索引の決まり）。再編集の更新の結果を読む位置は、`buildEditStatements`が更新の文を積んだ時点で決めて返す（`updateAt`。[cases.md](cases.md)の150-C の書き込み）。案件の書き込みで件名を変える処理を新しく足すときは、同じ batch の末尾に件名の組を足し、`backend/src/db/search-index.cases.db.test.ts`の経路の一覧のテストにも足す。案件のアーカイブ・削除を作るときは、件名の写しを消す（または検索の SQL で除く）ことを、同じ変更で決める。
+
+### 既存の案件の登録（`reindexCases`）
+
+- `reindexCases(db, { afterId, batchSize })`：`cases.id`の順に、進行中・終了とも`batchSize`件（既定100）読み、案件ごとに件名の組を1つの batch で実行し、最後に読んだ ID を返す（読む行がなければ`null`）。組がべき等なので、途中で失敗しても、最初から、または返った ID から再開してよい
+- 方式は、メッセージの登録（D-9）を案件に広げたもの（利用者の決定。C-202(3)。migration ではなく、後から実行する登録の処理）
+- 手元：`node scripts/db-local.ts <development|test> search-reindex`が、メッセージの後に続けて案件も登録する
+- 本番：#160・#353。手順書 [production-first-rollout.md](../operations/production-first-rollout.md)の工程 7 で、メッセージ・添付と同じ処理の中で登録し、不一致0件を確かめる
+
+### API（`GET /api/search/cases`。EP-4-02）
+
+- 入力：`q`（EP-4-01 と同じ式。`searchKeywordSchema`に NUL の拒否を足したもの）、`limit`（1〜100。既定20。一覧の決まり）、`cursor`。ほかの項目は 422（`strict`）。部屋・期間・状態の絞り込みはない
+- 権限：`perm.case.summary.view`（`type: company`。EP-5-07 の概要と同じ）で`authorize`。ない人は 403（拒否は監査に記録する）。いまの役割では3つとも持つ。表示の判定（`can`）は使わない
+- 応答：`items`（`id`・`caseNumber`・`title`・`status`・`client`〔`id`・`name`・`isActive`〕・`departments`〔`id`・`name`・`isActive`の配列〕・`dueDate`・`progress`〔`done`・`total`。0件は`null`〕・`isParticipant`・`matchedIn`）と`nextCursor`。`matchedIn`は`title` → `caseNumber` → `client`の順で1つ以上。総件数は返さない。`noStore`を付け、検索語はログに出さない
+- **返さない項目**：説明・参加者・参加者数（`participantCount`）・管理の資格（`canManage`・`canEditDueDate`）・部屋の ID（`channelId`）・最終更新（`lastActivityAt`）・版（`version`）・取引先のコード。参加者にも返さない（区画の行に要らず、出す面を減らすため）。応答の型`CaseSearchItem`は概要`CaseSummary`からこの10個だけを選ぶ
+
+### SQL の形（`searchCases`）
+
+1. WITH 句`title_hits`（`caseTitleHitsQuery`）：検索用の表で語に一致し、種類が`case_title`で、写しの元の件名（`source_body`）が**いまの件名と同じ**行の案件の ID の集合。外側の案件に依らない集合として先に作る（案件ごとに検索用の表を引き直さない）。方式は EP-4-01 と同じ（3文字〔コードポイント〕以上は`MATCH`と`toFtsPhrase`、1〜2文字は`instr(lower(...))`）
+2. 外側：`cases`を基の表にし、`clients`と内部結合し、`title_hits`と LEFT JOIN（1回だけ参照する）
+3. 条件：件名の一致（`title_hits`にある）OR 案件番号の先頭からの一致（ハイフンを除いて大文字にした番号の先頭に、`caseNumberSearchKey`の値がある。キーが空なら、この腕を入れない）OR 取引先名の部分一致（`clients.name_normalized`に`clientNameKey`の値がある）。`LIKE`を使わないので`%`・`_`も文字として扱う。説明は対象にしない
+4. 並びは案件 ID の降順、カーソル（`afterCursor`）と`limit + 1`（`toPage`）。案件ごとに1行なので、複数の項目で一致しても1件で、ページの境目で2回出ない
+5. 概要の組み立ては一覧と同じ（`toSummaries`）。`matchedIn`は3つの一致の真偽から作り、どれも無い行は SQL の誤りとして例外にする（成功として扱わない）
+
+実行計画（`backend/src/db/search.explain.cases.db.test.ts`で記録）：3文字以上は`title_hits`の中で検索用の表を1回だけ（仮想の表の索引の`MATCH`）引き、相関の副問い合わせにならない。1〜2文字は、対応の表を種類の索引で引いて走査する。案件番号・取引先名は`cases`・`clients`の全件の走査（案件が少ない前提。実測は #160）。
+
+### 見える範囲
+
+見える範囲は、案件の一覧（`all`）・概要と同じ**全案件**（進行中・終了。審査中の申請は`cases`に行がないため出ない）。
+
+| 主体 | 出る案件 | `isParticipant` |
+| --- | --- | --- |
+| 有効な参加者 | すべて | その案件だけ`true` |
+| 担当部署のオーナー（参加していない） | すべて | `false` |
+| 全体管理者（参加していない） | すべて | `false` |
+| 一般の社員（参加していない） | すべて | `false` |
+| `perm.case.summary.view`がない | 403 | — |
+
+4者で結果の案件の集合は同じで、返す項目は概要の項目だけ（4-2 AC-2）。参加しているかは、検索の時のいまの参加で決める（途中で外れたら、取り直したページで`false`になる）。全員に全案件の概要が見えるため、件数・カーソルから存在が推し量れる問題はない。行を押した先（S-17）の閲覧の制御は、既存の案件の画面の決まりのまま（参加していない人には非公開の案内）。
+
+### 言葉の合わせ方（利用者の決定。C-202(1)）
+
+| 対象 | 一致の仕方 | 正規化 |
+| --- | --- | --- |
+| 件名 | 部分一致（索引） | 前後の空白の除去だけ（EP-4-01 と同じ）。英字の大小文字は、3文字以上は trigram の規則、1〜2文字は`lower()` |
+| 案件番号 | 先頭からの一致（C-117） | 前後の空白を除き、ASCII の`-`を位置に依らず除き、ASCII の英字を大文字に（`caseNumberSearchKey`。番号の側もハイフンを除いて大文字にして比べる）。内部の空白は保つ（内部に空白のある語は番号に一致しない）。ハイフンだけの語は番号では探さない |
+| 取引先名 | いまの名前の部分一致（取引先の管理の検索と同じ） | `clientNameKey`（前後の空白の除去と小文字化）と`name_normalized`。改名の前の名前では出ない |
+
+### 画面（S-15 の「案件」の区画）
+
+- `CaseSearchResults`を、`SearchPage`のメッセージの結果の上に置く。`q`だけで取り、`key`は語だけ（部屋・期間を変えても作り直さない）
+- 行：件名（`HighlightedExcerpt`で一致を強調。文字として描く）・案件番号・状態（進行中／終了）・取引先名・担当部署の名前・納期。件名を押すと`/cases/<案件の ID>`（S-17）
+- 状態：読み込み中（「案件を読み込み中です」）・0件（「一致する案件はありません」）・失敗と再試行（「案件を検索できませんでした」。失敗したら取得済みの行も出さない。再試行は1ページ目から）・さらに表示。応答が zod の検証に合わないときも失敗として扱う
+- 取得の決まりはメッセージの区画と同じ（毎回1ページ目から取り直す・`signal`で取り消す・`staleTime: 0`・`gcTime: 0`・`retry: false`・`placeholderData`なし）。`isParticipant`がいまの参加で変わるため
+- **2つの区画は独立**：片方の取得・失敗・再試行・作り直しで、もう片方の取得は止まらず、表示も残る
+- **後始末の違い**：
+  - 通常の後始末（区画を離れたとき・作り直したとき）：その区画のキーだけ（`searchKeys.messagesAll`・`searchKeys.casesAll`）を取り消して取り除く。前の`useMessageSearch`は利用者の検索の全体（`searchKeys.user`）を片付けていたため、同じ画面に区画が2つになると、片方の作り直しが、もう片方の表示中の取得を消してしまう。そのため155-C で区画ごとに分けた
+  - 資格の喪失・利用者の切り替え：利用者の単位で消す（`forgetSearchResults`の`searchKeys.user`と ADR-0030 の枠）。前方一致で、案件の区画も一緒に消える。`useCaseWrites.ts`は変えていない
 
 ## 設計の判断
 
@@ -289,7 +386,12 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - 索引の文は「いまの行の状態」と「写しの元の本文」で条件づける。編集の拒否・既存のメッセージの登録との割り込みでも、正しい写しを消さないため（計画レビューの重大な指摘への対応）
 - 権限のない部屋・見えない部屋は、SQL の`LIMIT`より前で除く。総件数は返さない
 - 155-B：ファイル名の一致は、別の API・別の一覧にせず、EP-4-01 のメッセージの結果に印を付けて混ぜる（D-5・B-4）。「ファイル名だけ」の絞り込みは作らない（B-5）。索引の表の作り直しは、写しを空にしてから行う（B-1。ADR-0031 の追記）。決定は C-201
-- 429 は作らない（D-7）。api-draft の EP-4-01 にある 429 は、上限（X-8）が未決定のため、#160 の実測の後に判断する
+- 429 は作らない（D-7）。api-draft の EP-4-01 にある 429 は、上限（X-8）が未決定のため、#160 の実測の後に判断する（EP-4-02 も同じ）
+- 155-C：案件の検索は、メッセージの検索の SQL に混ぜず、案件を基の表にした別の文（EP-4-02）にした。案件ごとに1行なので重複が起きず、並び・カーソル・見える範囲を一覧とそろえられるため。前の版の「155-C に向けた注意」（結果を別の文で作るか、結合を分けるか）は、これで決まった
+- 155-C：`searchCases`はサブクエリを含むが、入力で条件が変わる検索なので Drizzle の通常の書き方を基本にし、件名の集合だけ`sql`で埋め込んだ（知見 db/sql-complexity の「両方に当てはまる場合」）。件名の集合の SQL は、検索用の表の形を1か所に置くため`search-index.sql.ts`に置いた
+- 155-C（計画と違えた点）：件名の集合を、`IN`ではなく WITH 句＋ LEFT JOIN で1回だけ参照する形にした（`matchedIn`のための件名の一致の判定と、WHERE の条件とで、検索用の表を読む段を1回にするため）。件名の一致の条件（種類・いまの件名との一致）は、`search-index.sql.ts`の`caseTitleHitsQuery`に、組の条件とは別にもう一度書いた。取得のページの部品を`fetch-search-pages.ts`に切り出した。合わない写しとして消す条件は、テストの不一致の数えより広い
+- 155-C：再編集の batch に件名の組を毎回足し、文の上限を 12 から 16 に改めた（C-202(2)。件名が変わったときだけ足す案は、分岐が増え、件名の変化の見落としの危険が増えるため採らなかった）
+- 155-C：応答の項目の名前は、EP-4-02 の草案ではなく、実装済みの概要（EP-5-07）に合わせた（C-202(6)。[api-draft.md](../requirements/api-draft.md)の追記）
 
 ## テストの場所
 
@@ -301,7 +403,13 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
   - DB：`backend/src/db/search-documents-kind.upgrade.db.test.ts`（0034・0035 の更新の試験。0034 を飛ばした対照で、孤立した番号の使い回しによる誤った一致を検出できること）、`search-index.attachments.db.test.ts`（状態の遷移・順序に依らない一致・不一致の分類ごとの検出・書き込みの経路の一覧・既存の戻り値）、`search.repository.attachments.db.test.ts`（一致・まとめ・名前の書き換え・見える範囲の条件ごと・ページ・期間・途中で資格を失う）。既存の`search.explain.db.test.ts`・`search-reindex.db.test.ts`・`cleanup-sql.search.db.test.ts`に事例を足した
   - API：`backend/src/routes/search.attachments.test.ts`、`openapi.search.test.ts`・`services/search.service.test.ts`に事例を足した
   - 画面：`frontend/src/pages/SearchPage.attachments.test.tsx`、`SearchPage.accessLoss.test.tsx`に事例を足した
-- E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。155-B の事例も同じ spec。[e2e.md](../testing/e2e.md)）
+- 155-C（案件の検索）：
+  - DB：`backend/src/db/search-index.cases.db.test.ts`（件名の組の状態の遷移・不一致の分類ごとの検出・書き込みの経路の一覧・拒否された再編集で索引が変わらない・既存の戻り値）、`case.repository.search.db.test.ts`（一致の項目ごと・条件を外すと落ちる対照・見える範囲の4者・返さない項目・ページ・途中で参加を外れる）、`search.explain.cases.db.test.ts`（実行計画）、`search-reindex.cases.db.test.ts`（登録・べき等・再開）、`search.repository.case-title.db.test.ts`（件名の行がメッセージの検索に出ない）、`cleanup-sql.case-title.db.test.ts`（後始末）。`case-edit.repository.db.test.ts`は、`buildEditStatements`の戻り値の形と文の上限 16 に合わせて直した。準備の部品は`backend/test/search-case-fixtures.ts`
+  - 単体：`backend/src/lib/case-number-search.test.ts`（`caseNumberSearchKey`）
+  - API：`backend/src/routes/search.cases.test.ts`、`services/search.service.cases.test.ts`、`openapi.search.cases.test.ts`
+  - 画面：`frontend/src/pages/SearchPage.cases.test.tsx`、`SearchPage.cases.accessLoss.test.tsx`、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.cases.test.ts`。モックは`frontend/src/test/search-handlers.ts`
+  - E2E：`e2e/search-cases.spec.ts`（[e2e.md](../testing/e2e.md)）
+- E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。155-B の事例も同じ spec。155-C で、`search-cleanup.sql`に件名の写しの後始末を足した。[e2e.md](../testing/e2e.md)）
 - ヘッダーに「検索」のボタンが増えたため、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った
 
 ## 既知の差・未実施
@@ -320,13 +428,18 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 | 全角・半角、合成済み・結合文字、ASCII 以外の大小文字 | 本文と同じく、添付の名前でも、trigram の一致と画面の強調（`findSearchMatches`）がずれる場合がある（全角と半角は別の文字。テストで固定した） |
 | 孤立した検索用の行と、番号の使い回し | 対応の行のない検索用の行は、後始末の順・途中の失敗で残りうる（`cleanup.sql`が消す）。いまは`AUTOINCREMENT`で番号を使い回さないため誤った一致にならないが、採番の記録を失う操作（表の作り直しなど）をすると誤った一致になる。作り直しは ADR-0031 の追記の手順で行う |
 | 添付の付け替えと索引 | 添付を別のメッセージへ付け替えて、移った先 → 元の順に同期すると索引が欠ける（上の「順序に依らない範囲」）。いまは付け替えの経路がないため起きない |
-| 155-C に向けた注意 | CHECK はすでに`case_title`を通す。件名の写しは`message_id`を持たない見込みで、いまの検索の SQL は`d.message_id`でメッセージと結び、メッセージ単位の結果を前提にしている。155-C では、案件の結果を別の文（EP-4-02）で作るか、結合を分けるかを決める（**未決定**） |
+| 155-C に向けた注意（解消） | 155-C で、案件の結果を別の文（EP-4-02）で作ることにした（上の「設計の判断」）。メッセージの検索の SQL は変えていない |
+| 案件番号の全角の文字（155-C） | 全角のハイフン・全角の英数字は、`caseNumberSearchKey`で変換しない。全角で打った番号は、番号では一致しない（件名・取引先名に含まれれば、その項目で出る）。**扱いは利用者に確認中** |
+| 案件番号・取引先名の全件の走査（155-C） | `cases`・`clients`の全件を走査する。案件が少ない前提。30万件の規模での実測は #160 |
+| DB の上での件名の直接の書き換え（155-C） | 組を通らないため、次の再編集か`search-reindex`（本番は登録の処理）を通るまで、新しい件名では出ない。古い件名でも出ない（いまの件名との一致を検索の条件にしているため）。案件番号・取引先名では出る |
+| 案件の終了・再開の batch（155-C） | 件名を変えないため、組を足していない。件名を変える処理をこれらに足すときは、組も足す |
+| #155 の外に移した2項目 | 全社員公開アーカイブの、参加していない人向けの検索（#356）・TODO の検索（#357）。4-2 は、すべて満たした扱いにしない |
 | S-15 の総件数の表示・件数の読み上げ（screens.md の S-15） | 総件数を返さないため、出していない |
 | キーワードが空のときの説明（screens.md の S-15） | `q`がないときは結果の区画を出さないだけで、説明の文は出していない |
 
 ## 関係するIssue・ADR
 
-- Issue #155（155-A・155-B。親 #155 の残り：155-C・延期の2件）、#160（本番での確認と適用・実測）、#350（本物の D1 での確認）、#323（資格を失ったときの後片付け）、#270（添付の削除。索引の組を足す）
-- ADR-0010（FTS5 trigram）、ADR-0031（手で書く migration）、ADR-0026（マークダウンの許可リスト）、ADR-0030（利用者の切り替え）、ADR-0006（カーソル）、ADR-0012（毎回サーバー側で認可）
-- 決定記録 C-152・C-200・C-201（155-B）、C-168（`instr`）、C-90（1〜100文字）、C-94・C-117（未参加の公開チャンネル）
-- 要件：4-1 AC-1〜AC-3、EP-4-01、S-15、R-58
+- Issue #155（155-A・155-B・155-C）、#356（全社員公開アーカイブの検索）・#357（TODO の検索）、#160（本番での確認と適用・実測）、#353（本番で索引を作る経路）、#350（本物の D1 での確認）、#323（資格を失ったときの後片付け）、#270（添付の削除。索引の組を足す）
+- ADR-0010（FTS5 trigram）、ADR-0031（手で書く migration・既存の分の登録）、ADR-0026（マークダウンの許可リスト）、ADR-0030（利用者の切り替え）、ADR-0006（カーソル）、ADR-0012（毎回サーバー側で認可）
+- 決定記録 C-152・C-200・C-201（155-B）・C-202（155-C）、C-199（再編集の文の上限）、C-168（`instr`）、C-90（1〜100文字）、C-94・C-117（未参加の公開チャンネル・案件番号の前方一致）、C-120（案件番号の正規化）、C-87・C-89（結果の概要）
+- 要件：4-1 AC-1〜AC-3、4-2 AC-1〜AC-3、EP-4-01・EP-4-02、S-15、R-58・R-78
