@@ -16,7 +16,8 @@ function conditionsOf(
   const conditions: Partial<MessageSearchConditions> = {};
   for (const name of CONDITION_NAMES) {
     const value = params.get(name);
-    if (value !== null && value !== "") conditions[name] = value;
+    // 空白（全角を含む）だけの値は、ないものとして扱う（案内の文・結果の区画・API の呼び出しを同じ条件で決める）
+    if (value !== null && value.trim() !== "") conditions[name] = value;
   }
   return conditions;
 }
