@@ -102,6 +102,11 @@ test("#155 4-2 AC-1・AC-3 E-1: 件名・案件番号（ハイフンなし）・
     await expect(caseRow(page, OTHER_TITLE)).toHaveCount(1);
     await expect(caseRows(page)).toHaveCount(2);
   }
+  // 4-2 AC-2・C-84：結果の概要に進捗を出す。シードの案件に TODO は無いため、参加・不参加のどちらの行も0件の表示「項目なし」で、進捗バーは出ない
+  for (const title of [JOINED_TITLE, OTHER_TITLE]) {
+    await expect(caseRow(page, title).getByText("項目なし")).toBeVisible();
+    await expect(caseRow(page, title).getByRole("progressbar")).toHaveCount(0);
+  }
   // 参加していない案件の説明は、検索の結果に出ない
   await expect(page.getByRole("main")).not.toContainText(OTHER_DESCRIPTION);
 });

@@ -497,3 +497,64 @@ describe("#155 4-2 AC-1 F-5 区画の状態の独立（計画 R1-6）", () => {
     );
   });
 });
+
+// ---- 4-2 AC-2・C-84・5-4 AC-4：結果の概要の進捗（S-16 の一覧の行と同じ見せ方。features/cases の CaseTodoProgress を使い回す前提） ----
+// 「完了数/全体数」の数字と進捗バー（role=progressbar・名前「{全体}項目中{完了}項目が完了」）。パーセントは出さない。0件（null）は「項目なし」でバーを出さない。
+
+describe("#155 4-2 AC-2 F-1 案件の結果の行の進捗", () => {
+  it("#155 4-2 AC-2: 進捗のある行は「1/3」と進捗バー（3項目中1項目が完了）を出し、パーセントは出さない", async () => {
+    respondCaseSearch([
+      caseSearchItem(1, {
+        progress: { done: 1, total: 3 },
+        isParticipant: true,
+      }),
+    ]);
+    renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    const row = caseRows(main)[0] as HTMLElement;
+    expect(
+      within(row).getByRole("progressbar", { name: "3項目中1項目が完了" }),
+    ).toBeDefined();
+    expect(textOf(row)).toContain("1/3");
+    expect(textOf(row)).not.toContain("%");
+  });
+
+  it("#155 4-2 AC-2: 参加していない案件の行にも、進捗（2/2 と進捗バー）を出す", async () => {
+    respondCaseSearch([
+      caseSearchItem(2, {
+        progress: { done: 2, total: 2 },
+        isParticipant: false,
+      }),
+    ]);
+    renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    const row = caseRows(main)[0] as HTMLElement;
+    expect(
+      within(row).getByRole("progressbar", { name: "2項目中2項目が完了" }),
+    ).toBeDefined();
+    expect(textOf(row)).toContain("2/2");
+  });
+
+  it("#155 4-2 AC-2: 進捗が null（TODO が0件）の行は「項目なし」で、進捗バーを出さず「0/0」も出さない", async () => {
+    respondCaseSearch([
+      caseSearchItem(3, { progress: null }),
+      caseSearchItem(4, { progress: { done: 0, total: 4 } }),
+    ]);
+    renderApp("/search?q=見積書");
+    const main = await pageMain();
+    // 進捗の部品を足しても、行は一覧の直下の li で数えて2件のまま
+    await waitFor(() => expect(caseRows(main)).toHaveLength(2));
+    const [empty, some] = caseRows(main) as HTMLElement[];
+    expect(within(empty as HTMLElement).getByText("項目なし")).toBeDefined();
+    expect(within(empty as HTMLElement).queryByRole("progressbar")).toBeNull();
+    expect(textOf(empty ?? null)).not.toContain("0/0");
+    expect(
+      within(some as HTMLElement).getByRole("progressbar", {
+        name: "4項目中0項目が完了",
+      }),
+    ).toBeDefined();
+    expect(within(some as HTMLElement).queryByText("項目なし")).toBeNull();
+  });
+});
