@@ -379,7 +379,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - **2つの区画は独立**：片方の取得・失敗・再試行・作り直しで、もう片方の取得は止まらず、表示も残る
 - **後始末の違い**：
   - 通常の後始末（区画を離れたとき・作り直したとき）：その区画のキーだけ（`searchKeys.messagesAll`・`searchKeys.casesAll`）を取り消して取り除く。前の`useMessageSearch`は利用者の検索の全体（`searchKeys.user`）を片付けていたため、同じ画面に区画が2つになると、片方の作り直しが、もう片方の表示中の取得を消してしまう。そのため155-C で区画ごとに分けた
-  - 資格の喪失・利用者の切り替え：利用者の単位で消す（`forgetSearchResults`の`searchKeys.user`と ADR-0030 の枠）。前方一致で、案件の区画も一緒に消える。`useCaseWrites.ts`は変えていない
+  - 資格の喪失・利用者の切り替え：利用者の単位で消す（`forgetSearchResults`の`searchKeys.user`と ADR-0030 の枠）。前方一致で、案件の区画も一緒に消える。`useCaseWrites.ts`は、`searchKeys`の読み込み先を`features/search/keys.ts`に替えただけで、後片付けの動きは変えていない（循環を避けるため）
 
 ## 設計の判断
 
