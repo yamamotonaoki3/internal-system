@@ -278,4 +278,5 @@
 | 本番形の E2E が起動しない、または別のサーバーに向かう | ポート 5173 を別のプロジェクトのサーバーが占有している（`localhost` だけでなく `127.0.0.1:5173` も確かめる。第3章）。開発サーバー用の E2E と同時に実行していないかも確かめる。環境の不備であり、テストの不具合ではない |
 | 利用者の切り替え（`__Host-session` の Cookie の差し替え）で `Invalid cookie fields` になる | `__Host-` の Cookie は `url: http://…` を指定すると拒否される。`domain`・`path`（`/`）・`secure: true` で渡す（`e2e/message-drafts.spec.ts`）。環境の不備ではなく、渡し方の問題 |
 | シードで入れたメッセージが検索に出ない（Issue #155） | シードの SQL は検索の索引を作らない。シードの後に`node scripts/db-local.ts test search-reindex`（開発用の D1 は`development`）を実行して、既存のメッセージの索引を作る（手元の D1 だけ。[search.md](../design/search.md)）。テストの不具合ではない。既存の DB に migration 0034（写しを空にする。155-B）を当てた後も同じで、既存のメッセージ・添付が出なくなる |
+| 検索の spec で、ヘッダーの検索欄に入れた語が消える（既知の差。Issue #155） | 再認証の直後に、ヘッダーの検索欄の入力が消える疑いがある。`e2e/search.spec.ts`の`searchFromHeader`は、入力の値を確かめてから送り、`/search`へ移るまでをやり直す形にしている。原因は確かめていない。#337 で原因を確かめて直し、やり直しを外す |
 | 失敗の原因が分からない | `playwright-report/` とトレース（`npx playwright show-trace <trace.zip>`）を確かめる |

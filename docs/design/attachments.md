@@ -140,7 +140,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
   4. どれにも当たらない（読み直すまでに別の操作で状態が変わった） → 409「添付の状態が変わりました。もう一度お試しください」
 - 投稿・返信の既存の判定（見える・参加・権限・部屋の状態）が先で、添付の判定は後。IDの作り直しの再試行（`insertWithAttachments`が各試行を包む）でも同じ。
 - `perm.attachment.upload`は結び付けでは確かめない（アップロードのときに確かめ済み。結び付けは本人・部屋・文脈の一致で守る）。
-- 【#155 の155-B（2026-11-21）】結び付けの batch の末尾（メッセージの索引の組の後ろ）に、添付のファイル名の索引の組（`search-index.sql.ts`の`syncAttachmentIndexStatements`）がある。結び付けが取り消されれば、索引も残らない。メッセージの論理削除（`deleteIfModifiable`）の末尾には`removeStaleAttachmentIndexStatements`がある。アップロード（`insertPending`）・未投稿の掃除（`deletePendingBefore`）・公開範囲の変更（`changeVisibility`）は索引に触れない。**#270（添付の削除）など、今後`message_attachments`を変える処理を足すときは、同じ batch の末尾に索引の組を足す**（[search.md](search.md)の「添付の書き込みの経路」）
+- 【#155 の155-B（2026-11-21）】結び付けの batch の末尾（メッセージの索引の組の後ろ）に、添付のファイル名の索引の組（`search-index.sql.ts`の`syncAttachmentIndexStatements`）がある。結び付けが取り消されれば、索引も残らない。メッセージの論理削除（`deleteIfModifiable`）の末尾には`removeStaleAttachmentIndexStatements`がある。アップロード（`insertPending`）・未投稿の掃除（`deletePendingBefore`）・公開範囲の変更（`changeVisibility`）は索引に触れない。**#270（添付の削除）など、今後`message_attachments`を変える処理を足すときは、同じ batch の末尾に索引の組を足す**。添付を別のメッセージへ付け替える処理を足すときは、組だけでは足りない（同期の順で索引が欠けるため、添付の ID を基準にした古い写しの整理と、逆順の試験が要る）（[search.md](search.md)の「添付の書き込みの経路」）
 
 ## 配信
 
