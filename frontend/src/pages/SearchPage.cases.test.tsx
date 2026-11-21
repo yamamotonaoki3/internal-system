@@ -36,6 +36,7 @@ import {
   installDomStubs,
   renderApp,
   respondShellUser,
+  SHELL_USER,
   type DomStubs,
 } from "../test/app-shell-harness";
 import {
@@ -556,5 +557,138 @@ describe("#155 4-2 AC-2 F-1 案件の結果の行の進捗", () => {
       }),
     ).toBeDefined();
     expect(within(some as HTMLElement).queryByText("項目なし")).toBeNull();
+  });
+});
+
+// ---- ミューテーション診断の生き残りへの対応（期待は計画 5章・docs/design/search.md の画面の決まりから） ----
+
+describe("#155 4-2 AC-1 F-2 案件の区画の出し分けと作り直し（SearchPage）", () => {
+  it("#155 F-2: q がなければ、案件の区画（見出し「案件」）を出さず、案件の API も呼ばない", async () => {
+    const world = respondCaseSearch([caseSearchItem(1)]);
+    renderApp("/search");
+    const main = await pageMain();
+    expect(within(main).queryByRole("region", { name: "案件" })).toBeNull();
+    expect(
+      within(main).queryByRole("heading", { level: 2, name: "案件" }),
+    ).toBeNull();
+    expect(world.requests).toEqual([]);
+  });
+
+  it("#155 F-5: 「さらに表示」の後に語を変えると、案件の区画は作り直され、新しい語は1ページ目だけを取る（cursor つきの要求を出さない）", async () => {
+    const cases = respondCaseSearchPages([
+      { items: [caseSearchItem(1)], nextCursor: "C1" },
+      { items: [caseSearchItem(2)], nextCursor: "C2" },
+      { items: [caseSearchItem(3)], nextCursor: null },
+    ]);
+    const { user } = renderApp("/search?q=前の語");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    await user.click(
+      within(caseRegion(main)).getByRole("button", { name: "さらに表示" }),
+    );
+    await waitFor(() => expect(caseRows(main)).toHaveLength(2));
+    const input = within(main).getByRole("searchbox", { name: "検索する言葉" });
+    await user.clear(input);
+    await user.type(input, "後の語");
+    await user.click(within(main).getByRole("button", { name: "検索" }));
+    const afterChange = await pageMain();
+    await waitFor(() => expect(caseRows(afterChange)).toHaveLength(1));
+    expect(
+      within(caseRegion(afterChange)).getByRole("button", {
+        name: "さらに表示",
+      }),
+    ).toBeDefined();
+    expect(
+      cases.requests.filter((r) => r.q === "後の語").map((r) => r.cursor),
+    ).toEqual([null]);
+  });
+});
+
+describe("#155 4-2 AC-1 F-3 案件の区画を外したときの後始末（useCaseSearch。R1-6：区画のキーだけ）", () => {
+  it("#155 F-3: 検索の画面を離れると、案件の検索のキャッシュ（取得していない条件のものを含む）が取り除かれ、検索でないキャッシュは残る", async () => {
+    respondCaseSearch([caseSearchItem(1)]);
+    const { user, client } = renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    // 見張り：この利用者の、表示していない案件の検索の結果と、検索でないキャッシュ
+    const caseSentinel = ["search", SHELL_USER.id, "cases", { q: "見張り" }, 1];
+    const otherSentinel = ["155c-sentinel"];
+    client.setQueryData(caseSentinel, { items: [], hasMore: false });
+    client.setQueryData(otherSentinel, "kept");
+    await user.click(
+      within(screen.getByRole("banner")).getByRole("link", {
+        name: "internal-system",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { level: 1, name: "検索結果" }),
+      ).toBeNull(),
+    );
+    expect(client.getQueryData(caseSentinel)).toBeUndefined();
+    expect(client.getQueryData(otherSentinel)).toBe("kept");
+  });
+
+  it("#155 F-3: 離れて戻ると、案件の区画は前の結果を仮に出さず、読み込み中を出す", async () => {
+    const world = respondCaseSearch([
+      caseSearchItem(1, { title: "[E2E_TEST]戻る前の案件" }),
+    ]);
+    const { user } = renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    await user.click(
+      within(screen.getByRole("banner")).getByRole("link", {
+        name: "internal-system",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { level: 1, name: "検索結果" }),
+      ).toBeNull(),
+    );
+    const gate = deferred();
+    world.hold = gate.promise;
+    const form = within(screen.getByRole("banner")).getByRole("search", {
+      name: "メッセージの検索",
+    });
+    await user.type(
+      within(form).getByRole("searchbox", { name: "検索する言葉" }),
+      "見積書",
+    );
+    await user.click(within(form).getByRole("button", { name: "検索" }));
+    const back = await pageMain();
+    expect(
+      await within(caseRegion(back)).findByText("案件を読み込み中です"),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("[E2E_TEST]戻る前の案件");
+    gate.release();
+    await waitFor(() => expect(caseRows(back)).toHaveLength(1));
+  });
+});
+
+describe("#155 4-2 AC-2 F-1 案件の行の、無い項目の表示", () => {
+  it("#155 F-1: 担当部署が0件の行に、空の項目の区切り（「・」の続き）が出ない", async () => {
+    respondCaseSearch([caseSearchItem(1, { departments: [] })]);
+    renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(1));
+    const text = textOf(caseRows(main)[0] ?? null);
+    expect(text).toContain("[E2E_TEST]検索の取引先");
+    expect(text).not.toMatch(/・\s*・/);
+  });
+
+  it("#155 F-1: 納期が無い（null）行に「納期」が出ない（対照：納期がある行には出る）", async () => {
+    respondCaseSearch([
+      caseSearchItem(1, { dueDate: null }),
+      caseSearchItem(2, { dueDate: "2026-12-24" }),
+    ]);
+    renderApp("/search?q=見積書");
+    const main = await pageMain();
+    await waitFor(() => expect(caseRows(main)).toHaveLength(2));
+    const [none, some] = caseRows(main);
+    expect(textOf(some ?? null)).toContain("2026-12-24");
+    expect(textOf(some ?? null)).toContain("納期");
+    expect(textOf(none ?? null)).not.toContain("納期");
+    expect(textOf(none ?? null)).not.toMatch(/・\s*・/);
   });
 });

@@ -290,6 +290,24 @@ describe("#155 4-2 AC-1 155-C 応答の形と、再編集の反映", () => {
     }
   });
 
+  it("#155 4-1 AC-3 A-1: limit=1 で、nextCursor を付けると次のページ（ID の降順で前のページより古い案件）が返り、重複・欠落なく終わる", async () => {
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let round = 0; round < 5; round += 1) {
+      const query: Record<string, string> =
+        cursor === null
+          ? { q: "若草会館", limit: "1" }
+          : { q: "若草会館", limit: "1", cursor };
+      const page = await ok(query);
+      expect(page.items).toHaveLength(1);
+      seen.push(...page.items.map((i) => i.id));
+      cursor = page.nextCursor;
+      if (cursor === null) break;
+    }
+    expect(seen).toEqual([closed.id, other.id, joined.id]);
+    expect(cursor).toBeNull();
+  });
+
   it("#155 4-2 AC-1 I-1: 再編集（EP-5-20）で件名を変えると、再読み込みなしの次の検索で、新しい件名で出て、古い件名では出ない", async () => {
     expect(await idsOf("若草会館の案件")).toEqual([joined.id]);
     const edited = await apiRequest("PATCH", editPath(joined.id), {
