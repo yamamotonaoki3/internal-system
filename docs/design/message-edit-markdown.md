@@ -19,11 +19,11 @@
 | ファイル | 役割 |
 | --- | --- |
 | `backend/db/schema.ts`、`backend/db/migrations/0019_add_message_edit_delete.sql` | `messages`に`edited_at`・`deleted_at`・`deleted_by`（`users.id`を参照）を足した。すべてNULL可の`ADD COLUMN`だけで、既存データの補完は要らない |
-| `backend/src/db/message-modify.sql.ts` | 新しいDAO。「編集・削除してよい」条件（本人の投稿で未削除、かつ、チャンネルなら本人が参加中・未削除・部署が有効〔部署のない会社直属は有効扱い〕、DMなら本人が当事者で当事者に無効な社員がいない）を持つ。`updateBodyIfModifiable`（本文と編集日時の更新）と`deleteIfModifiable`（削除の印と監査を1つの`db.batch`で書く）が、更新した行数を返す |
+| `backend/src/db/message-modify.sql.ts` | 【#270：`modifiable`がメッセージのIDを値か外側の行の列で受けられるようにした。`deleteIfModifiable`が添付の削除の印も同じbatchで書く】新しいDAO。「編集・削除してよい」条件（本人の投稿で未削除、かつ、チャンネルなら本人が参加中・未削除・部署が有効〔部署のない会社直属は有効扱い〕、DMなら本人が当事者で当事者に無効な社員がいない）を持つ。`updateBodyIfModifiable`（本文と編集日時の更新）と`deleteIfModifiable`（削除の印と監査を1つの`db.batch`で書く）が、更新した行数を返す |
 | `backend/src/db/message.repository.ts` | `findForModification`（部屋・投稿者・削除済みかだけを読む）・`isDepartmentActive`・DAOの呼び出しを足した。一覧の項目に`editedAt`・`deleted`を足し、削除済みの`body`は`null`にする（本文はDBに残し、APIでは返さない）。`insertIfOrdered`のINSERT…SELECTは、スキーマの全列を挿入先に並べるため、末尾に新しい3列分のNULLを足した |
-| `backend/src/services/message.service.ts` | `edit`・`remove`を足した。判定の順は下の「判定の順」。`MessageActor`に`reauthenticatedAt`を足した（削除だけが使う）。書き込みが0行だったときの`failWrite` |
+| `backend/src/services/message.service.ts` | `edit`・`remove`を足した。判定の順は下の「判定の順」。`MessageActor`に`reauthenticatedAt`を足した（削除だけが使う）。書き込みが0行だったときの`failWrite`【#270：`requireModifiable`の「部屋が見えるか」と「部屋の状態」を、内部関数`findModifiableRoom`・`requireRoomModifiable`に分けた（判定の順・応答は変えていない。添付の削除の`requireAttachmentDeletable`と共用する）。`remove`が、成功した後に依存`purgeAttachmentsOf`を1回呼ぶ】 |
 | `backend/src/routes/messages.ts` | `messageItemRoutes`（`PATCH /:messageId`・`DELETE /:messageId`）。編集の入力は`{ body }`だけの`strict`で、本文の規則は`shared/message-rules.ts`の`messageBodySchema`を参照する。`backend/src/index.ts`が`/api/messages`へ登録する |
-| `backend/src/lib/audit-actions.ts` | 監査の種類`message.delete`を足した |
+| `backend/src/lib/audit-actions.ts` | 監査の種類`message.delete`を足した【#270：`attachment.delete`も足した】 |
 | `backend/src/db/channel.repository.ts`、`backend/src/services/channel.service.ts` | `findForViewer`が部署の有効・無効（`departmentIsActive`）を外部結合で読み、EP-2-06の応答に`readOnly`を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別 |
 | `backend/src/db/unread-counts.sql.ts` | 未読の数に`deleted_at IS NULL`の条件を足した（削除済みは数えない） |
 | `docs/api/openapi.json`、`backend/src/openapi.test.ts` | `updateMessage`・`deleteMessage`と、一覧の項目の変更 |
@@ -38,7 +38,7 @@
 | `frontend/src/features/messages/markdown/MarkdownBody.tsx` | `react-markdown`＋`remark-gfm`（取り消し線は`~~`だけ）を使う描画。`allowedElements`・`unwrapDisallowed`、要素ごとの部品で`className`を捨てる、リンクは`target="_blank"`・`rel="noopener noreferrer"`。`dangerouslySetInnerHTML`は使わない |
 | `frontend/src/features/messages/components/MessageBody.tsx` | `MarkdownBody`を`React.lazy`で動的に読み込む。読み込むまでは、書いたままの文字（`whitespace-pre-wrap`）を出す |
 | `frontend/src/features/messages/components/MessageBodyBoundary.tsx` | 動的な読み込みの失敗を受け止めるエラー境界。その本文だけを原文と案内に替える。例外の詳細は出さず、ログは#234で足す【コードレビュー2回目の指摘で変更：動的読み込みの失敗だけを専用のエラー`MarkdownLoadError`（`MessageBody.tsx`の`lazy`の`import()`の失敗を包んで投げ直す）で識別する。それなら「書式つきの表示を読み込めませんでした。再読み込みしてください。」と原文を出す。読み込みに成功した後の描画中の例外は、原文と「この本文は書式つきで表示できませんでした。」を出す（例外の詳細を出さず、再読み込みを勧めず、その行だけ）。元の記述は残す】 |
-| `frontend/src/features/messages/components/MessageItem.tsx` | 1件の行。投稿者・日時・本文・「（編集済み）」・削除済みの文言（「このメッセージは削除されました」）。自分の投稿（`canModify`）に「編集」「削除」を付ける |
+| `frontend/src/features/messages/components/MessageItem.tsx` | 1件の行。投稿者・日時・本文・「（編集済み）」・削除済みの文言（「このメッセージは削除されました」）。自分の投稿（`canModify`）に「編集」「削除」を付ける【#270：同じ条件で、各添付に「〈名前〉を削除」を付ける（`MessageAttachments`・`DeleteAttachmentDialog`・`hooks/useDeleteAttachment.ts`。キャッシュは`replaceCachedMessage`と`replaceThreadParent`で更新する。[attachments.md](attachments.md)）】 |
 | `frontend/src/features/messages/components/MessageEditForm.tsx` | その場の編集欄。保存（Ctrl+Enter・Cmd+Enter）・キャンセル（Esc）。本文が元と同じとき・保存中は保存を押せない。422の`fields`を出す。端末の下書きと離脱の確認の対象にしない（C-170(5)） |
 | `frontend/src/features/messages/components/DeleteMessageDialog.tsx` | 削除の確認のダイアログ。確認 → 再認証（`withReauth`）→ 送信。送信中は押せない |
 | `frontend/src/features/messages/hooks/useEditMessage.ts`、`useDeleteMessage.ts` | 編集・削除の送信。成功したら`replace-room-message.ts`で一覧の該当の1件を置き換える。削除は再認証が完了しなかったとき、要求を送らない |
@@ -79,6 +79,7 @@
 - 成功は204。`reason`は受け付けない（他人の投稿の削除は#142）。本文はDBに残す
 - 監査`message.delete`は、`deleteIfModifiable`の`db.batch`の中で、**UPDATEの前に**同じ条件で記録する（UPDATEのあとは条件が偽になるため）。`detail`は`{ roomId }`だけで、本文を入れない。削除できなかった（0行の）ときは監査を残さない
 - 他人の投稿の削除は、全ロール403（R-29の付与の経路を作らない）。拒否は`not_author`として監査に残る
+- 【#270の1つ目】**同じ`db.batch`で、そのメッセージの添付にも削除の印（`deleted_at`・`deleted_by`）を付ける**（`deleteIfModifiable`。順は、監査 → 添付のUPDATE → メッセージのUPDATE → 索引の組。添付のUPDATEも同じ条件`modifiable`で、メッセージのUPDATEの前に置く）。**監査は`message.delete`の1件に含め**、添付の個別の監査は増やさない。戻り値は、積んだ位置を保持して読む**メッセージの更新件数**（1か0）のままで、添付の件数に左右されない。削除が成功した後に、`remove`が依存`purgeAttachmentsOf(messageId)`（`withMessageService`が`attachment-purge.ts`の`purgeAttachmentsOfMessage`を組んで渡す。省略すると何もしない）を同じ要求の中で1回呼び、R2の実体の削除を試す。失敗・0行のときは呼ばない。後始末が失敗しても204のまま、errorログに残し、毎日の定期の処理が消す。詳細は[attachments.md](attachments.md)の「添付の削除」
 
 ### 一覧の応答（EP-1-01）
 
@@ -143,3 +144,5 @@
 - 決定：[C-171](../requirements/decision-register.md)
 - 関連する設計書：[messages.md](messages.md)・[dms.md](dms.md)・[unread.md](unread.md)・[channels.md](channels.md)・[drafts.md](drafts.md)
 - Issue #137：削除した親への返信の不可を実装した。設計は[threads.md](threads.md)。決定記録C-172
+- Issue #270の1つ目：メッセージの削除が、添付にも印を付け、成功の後に実体の削除を1回試すようにした。設計は[attachments.md](attachments.md)の「添付の削除」。決定記録C-204
+- テスト（#270）：`backend/src/db/message-modify.attachments.db.test.ts`・`backend/src/routes/messages.delete-attachments.test.ts`・`backend/src/services/message.delete-purge.test.ts`

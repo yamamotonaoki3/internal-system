@@ -7,21 +7,22 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 - 1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9と1-4 AC-5を実装する（C-137(1)(2)・C-153）。ファイルをアップロードし、中身を検査し、R2に保存し、投稿・返信に結び付け、見てよい人だけに配信する。
 - アップロードも配信も、すべてWorkers経由。署名付きURL・`r2.dev`は使わない（C-126）。保存先のキーは応答に出さない。
 - ライブラリは追加しない。zipの読み取りとExifの除去は、Workersの標準のAPI（`DecompressionStream`・`DataView`など）で自前で行う（ADR-0011）。
-- **作らないもの**：添付の削除（1-6 AC-4）と添付だけの投稿（C-137(3)）は #270（`message_attachments`に`deleted_at`・`deleted_by`は入れていない）。ウイルススキャンは #116。アバターは #141。ファイル名の検索は #155。1-6 AC-8（利用者ごとの容量・回数の制限）は未決定のまま。1-6 AC-10【案】は範囲外。案件の添付の公開範囲の選択・変更は148-B-2で実装した（[cases.md](cases.md)）。編集で添付を足す・外すこと、下書きへの添付もしない。
-- **本番に出すときは利用者が行う**：R2バケット（`wrangler.jsonc`の名前は`internal-system-attachments`）の作成、migration 0023の適用、デプロイ、動画100MBの本番での通り方の確認。バインディング名`ATTACHMENTS`とバケット名は秘密情報ではない。`infra/`に`r2.tf`はまだない。
+- **作らないもの**：添付だけの投稿（C-137(3)）は #270 の2つ目（次の PR）。添付の削除（1-6 AC-4）は #270 の1つ目で実装した（下の「添付の削除（#270 の1つ目）」。元の記述は残す）。ウイルススキャンは #116。アバターは #141。ファイル名の検索は #155。1-6 AC-8（利用者ごとの容量・回数の制限）は未決定のまま。1-6 AC-10【案】は範囲外。案件の添付の公開範囲の選択・変更は148-B-2で実装した（[cases.md](cases.md)）。編集で添付を足す・外すこと、下書きへの添付もしない。
+- **本番に出すときは利用者が行う**：R2バケット（`wrangler.jsonc`の名前は`internal-system-attachments`）の作成、migration 0023・0036の適用、補完のSQLの実行、デプロイ、動画100MBの本番での通り方の確認。バインディング名`ATTACHMENTS`とバケット名は秘密情報ではない。`infra/`に`r2.tf`はまだない。
 
 ## データ
 
 | 対象 | 内容 |
 | --- | --- |
-| `message_attachments`（`backend/db/schema.ts`、migration `0023_add_message_attachments.sql`） | `id`（ULID）・`room_id`（`rooms`）・`thread_parent_id`（NULL可。アップロードの文脈）・`message_id`（NULL可。結び付く前は未投稿）・`uploader_id`・`storage_key`（一意）・`original_name`（1〜255文字のCHECK）・`kind`（`image`・`document`・`video`のCHECK）・`content_type`・`size_bytes`（0より大きいCHECK）・`created_at`。索引は`message_id`、（`uploader_id`, `message_id`）、`created_at`（`message_id IS NULL`の部分索引。掃除用）。【#148の148-B-2・migration `0030_add_attachment_publication_visibility.sql`】`publication_visibility`（NOT NULL・既定`participants_only`・`participants_only`／`public_archive`のCHECK。値の定義元は`shared/attachment-rules.ts`の`PUBLICATION_VISIBILITIES`）を足した。値の意味があるのは案件の部屋の行だけで、ほかの部屋の行は既定値のまま。**読み取りの資格には使わない**（配信・一覧・メッセージの表示は値によらず従来のまま。メッセージの表示の`attachments`にも出さない）。設計は[cases.md](cases.md)の「148-B-2 の設計」 |
+| `message_attachments`（`backend/db/schema.ts`、migration `0023_add_message_attachments.sql`） | `id`（ULID）・`room_id`（`rooms`）・`thread_parent_id`（NULL可。アップロードの文脈）・`message_id`（NULL可。結び付く前は未投稿）・`uploader_id`・`storage_key`（一意）・`original_name`（1〜255文字のCHECK）・`kind`（`image`・`document`・`video`のCHECK）・`content_type`・`size_bytes`（0より大きいCHECK）・`created_at`。索引は`message_id`、（`uploader_id`, `message_id`）、`created_at`（`message_id IS NULL`の部分索引。掃除用）。【#270の1つ目・migration `0036_add_attachment_deletion.sql`】`deleted_at`・`deleted_by`（`users`を参照）・`purge_failed_at`（いずれもNULL可・既定値なし）の3列と、後始末用の部分索引`message_attachments_deleted_at_idx`（（`deleted_at`, `id`）、`deleted_at IS NOT NULL`）を足した。意味は下の「添付の削除」。【#148の148-B-2・migration `0030_add_attachment_publication_visibility.sql`】`publication_visibility`（NOT NULL・既定`participants_only`・`participants_only`／`public_archive`のCHECK。値の定義元は`shared/attachment-rules.ts`の`PUBLICATION_VISIBILITIES`）を足した。値の意味があるのは案件の部屋の行だけで、ほかの部屋の行は既定値のまま。**読み取りの資格には使わない**（配信・一覧・メッセージの表示は値によらず従来のまま。メッセージの表示の`attachments`にも出さない）。設計は[cases.md](cases.md)の「148-B-2 の設計」 |
 | `content_type`にCHECKを付けない理由 | 値`text/plain; charset=utf-8`の「;」でdrizzle-kitの生成が途中で切れ、壊れたmigrationができたため。値はTypeScriptの型と`shared/attachment-rules.ts`の`ATTACHMENT_CONTENT_TYPES`で守る（[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)） |
 | `messages` | 変えない。添付は`message_attachments`側から結び付ける |
 | R2のキー | `attachments/<ULID>`。名前・利用者を含まない。応答に出さない。バケットは非公開 |
-| 一覧の項目`attachments` | `{ id, name, kind, contentType, size }`の配列（ID昇順。キーは含めない）。親・返信・スレッドの親・スレッド一覧のすべての項目に含める。削除済みのメッセージは`[]` |
+| 一覧の項目`attachments` | `{ id, name, kind, contentType, size }`の配列（ID昇順。キーは含めない）。親・返信・スレッドの親・スレッド一覧のすべての項目に含める。削除済みのメッセージは`[]`。【#270】削除済みの添付（印のある行）も含めない |
 
 - migration 0023は`db:generate`の生成物のまま（新しい表のため、ADR-0024の書き換えは起きない）。**本番のD1への適用は未実施**（利用者が行う）。
 - migration 0030（公開範囲の列）は、`db:generate`が作り直しを生成したため、ADR-0024に従って`ALTER TABLE … ADD`に書き換えた。**本番のD1への適用は未実施**（ほかのmigrationとまとめて、利用者の承認の後）。
+- migration 0036（削除の3列と部分索引）は、列の追加と索引の追加だけで、`db:generate`の生成物のまま（作り直しは生成されなかった）。既存の行は3列ともNULL（削除されていない）で、古い版は列を読まないため後方互換。**本番のD1への適用は未実施**（利用者が行う。[production-first-rollout.md](../operations/production-first-rollout.md)）。
 
 ## 受け付ける値（唯一の定義元）
 
@@ -41,11 +42,13 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 | ファイル | 役割 |
 | --- | --- |
 | `backend/src/routes/attachments.ts` | Controller。`roomAttachmentRoutes`（通常の投稿用のアップロード）・`replyAttachmentRoutes`（返信用のアップロード）・`attachmentRoutes`（配信）。本文はファイルのバイト列そのまま、元の名前は`X-File-Name`（UTF-8のパーセントエンコード）、大きさは`Content-Length`を`uploadOf`でまとめて渡す。配信の応答ヘッダーを組み立てる。判定は持たない |
-| `backend/src/services/attachment.service.ts` | `createAttachmentService`の`uploadToRoom`・`uploadToReply`・`download`。アップロードの判定の順、検査と保存、D1の登録の失敗の補償、配信の判定。`attachmentCleanupJob`（未投稿の掃除のCron）。`withAttachmentService`が認可の部品を組む |
-| `backend/src/db/attachment.repository.ts` | `findVisible`（配信で見てよい添付だけを返す）、`insertPending`、`deletePendingBefore`、`bindAttachments`（結び付けの文）、`loadMessageAttachments`（一覧の`attachments`）、`findForBinding`（結び付けが取り消された後の読み直し）、`translateAttachmentBindError`・`AttachmentBindError` |
-| `backend/src/db/attachment-visibility.sql.ts` | `attachmentVisible`。添付を見てよいかの条件。一覧と同じ規則をSQLにしたもの。先頭のコメントと`message.service.ts`の`requireVisible`のコメントで、互いを参照する |
+| `backend/src/services/attachment.service.ts` | `createAttachmentService`の`uploadToRoom`・`uploadToReply`・`download`。アップロードの判定の順、検査と保存、D1の登録の失敗の補償、配信の判定。`attachmentCleanupJob`（未投稿の掃除のCron）。`withAttachmentService`が認可の部品を組む【#270：`remove`（削除。判定の順は下の「添付の削除」）と`attachmentPurgeJob`（削除済みの後始末のCron）を足した。`AttachmentActor`に任意の`reauthenticatedAt`を足した（削除だけが使う）】 |
+| `backend/src/services/attachment-purge.ts`（#270） | 削除済みの添付の後始末の部品。`purgeDeletedAttachments`（R2の実体を消し、成功した行だけ行を消す。R2の失敗は数えてerrorログに残し、失敗の時刻を書いて次の行へ）と、`purgeAttachmentsOfMessage`（そのメッセージの削除済みの添付を後始末する）。`attachment.service.ts`から分けたのは、`attachment.service.ts`が`message.service.ts`を読み込むため、`message.service.ts`の側から使うと循環になるから |
+| `backend/src/db/attachment-delete.sql.ts`（#270） | DAO。`deletable`（削除してよい条件を1か所に置く）、`markAttachmentDeleted`（監査・印・索引を1回のbatchで書く）、後始末の読み出し`listPurgeTargets`・`listDeletedOfMessage`、行の物理削除`deletePurgedRow`、失敗の時刻の記録`markPurgeFailed`、読む位置の型`PurgeCursor` |
+| `backend/src/db/attachment.repository.ts` | `findVisible`（配信で見てよい添付だけを返す）、`insertPending`、`deletePendingBefore`、`bindAttachments`（結び付けの文）、`loadMessageAttachments`（一覧の`attachments`）、`findForBinding`（結び付けが取り消された後の読み直し）、`translateAttachmentBindError`・`AttachmentBindError`【#270：削除の入口`findForDeletion`・`markDeleted`と、後始末の入口を足し、`loadMessageAttachments`に削除済みを除く条件を足した】 |
+| `backend/src/db/attachment-visibility.sql.ts` | `attachmentVisible`。添付を見てよいかの条件。一覧と同じ規則をSQLにしたもの。先頭のコメントと`message.service.ts`の`requireVisible`のコメントで、互いを参照する【#270：削除済みを除く条件を足し、先頭のコメントに「削除済みを出さない7か所」の一覧を書いた】 |
 | `backend/src/db/message.repository.ts`・`reply-insert.sql.ts` | 投稿・返信の`db.batch`の末尾に`bindAttachments`の文を足す。一覧・`findItem`が`attachments`を付ける。`thread.repository.ts`もスレッドの親の項目に付ける |
-| `backend/src/services/message.service.ts` | `requirePostable`・`requireReplyable`を、アップロードの入口でも使えるよう公開した。投稿・返信が`attachmentIds`を受け取る。`failAttachmentBinding`が、結び付けが取り消された原因を404・409・422に分ける |
+| `backend/src/services/message.service.ts` | `requirePostable`・`requireReplyable`を、アップロードの入口でも使えるよう公開した。投稿・返信が`attachmentIds`を受け取る。`failAttachmentBinding`が、結び付けが取り消された原因を404・409・422に分ける【#270：`requireAttachmentDeletable`（③権限と④部屋の状態）を足した。編集・削除の「部屋が見えるか」「部屋の状態」を、メッセージの編集・削除と共通の内部関数`findModifiableRoom`・`requireRoomModifiable`に分けた（動きは変えない）。`remove`が成功した後に、依存`purgeAttachmentsOf`でそのメッセージの添付の後始末を1回呼ぶ】 |
 | `backend/src/lib/attachment-inspection.ts` | `inspectAttachment`。中身で形式を判定し、拡張子と一致するものだけを許可する。Content-Typeは固定の一覧から付ける |
 | `backend/src/lib/ooxml-check.ts` | `checkOoxml`。docx・xlsx・pptxのzip構造を自前で確かめる（中央ディレクトリとローカルヘッダーの突き合わせ。`[Content_Types].xml`は下の`readContentTypes`で読む） |
 | `backend/src/lib/content-types-xml.ts` | `readContentTypes`。`[Content_Types].xml`を、汎用のXMLの読み取りではなく、決まった形だけを受け付ける厳しい読み取りで読む。形が違えば`null` |
@@ -53,10 +56,11 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 | `backend/src/lib/content-disposition.ts` | `contentDisposition`。ASCIIに置き換えた`filename`と`filename*=UTF-8''…`を組み立てる |
 | `backend/src/lib/byte-range.ts` | `parseByteRange`。正しい単一の範囲だけを返し、それ以外は`null` |
 | `backend/src/lib/security.ts`・`session-middleware.ts` | 配信の応答の`Content-Security-Policy`と`Cache-Control`を、アプリ全体のヘッダーが上書きしないようにする（[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)） |
-| `backend/src/index.ts` | 3つのルートの登録（`/api/rooms`・`/api/messages`・`/api/attachments`）と、`createScheduledHandler`への`attachmentCleanupJob`の登録。機能間の参照は`index.ts`だけ |
+| `backend/src/index.ts` | 3つのルートの登録（`/api/rooms`・`/api/messages`・`/api/attachments`）と、`createScheduledHandler`への`attachmentCleanupJob`の登録。機能間の参照は`index.ts`だけ【#270：`attachmentPurgeJob`も登録した。Cronの式は同じ`17 18 * * *`で、`wrangler.jsonc`は変えていない】 |
 | `wrangler.jsonc`・`worker-configuration.d.ts` | R2のバインディング`ATTACHMENTS`（バケット`internal-system-attachments`）。Cronの式は既存の毎日UTC 18:17のまま、掃除が相乗りする。型は`npm run types`で作り直す |
 | `backend/db/seeds/cleanup.sql` | `messages`・部屋・利用者を消す前に`message_attachments`を消し、残数`remaining_message_attachments`を返す。R2の実体は消さない（テストの手順が手元の保存先から消す） |
-| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3つのエンドポイント、`AttachmentItem`、投稿・返信の`attachmentIds`、メッセージの`attachments`。実装との一致を確かめる |
+| `docs/api/openapi.json`、`backend/src/openapi.test.ts` | 3つのエンドポイント、`AttachmentItem`、投稿・返信の`attachmentIds`、メッセージの`attachments`。実装との一致を確かめる【#270：`DELETE /api/attachments/{attachmentId}`（204・401・403・404・409・422）を足した。`openapi.attachment-delete.test.ts`】 |
+| `backend/src/lib/audit-actions.ts`・`backend/src/routes/attachments.ts`・`backend/db/schema.ts`・`backend/db/scripts/mark-attachments-of-deleted-messages.sql`（#270） | 監査の種類`attachment.delete`、`DELETE`のルート（`noStore`・ULIDの`param`の検証。判定は持たない。`reauthenticatedAt`を`principal`から渡す）、3列と部分索引、既存データの補完のSQL（下の「補完のSQLと件数の確かめ方」） |
 
 ### フロントエンド（`frontend/src/features/messages/`と共通部品）
 
@@ -66,11 +70,15 @@ Issue #140（親：#133）。チャンネル・DMの投稿とスレッドの返�
 | `components/AttachmentPicker.tsx` | 選択の窓口。選んだ直後に`validateAttachmentCandidate`で確かめ、受け付けたものだけを一覧に渡す。拒否したファイルは名前と理由を出す |
 | `components/AttachmentList.tsx` | 送信前の一覧。元の名前・サイズ（MB）・取り消すボタン。サイズの整形は`format-size.ts`を使う |
 | `format-size.ts` | `formatAttachmentSize`。大きさをMB（10^6バイト・小数1桁）で整形する。送信前の一覧と、案件の添付の一覧（`features/cases`の`CaseAttachments.tsx`。`index.ts`経由）で同じ形にそろえるため、`AttachmentList.tsx`の中から移した（【#148の148-B-1】）。`index.ts`は`attachmentUrl`・`formatAttachmentSize`も公開する |
-| `components/MessageAttachments.tsx` | メッセージの添付の表示。画像は`<img>`、動画は`<video controls>`、そのほかはダウンロードのリンク。URLはIDから`attachmentUrl`で組み立てる |
+| `components/MessageAttachments.tsx` | メッセージの添付の表示。画像は`<img>`、動画は`<video controls>`、そのほかはダウンロードのリンク。URLはIDから`attachmentUrl`で組み立てる【#270：任意のprops`owner`を受け取ったとき、各添付に「〈名前〉を削除」のボタンを付け、押すと`DeleteAttachmentDialog`を出す】 |
+| `components/DeleteAttachmentDialog.tsx`（#270） | 添付の削除の確認のダイアログ（作りは`DeleteMessageDialog.tsx`と同じ）。「削除する」で再認証（必要なら）を挟んで送る。送信中は押せず、閉じない。失敗はダイアログの中に出し、表示を変えない |
+| `hooks/useDeleteAttachment.ts`（#270） | 削除の送信。再認証（`withReauth`）が完了しなければ要求を送らず`NotSentError`にする。成功したら、再読み込みなしで表示から外す（下の「画面の更新」）。`features/cases/keys.ts`の`caseKeys.all`も取り直す |
+| `hooks/replace-room-message.ts`（#270） | `replaceThreadParent`を足した（スレッドのキャッシュの親を書き換える。開いていなければ何もしない）。既存の`replaceCachedMessage`の動きは変えていない |
+| `features/cases/keys.ts`（#270） | 案件のキャッシュのキー`caseKeys`だけの公開の入口。`features/cases/index.ts`は`messages`の部品を読み込むため、`messages`から`index.ts`を参照すると循環になる。検索の`features/search/keys.ts`と同じ理由で、キーだけを分けて公開した |
 | `components/MessageComposer.tsx` | 投稿欄・返信欄。添付を選んだ順に持ち、送信時に`usePostMessage`へ渡す。送信中は「送信を取り消す」で`AbortController`を中断する。失敗・取り消しでは投稿せず、一覧と本文を残す。添付は下書き（`features/drafts`）に保存しない |
-| `components/MessageItem.tsx` | 本文の下に`MessageAttachments`を置く |
+| `components/MessageItem.tsx` | 本文の下に`MessageAttachments`を置く【#270：自分の投稿（`canModify`）で、削除されていないときだけ`owner`を渡す】 |
 | `hooks/usePostMessage.ts` | 添付があれば1件ずつアップロードし、全部成功してから`attachmentIds`（選んだ順）を付けて投稿する。失敗したら`AttachmentUploadError`（失敗したファイル名つき）で失敗にし、投稿しない |
-| `api/message-api.ts` | `uploadAttachment`（部屋用・返信用の入口を`AttachmentTarget`で切り替える。`ATTACHMENT_UPLOAD_TIMEOUT_MS`の個別の時間切れ）、`attachmentUrl`、`attachmentSchema`（zod。`attachments`は必須） |
+| `api/message-api.ts` | `uploadAttachment`（部屋用・返信用の入口を`AttachmentTarget`で切り替える。`ATTACHMENT_UPLOAD_TIMEOUT_MS`の個別の時間切れ）、`attachmentUrl`、`attachmentSchema`（zod。`attachments`は必須）【#270：`deleteAttachment`（`DELETE`。成功は204）を足した】 |
 | `hooks/useDeleteMessage.ts` | 削除の結果の組み立てに`attachments: []`を足した |
 
 ## アップロードの流れ
@@ -140,7 +148,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
   4. どれにも当たらない（読み直すまでに別の操作で状態が変わった） → 409「添付の状態が変わりました。もう一度お試しください」
 - 投稿・返信の既存の判定（見える・参加・権限・部屋の状態）が先で、添付の判定は後。IDの作り直しの再試行（`insertWithAttachments`が各試行を包む）でも同じ。
 - `perm.attachment.upload`は結び付けでは確かめない（アップロードのときに確かめ済み。結び付けは本人・部屋・文脈の一致で守る）。
-- 【#155 の155-B（2026-11-21）】結び付けの batch の末尾（メッセージの索引の組の後ろ）に、添付のファイル名の索引の組（`search-index.sql.ts`の`syncAttachmentIndexStatements`）がある。結び付けが取り消されれば、索引も残らない。メッセージの論理削除（`deleteIfModifiable`）の末尾には`removeStaleAttachmentIndexStatements`がある。アップロード（`insertPending`）・未投稿の掃除（`deletePendingBefore`）・公開範囲の変更（`changeVisibility`）は索引に触れない。**#270（添付の削除）など、今後`message_attachments`を変える処理を足すときは、同じ batch の末尾に索引の組を足す**。添付を別のメッセージへ付け替える処理を足すときは、組だけでは足りない（同期の順で索引が欠けるため、添付の ID を基準にした古い写しの整理と、逆順の試験が要る）（[search.md](search.md)の「添付の書き込みの経路」）
+- 【#155 の155-B（2026-11-21）】結び付けの batch の末尾（メッセージの索引の組の後ろ）に、添付のファイル名の索引の組（`search-index.sql.ts`の`syncAttachmentIndexStatements`）がある。結び付けが取り消されれば、索引も残らない。メッセージの論理削除（`deleteIfModifiable`）の末尾には`removeStaleAttachmentIndexStatements`がある。アップロード（`insertPending`）・未投稿の掃除（`deletePendingBefore`）・公開範囲の変更（`changeVisibility`）は索引に触れない。**#270（添付の削除。実装済み）など、今後`message_attachments`を変える処理を足すときは、同じ batch の末尾に索引の組を足す**（添付の削除は、`markAttachmentDeleted`の末尾に`removeStaleAttachmentIndexStatements`を足した）。添付を別のメッセージへ付け替える処理を足すときは、組だけでは足りない（同期の順で索引が欠けるため、添付の ID を基準にした古い写しの整理と、逆順の試験が要る）（[search.md](search.md)の「添付の書き込みの経路」）
 
 ## 配信
 
@@ -166,7 +174,7 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 | 投稿に結び付いた添付 | 加えて、メッセージが削除されていない（`messages.deleted_at IS NULL`） |
 | 未投稿の添付 | アップロードした本人だけ |
 
-- 毎回判定する（参加を外された直後の取得は404）。**メッセージが削除されたら、その添付は404**。R2の実体は#270まで残る。
+- 毎回判定する（参加を外された直後の取得は404）。**メッセージが削除されたら、その添付は404**。【#270】**削除された添付も404**（`attachmentVisible`が削除済みを除く）。R2の実体は、削除の後に消す（下の「ファイルの実体の削除」）。元の「R2の実体は#270まで残る」は置き換えた。
 - 応答ヘッダー（`routes/attachments.ts`）：`Content-Type`はサーバーの検査の結果、`Content-Disposition`は画像・動画が`inline`でそれ以外が`attachment`（元の名前は`filename`と`filename*`）、`X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cross-Origin-Resource-Policy: same-origin`、`Cache-Control: private, no-store`、`Accept-Ranges: bytes`。
 - **Range**：正しい単一の範囲（`a-b`・`a-`・`-n`。終わりがサイズを超えたらサイズ-1に丸める）だけ、206と`Content-Range: bytes a-b/size`を返す。`bytes=`以外の単位・書式の誤り・複数の範囲・満たせない範囲は、**Rangeを無視して200で全体を返す**（RFC 9110 14.2が許す。416は返さない。`AppError`に416に当たるコードがなく、足すとAPI全体の規則の変更になるため）。1-6 AC-7のシーク再生は、正しい範囲で満たす。api-draftの`416`の案は、この実装では使わない。
 
@@ -184,6 +192,133 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 4. 全部成功してから、`attachmentIds`を付けて投稿する。成功したら入力欄と一覧を空にし、一覧を取り直す。
 5. 失敗・時間切れでは投稿せず、失敗したファイル名と理由を出す。「送信を取り消す」は、**アップロード中だけ**出す（投稿の要求を送った後は取り消せない）。取り消すと、取り消したことだけを伝え、投稿しない。どちらも一覧と本文は残る。
 6. メッセージの表示は`MessageAttachments`。画像は`<img>`、動画は`<video controls>`、そのほかはダウンロードのリンク。ファイル名は文字として出す。アプリのCSP（`public/_headers`）は変えない（`img-src 'self'`・`default-src 'self'`で表示できる）。
+
+## 添付の削除（#270 の1つ目）
+
+Issue #270 を2つのPRに分けた（利用者の決定。決定記録C-204）。1つ目（このPR）が、投稿・返信に付けた**自分の添付を1件ずつ削除する**こと（1-6 AC-4）。2つ目（添付だけの投稿・本文を空にする編集・本文のない投稿の最後の添付の扱い）は次のPR。**このPRの時点では、本文のない投稿は作れない**（本文の検査と`messages.body`のCHECKが空を断る）ので、添付を全部消しても、本文のある投稿が残るだけ。
+
+- **作るもの**：EP-1-11 `DELETE /api/attachments/:attachmentId`（204）、削除の印の3列、削除済みを出さない7か所、R2の実体の削除（要求の中で1回・毎日の定期の処理で再試行）、メッセージの削除が添付にも印を付けること、画面の削除の操作、既存データの補完のSQL。
+- **作らないもの**：他人の添付の削除（R-34。全ロール初期値で不可。経路を作らず、403と監査）／未投稿の添付の削除（送信前の一覧の取り消しと24時間の掃除のまま。この入口では409）／削除の取り消し・復元（C-127。戻せない）／自動の期限削除（C-74）。
+- 応答の形：成功は204。失敗は401・403（`FORBIDDEN`・`FORBIDDEN_ORIGIN`・`REAUTH_REQUIRED`・`PASSWORD_CHANGE_REQUIRED`）・404・409・422。新しいエラーコードは足していない。契約は`docs/api/openapi.json`。
+
+### 判定の順（`attachment.service.ts`の`remove`。この順を変えない）
+
+| 順 | 確かめること | 断るとき | 理由 |
+| --- | --- | --- | --- |
+| 0 | 共通のゲート（未ログイン・初回パスワードの変更）と、IDの形（`validate`） | 401・403`PASSWORD_CHANGE_REQUIRED`・422 | 判定より前 |
+| ① | 見えるか（`findForDeletion`。`attachmentVisible`の条件） | 404 | 見えない部屋・存在しない・**削除済み**・メッセージが削除済みを区別しない（存在を開示しない） |
+| ①' | 投稿に結び付いているか | 409「送信前の添付は、送信前の一覧で取り消してください」 | 未投稿の添付は、この入口では消さない |
+| ② | アップロードした本人か | 403。`logger.audit`に`attachment.delete`・失敗・`not_author` | 他人の添付の削除は、どのロールでも不可（R-34） |
+| ③ | `perm.attachment.delete.own`（`message.service.ts`の`requireAttachmentDeletable`） | 403（`authorize`が監査に残す） | 権限は3つの役割すべてが持つが、認可は毎回行う |
+| ④ | 部屋の状態（同じ`requireAttachmentDeletable`）。DMは`perm.dm.message.view`、チャンネルは参加していること（未参加は403・監査`not_member`）、案件の部屋は`perm.case.post`と進行中（終了中は409・監査`case_closed`）、部署が無効なら409、DMの相手が無効なら409 | 404・403・409 | メッセージの削除と同じ規則（編集・削除の共通の内部関数`findModifiableRoom`・`requireRoomModifiable`）。お知らせ専用の投稿権限は問わない（今参加している本人なら消せる。C-171 U-3と同じ） |
+| ⑥ | 再認証（`assertRecentReauth`） | 403`REAUTH_REQUIRED` | **最後に置く**。断られる操作でパスワードを入力させないため（C-171(2)と同じ。①〜④で断られるときは、再認証より先にその応答になる） |
+| ⑦ | 書き込み（下の1回のbatch） | 0行なら読み直し（下） | 確認から書き込みまでの間の変化を、SQLの条件で拾う |
+
+⑥・⑦の番号は、メッセージの削除の判定の順（[message-edit-markdown.md](message-edit-markdown.md)）の⑥再認証・⑦書き込みに合わせた（⑤は欠番。添付の削除の①〜④は、メッセージの削除の①〜⑤とは対応しない。「削除済みなら409」の段は、削除済みの添付が①で404になるため、ない）。
+
+### 書き込み（`attachment-delete.sql.ts`の`markAttachmentDeleted`）
+
+1回の`db.batch`で、次の3つの文を、この順に書く。
+
+1. 監査`attachment.delete`（成功。対象の種類`attachment`。`detail`は`roomId`・`messageId`だけで、ファイル名・本文を入れない）。**UPDATEの前に置く**（UPDATEの後は条件が偽になるため。メッセージの削除と同じ）
+2. `message_attachments`の`deleted_at`・`deleted_by`を書くUPDATE
+3. 末尾に、検索の索引の組`removeStaleAttachmentIndexStatements`（削除が確定したときだけ、ファイル名の写しが消える。拒否なら残る）
+
+- **条件は`deletable(attachmentId, userId)`の1か所**で、1と2の両方に同じ条件を置く（`onlyWhen`とWHERE）。添付が存在し、削除されておらず、投稿に結び付き、アップロードしたのが本人で、結び付いたメッセージが同じ部屋にあり、メッセージが`message-modify.sql.ts`の`modifiable`（本人の投稿・未削除・部屋に書き込める）を満たす。`modifiable`は、メッセージのIDを値か外側の行の列で受けられるように広げた
+- **前提の確かめ方**：[#196の`CASE WHEN … NULL`の形](../project-rules.md)は使わない。確かめたい事実が「いま削除してよいか」の1つで、それ自体を書き込みの条件と監査の条件に置けば、確認から書き込みまでの変化を同じbatchの中で拾えるため。存在しない行へのUPDATEは0行で失敗しないので、先頭に確かめの文を足しても、後ろの文から条件を外せない。末尾の不変条件は、この1つ目にはない（2つ目で「本文が空なら添付が1件以上」を足すときに#196の形を使う）
+- **戻り値**：主のUPDATEの`meta.changes`（1か0）。末尾に索引の文があるため、**積んだ位置を保持して読む**（`updateAt`。155-Cの`buildEditStatements`と同じ。末尾からの添字では読まない）。索引の文の件数は使わない
+- **0行のとき**：`remove`が①〜④を読み直し、理由があればその応答（404・403・409）にする。理由が分からなくても成功にせず、409「状態が変わったため、削除できませんでした」にする。書き込みはやり直さない
+- batchの中では、R2を呼ばない（D1の外の操作を混ぜない）。batchが失敗したら、印・監査・索引のどれも残らず、R2も呼ばない。元のエラーをそのまま投げる
+
+### 削除済みの添付を出さない7か所
+
+削除済みの添付（`deleted_at`が入った行）は、画面・配信・一覧・検索のどこにも出さない。条件`deleted_at IS NULL`は次の7か所にある。**`message_attachments`を読む処理を足すときも、同じ条件を足す**（`attachment-visibility.sql.ts`の先頭のコメントにも同じ一覧がある）。
+
+| # | 場所 | 出さない対象 |
+| --- | --- | --- |
+| 1 | `attachment-visibility.sql.ts`の`attachmentVisible` | 配信（EP-1-10）・削除の①・案件の添付の公開範囲の変更の見える判定 |
+| 2 | `attachment.repository.ts`の`loadMessageAttachments` | メッセージ一覧・1件・スレッドの親と返信・スレッド一覧の`attachments` |
+| 3 | `case-attachment.repository.ts`の`listCaseAttachments` | 案件の添付の一覧（EP-5-19） |
+| 4 | `case-attachment.repository.ts`の公開範囲の変更（1の条件を通す） | 削除済みは404 |
+| 5 | `search-index.sql.ts`の`staleAttachmentDocuments`・`syncAttachmentIndexStatements` | 索引（削除済みは古い写しとして消し、入れない。`reindexMessages`の登録し直しでも出ない） |
+| 6 | `search.repository.ts`の添付の行の結合 | 検索の結果（索引が遅れても出さない） |
+| 7 | `backend/db/seeds/cleanup.sql` | 変更は要らない（削除済みの行も同じ条件で消える。`cleanup-sql.attachment-delete.db.test.ts`で確かめた） |
+
+`bindAttachments`は未投稿（`message_id IS NULL`）だけを結ぶので、削除済み（必ず結び付き済み）には触れない。変えていない。
+
+### ファイルの実体の削除
+
+順は「**印（`deleted_at`）→ R2の実体 → 行の物理削除**」。未投稿の掃除（行を先に消す）とは逆にした。行を先に消すと、R2の削除に失敗したときにキーが失われ、再試行できないため。
+
+- **部品**（`attachment-purge.ts`の`purgeDeletedAttachments`）：行ごとにR2の`delete`→成功したら`deletePurgedRow`で行を消す（条件は`deleted_at IS NOT NULL`。要求の中の削除と定期の処理が重なっても、片方が0行になるだけ）。**R2の失敗**は、数えて（`failedObjects`）errorログに残し（キー・名前は出さない）、`markPurgeFailed`で失敗の時刻（`purge_failed_at`）を書いて、次の行へ進む。この時刻の書き込みの失敗も、主の結果を変えずにerrorログに残す（後始末に付随する失敗）。**D1の行の削除の失敗は投げる**
+- **始める場所は3つ**で、同じ部品を使う：
+  1. `remove`の中。batchの成功の後に、その1行を1回試す。失敗しても応答は204（errorログに残し、次の定期の処理が消す）
+  2. メッセージの削除の中（下の「メッセージの削除との関係」）
+  3. `attachmentPurgeJob`（Cron）
+- **定期の処理**（`attachment.service.ts`の`attachmentPurgeJob`）：既存の毎日UTC 18:17（日本時間03:17）の式に相乗りする（`wrangler.jsonc`は変えていない）。
+  - **読む順**：失敗したことのない行（`purge_failed_at IS NULL`）を`(deleted_at, id)`の昇順で**先に**、その後に失敗したことのある行を`(purge_failed_at, id)`の昇順（失敗が古い順）で読む。1ページ100行（`PURGE_PAGE_SIZE`）、1回の実行で試す行は500行まで（`PURGE_LIMIT_PER_RUN`。失敗した行も数える）。上限で止めたら、残りは次の回（翌日）に先頭から読む
+  - **同じ実行で2回試さない仕組み**：次のページは「直前のページの最後の位置より後」（`PurgeCursor.after`。読んだときの値で決める）で読み、先頭から読み直さない。失敗したことのある行は、**実行の開始の時刻（`failedBefore`）より前に失敗した行だけ**を読む。この実行の中で失敗を書いた行の時刻は開始以後になるので、同じ実行の後ろのページで読み直されない
+  - **この読む順にした理由**：初めの案（毎回先頭から`(deleted_at, id)`で読み、失敗した行も500行の枠に数える）では、失敗し続ける行が先頭の500件を占めると、後ろの削除可能な行が試されなかった（コードレビュー1回目の重大の指摘）。失敗の時刻を記録し、失敗したことのない行を先に読む形にして、失敗し続ける行が後ろの行を止めないようにした。失敗した行は、失敗のたびに時刻が新しくなって後ろへ回るので、次の回は別の行を先に試す。部分索引`message_attachments_deleted_at_idx`は、失敗したことのない行を`(deleted_at, id)`で読むためのもの。失敗した行は少ない前提で、その並べ替えは索引に頼らない
+  - **終わりのログ**：infoで、読んだ行数・消せた行数・R2の失敗の数・上限で止めたか（`reachedLimit`。続きの行が1行以上あるか）。キー・名前は出さない
+- **べき等**：何度実行しても同じ結果になり、成功すると行もなくなる。R2の`delete`は存在しないキーでも例外にならない（Miniflareで確認。本物のR2では未確認で、#160）
+- **物理削除にした理由**：削除した添付の情報は画面・APIで使わず、誰がいつ消したかは監査に残る。`purged_at`の列で残す案は、使わない行と列が増える
+- **途中で失敗したときの状態**：
+
+| 失敗の場所 | 状態 | 回復 |
+| --- | --- | --- |
+| 書き込みのbatch | 何も変わらない。R2も呼ばない | 利用者が再試行 |
+| batchの成功の後、R2の`delete` | 行は削除済みで見えない。`purge_failed_at`が入る | 次の定期の処理が試す |
+| R2の成功の後、行の削除 | 実体はない。行は削除済みで残る | 次の定期の処理（無いキーの`delete`は成功）で行を消す |
+
+### メッセージの削除との関係
+
+メッセージを削除すると、その添付もすべて削除済みになる。
+
+- `message-modify.sql.ts`の`deleteIfModifiable`のbatchに、添付に印を付けるUPDATEを足した（`message_id`が対象・まだ印がない・`modifiable`を満たす）。順は、監査 → 添付のUPDATE → メッセージのUPDATE → 索引の組2つ。添付のUPDATEは、メッセージのUPDATEの後では条件が偽になるため前に置く。戻り値はメッセージの更新件数（1か0）のまま（積んだ位置を保持して読む。添付の件数に左右されない）
+- **監査は`message.delete`の1件に含める**（添付の個別の監査は増やさない。既定の方針4）。拒否されたときは、添付も変わらない
+- 削除が成功した後に、`message.service.ts`の`remove`が、依存`purgeAttachmentsOf(messageId)`を同じ要求の中で1回呼ぶ（`withMessageService`が`attachment-purge.ts`の`purgeAttachmentsOfMessage`を組んで渡す。省略すると何もしない）。失敗・0行のときは呼ばない。後始末の失敗は、削除の結果（204）を変えず、errorログに残す
+- **#140の後、#270の前に削除されたメッセージの添付**には印がない。補完のSQLで印を付ける（下）
+
+### 画面の更新
+
+- 自分の投稿（`canModify`）で削除されていないメッセージの各添付に「〈名前〉を削除」を出し、押すと確認のダイアログ → 再認証 → 送信。成功すると、再読み込みなしで、その添付が一覧・スレッドから消える。失敗はダイアログの中に出し、表示を変えない。送信中は押せず、閉じない
+- **キャッシュの更新先**：部屋の一覧とスレッドの親は別のキャッシュに持たれているので、成功したら、部屋の投稿（`parentMessageId`がnull）は部屋の一覧の該当の行（`replaceCachedMessage`）と、スレッドの親（`replaceThreadParent`。開いていなければ何もしない）の両方から該当の添付を外す。返信はスレッドの返信の該当の行だけ。案件の添付の一覧は、`caseKeys.all`を取り直す（`features/cases/keys.ts`経由）
+- 監査ログの画面の種類の日本語名に「添付の削除」を足した（`frontend/src/features/audit-logs/action-labels.ts`）
+
+### 補完のSQLと件数の確かめ方
+
+#140の後、#270の前にメッセージを削除した添付には、削除の印がない（そのとき、添付に印を付ける処理がなかった）。`backend/db/scripts/mark-attachments-of-deleted-messages.sql`が、削除済みのメッセージに結び付き、まだ印のない添付に、メッセージの`deleted_at`・`deleted_by`を写す。**migrationにはしない**（既定の方針1。手作成のmigrationの例外は増やさない）。R2の実体は、定期の処理が消す。SQLのファイルの先頭のコメントは、この節を指している。
+
+- べき等：印のない行だけを対象にするので、何度流しても同じ結果になる。削除されていないメッセージの添付・未投稿の添付・すでに印のある添付には触れない。相関の副問い合わせで書く（`UPDATE … FROM`はD1で確かめていないため使わない）
+- 適用の順：migration 0036の**後**に流す。本番への適用は機能の完了条件に含めず、利用者が別に承認して行う。本番では、migration 0023が未適用で添付の行が0行の見込みのため、対象も0件の見込み（それでも[production-first-rollout.md](../operations/production-first-rollout.md)の手順で件数を確かめる）
+- **件数の確かめ方**（読み取りだけ）：流す前と後に、次の件数を数える。流す前は0以上、流した後は**0**になる。
+
+```sql
+SELECT COUNT(*) AS n FROM message_attachments a
+WHERE a.deleted_at IS NULL AND a.message_id IS NOT NULL
+  AND EXISTS (SELECT 1 FROM messages m WHERE m.id = a.message_id AND m.deleted_at IS NOT NULL);
+```
+
+- 手元：`wrangler d1 execute DB --local --persist-to <保存先> --file backend/db/scripts/mark-attachments-of-deleted-messages.sql`（`scripts/db-local.ts`の`seed-file`は`e2e/seeds/`の下だけを受け付けるため、使えない）。このSQLは検索の索引の表に触れない。削除済みのメッセージの添付の写しは、検索の結果には出ない（上の7か所の6）
+
+### 添付の削除のテストの場所
+
+| 場所 | 内容 |
+| --- | --- |
+| `backend/src/db/attachment-delete.db.test.ts` | `deletable`の事例表（対象でない添付が別にある状態で。本人・他人・削除済み・未投稿・メッセージ削除済み・未参加・無効・アーカイブ・案件の終了・部署が無効・DMの相手が無効・DMの第三者）、batchの中身 |
+| `backend/src/db/message-modify.attachments.db.test.ts` | メッセージの削除が添付に印を付けること、戻り値が添付の件数（0件・複数件・全件が削除済み）に左右されないこと |
+| `backend/src/db/attachment-deletion.upgrade.db.test.ts`・`attachment-publication.schema.db.test.ts` | migration 0036の更新の試験（0035まで当てて添付の行を入れ、0036だけを当てる。件数・既存の列・結び付き・3列がNULL・索引）と、列の期待（3列を足した） |
+| `backend/src/db/mark-attachments-of-deleted-messages.db.test.ts`・`cleanup-sql.attachment-delete.db.test.ts` | 補完のSQLのべき等と件数、後始末のSQLが削除済みの行も消すこと |
+| `backend/src/routes/attachments.delete.test.ts`・`attachments.delete.case-room.test.ts` | 判定の順の全段（401・403・404・409・422・再認証が最後・204）、権限の拒否、案件の部屋、R2の失敗の注入 |
+| `backend/src/services/attachment.service.delete.test.ts`・`attachment.delete.interleave.test.ts` | Serviceの判定、確認の後・書き込みの直前に状態が変わる場合（参加の解除・無効化・アーカイブ・案件の終了・部署の無効化・DMの相手の無効化・メッセージの削除）の読み直し |
+| `backend/src/routes/attachments.deleted-visibility.test.ts` | 削除済みの添付が、配信・一覧・スレッド・案件の一覧・公開範囲の変更・検索のどこにも出ないこと |
+| `backend/src/services/attachment-purge.test.ts` | 後始末のジョブ：べき等・失敗・同時の実行、進め方（1ページ100行・1回500行・同じ時刻の行をidで区切る）、失敗し続ける行が後ろを止めないこと、`purge_failed_at`の記録 |
+| `backend/src/routes/messages.delete-attachments.test.ts`・`backend/src/services/message.delete-purge.test.ts` | メッセージの削除の後に、要求の中で1回だけ実体の削除を試すこと（失敗・0行では呼ばない。後始末が失敗しても204） |
+| `backend/src/openapi.attachment-delete.test.ts`・`backend/src/lib/audit-actions.attachment-delete.test.ts` | 契約と監査の種類 |
+| `frontend/src/features/messages/messages.attachment-delete.test.tsx`・`messages.attachment-delete-cache.test.tsx`、`frontend/src/test/attachment-delete-handlers.ts` | ボタンの出し分け・確認 → 再認証 → 成功・失敗の表示・送信中・キャッシュの更新先（部屋とスレッドの同時表示） |
+| `e2e/attachment-delete.spec.ts`、`e2e/seeds/attachment-delete.sql`・`attachment-delete-cleanup.sql` | 実ブラウザの確認（1件。S-05で自分の添付を消すと、再読み込みなしで消え、そのURLは404）。一覧は[e2e.md](../testing/e2e.md) |
+
+SQLのテンプレートの中の条件は、Strykerが変異を作らない（[mutation.md](../testing/mutation.md)の147-C-1の記録）ため、条件を1つずつ外した版で対応するテストが落ちることの手での確かめ（SQLの条件の対照）で代える。その結果はPRの本文に書く。
 
 ## 情報漏えいの経路と対策
 
@@ -222,6 +357,10 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 | `contentDisposition(name, type)` | 元の名前・`inline`か`attachment` | ヘッダーの値 |
 | `bindAttachments(db, input)` | 投稿のID・部屋・本人・文脈・添付のID | batchに足す文の配列（添付がなければ空） |
 | `attachmentCleanupJob().run` | `env` | なし。消した行数・失敗した実体の数をログに残す |
+| `createAttachmentService().remove`（#270） | 操作者（`reauthenticatedAt`を含む）・添付のID | なし（204）。404・403・409（`AppError`）。再認証が古い・ないときは403`REAUTH_REQUIRED` |
+| `markAttachmentDeleted(db, input)`（#270） | 添付・メッセージ・部屋・本人のID・削除の時刻・トレースID | 印を付けた行数（1か0） |
+| `purgeDeletedAttachments(env, rows, logger)`（#270） | 後始末の対象の行（`id`・`storageKey`）・ロガー | `{ purgedRows, failedObjects }`。R2の失敗は投げず数える。D1の行の削除の失敗は投げる |
+| `attachmentPurgeJob().run`（#270） | `env` | なし。読んだ行数・消せた行数・R2の失敗の数・上限で止めたかをinfoログに残す |
 
 ## 既知の限界
 
@@ -229,7 +368,10 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 - 動画100MBちょうどがWorkers経由で通るかは、本番で未確認（利用者がデプロイの時に確認する。C-153(4)）。手元では`FixedLengthStream`とR2の`put`が3MBで動くことと、足りないバイト数で`put`が失敗して何も残らないことを確かめた（[ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)の未確認の一部を埋めた）。
 - データ記述子を使うzipのエントリは、サイズの突き合わせをしない（正当なファイルを通すための決定。C-176）。
 - 添付の付いた送信が失敗して再送すると、成功済みのファイルも、もう一度アップロードする（一覧を残すため）。前回のものはどの投稿にも結び付かず、24時間後の掃除で消える。
-- メッセージを削除しても、R2の実体は#270まで残る（配信は404で止まる）。
+- 【#270で解消】メッセージを削除しても、R2の実体が残る問題は、メッセージの削除が添付にも印を付け、削除の後に実体を消すことで解消した。ただし、**R2の実体は戻せない**：D1のTime Travelで行を戻しても、消したファイルは戻らない（配信は404になる。C-127）。
+- 【#270】本物のR2で、存在しないキーの`delete`が成功するかは確かめていない（Miniflareでは例外にならない）。失敗する場合、その行は毎回の定期の処理で失敗し続け、`purge_failed_at`で後ろに回りながら、errorログに残る。#160で確かめる。
+- 【#270】定期の処理が、Workersの1回の実行の時間の上限に当たるかは未確認。1回500行の上限で抑えている。実測は#160。
+- 【#270】添付の削除と案件の公開範囲の変更が重なったときは、削除が先に確定すれば、公開範囲の変更は404になる（削除済みの添付は`attachmentVisible`と変更の条件の両方で除かれる）。D1は書き込みを直列に実行する前提に依存する。
 - ウイルススキャン（#116）はしない。今回の検査は「種類の一致」の確認で、安全性の保証ではない。
 - 補償の`delete`も失敗した実体を探す定期の照合はない。
 - 無効な部署のチャンネルへの通常の投稿が拒否されない既存の不足は、アップロードにも同じ形で及ぶ。#154で扱う。
@@ -253,8 +395,9 @@ R2への`put`はD1の`batch`の外で行う。そのため、保存と登録が�
 
 ## 関係するIssue・ADR
 
-- Issue #140（親：#133）。#270（添付の削除・添付だけの投稿）・#116（ウイルススキャン）・#141（アバター）・#155（ファイル名の検索。155-B で実装した。[search.md](search.md)）・#154（無効な部署への投稿）・#160（本番での確認・全体のミューテーション）に申し送る。
+- Issue #140（親：#133）。#270（添付の削除は1つ目で実装した。添付だけの投稿は2つ目）・#116（ウイルススキャン）・#141（アバター）・#155（ファイル名の検索。155-B で実装した。[search.md](search.md)）・#154（無効な部署への投稿）・#160（本番での確認・全体のミューテーション）に申し送る。
 - 決定：C-176（C-153の未決定の項目を置き換えた）。C-126・C-137・C-153・C-94に従う。
+- Issue #270の1つ目（添付の削除。1-6 AC-4、EP-1-11、R-39・R-34、migration 0036）。決定記録C-204（判定の順・実体の削除の失敗の扱い・メッセージの削除との関係・PRを2つに分けること）。C-127（削除したら戻せない）・C-74・C-171・C-176に従う。2つ目（添付だけの投稿）は次のPR。**本番への適用（migration 0036・補完のSQL）は利用者が行う**（[production-first-rollout.md](../operations/production-first-rollout.md)）。
 - [ADR-0011](../adr/0011-attachment-inspection-and-virus-scan.md)（検査の方式）・[ADR-0029](../adr/0029-attachment-delivery-headers-and-content-type-check.md)（配信のヘッダーの扱い・`content_type`のCHECKをやめた理由）・[ADR-0012](../adr/0012-zero-trust-principle.md)（毎回認可する）・[ADR-0015](../adr/0015-style-foundation.md)・[ADR-0028](../adr/0028-lighter-process-and-narrowed-scope.md)（ミューテーションの範囲）。
 - 関連する設計書：[messages.md](messages.md)・[threads.md](threads.md)・[reactions.md](reactions.md)。
 - 要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5、EP-1-09・EP-1-10、perm.attachment.upload・download（R-32・R-33）、S-05・S-06・S-07。
