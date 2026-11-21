@@ -21,7 +21,9 @@ import {
   listDeletedOfMessage,
   listPurgeTargets,
   markAttachmentDeleted,
+  markPurgeFailed,
   type AttachmentDeletion,
+  type PurgeCursor,
 } from "./attachment-delete.sql";
 import { attachmentVisible } from "./attachment-visibility.sql";
 import { caseRoomOpen } from "./case-room.sql";
@@ -277,14 +279,14 @@ export function createAttachmentRepository(db: Database) {
     /** 削除してよいときだけ、監査・削除の印・索引を書き、印を付けた行数（1 か 0）を返す */
     markDeleted: (input: AttachmentDeletion) =>
       markAttachmentDeleted(db, input),
-    listPurgeTargets: (
-      after: { deletedAt: string; id: string } | null,
-      limit: number,
-    ) => listPurgeTargets(db, after, limit),
+    listPurgeTargets: (cursor: PurgeCursor, limit: number) =>
+      listPurgeTargets(db, cursor, limit),
     listDeletedOfMessage: (messageId: string) =>
       listDeletedOfMessage(db, messageId),
     deletePurgedRow: (attachmentId: string) =>
       deletePurgedRow(db, attachmentId),
+    markPurgeFailed: (attachmentId: string, failedAt: string) =>
+      markPurgeFailed(db, attachmentId, failedAt),
     /** 資格（pendingInsertable）を満たすときだけ1行を登録し、登録した行数（1 か 0）を返す */
     async insertPending(input: PendingAttachmentInsert): Promise<number> {
       // 列は名前で指定する（表に列が加わっても、値の位置がずれないように）。

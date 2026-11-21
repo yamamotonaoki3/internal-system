@@ -70,28 +70,58 @@ export async function markAttachmentDeleted(
   return update.meta.changes;
 }
 
-/** 後始末の対象の行（保存先のキーは Service だけが使い、応答・ログに出さない） */
-export type PurgeTarget = { id: string; storageKey: string; deletedAt: string };
+/** 後始末の対象の行（保存先のキーは Service だけが使い、応答・ログに出さない）。purgeFailedAt は実体の削除に最後に失敗した時刻 */
+export type PurgeTarget = {
+  id: string;
+  storageKey: string;
+  deletedAt: string;
+  purgeFailedAt: string | null;
+};
 
 const purgeTargetSchema = z.array(
-  z.object({ id: z.string(), storageKey: z.string(), deletedAt: z.string() }),
+  z.object({
+    id: z.string(),
+    storageKey: z.string(),
+    deletedAt: z.string(),
+    purgeFailedAt: z.string().nullable(),
+  }),
 );
 
-/** 削除済みの行を (deleted_at, id) の昇順に、after より後から limit 行読む（部分索引 message_attachments_deleted_at_idx） */
+/**
+ * 定期の処理の読む位置。失敗したことのない行（fresh）は (deleted_at, id)、失敗したことのある行（failed）は (purge_failed_at, id) で区切る。
+ * failedBefore は実行の開始の時刻。失敗したことのある行は、これより前に失敗した行だけを読む
+ * （同じ実行の中で失敗を書いた行の時刻はこれ以後になるため、同じ実行で2回読まない）。
+ */
+export type PurgeCursor = {
+  failedBefore: string;
+  after:
+    | { phase: "fresh"; deletedAt: string; id: string }
+    | { phase: "failed"; purgeFailedAt: string; id: string }
+    | null;
+};
+
+/**
+ * 削除済みの行を、失敗したことのない行を (deleted_at, id) の昇順に先に、その後に失敗したことのある行を (purge_failed_at, id) の昇順に、
+ * cursor.after より後から limit 行読む。失敗した行は少ない前提で、並べ替えは索引に頼らない
+ */
 export async function listPurgeTargets(
   db: Database,
-  after: { deletedAt: string; id: string } | null,
+  cursor: PurgeCursor,
   limit: number,
 ): Promise<PurgeTarget[]> {
+  const failed = sql`(purge_failed_at IS NOT NULL AND purge_failed_at < ${cursor.failedBefore})`;
+  const after = cursor.after;
   const from =
     after === null
-      ? sql``
-      : sql`AND (deleted_at > ${after.deletedAt} OR (deleted_at = ${after.deletedAt} AND id > ${after.id}))`;
+      ? sql`(purge_failed_at IS NULL OR ${failed})`
+      : after.phase === "fresh"
+        ? sql`((purge_failed_at IS NULL AND (deleted_at > ${after.deletedAt} OR (deleted_at = ${after.deletedAt} AND id > ${after.id}))) OR ${failed})`
+        : sql`(${failed} AND (purge_failed_at > ${after.purgeFailedAt} OR (purge_failed_at = ${after.purgeFailedAt} AND id > ${after.id})))`;
   const rows = await db.all(sql`
-    SELECT id, storage_key AS storageKey, deleted_at AS deletedAt
+    SELECT id, storage_key AS storageKey, deleted_at AS deletedAt, purge_failed_at AS purgeFailedAt
     FROM message_attachments
-    WHERE deleted_at IS NOT NULL ${from}
-    ORDER BY deleted_at, id
+    WHERE deleted_at IS NOT NULL AND ${from}
+    ORDER BY purge_failed_at IS NOT NULL, COALESCE(purge_failed_at, deleted_at), id
     LIMIT ${limit}`);
   return purgeTargetSchema.parse(rows);
 }
@@ -102,7 +132,7 @@ export async function listDeletedOfMessage(
   messageId: string,
 ): Promise<PurgeTarget[]> {
   const rows = await db.all(sql`
-    SELECT id, storage_key AS storageKey, deleted_at AS deletedAt
+    SELECT id, storage_key AS storageKey, deleted_at AS deletedAt, purge_failed_at AS purgeFailedAt
     FROM message_attachments
     WHERE message_id = ${messageId} AND deleted_at IS NOT NULL
     ORDER BY id`);
@@ -116,6 +146,22 @@ export async function deletePurgedRow(
 ): Promise<number> {
   const result = await db
     .delete(messageAttachments)
+    .where(
+      sql`${messageAttachments.id} = ${attachmentId} AND ${messageAttachments.deletedAt} IS NOT NULL`,
+    )
+    .run();
+  return result.meta.changes;
+}
+
+/** 実体の削除に失敗した時刻を、印のある行に書き、書いた行数（1 か 0）を返す（deleted_at・deleted_by は変えない） */
+export async function markPurgeFailed(
+  db: Database,
+  attachmentId: string,
+  failedAt: string,
+): Promise<number> {
+  const result = await db
+    .update(messageAttachments)
+    .set({ purgeFailedAt: failedAt })
     .where(
       sql`${messageAttachments.id} = ${attachmentId} AND ${messageAttachments.deletedAt} IS NOT NULL`,
     )

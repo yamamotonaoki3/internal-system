@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e28aa387-14cd-4989-a15b-931ee8217913",
+  "id": "cc935c2a-df55-4149-9d0a-f4fa7fb02482",
   "prevId": "ef66341c-42e8-423d-a1f7-ac7e23b0a6dd",
   "tables": {
     "audit_logs": {
@@ -2403,6 +2403,13 @@
         },
         "deleted_by": {
           "name": "deleted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purge_failed_at": {
+          "name": "purge_failed_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

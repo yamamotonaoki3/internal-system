@@ -5,8 +5,8 @@
 // 案件の添付の一覧（features/cases）も取り直す（既定の方針6）。useReauth を使うため、削除の確認のダイアログの中だけで呼ぶ。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useReauth } from "../../auth";
-// cases の公開部分（index.ts）は messages の部品を読み込むため、index を通すと循環になる。キーの定義だけを直接読む
-import { caseKeys } from "../../cases/api/query-keys";
+// cases の index.ts は messages の部品を読み込むため、キーだけの公開部分（keys.ts）を通す
+import { caseKeys } from "../../cases/keys";
 import { deleteAttachment, type RoomMessage } from "../api/message-api";
 import { NotSentError } from "../describe-error";
 import {

@@ -558,6 +558,9 @@ export const messageAttachments = sqliteTable(
     // 削除の印（#270。要件 1-6 AC-4）。印の付いた行はどこにも出さず、後始末が R2 の実体を消してから行を消す
     deletedAt: text("deleted_at"),
     deletedBy: text("deleted_by").references(() => users.id),
+    // 実体（R2）の削除に最後に失敗した時刻（#270 のコードレビューの指摘1）。後始末は、失敗したことのない行を先に読み、
+    // 失敗した行をこの時刻の古い順に後で読む（失敗し続ける行が、後ろの行を止めないため）
+    purgeFailedAt: text("purge_failed_at"),
   },
   (t) => [
     index("message_attachments_message_id_idx").on(t.messageId),

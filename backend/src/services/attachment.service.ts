@@ -19,7 +19,7 @@
 //   後始末の失敗は 204 を変えず、error ログに残す（行は印つきで残り、attachmentPurgeJob が次の回に消す）。
 // ログにファイル名・保存先のキーを出さない。
 import { withAttachments } from "../db/attachment.repository";
-import type { PurgeTarget } from "../db/attachment-delete.sql";
+import type { PurgeCursor, PurgeTarget } from "../db/attachment-delete.sql";
 import { withMessages } from "../db/message.repository";
 import { withRoleAssignments } from "../db/role-assignment.repository";
 import { AppError } from "../lib/app-error";
@@ -82,7 +82,6 @@ const PENDING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 /** 削除済みの添付の後始末の、1ページの行数と、1回の実行で試す行の上限（失敗した行も数える） */
 const PURGE_PAGE_SIZE = 100;
 const PURGE_LIMIT_PER_RUN = 500;
-type PurgeCursor = Pick<PurgeTarget, "deletedAt" | "id">;
 const PENDING_DELETE_MESSAGE =
   "送信前の添付は、送信前の一覧で取り消してください";
 
@@ -570,8 +569,10 @@ export function attachmentCleanupJob(): CronJob {
 
 /**
  * 削除済みの添付の後始末（#270。Cron。既存の毎日の式 "17 18 * * *"〔日本時間 03:17〕に相乗りする）。
- * (deleted_at, id) の昇順に1ページずつ読み、直前のページの最後のキーより後を次に読む（失敗して残った行を同じ実行で読み直さない）。
- * 1回の実行で試す行は PURGE_LIMIT_PER_RUN まで。残りは次の回に、先頭から読む。
+ * 失敗したことのない行を (deleted_at, id) の昇順に先に、その後に失敗したことのある行を (purge_failed_at, id) の昇順に、1ページずつ読む。
+ * 次のページは直前のページの最後のキーより後。失敗したことのある行は、この実行の開始より前に失敗した行だけを読む
+ * （この実行の中で失敗を書いた行を、後ろのページで読み直さない）。
+ * 1回の実行で試す行は PURGE_LIMIT_PER_RUN まで（失敗した行も数える）。残りは次の回に、先頭から読む。
  */
 export function attachmentPurgeJob(): CronJob {
   return {
@@ -579,12 +580,13 @@ export function attachmentPurgeJob(): CronJob {
     name: "attachment-purge",
     run: async (env) => {
       const logger = createLogger();
-      let after: PurgeCursor | null = null;
+      const failedBefore = new Date().toISOString();
+      let after: PurgeCursor["after"] = null;
       let readRows = 0;
       let purgedRows = 0;
       let failedObjects = 0;
       while (readRows < PURGE_LIMIT_PER_RUN) {
-        const cursor: PurgeCursor | null = after;
+        const cursor: PurgeCursor = { failedBefore, after };
         const rows: PurgeTarget[] = await withAttachments(env, (repository) =>
           repository.listPurgeTargets(
             cursor,
@@ -597,14 +599,22 @@ export function attachmentPurgeJob(): CronJob {
         const result = await purgeDeletedAttachments(env, rows, logger);
         purgedRows += result.purgedRows;
         failedObjects += result.failedObjects;
-        after = { deletedAt: last.deletedAt, id: last.id };
+        // 位置は読んだときの値で決める（この実行で失敗を書いても、読んだ順は変わらない）
+        after =
+          last.purgeFailedAt === null
+            ? { phase: "fresh", deletedAt: last.deletedAt, id: last.id }
+            : {
+                phase: "failed",
+                purgeFailedAt: last.purgeFailedAt,
+                id: last.id,
+              };
       }
       const resume = after;
       const reachedLimit =
         readRows >= PURGE_LIMIT_PER_RUN &&
         (
           await withAttachments(env, (repository) =>
-            repository.listPurgeTargets(resume, 1),
+            repository.listPurgeTargets({ failedBefore, after: resume }, 1),
           )
         ).length > 0;
       logger.info("attachment-purge：後始末を終了", {
