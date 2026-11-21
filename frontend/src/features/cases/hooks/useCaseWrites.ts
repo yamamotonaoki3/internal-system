@@ -259,6 +259,25 @@ function asOutsider(item: CaseSummary): CaseSummary {
   };
 }
 
+/** その利用者の、案件の一覧（参加中・すべての案件、状態ごと）すべて */
+function caseListFilters(userId: string): QueryFilters {
+  return { queryKey: ["cases", "list", userId] };
+}
+
+/**
+ * その利用者の案件の一覧に、古い印だけを付ける（行は書き換えず、進行中の取得も取り消さない）。
+ * 表示中の一覧は取り直され、表示していない一覧は次に開いたときに取り直される
+ */
+export function invalidateCaseLists(
+  queryClient: QueryClient,
+  userId: string,
+): Promise<void> {
+  // 進行中の取得は取り消さず、その結果を待つ（cancelRefetch: false）
+  return queryClient.invalidateQueries(caseListFilters(userId), {
+    cancelRefetch: false,
+  });
+}
+
 /**
  * その利用者の一覧のキャッシュから、資格を失った案件の参加者だけの値を、同期で消す：「参加中」の一覧（サイドバーも同じ一覧）からは行を除き、
  * 「すべての案件」の一覧では非参加の形にする。進行中の取得は先に取り消す（後から古い行を書き戻させないため）。取り直しは古い印に任せる
@@ -268,7 +287,7 @@ export function forgetCaseInLists(
   userId: string,
   caseId: string,
 ): Promise<void> {
-  const filters: QueryFilters = { queryKey: ["cases", "list", userId] };
+  const filters = caseListFilters(userId);
   // まだデータのない一覧は、取り消すと読み込み中のまま止まるので、表示中なら取り直す（取り消した古い応答は書き戻されない）
   const cancelling = queryClient.cancelQueries(filters).then(() =>
     queryClient.refetchQueries({
