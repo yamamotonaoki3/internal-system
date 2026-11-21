@@ -239,6 +239,20 @@
       "when": 1795184718266,
       "tag": "0033_add_search_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1795227626999,
+      "tag": "0034_clear_search_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1795227640336,
+      "tag": "0035_change_search_document_kinds",
+      "breakpoints": true
     }
   ]
 }

@@ -191,3 +191,35 @@ describe("#155 AC-4 D-8 権限の判定の範囲（ミューテーション診�
     ]);
   });
 });
+
+describe("#155 AC-1 155-B S-1 添付ファイル名の一致の項目（Service）", () => {
+  it("#155 AC-1 S-1: Repository が返した matchedIn・matchedAttachments を、変えずにそのまま返す", async () => {
+    const item = {
+      messageId: "01JTESTMSG155SVC000000001",
+      parentMessageId: null,
+      roomId: "01JTESTROOM155SVC00000001",
+      roomKind: "channel" as const,
+      roomName: "[UNIT_TEST]検索の部屋",
+      author: { id: ACTOR.userId, displayName: "testuser_155_svc" },
+      excerpt: "[UNIT_TEST]本文の先頭",
+      createdAt: "2026-11-20T00:00:00.000Z",
+      matchedIn: ["body", "attachment"],
+      matchedAttachments: [
+        { id: "01JTESTATT155SVC000000001", name: "見積_v2.pdf" },
+        { id: "01JTESTATT155SVC000000002", name: "見積_v3.pdf" },
+      ],
+    };
+    const repository = {
+      async searchMessages() {
+        return { items: [item], nextCursor: "CURSOR-155B" };
+      },
+    };
+    const service = createSearchService(
+      repository as unknown as Parameters<typeof createSearchService>[0],
+      { authorizer: fakeAuthorizer([]) },
+    );
+    expect(
+      await service.searchMessages(ACTOR, { q: "見積", limit: 20 }),
+    ).toEqual({ items: [item], nextCursor: "CURSOR-155B" });
+  });
+});

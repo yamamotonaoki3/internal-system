@@ -25,7 +25,10 @@ import {
 } from "./attachment.repository";
 import { activeChannelMember } from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
-import { syncMessageIndexStatements } from "./search-index.sql";
+import {
+  syncAttachmentIndexStatements,
+  syncMessageIndexStatements,
+} from "./search-index.sql";
 
 export type ReplyInsert = {
   id: string;
@@ -91,6 +94,7 @@ export async function insertReplyIfOrdered(
         messageId: input.id,
         sourceBody: input.body,
       }),
+      ...syncAttachmentIndexStatements(db, input.id),
     ]);
     return result.meta.changes;
   } catch (error) {

@@ -1,5 +1,7 @@
 // #155（155-A）の画面のテストで使う、メッセージの検索（GET /api/search/messages。EP-4-01）の架空の応答（MSW）。
 // 応答の形は計画 4.4：{ items: [{ messageId, parentMessageId, roomId, roomKind, roomName, author: { id, displayName }, excerpt, createdAt }], nextCursor }。
+// 155-B（利用者の決定 B-4）：各行に matchedIn（"body" | "attachment" の配列。1つ以上）と matchedAttachments（{ id, name } の配列）を足す。
+//   searchItem の既定は本文だけの一致（matchedIn ["body"]・matchedAttachments []）。
 // world の値を変えると、次の要求から応答が変わる（受けた要求は requests に記録する）。hold を置くと、その Promise が解けるまで応答を保留する。
 // データはすべて架空（[E2E_TEST]・testuser_）。
 import { http, HttpResponse } from "msw";
@@ -14,6 +16,8 @@ export type SearchItem = {
   author: { id: string; displayName: string };
   excerpt: string;
   createdAt: string;
+  matchedIn: ("body" | "attachment")[];
+  matchedAttachments: { id: string; name: string }[];
 };
 
 export type SearchRequest = {
@@ -26,8 +30,8 @@ export type SearchRequest = {
 };
 
 export type SearchWorld = {
-  /** cursor（最初のページは null）ごとのページ。無いカーソルは空のページ */
-  pages: Map<string | null, { items: SearchItem[]; nextCursor: string | null }>;
+  /** cursor（最初のページは null）ごとのページ。無いカーソルは空のページ。形の誤った応答を試すときは unknown の値を入れる */
+  pages: Map<string | null, { items: unknown[]; nextCursor: string | null }>;
   /** 次の n 回を、この状態で失敗させる */
   fail: { status: number; times: number } | null;
   hold: Promise<void> | null;
@@ -51,6 +55,8 @@ export function searchItem(
     createdAt: new Date(
       Date.UTC(2026, 10, 20, 0, 0, 0) - n * 60_000,
     ).toISOString(),
+    matchedIn: ["body"],
+    matchedAttachments: [],
     ...overrides,
   };
 }

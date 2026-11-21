@@ -3,16 +3,27 @@ import { z } from "zod";
 import { apiClient } from "../../../services/api-client";
 import type { MessageSearchConditions } from "./query-keys";
 
-const searchItemSchema = z.object({
-  messageId: z.string().min(1),
-  parentMessageId: z.string().min(1).nullable(),
-  roomId: z.string().min(1),
-  roomKind: z.enum(["channel", "direct", "case"]),
-  roomName: z.string(),
-  author: z.object({ id: z.string().min(1), displayName: z.string() }),
-  excerpt: z.string(),
-  createdAt: z.string(),
-});
+const searchItemSchema = z
+  .object({
+    messageId: z.string().min(1),
+    parentMessageId: z.string().min(1).nullable(),
+    roomId: z.string().min(1),
+    roomKind: z.enum(["channel", "direct", "case"]),
+    roomName: z.string(),
+    author: z.object({ id: z.string().min(1), displayName: z.string() }),
+    excerpt: z.string(),
+    createdAt: z.string(),
+    matchedIn: z.array(z.enum(["body", "attachment"])).min(1),
+    matchedAttachments: z.array(
+      z.object({ id: z.string().min(1), name: z.string() }),
+    ),
+  })
+  // 名前の一致の印と名前の一覧は、片方だけが出る形を表示しない（サーバーは常に両方をそろえる）
+  .refine(
+    (item) =>
+      item.matchedIn.includes("attachment") ===
+      item.matchedAttachments.length > 0,
+  );
 
 const searchPageSchema = z.object({
   items: z.array(searchItemSchema),

@@ -3,7 +3,9 @@
 // 見える範囲：閲覧者がいま見てよい部屋（roomViewableBy）・権限で除く部屋（DM・案件）・未削除の元の行を、LIMIT より前の WHERE に入れる。
 //   見えない一致が件数・次の有無・抜粋に影響しない。総件数は返さない（limit+1 件で次の有無だけを判定する）。
 // 並び：メッセージの作成日時の降順、同じなら ID の降順。カーソルはメッセージの (created_at, id)。対応の表の整数の番号は並びに使わない。
-// 抜粋：資格を確かめた後のいまの本文から記号を除き、その中の一致の前後を切り出す（FTS5 の snippet() は使わない）。
+// 抜粋：資格を確かめた後のいまの本文から記号を除き、その中の一致の前後を切り出す（FTS5 の snippet() は使わない）。名前だけの一致なら本文の先頭。
+// 一致の対象：本文（kind=message）と添付のファイル名（kind=attachment）。一致した写しの行ごとに、元の行と合うか・見てよいかを WHERE で確かめ、
+//   適格な行だけをメッセージ単位にまとめる（GROUP BY）。まとめは LIMIT より前なので、本文と名前が両方一致しても1件で、見えない一致は名前の一覧にも混ざらない。
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { toSearchText } from "../../../shared/search-text";
@@ -30,6 +32,8 @@ export type SearchMessagesOptions = {
   includeCase: boolean;
 };
 
+export type SearchMatchSource = "body" | "attachment";
+
 export type SearchMessageItem = {
   messageId: string;
   parentMessageId: string | null;
@@ -39,7 +43,15 @@ export type SearchMessageItem = {
   author: { id: string; displayName: string };
   excerpt: string;
   createdAt: string;
+  /** 一致した対象（1つ以上。body → attachment の順） */
+  matchedIn: SearchMatchSource[];
+  /** 名前が一致した添付（添付の ID の昇順。本文だけの一致なら空） */
+  matchedAttachments: { id: string; name: string }[];
 };
+
+const matchedAttachmentsSchema = z.array(
+  z.object({ id: z.string(), name: z.string() }),
+);
 
 const rowSchema = z.object({
   id: z.string(),
@@ -51,6 +63,8 @@ const rowSchema = z.object({
   sender_display_name: z.string(),
   body: z.string(),
   created_at: z.string(),
+  body_matched: z.number(),
+  matched_attachments: z.string(),
 });
 
 function termCondition(term: string): SQL {
@@ -64,6 +78,21 @@ function olderThan(cursor: CursorPayload | undefined): SQL {
   if (cursor === undefined) return sql`1 = 1`;
   const createdAt = String(cursor.v);
   return sql`(m.created_at < ${createdAt} OR (m.created_at = ${createdAt} AND m.id < ${cursor.id}))`;
+}
+
+function matchesOf(
+  row: z.infer<typeof rowSchema>,
+): Pick<SearchMessageItem, "matchedIn" | "matchedAttachments"> {
+  const matchedAttachments = matchedAttachmentsSchema
+    .parse(JSON.parse(row.matched_attachments))
+    .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const matchedIn: SearchMatchSource[] = [
+    ...(row.body_matched === 1 ? (["body"] as const) : []),
+    ...(matchedAttachments.length > 0 ? (["attachment"] as const) : []),
+  ];
+  // 適格な一致の行だけをまとめているので、どちらも無い行は返らないはず。返ったら SQL の誤りとして止める
+  if (matchedIn.length === 0) throw new Error("一致の対象のない行です");
+  return { matchedIn, matchedAttachments };
 }
 
 export function createSearchRepository(db: Database) {
@@ -84,13 +113,21 @@ export function createSearchRepository(db: Database) {
             WHERE pm.conversation_id = m.room_id AND pm.user_id <> ${viewerId}
             ORDER BY pm.user_id LIMIT 1), '') AS room_name,
           m.sender_id AS sender_id, m.sender_display_name AS sender_display_name,
-          m.body AS body, m.created_at AS created_at
+          m.body AS body, m.created_at AS created_at,
+          MAX(d.kind = 'message') AS body_matched,
+          json_group_array(json_object('id', a.id, 'name', a.original_name)) FILTER (WHERE a.id IS NOT NULL)
+            AS matched_attachments
         FROM search_fts f
         JOIN search_documents d ON d.id = f.rowid
-        JOIN messages m ON m.id = d.ref_id
+        JOIN messages m ON m.id = d.message_id
+        LEFT JOIN message_attachments a ON d.kind = 'attachment' AND a.id = d.ref_id
         LEFT JOIN channels c ON c.room_id = m.room_id
         WHERE ${termCondition(options.term)}
-          AND d.kind = 'message'
+          AND (
+            (d.kind = 'message' AND d.ref_id = m.id)
+            -- 索引が遅れても、消えた・結び付きや部屋や名前の変わった添付を出さない
+            OR (d.kind = 'attachment' AND a.id IS NOT NULL AND a.message_id = m.id
+              AND a.room_id = m.room_id AND a.original_name = d.source_body))
           AND m.deleted_at IS NULL AND m.room_id = d.room_id
           ${options.roomId === undefined ? sql`` : sql`AND d.room_id = ${options.roomId}`}
           ${options.createdFrom === undefined ? sql`` : sql`AND d.created_at >= ${options.createdFrom}`}
@@ -99,6 +136,7 @@ export function createSearchRepository(db: Database) {
           AND ${directRoomListable(sql`m.room_id`, options.includeDirect)}
           AND ${caseRoomListable(sql`m.room_id`, options.includeCase)}
           AND ${olderThan(options.cursor)}
+        GROUP BY m.id
         ORDER BY m.created_at DESC, m.id DESC
         LIMIT ${options.limit + 1}`);
       // 生 SQL の結果は型が付かない。想定と違う行は、ここで見つける
@@ -121,6 +159,7 @@ export function createSearchRepository(db: Database) {
           author: { id: row.sender_id, displayName: row.sender_display_name },
           excerpt: buildExcerpt(toSearchText(row.body), options.term),
           createdAt: row.created_at,
+          ...matchesOf(row),
         })),
         nextCursor: page.nextCursor,
       };

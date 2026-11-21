@@ -4,6 +4,9 @@
 --   e2euser_search155_b（B）：どの部屋にも参加していない。公開チャンネルのメッセージだけが検索に出ることを確かめる別の利用者
 --   e2euser_search155_c（C）：A との DM の相手
 -- 部屋ごとの本文は、互いに区別できる語にする（公開の語・非公開の語・DMの語・案件の語）。共通の語は「検索155共通」。
+-- 155-B：各部屋の投稿に、投稿済みの添付を1件ずつ結ぶ（名前は e2e155b-見積-0001.txt〜0004.txt。互いに含まれず、本文にも無い語）。
+--   公開チャンネルには、255文字の名前の添付10件を結んだ投稿（名前は e2e155b長名00〜09 で始まる）も入れる（行の中で折り返すことの確認）。
+--   添付の行の ID は 01JTE2E155B で始め、R2 の実体は置かない（検索の結果からファイルを開かないため）。索引は search-reindex で登録する。
 -- 検索の索引（search_documents・search_fts）は、このシードの後に `node scripts/db-local.ts test search-reindex` で作る（spec の beforeAll。D-9）。
 -- 後始末は search-cleanup.sql（社員ID e2euser_search155_・部署名 [E2E_TEST]部署155・取引先名 テスト商事検索 [E2E_TEST]・下の固定の部屋のIDと、その索引の行だけ）。
 -- パスワードのハッシュは、既存の架空ログインfixture（e2euser_login_001）の行から参照して、ここに値を書かない。
@@ -115,3 +118,27 @@ INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created
    'E2E検索利用者C', '[E2E_TEST]検索155共通・直接対話の語句', '2026-11-12T23:00:00.000Z'),
   ('01M78ZTJC00000000001550004', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000A01',
    'E2E検索利用者A', '[E2E_TEST]検索155共通・案件室の語句', '2026-11-12T23:00:00.000Z');
+
+-- 155-B：添付（投稿済み）。R2 の実体は置かない
+INSERT INTO message_attachments (id, room_id, thread_parent_id, message_id, uploader_id, storage_key, original_name, kind, content_type, size_bytes, created_at) VALUES
+  ('01JTE2E155B000000000000001', '01JTE2E1550000000000000C01', NULL, '01M78ZTJC00000000001550001', '01JTE2E1550000000000000A01',
+   'attachments/01JTE2E155B000000000000001', 'e2e155b-見積-0001.txt', 'document', 'text/plain; charset=utf-8', 10, '2026-11-12T22:59:00.000Z'),
+  ('01JTE2E155B000000000000002', '01JTE2E1550000000000000C02', NULL, '01M78ZTJC00000000001550002', '01JTE2E1550000000000000A01',
+   'attachments/01JTE2E155B000000000000002', 'e2e155b-見積-0002.txt', 'document', 'text/plain; charset=utf-8', 10, '2026-11-12T22:59:00.000Z'),
+  ('01JTE2E155B000000000000003', '01JTE2E1550000000000000M01', NULL, '01M78ZTJC00000000001550003', '01JTE2E1550000000000000A03',
+   'attachments/01JTE2E155B000000000000003', 'e2e155b-見積-0003.txt', 'document', 'text/plain; charset=utf-8', 10, '2026-11-12T22:59:00.000Z'),
+  ('01JTE2E155B000000000000004', '01JTE2E1550000000000000K01', NULL, '01M78ZTJC00000000001550004', '01JTE2E1550000000000000A01',
+   'attachments/01JTE2E155B000000000000004', 'e2e155b-見積-0004.txt', 'document', 'text/plain; charset=utf-8', 10, '2026-11-12T22:59:00.000Z');
+
+-- 155-B：255文字の名前の添付10件を結んだ投稿（公開チャンネル）
+INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at) VALUES
+  ('01M78ZTJC00000000001550005', '01JTE2E1550000000000000C01', '01JTE2E1550000000000000A01',
+   'E2E検索利用者A', '[E2E_TEST]検索155長い名前の行', '2026-11-12T23:00:00.000Z');
+INSERT INTO message_attachments (id, room_id, thread_parent_id, message_id, uploader_id, storage_key, original_name, kind, content_type, size_bytes, created_at)
+WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 9)
+SELECT
+  '01JTE2E155B0000000000001' || printf('%02d', i), '01JTE2E1550000000000000C01', NULL, '01M78ZTJC00000000001550005', '01JTE2E1550000000000000A01',
+  'attachments/01JTE2E155B0000000000001' || printf('%02d', i),
+  'e2e155b長名' || printf('%02d', i) || substr(replace(hex(zeroblob(240)), '0', '長'), 1, 240) || '.txt',
+  'document', 'text/plain; charset=utf-8', 10, '2026-11-12T22:59:00.000Z'
+FROM n;

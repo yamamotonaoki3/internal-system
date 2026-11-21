@@ -5,6 +5,8 @@
 // 契約（実装前の仮置き）：backend/src/db/search-reindex.ts の reindexMessages(db: Database, { afterId: string | null; batchSize?: number }): Promise<string | null>
 //   … 読んだ行がなければ null。afterId は含めない（その ID より大きい行から読む）。
 // 検索の migration の選び方：番号で決め打ちせず、本文に search_documents か search_fts を含むものを「検索の migration」とし、その直前までを「更新前」とする。
+// 155-B：登録は、行ごとの batch に添付の組も入れる（計画 2章「既存の添付の索引」。関数名・手元の手順は変えない）。期待は、未削除で部屋のあるメッセージに
+//   結び付いた添付だけが、名前で引けること（未投稿・削除済みのメッセージの添付は入らない）。2回でも、途中の ID からの再開でも同じ。
 // データは架空（testuser_casereq_・[UNIT_TEST]）。
 import { applyD1Migrations, type D1Migration } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -24,9 +26,14 @@ import {
 import {
   cleanupRelatedReadsRooms,
   fixedIdAt,
+  insertAttachmentRow,
 } from "../../test/related-reads-fixtures";
 import {
+  NO_ATTACHMENT_MISMATCH,
   NO_MISMATCH,
+  attachmentIndexMismatches,
+  ftsMatchAttachmentIds,
+  totalAttachmentDocuments,
   buildSearchIndex,
   cleanupSearchIndex,
   ftsMatchIds,
@@ -235,6 +242,58 @@ describe("#155 AC-3 D-14 reindexMessages（D-9：既存のメッセージの索�
     expect(await ftsMatchIds("競合の確認二")).toEqual([]);
     expect(await ftsMatchIds("競合中の編集後")).toEqual([two]);
     expect(await indexMismatches()).toEqual(NO_MISMATCH);
+  });
+});
+
+describe("#155 AC-3 155-B 登録（reindexMessages）と添付の名前", () => {
+  async function seedAttachments() {
+    const one = await insertRow(env.DB, { n: 1, text: "添付登録の一番" });
+    const two = await insertRow(env.DB, { n: 2, text: "添付登録の二番" });
+    const gone = await insertRow(env.DB, {
+      n: 3,
+      text: "添付登録の削除済み",
+      deleted: true,
+    });
+    const attach = (messageId: string | null, name: string) =>
+      insertAttachmentRow({
+        roomId: ROOM,
+        uploaderId: V,
+        messageId,
+        originalName: name,
+      });
+    return {
+      a1: await attach(one, "登録添付名の第一.txt"),
+      a2: await attach(two, "登録添付名の第二.txt"),
+      a3: await attach(two, "登録添付名の第三.txt"),
+      deleted: await attach(gone, "登録添付名の削除済み.txt"),
+      pending: await attach(null, "登録添付名の未投稿.txt"),
+    };
+  }
+
+  it("#155 AC-3 155-B: 最初から最後まで登録すると、未削除のメッセージの添付だけが名前で引け、未投稿・削除済みのメッセージの添付は引けない。不一致0件", async () => {
+    const a = await seedAttachments();
+    await buildSearchIndex(1);
+    expect(await ftsMatchAttachmentIds("登録添付名")).toEqual(
+      [a.a1, a.a2, a.a3].sort(),
+    );
+    expect(await ftsMatchAttachmentIds("登録添付名の削除済み")).toEqual([]);
+    expect(await ftsMatchAttachmentIds("登録添付名の未投稿")).toEqual([]);
+    expect(await attachmentIndexMismatches()).toEqual(NO_ATTACHMENT_MISMATCH);
+  });
+
+  it("#155 AC-3 155-B: 2回登録しても、途中の ID から再開しても、添付の写しの数は同じ", async () => {
+    const a = await seedAttachments();
+    const first = await reindexOnce(BEFORE_MINE, 1);
+    expect(first).not.toBeNull();
+    // 途中から再開（返った ID の後ろから最後まで）
+    let after = first;
+    while (after !== null) after = await reindexOnce(after, 1);
+    expect(await totalAttachmentDocuments()).toBe(3);
+    await buildSearchIndex();
+    await buildSearchIndex(2);
+    expect(await totalAttachmentDocuments()).toBe(3);
+    expect(await ftsMatchAttachmentIds("登録添付名の第三")).toEqual([a.a3]);
+    expect(await attachmentIndexMismatches()).toEqual(NO_ATTACHMENT_MISMATCH);
   });
 });
 
