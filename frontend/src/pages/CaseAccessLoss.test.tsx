@@ -1099,3 +1099,52 @@ describe("#148 AC-9 公開範囲の変更の後に、外されていたとき", 
     expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
   });
 });
+
+// #363 AC-1・AC-2：参加者として概要を受け取った後に、概要の取り直しだけが失敗したとき。
+// 5xx・通信の失敗は、資格を失った証拠ではない（既存の概要の失敗の表示に任せ、詳細・TODO のキャッシュは片付けない）。404 は、これまでどおり片付ける。
+// 概要の取り直しは、概要のクエリだけを無効にして起こす（部屋・TODO の拒否は起こさない）。
+describe("#363 概要の取り直しだけが失敗したとき、資格の喪失と取り違えない", () => {
+  const SUMMARY_KEY = caseKeys.summary(TEST_USER.id, caseId(N));
+  const DETAIL_KEY = caseKeys.detail(TEST_USER.id, caseId(N));
+  const TODOS_KEY = caseKeys.todos(TEST_USER.id, caseId(N));
+
+  async function failSummaryOnly(failure: Failure) {
+    const w = world();
+    const rendered = renderPage();
+    await waitForFullView();
+    expect(rendered.client.getQueryData(DETAIL_KEY)).toBeDefined();
+    expect(rendered.client.getQueryData(TODOS_KEY)).toBeDefined();
+    w.summaryFail = failure;
+    await act(async () => {
+      await rendered.client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    return { w, ...rendered };
+  }
+
+  it.each([
+    ["500", { status: 500 }],
+    ["通信の失敗", "network"],
+  ] as const)(
+    "#363 AC-1: 参加者のまま、概要の取り直しだけが%sになっても、片付けず、詳細・TODO のキャッシュが残り、非公開の表示にも確かめられない表示にもならない",
+    async (_name, failure) => {
+      const { client } = await failSummaryOnly(failure);
+      // 既存の概要の失敗の表示（role=alert）が出る
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(screen.queryByText(PRIVATE_TEXT)).toBeNull();
+      expect(screen.queryByText(UNVERIFIED_TEXT)).toBeNull();
+      // 後片付けの効果が走る時間を与え、ポーリングが続いた後も残っていることを確かめる
+      await advance(POLL_MS * 2);
+      expect(client.getQueryData(DETAIL_KEY)).toBeDefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeDefined();
+    },
+  );
+
+  it("#363 AC-2: 参加者としての概要を受け取った後、概要の取り直しが 404 になったら、これまでどおり片付け、詳細・TODO のキャッシュが消える", async () => {
+    const { client } = await failSummaryOnly({ status: 404 });
+    expect(await screen.findByText(CASE_TEXTS.notFound)).toBeTruthy();
+    await waitFor(() => {
+      expect(client.getQueryData(DETAIL_KEY)).toBeUndefined();
+      expect(client.getQueryData(TODOS_KEY)).toBeUndefined();
+    });
+  });
+});
