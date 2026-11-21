@@ -694,3 +694,55 @@ describe("#155 4-2 AC-2 F-1 案件の行の、無い項目の表示", () => {
     expect(textOf(none ?? null)).not.toMatch(/・\s*・/);
   });
 });
+
+// #337 AC-6：q が空白だけ（半角・全角・混在）のときは、q がないときと同じ（案内の文。区画なし・API なし・エラーなし）。
+// 共通の検証（searchKeywordSchema）は前後の空白を除いて空なら拒否する。URL からの読み取りだけが空白を除かず、案内が出ずに検索が行われ 422 になっていた。
+describe("#337 AC-6 q が空白だけのとき", () => {
+  const GUIDE = "検索する言葉を入れて、『検索』を押してください。";
+  const BLANKS = [
+    ["半角の空白だけ", "%20"],
+    ["全角の空白だけ", "%E3%80%80%E3%80%80"],
+    ["半角と全角の混在", "%20%E3%80%80%20"],
+  ] as const;
+
+  async function expectAsNoKeyword(path: string) {
+    const messages = respondSearch([searchItem(1)]);
+    const cases = respondCaseSearch([caseSearchItem(1)]);
+    renderApp(path);
+    const body = await pageMain();
+    expect(await within(body).findAllByText(GUIDE)).toHaveLength(1);
+    expect(within(body).queryByRole("region", { name: "案件" })).toBeNull();
+    expect(
+      within(body).queryByRole("list", { name: "検索結果の一覧" }),
+    ).toBeNull();
+    expect(within(body).queryByRole("alert")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messages.requests).toEqual([]);
+    expect(cases.requests).toEqual([]);
+  }
+
+  for (const [label, encoded] of BLANKS) {
+    it(`#337 AC-6: q が${label}のとき、案内の文が1つだけ出て、案件・メッセージの区画も API の呼び出しもエラーの表示もない`, async () => {
+      await expectAsNoKeyword(`/search?q=${encoded}`);
+    });
+  }
+
+  it("#337 AC-6: 期間だけの指定＋空白だけの q も、言葉なしと同じ", async () => {
+    await expectAsNoKeyword(
+      "/search?q=%20%E3%80%80&from=2026-11-01&to=2026-11-02",
+    );
+  });
+
+  it("#337 AC-6（対照）: 前後に空白のある語は言葉ありとして扱われ、案内の文は出ず、前後の空白を除いた語で検索が行われる", async () => {
+    const messages = respondSearch([searchItem(1)]);
+    const cases = respondCaseSearch([caseSearchItem(1)]);
+    renderApp("/search?q=%20%E8%AA%9E%E3%80%80");
+    const body = await pageMain();
+    await waitFor(() => expect(messages.requests.length).toBeGreaterThan(0));
+    await waitFor(() => expect(cases.requests.length).toBeGreaterThan(0));
+    expect(within(body).queryByText(GUIDE)).toBeNull();
+    // API に渡る q が除いた語かそのままかは、いまの動きを固定しない（サーバーが前後の空白を除く）。除いた後の語が同じであること
+    expect(messages.requests.map((r) => r.q?.trim())).toEqual(["語"]);
+    expect(cases.requests.map((r) => r.q?.trim())).toEqual(["語"]);
+  });
+});
