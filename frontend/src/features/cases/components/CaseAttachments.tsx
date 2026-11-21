@@ -85,10 +85,12 @@ function AttachmentRow({
 }
 
 export function CaseAttachments({
+  caseId,
   attachments,
   visibilityTarget,
   onVisibilityTargetChange,
 }: {
+  caseId: string;
   attachments: ReturnType<typeof useCaseAttachments>;
   /** 公開範囲の変更のダイアログで開いている添付（閉じていれば null） */
   visibilityTarget: CaseAttachment | null;
@@ -96,7 +98,7 @@ export function CaseAttachments({
 }) {
   const headingId = useId();
   const thread = useThreadParam();
-  const change = useChangeAttachmentVisibility();
+  const change = useChangeAttachmentVisibility(caseId);
   const [result, setResult] = useState<ChangeResult>();
   const [dialogError, setDialogError] = useState<string>();
 

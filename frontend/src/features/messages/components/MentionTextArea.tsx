@@ -9,6 +9,7 @@ import {
 import type { Mention } from "../../../../../shared/message-rules";
 import { TextAreaField } from "../../../components/TextAreaField";
 import { fetchMentionCandidates } from "../api/message-api";
+import { messageKeys } from "../api/query-keys";
 
 type Props = {
   roomId: string;
@@ -89,7 +90,7 @@ export function MentionTextArea({
   const key = token === null ? null : body + ":" + token.end;
   const shown = token !== null && dismissed !== key;
   const candidates = useQuery({
-    queryKey: ["message-mention-candidates", roomId, token?.query ?? ""],
+    queryKey: messageKeys.mentionCandidates(roomId, token?.query ?? ""),
     queryFn: () => fetchMentionCandidates(roomId, token?.query ?? ""),
     enabled: shown,
   });

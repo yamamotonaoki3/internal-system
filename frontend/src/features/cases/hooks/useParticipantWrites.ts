@@ -8,6 +8,7 @@ import { useSignedInUserId } from "../../auth";
 import type { CaseParticipant } from "../api/case-api";
 import { describeError, isApiError } from "../describe-error";
 import {
+  cachedCaseRoomId,
   forgetCaseAfterLeave,
   useAddCaseParticipant,
   useRemoveCaseParticipant,
@@ -24,13 +25,15 @@ export function useParticipantWrites(caseId: string) {
   const [updated, setUpdated] = useState(false);
   const [searchError, setSearchError] = useState<string>();
   const [error, setError] = useState<string>();
-  const left = useRef(false);
+  // 退出に成功したら、退出の前に求めた部屋の ID（退出していなければ undefined。部屋のない案件は null）
+  const left = useRef<string | null | undefined>(undefined);
 
   // 退出の成功の片付けは useRemoveCaseParticipant が行う。表示中に片付けると、表示の部品が印のない空の詳細を作り直すため、
   // 画面が外れたときにもう一度行う
   useEffect(
     () => () => {
-      if (left.current) void forgetCaseAfterLeave(queryClient, userId, caseId);
+      if (left.current !== undefined)
+        void forgetCaseAfterLeave(queryClient, userId, caseId, left.current);
     },
     [queryClient, userId, caseId],
   );
@@ -65,15 +68,19 @@ export function useParticipantWrites(caseId: string) {
       onDone: () => void,
     ) {
       start();
+      // 後片付けで詳細が先に消えるので、部屋の ID は送る前に求めておく
+      const roomId = self
+        ? cachedCaseRoomId(queryClient, userId, caseId)
+        : null;
       remove.mutate(
-        { userId: participant.userId, self, actorId: userId },
+        { userId: participant.userId, self, actorId: userId, roomId },
         {
           onSuccess: () => {
             if (!self) {
               setUpdated(true);
               return;
             }
-            left.current = true;
+            left.current = roomId;
             void navigate("/cases");
           },
           onError: (cause) => setError(describeError(cause)),
