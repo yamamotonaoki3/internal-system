@@ -8679,7 +8679,9 @@
           "roomName",
           "author",
           "excerpt",
-          "createdAt"
+          "createdAt",
+          "matchedIn",
+          "matchedAttachments"
         ],
         "properties": {
           "messageId": {
@@ -8729,11 +8731,45 @@
           },
           "excerpt": {
             "type": "string",
-            "description": "記号を除いた本文の、一致を含む部分（文字として表示する）"
+            "description": "記号を除いた本文の、一致を含む部分（文字として表示する）。ファイル名だけの一致なら本文の先頭"
           },
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "matchedIn": {
+            "type": "array",
+            "description": "一致した対象（body＝本文・attachment＝添付のファイル名）。body → attachment の順。attachment を含むときだけ matchedAttachments が1件以上",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "body",
+                "attachment"
+              ]
+            }
+          },
+          "matchedAttachments": {
+            "type": "array",
+            "description": "ファイル名が一致した添付（添付の ID の昇順）。本文だけの一致なら空。名前は文字として表示する",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },

@@ -62,7 +62,7 @@ npm run docker:up:local
 | `npm run db:migrate:test`・`npm run db:seed:test`・`npm run db:reset:test` | 検証用D1（環境別保存先）にマイグレーション・シード・再作成を行う |
 | `npm run db:migrate:local` | 手元の D1 に、マイグレーションを適用する |
 | `npm run db:seed:local` | 開発用の架空のデータを入れる |
-| `node scripts/db-local.ts development search-reindex`（検証用は`test`） | 既存のメッセージの検索の索引を、手元の D1 に作る。シードの後に実行する（`--remote`などの追加の引数と、D1 でない環境は受け付けない） |
+| `node scripts/db-local.ts development search-reindex`（検証用は`test`） | 既存のメッセージと添付のファイル名の検索の索引を、手元の D1 に作る。シードの後に実行する。**既存の手元の DB に migration を当てた後（`npm run db:migrate:local`など）も実行する**（migration 0034 が索引を空にするため。実行しないと、既存のメッセージ・添付が検索に出ない）。`db:reset:test`の後の E2E は、`e2e/search.spec.ts`の準備が登録し直す（`--remote`などの追加の引数と、D1 でない環境は受け付けない） |
 | `npm run db:reset:local` | 手元の D1 を作り直す（マイグレーションとシードを、もう一度適用する） |
 | `npm run db:cleanup` | テストデータ（`testuser_` で始まるもの）だけを消す |
 

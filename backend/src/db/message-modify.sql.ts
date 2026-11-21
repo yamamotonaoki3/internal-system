@@ -16,6 +16,7 @@ import type { Database } from "./database";
 import { activeChannelMember } from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
 import {
+  removeStaleAttachmentIndexStatements,
   removeStaleMessageIndexStatements,
   syncMessageIndexStatements,
 } from "./search-index.sql";
@@ -149,6 +150,7 @@ export async function deleteIfModifiable(
       ),
     // 検索の索引（#155）。削除が確定したときだけ、写しが対象外になって消える
     ...removeStaleMessageIndexStatements(db, input.messageId),
+    ...removeStaleAttachmentIndexStatements(db, input.messageId),
   ]);
   return update.meta.changes;
 }

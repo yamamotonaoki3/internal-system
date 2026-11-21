@@ -1,6 +1,8 @@
 -- #155（155-A）E2E の後始末（e2e/search.spec.ts）。
 -- 社員ID e2euser_search155_ で始まる利用者、部署名 [E2E_TEST]部署155 の部署・そのチャンネル、取引先名 テスト商事検索 [E2E_TEST] の案件、
 -- search.sql が入れた固定の部屋だけを消す。検索の索引の行（search_documents・search_fts）は、消すメッセージの分と、元のメッセージのない分を消す。
+-- 155-B：添付の写し（kind = 'attachment'）は、固定の部屋・消すメッセージに結ぶ分と、元の添付のない分を消す。添付の行（message_attachments）は、
+--   メッセージより先に消す（R2 の実体は spec が先に消す）。残数の確認は、種類ごとの条件で数える（kind='message' は元のメッセージ、kind='attachment' は元の添付）。
 -- 外部キーの順：検索の索引 → 既読位置 → リアクション → メッセージ → DM の当事者 → DM → 通知 → 監査 → セッション → 参加者
 --   → 案件の担当部署 → 案件 → チャンネル → ルーム → ロール → 社員 → 取引先 → 部署。
 -- LIKE のパターンは 50 バイト以内（D1）。部署名は先頭15文字の一致で絞る。
@@ -20,7 +22,29 @@ WHERE kind = 'message'
                       OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01'))
     OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01')
     OR ref_id NOT IN (SELECT id FROM messages));
+DELETE FROM search_fts
+WHERE rowid IN (
+  SELECT id FROM search_documents
+  WHERE kind = 'attachment'
+    AND (room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01')
+      OR ref_id LIKE '01JTE2E155B%'
+      OR message_id IN (SELECT id FROM messages
+                         WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_search155!_%' ESCAPE '!')
+                            OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01'))
+      OR ref_id NOT IN (SELECT id FROM message_attachments)));
+DELETE FROM search_documents
+WHERE kind = 'attachment'
+  AND (room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01')
+    OR ref_id LIKE '01JTE2E155B%'
+    OR message_id IN (SELECT id FROM messages
+                       WHERE sender_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_search155!_%' ESCAPE '!')
+                          OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01'))
+    OR ref_id NOT IN (SELECT id FROM message_attachments));
 DELETE FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents);
+DELETE FROM message_attachments
+WHERE id LIKE '01JTE2E155B%'
+   OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01')
+   OR uploader_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_search155!_%' ESCAPE '!');
 DELETE FROM read_positions
 WHERE user_id IN (SELECT id FROM users WHERE login_id LIKE 'e2euser!_search155!_%' ESCAPE '!')
    OR room_id IN ('01JTE2E1550000000000000C01', '01JTE2E1550000000000000C02', '01JTE2E1550000000000000K01', '01JTE2E1550000000000000M01');
@@ -93,5 +117,12 @@ SELECT
   (SELECT COUNT(*) FROM sessions WHERE user_id LIKE '01JTE2E155%') AS remaining_sessions,
   (SELECT COUNT(*) FROM audit_logs WHERE actor_id LIKE '01JTE2E155%') AS remaining_audit_logs,
   (SELECT COUNT(*) FROM search_documents
-     WHERE room_id LIKE '01JTE2E155%' OR ref_id LIKE '01M78ZTJC000000000015500%' OR ref_id NOT IN (SELECT id FROM messages)) AS remaining_search_documents,
+     WHERE kind = 'message'
+       AND (room_id LIKE '01JTE2E155%' OR ref_id LIKE '01M78ZTJC000000000015500%' OR ref_id NOT IN (SELECT id FROM messages))) AS remaining_search_documents,
+  (SELECT COUNT(*) FROM search_documents
+     WHERE kind = 'attachment'
+       AND (room_id LIKE '01JTE2E155%' OR ref_id LIKE '01JTE2E155B%' OR message_id LIKE '01M78ZTJC000000000015500%'
+         OR ref_id NOT IN (SELECT id FROM message_attachments))) AS remaining_attachment_search_documents,
+  (SELECT COUNT(*) FROM message_attachments
+     WHERE id LIKE '01JTE2E155B%' OR room_id LIKE '01JTE2E155%' OR uploader_id LIKE '01JTE2E155%') AS remaining_message_attachments,
   (SELECT COUNT(*) FROM search_fts WHERE rowid NOT IN (SELECT id FROM search_documents)) AS remaining_orphan_search_fts;

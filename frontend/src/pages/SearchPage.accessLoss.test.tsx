@@ -358,3 +358,79 @@ describe("#155 AC-3 F-2 取り消された取得は、残りのページを取�
     expect(oldContinued(world, before)).toEqual([]);
   });
 });
+
+// ---- 155-B F-3：ファイル名で一致した行・一致したファイル名も、資格を失った後に残さない ----
+
+describe("#155 AC-4 155-B F-3 途中で資格を失ったときの、ファイル名で一致した行", () => {
+  const CASE_FILE = "[E2E_TEST]外された案件の見積添付名.pdf";
+  const caseNameRow = searchItem(21, {
+    excerpt: "[E2E_TEST]外された案件の名前一致の本文",
+    roomKind: "case",
+    roomId: "01JTESTROOM155000000000021",
+    roomName: "QZA-261120-0021",
+    matchedIn: ["attachment"],
+    matchedAttachments: [{ id: "01JTESTATT155B00000000211", name: CASE_FILE }],
+  });
+  const keptNameRow = searchItem(22, {
+    excerpt: "[E2E_TEST]残る公開の名前一致の本文",
+    matchedIn: ["attachment"],
+    matchedAttachments: [
+      { id: "01JTESTATT155B00000000221", name: "[E2E_TEST]残る見積添付名.pdf" },
+    ],
+  });
+
+  async function showNameRows() {
+    const world = respondSearchPages([
+      { items: [caseNameRow, keptNameRow], nextCursor: "CURSOR1" },
+      { items: [nextRow], nextCursor: null },
+    ]);
+    const app = renderApp("/search?q=見積");
+    const main = await pageMain();
+    // 先に「ある」を確かめる
+    await waitFor(() => expect(bodyText()).toContain(CASE_FILE));
+    expect(bodyText()).toContain("[E2E_TEST]残る見積添付名.pdf");
+    return { world, app, main };
+  }
+
+  it("#155 AC-4 F-3: 案件から外された後に「さらに表示」を押すと、外された案件の一致したファイル名・行が画面のどこにも残らない", async () => {
+    const { world, app, main } = await showNameRows();
+    world.pages.set(null, { items: [keptNameRow], nextCursor: "CURSOR1" });
+    await app.user.click(
+      within(main).getByRole("button", { name: "さらに表示" }),
+    );
+    await waitFor(() => expect(bodyText()).toContain(NEXT_EXCERPT));
+    await waitFor(() => expect(bodyText()).not.toContain(CASE_FILE));
+    expect(bodyText()).not.toContain("外された案件の名前一致の本文");
+    expect(bodyText()).toContain("[E2E_TEST]残る見積添付名.pdf");
+  });
+
+  for (const status of [500, 403])
+    it(`#155 AC-4 F-3: 表示中の取り直しが ${String(status)} で失敗したら、一致したファイル名を画面のどこにも出さない`, async () => {
+      const { world } = await showNameRows();
+      world.fail = { status, times: 10 };
+      const before = world.requests.length;
+      await refocus();
+      await waitFor(() =>
+        expect(world.requests.length).toBeGreaterThan(before),
+      );
+      expect(await screen.findByRole("alert")).toBeDefined();
+      expect(bodyText()).not.toContain(CASE_FILE);
+      expect(bodyText()).not.toContain("[E2E_TEST]残る見積添付名.pdf");
+    });
+
+  it("#155 AC-4 F-3: 表示中に案件の資格の後片付けが走ると、外された案件の一致したファイル名がなくなり、取り直した結果だけが出る", async () => {
+    const { world, app } = await showNameRows();
+    world.pages = new Map([[null, { items: [keptNameRow], nextCursor: null }]]);
+    await act(async () => {
+      await forgetCaseContent(
+        app.client,
+        SHELL_USER.id,
+        "01JTESTCASE155000000000021",
+      );
+    });
+    await waitFor(() => expect(bodyText()).not.toContain(CASE_FILE));
+    await waitFor(() =>
+      expect(bodyText()).toContain("[E2E_TEST]残る見積添付名.pdf"),
+    );
+  });
+});

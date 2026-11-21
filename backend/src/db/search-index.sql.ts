@@ -62,3 +62,56 @@ export function syncMessageIndexStatements(
         AND NOT EXISTS (SELECT 1 FROM search_fts f WHERE f.rowid = d.id)`),
   ];
 }
+
+// ---- 添付のファイル名（kind = 'attachment'）。名前は記号を除かずにそのまま写す（ファイル名の記号は名前の一部のため）。
+// 引数はメッセージの ID だけで、値はすべて DB のいまの行から写す。結び付け・削除・既存データの登録のどの順に実行されても、最後に索引はいまの行と一致する
+
+/** いまの行と一致しない添付の写し（元の添付が無い・結び付き・部屋・名前・日時が違う・メッセージが索引の対象でない）の、対応の表の行 */
+const staleAttachmentDocuments = (messageId: string) => sql`
+  SELECT d.id FROM search_documents d
+  WHERE d.kind = 'attachment' AND d.message_id = ${messageId}
+    AND NOT EXISTS (
+      SELECT 1 FROM message_attachments a JOIN messages m ON m.id = a.message_id
+      WHERE a.id = d.ref_id AND a.message_id = d.message_id AND a.room_id = d.room_id
+        AND a.original_name = d.source_body AND m.created_at = d.created_at
+        AND ${indexedMessage(sql`d.message_id`)} AND m.room_id = a.room_id)`;
+
+/** そのメッセージの、いまの行と一致しない添付の写しだけを消す（論理削除の後に、名前の写しを消す） */
+export function removeStaleAttachmentIndexStatements(
+  db: Database,
+  messageId: string,
+): [BatchItem, BatchItem] {
+  return [
+    db
+      .delete(searchFts)
+      .where(
+        sql`${searchFts.rowid} IN (${staleAttachmentDocuments(messageId)})`,
+      ),
+    db
+      .delete(searchDocuments)
+      .where(
+        sql`${searchDocuments.id} IN (${staleAttachmentDocuments(messageId)})`,
+      ),
+  ];
+}
+
+/** 古い添付の写しを消し、そのメッセージに結び付いた添付のうち、写しの無いものの名前を入れる */
+export function syncAttachmentIndexStatements(
+  db: Database,
+  messageId: string,
+): [BatchItem, ...BatchItem[]] {
+  return [
+    ...removeStaleAttachmentIndexStatements(db, messageId),
+    // 列の並びは schema.ts の searchDocuments と同じ（id は採番に任せる）。日時はメッセージのもの（期間・並びをメッセージの結果とそろえる）
+    db.insert(searchDocuments).select(sql`
+      SELECT NULL, 'attachment', a.id, a.room_id, m.id, m.created_at, a.original_name
+      FROM message_attachments a JOIN messages m ON m.id = a.message_id
+      WHERE ${indexedMessage(sql`${messageId}`)} AND m.room_id = a.room_id
+        AND NOT EXISTS (SELECT 1 FROM search_documents d WHERE d.kind = 'attachment' AND d.ref_id = a.id)`),
+    db.insert(searchFts).select(sql`
+      SELECT d.id, d.source_body
+      FROM search_documents d
+      WHERE d.kind = 'attachment' AND d.message_id = ${messageId}
+        AND NOT EXISTS (SELECT 1 FROM search_fts f WHERE f.rowid = d.id)`),
+  ];
+}

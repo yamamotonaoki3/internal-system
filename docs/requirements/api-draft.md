@@ -856,6 +856,7 @@
   - 応答：`200`：`items`（`messageId`、`parentMessageId`（返信でなければ`null`）、`roomId`、`roomKind`（`channel`／`direct`／`case`）、`roomName`（DM は相手の表示名）、`author`（`id`・`displayName`）、`excerpt`（記号を除いた本文の、一致の前後。120文字〔コードポイント〕まで）、`createdAt`）、`nextCursor`。**総件数は返さない**。並びは作成日時の新しい順（同じなら ID の降順）
   - エラー：`401`、`403`（`perm.search.message`がない）、`422`（`fields`。`q`が NUL〔`\u0000`〕を含むときも 422。FTS5 が句の途中の NUL を文字列の終わりとして扱うため、この API だけの規則）。`perm.dm.message.view`・`perm.case.view`がないときは、403 にせず、DM・案件の部屋を結果から除く
   - **`429`は作らない**（D-7）。上限（X-8）が未決定のため、#160 の実測の後に判断する
+  - 【155-B（2026-11-21。C-201）】`items`の各行に、`matchedIn`（一致した対象の配列。`body`＝本文・`attachment`＝添付のファイル名。1つ以上で、`body` → `attachment`の順）と`matchedAttachments`（ファイル名が一致した添付の`id`・`name`の配列。添付の ID の昇順。本文だけの一致なら空）を足した。`matchedIn`が`attachment`を含むのは、`matchedAttachments`が1件以上のときだけ。名前だけの一致の`excerpt`は本文の先頭。入力・ほかの項目は変えていない。値の名前は、EP-4-02 の`matchedIn`（件名／メッセージ／TODO／公開可能添付名）とまだそろえていない（155-C で決める。**未決定**）
   - 検索の方式：3文字（コードポイント）以上は FTS5 trigram の`MATCH`、1〜2文字は`instr`（D-3。C-152 の`LIKE`を置き換え）。語は空白を含めて1つの句（D-6）
 
 ## 9. 機能5：案件への問い合わせ

@@ -1,7 +1,10 @@
 // Repository：メッセージの一覧と投稿（#201）。DB へのアクセスはこの層に閉じ込める。
 // 投稿は条件付きの INSERT 1文。「部屋の中では、コミットの順に ID が必ず増える」を DB で保証する（D1 は書き込みを直列に実行する）。
 // ID が部屋の最大以下だと挿入されない（0 行）。取りこぼし防止の理由は docs/design/messages.md。
-import { syncMessageIndexStatements } from "./search-index.sql";
+import {
+  syncAttachmentIndexStatements,
+  syncMessageIndexStatements,
+} from "./search-index.sql";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
@@ -528,6 +531,7 @@ export function createMessageRepository(db: Database) {
             messageId: input.id,
             sourceBody: input.body,
           }),
+          ...syncAttachmentIndexStatements(db, input.id),
         ]);
         return insert.meta.changes;
       } catch (error) {

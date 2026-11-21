@@ -1,5 +1,6 @@
 // S-15 のメッセージの検索の結果。読み込み中・0件・失敗と再試行・さらに表示を出す。
 // 失敗したときは、前の結果を出さない（取得済みのページも含めて）。
+// ファイル名で一致した行には、印と一致した名前の一覧を出す。
 // 行のリンクは元の場所（チャンネル・案件の部屋は /channels、DM は /dms）の該当のスレッドへ。返信は親のスレッドを開く。
 import { Link } from "react-router";
 import { Button } from "../../../components/Button";
@@ -16,6 +17,28 @@ function linkOf(item: MessageSearchItem): string {
   return item.roomKind === "direct"
     ? `/dms/${room}?thread=${thread}`
     : `/channels/${room}?thread=${thread}`;
+}
+
+// ファイル名はリンクにしない（結果からファイルを直接開かせず、配信の経路を増やさない）
+function MatchedAttachmentNames({
+  attachments,
+  keyword,
+}: {
+  attachments: MessageSearchItem["matchedAttachments"];
+  keyword: string;
+}) {
+  return (
+    <div className="mt-1 text-sm">
+      <p className="text-text-muted">ファイル名で一致</p>
+      <ul aria-label="一致したファイル名" className="flex flex-col">
+        {attachments.map((attachment) => (
+          <li key={attachment.id} className="break-all">
+            <HighlightedExcerpt text={attachment.name} keyword={keyword} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function Failure({ onRetry }: { onRetry: () => void }) {
@@ -70,6 +93,12 @@ export function MessageSearchResults({
                   keyword={conditions.q}
                 />
               </Link>
+              {item.matchedIn.includes("attachment") && (
+                <MatchedAttachmentNames
+                  attachments={item.matchedAttachments}
+                  keyword={conditions.q}
+                />
+              )}
             </li>
           ))}
         </ul>

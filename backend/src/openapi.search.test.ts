@@ -3,11 +3,15 @@
 // 期待は計画 4.4：クエリ q（必須）・roomId・from・to・limit・cursor（任意）。200 は { items, nextCursor }（総件数の項目を持たない）、
 //   項目は messageId・parentMessageId・roomId・roomKind・roomName・author（id・displayName）・excerpt・createdAt。
 //   エラーは 401・403・422。429 は作らない（利用者の決定 D-7）。
+// 155-B（利用者の決定 B-4・計画 5章）：項目に matchedIn（"body" | "attachment" の配列。1つ以上）と matchedAttachments（id・name の配列）を足す。
 import { describe, expect, it } from "vitest";
 import spec from "../../docs/api/openapi.json";
 
 type Schema = {
   type?: string | string[];
+  enum?: string[];
+  minItems?: number;
+  uniqueItems?: boolean;
   items?: Schema;
   properties?: Record<string, Schema>;
   required?: string[];
@@ -85,6 +89,8 @@ describe("#155 AC-4 A-2 EP-4-01 の仕様書", () => {
         "author",
         "createdAt",
         "excerpt",
+        "matchedAttachments",
+        "matchedIn",
         "messageId",
         "parentMessageId",
         "roomId",
@@ -96,6 +102,33 @@ describe("#155 AC-4 A-2 EP-4-01 の仕様書", () => {
     expect(Object.keys(author.properties ?? {}).sort()).toEqual(
       ["displayName", "id"].sort(),
     );
+  });
+
+  it("#155 AC-1 155-B A-2: matchedIn は body・attachment の列挙の配列（1つ以上）、matchedAttachments は id・name（どちらも必須の文字列）の配列。どちらも必須の項目", () => {
+    const response = operation().responses?.["200"] as
+      { content?: Record<string, { schema?: Schema }> } | undefined;
+    const body = resolve(response?.content?.["application/json"]?.schema);
+    const item = resolve(body.properties?.items?.items);
+    expect(item.required ?? []).toEqual(
+      expect.arrayContaining(["matchedIn", "matchedAttachments"]),
+    );
+    const matchedIn = resolve(item.properties?.matchedIn);
+    expect(matchedIn.type).toBe("array");
+    expect(matchedIn.minItems).toBe(1);
+    expect([...(resolve(matchedIn.items).enum ?? [])].sort()).toEqual([
+      "attachment",
+      "body",
+    ]);
+    const matchedAttachments = resolve(item.properties?.matchedAttachments);
+    expect(matchedAttachments.type).toBe("array");
+    const attachment = resolve(matchedAttachments.items);
+    expect(Object.keys(attachment.properties ?? {}).sort()).toEqual([
+      "id",
+      "name",
+    ]);
+    expect([...(attachment.required ?? [])].sort()).toEqual(["id", "name"]);
+    expect(resolve(attachment.properties?.id).type).toBe("string");
+    expect(resolve(attachment.properties?.name).type).toBe("string");
   });
 
   it("#155 AC-4 A-2 D-7: エラーは 401・403・422。429 は書かない", () => {

@@ -5,6 +5,8 @@
 //   3文字以上（MATCH）：検索用の表（search_fts）を仮想の表の索引で引き、ほかの表（messages・search_documents・資格の判定の表）は頭から読まない（SEARCH だけ）。
 //   1〜2文字（instr）：ADR-0010 のとおり、検索用の表は全件を見る（仮想の表の走査）ことを前提とする。それ以外の表は頭から読まない。
 //   1〜2文字＋部屋の絞り込み：対応の表（search_documents）を、部屋の列で始まる索引で引く（計画 4.1 の索引 (room_id, created_at, id)）。
+// 155-B X-1：添付ファイル名の一致（kind=attachment）を含めても、検索用の表のほかに、添付・メッセージ・対応の表を頭から読まない（添付・メッセージは主キーで引く）。
+//   添付の写しは、メッセージの半分に添付を結んでから登録して作る。
 // データは架空（testuser_casereq_・[UNIT_TEST]）。
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +30,7 @@ import { newPiiKey, newSetupToken } from "../../test/random-secrets";
 import {
   cleanupRelatedReadsRooms,
   fixedIdAt,
+  insertAttachmentRow,
 } from "../../test/related-reads-fixtures";
 import {
   buildSearchIndex,
@@ -215,5 +218,39 @@ describe("#155 AC-3 D-13 実行計画", () => {
       text,
     ).toBe(true);
     expect(plainFullScans(plan), text).toEqual([]);
+  });
+});
+
+describe("#155 AC-3 155-B X-1 実行計画（添付ファイル名の一致を含む）", () => {
+  it("#155 AC-3 X-1: 添付の写しがあっても、3文字以上（部屋・期間の指定あり・なし）・1〜2文字・1〜2文字＋部屋で、検索用の表以外を頭から読まない", async () => {
+    for (let i = 0; i < 30; i += 2)
+      await insertAttachmentRow({
+        roomId: i % 2 === 0 ? ROOM : OTHER_ROOM,
+        uploaderId: w.memberS1.id,
+        messageId: fixedIdAt(BASE_MS + 1_000 + i * 1_000),
+        originalName: `実行計画の添付名${i}.txt`,
+      });
+    await buildSearchIndex();
+    const queries: Record<string, string>[] = [
+      { q: "実行計画の添付名" },
+      { q: "実行計画の添付名", roomId: ROOM },
+      { q: "実行計画の添付名", from: "2029-06-01", to: "2029-06-30" },
+      { q: "添付" },
+      { q: "添付", roomId: ROOM },
+    ];
+    for (const query of queries) {
+      const { response, statements } = await recordedGet(
+        path(query),
+        w.memberS1.token,
+      );
+      expect(response.status).toBe(200);
+      // 先に「ある」を確かめる（添付の名前で一致した行が返っている）
+      const body = (await response.json()) as { items: unknown[] };
+      if (query.from === undefined)
+        expect(body.items.length, JSON.stringify(query)).toBeGreaterThan(0);
+      const plan = await searchPlans(statements);
+      const text = [JSON.stringify(query), ...plan].join("\n");
+      expect(plainFullScans(plan), text).toEqual([]);
+    }
   });
 });
