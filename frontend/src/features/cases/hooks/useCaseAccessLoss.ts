@@ -54,6 +54,7 @@ export function useCaseAccessLoss({
   roomId,
   isParticipant,
   outsider = !isParticipant,
+  wasParticipant = isParticipant,
   onLost,
 }: {
   caseId: string;
@@ -65,6 +66,11 @@ export function useCaseAccessLoss({
    * 本番の呼び出しは必ず渡す。省くと、非参加（!isParticipant）と同じ扱い
    */
   outsider?: boolean;
+  /**
+   * この利用者・案件の概要のキャッシュに残る値（取り直しが失敗していても前の成功の値）が参加者（#363）。
+   * 部品が作られたときだけ使う。省くと isParticipant と同じ
+   */
+  wasParticipant?: boolean;
   /** 中身を描かなくなるとき（開いているダイアログを閉じる）。参照が変わらない関数を渡す */
   onLost: () => void;
 }) {
@@ -73,8 +79,12 @@ export function useCaseAccessLoss({
   // 同じ参加の期間の中で、確かめ・後片付けを重ねない印（参加者のままの 403 で循環させないため）
   const handling = useRef(false);
   const previousParticipant = useRef(isParticipant);
-  // この画面で参加者としての概要を受け取ったか。概要が一時的に失敗しても（5xx・通信の失敗）、資格を失ったとは見なさず、印は残す
-  const participantSeen = useRef(isParticipant);
+  // 参加者としての概要を受け取ったか。概要が一時的に失敗しても（5xx・通信の失敗）、資格を失ったとは見なさず、印は残す。
+  // 失敗の間に部品が作り直されても印を失わないよう、キャッシュに残る前の概要（wasParticipant）からも始める（#363）。
+  // 既に資格を失った証拠がある（片付け済み）ときは始めない：作り直すたびに片付けを重ねないため
+  const participantSeen = useRef(
+    isParticipant || (wasParticipant && !outsider),
+  );
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
   // 概要の取り直しが拒否より先に非参加を返した場合も、開いているダイアログ（参加者用の基準を含む）を閉じる。
