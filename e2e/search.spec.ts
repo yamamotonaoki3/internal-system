@@ -122,16 +122,24 @@ const headerSearch = (page: Page) =>
   page.getByRole("banner").getByRole("search", { name: "メッセージの検索" });
 const results = (page: Page) =>
   page.getByRole("main").getByRole("list", { name: "検索結果の一覧" });
+/** 結果の行（一覧の直下の li だけ。行の中の「一致したファイル名」の li は数えない） */
+const resultRows = (page: Page): Locator =>
+  results(page).locator(":scope > li");
 const resultRow = (page: Page, text: string): Locator =>
-  results(page).getByRole("listitem").filter({ hasText: text });
+  resultRows(page).filter({ hasText: text });
 const noMatch = (page: Page) =>
   page.getByRole("main").getByText("一致するメッセージはありません");
 
 async function searchFromHeader(page: Page, term: string) {
   const form = headerSearch(page);
-  await form.getByRole("searchbox", { name: "検索する言葉" }).fill(term);
-  await form.getByRole("button", { name: "検索", exact: true }).click();
-  await expect(page).toHaveURL(/\/search\?/);
+  const box = form.getByRole("searchbox", { name: "検索する言葉" });
+  // 再認証の直後などに画面の枠が作り直されると、入れた語が消えることがある。入れて送り、移るまでをやり直す
+  await expect(async () => {
+    await box.fill(term);
+    await expect(box).toHaveValue(term, { timeout: 1_000 });
+    await form.getByRole("button", { name: "検索", exact: true }).click();
+    await expect(page).toHaveURL(/\/search\?/, { timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(
     page.getByRole("main").getByRole("heading", { level: 1, name: "検索結果" }),
   ).toBeVisible();
@@ -189,7 +197,7 @@ test("#155 AC-4 E-1: B（どこにも参加していない）は、未参加の�
   await expect(resultRow(b.page, WORDS.public)).toHaveCount(1);
   for (const word of [WORDS.private, WORDS.direct, WORDS.case])
     await expect(resultRow(b.page, word)).toHaveCount(0);
-  await expect(results(b.page).getByRole("listitem")).toHaveCount(1);
+  await expect(resultRows(b.page)).toHaveCount(1);
   // 見えない部屋だけにある語は、どこにもない語と同じく0件
   await searchFromHeader(b.page, WORDS.private);
   await expect(noMatch(b.page)).toBeVisible();
@@ -296,9 +304,7 @@ test("#155 AC-1 AC-3 155-B E-1: 再登録の後、A は名前の語で、4つの
     await expect(row.getByText(MARKER, { exact: true })).toBeVisible();
     await expect(matchedNames(row)).toHaveText([name]);
   }
-  await expect(results(page).locator(":scope > li")).toHaveCount(
-    Object.keys(SEEDED_NAMES).length,
-  );
+  await expect(resultRows(page)).toHaveCount(Object.keys(SEEDED_NAMES).length);
 });
 
 test("#155 AC-2 AC-4 155-B E-1: B は名前の語で、公開チャンネルの添付の行だけが出て、非公開・他人の DM・非参加の案件の添付の名前は出ない", async () => {
@@ -312,7 +318,7 @@ test("#155 AC-2 AC-4 155-B E-1: B は名前の語で、公開チャンネルの�
     SEEDED_NAMES.case,
   ])
     await expect(results(other).getByText(name)).toHaveCount(0);
-  await expect(results(other).locator(":scope > li")).toHaveCount(1);
+  await expect(resultRows(other)).toHaveCount(1);
   // 見えない添付だけにある名前は、どこにもない語と同じく0件
   await searchFromHeader(other, SEEDED_NAMES.private);
   await expect(noMatch(other)).toBeVisible();
