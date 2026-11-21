@@ -42,3 +42,4 @@
 | [0029](0029-attachment-delivery-headers-and-content-type-check.md) | 添付の配信の応答だけ、共通のセキュリティヘッダー（CSP・Cache-Control）を上書きさせない。`content_type`にCHECK制約を付けない（drizzle-kitが「;」で生成を切るため） | 採用 |
 | [0030](0030-clear-cache-on-user-switch.md) | 利用者の切り替えのときは、枠でセッション以外のキャッシュを一括して捨てる（キーごとに利用者のIDを足さない。進行中の操作は#300、別のタブは#298） | 採用 |
 | [0031](0031-search-fts-handwritten-migration.md) | 検索用の表（FTS5 の仮想の表）の migration を手で書く（`--custom --name`で空の migration を作る。`schema.ts`に書かない。生成の後に差分が出ないことを毎回確かめる。既存のメッセージの索引は登録の処理で作る） | 採用 |
+| [0032](0032-first-production-rollout-stop-and-apply-at-once.md) | 本番への最初のまとまった適用（migration 0013 以降）を、利用を止めて、1回の作業で行う（今回1回だけの例外。戻すときはアプリと DB を組で戻す） | 採用 |
