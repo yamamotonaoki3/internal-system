@@ -671,6 +671,101 @@ describe("#155 AC-1 AC-4 155-B R-7 名前の書き換えと同期（統括の決
   });
 });
 
+describe("#155 AC-1 155-B R-8 一致した名前の並び（索引への登録の順に依らず、添付の ID の昇順）", () => {
+  it("#155 AC-1 R-8: 4つの添付が一致するとき、写しを降順・昇順・ばらばらの順に入れても、matchedAttachments は添付の ID の昇順", async () => {
+    const orders: [string, number[]][] = [
+      ["降順", [3, 2, 1, 0]],
+      ["昇順", [0, 1, 2, 3]],
+      ["ばらばら一", [2, 0, 3, 1]],
+      ["ばらばら二", [1, 3, 0, 2]],
+    ];
+    let base = 0;
+    for (const [label, order] of orders) {
+      base += 10;
+      const term = `R8並び語${label}`;
+      const message = await seedMessage({
+        roomId: roomOf.pubJoined,
+        text: `並びの確認の本文${label}`,
+      });
+      // 添付の ID は k の昇順（固定の時刻から作る）
+      const attachments = [0, 1, 2, 3].map((k) => ({
+        id: fixedIdAt(BASE_MS + 700_000 + base * 100 + k),
+        name: `${term}の${String(k)}番.txt`,
+      }));
+      for (const a of attachments)
+        await insertAttachmentRow({
+          id: a.id,
+          roomId: roomOf.pubJoined,
+          uploaderId: V,
+          messageId: message.id,
+          originalName: a.name,
+        });
+      // 索引への登録の順（search_documents.id の順）を、order のとおりにする
+      for (const k of order) {
+        const a = attachments[k];
+        if (a === undefined) throw new Error("添付がありません");
+        await insertAttachmentIndexRow({
+          attachmentId: a.id,
+          roomId: roomOf.pubJoined,
+          messageId: message.id,
+          createdAt: message.at,
+          sourceBody: a.name,
+        });
+      }
+      const { items } = await search(term);
+      expect({ label, ids: items.map((i) => i.messageId) }).toEqual({
+        label,
+        ids: [message.id],
+      });
+      expect({ label, names: items[0]?.matchedAttachments }).toEqual({
+        label,
+        names: attachments,
+      });
+    }
+  });
+});
+
+describe("#155 AC-1 155-B R-9 添付との結合の条件ごと（SQL の条件を外す手での確認で、落ちるテストがなかったもの）", () => {
+  it("#155 AC-1 R-9 LEFT JOIN の d.kind = 'attachment': 本文の写しの行に、同じ ID の添付を結ばない（本文だけの一致で、matchedAttachments は空）", async () => {
+    const message = await seedMessage({
+      roomId: roomOf.pubJoined,
+      text: "R9本文側の語です",
+    });
+    // メッセージと同じ ID の添付（別の表なので入る）を、そのメッセージに結ぶ。名前は検索語に一致しない
+    await insertAttachmentRow({
+      id: message.id,
+      roomId: roomOf.pubJoined,
+      uploaderId: V,
+      messageId: message.id,
+      originalName: "無関係の同じ番号の名.txt",
+    });
+    await buildSearchIndex();
+    expect((await search("R9本文側")).items).toEqual([
+      expect.objectContaining({
+        messageId: message.id,
+        matchedIn: ["body"],
+        matchedAttachments: [],
+      }),
+    ]);
+  });
+
+  it("#155 AC-1 R-9 LEFT JOIN の a.id = d.ref_id: 同じ名前の添付が2つあると、matchedAttachments はそれぞれ1回ずつ（重複しない）", async () => {
+    const seeded = await seedMessage({
+      roomId: roomOf.pubJoined,
+      text: "同名の添付の本文です",
+      names: ["R9同名の資料.txt", "R9同名の資料.txt"],
+    });
+    await buildSearchIndex();
+    const { items } = await search("R9同名の資料");
+    expect(items).toHaveLength(1);
+    expect(items[0]?.matchedAttachments).toEqual(
+      [...seeded.attachments]
+        .sort()
+        .map((id) => ({ id, name: "R9同名の資料.txt" })),
+    );
+  });
+});
+
 describe("#155 AC-2 AC-4 155-B R-3 見える範囲（条件ごとに、その条件だけを満たさない添付と、満たす対照の添付）", () => {
   it("#155 AC-4 R-3 roomViewableBy: 共通の名前の語（MATCH・instr）で、見える部屋の添付のメッセージだけが出る（未参加の公開・終了した案件の参加者を含む）", async () => {
     await buildSearchIndex();

@@ -782,6 +782,110 @@ describe("#155 AC-3 155-B I-3 書き込みの経路の一覧（それぞれの�
   });
 });
 
+describe("#155 AC-3 155-B I-5 古い写しの判定の条件ごと（SQL の条件を外す手での確認で、落ちるテストがなかったもの）", () => {
+  it("#155 AC-3 I-5 a.id = d.ref_id: 同じメッセージに同じ名前の添付が2つあり、片方の行を消してから組を実行すると、消した添付の写しだけが消える", async () => {
+    const gone = await pending("索引同名の資料.txt");
+    const kept = await pending("索引同名の資料.txt");
+    const message = await post(V, "同名の添付の本文", [gone, kept]);
+    expect(await attachmentIndexCountsOf(gone)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    await env.DB.prepare("DELETE FROM message_attachments WHERE id = ?")
+      .bind(gone)
+      .run();
+    await runAttachmentIndexStatements(message.id);
+    expect(await attachmentIndexCountsOf(gone)).toEqual({
+      documents: 0,
+      fts: 0,
+    });
+    expect(await attachmentIndexCountsOf(kept)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    await expectConsistent();
+  });
+
+  it("#155 AC-3 I-5 a.room_id = d.room_id: 写しの部屋だけが違う（壊れた）写しは、組で作り直され、添付の部屋になる", async () => {
+    const attachment = await pending("索引部屋違いの写し.txt");
+    const message = await post(V, "写しの部屋の本文", [attachment]);
+    await env.DB.prepare(
+      "UPDATE search_documents SET room_id = ? WHERE kind = 'attachment' AND ref_id = ?",
+    )
+      .bind(OTHER, attachment)
+      .run();
+    expect((await attachmentIndexMismatches()).wrongRoom).toBe(1);
+    await runAttachmentIndexStatements(message.id);
+    expect((await documentOf(attachment))?.room_id).toBe(ROOM);
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    await expectConsistent();
+  });
+
+  it("#155 AC-3 I-5 m.created_at = d.created_at: 写しの日時だけが違う（壊れた）写しは、組で作り直され、メッセージの作成日時になる", async () => {
+    const attachment = await pending("索引日時違いの写し.txt");
+    const message = await post(V, "写しの日時の本文", [attachment]);
+    await env.DB.prepare(
+      "UPDATE search_documents SET created_at = ? WHERE kind = 'attachment' AND ref_id = ?",
+    )
+      .bind("2026-01-01T00:00:00.000Z", attachment)
+      .run();
+    await runAttachmentIndexStatements(message.id);
+    expect((await documentOf(attachment))?.created_at).toBe(message.at);
+    await expectConsistent();
+  });
+
+  it("#155 AC-3 I-5 m.room_id = a.room_id: メッセージの部屋が添付の部屋と食い違う（写しと添付の部屋は同じ）と、組で写しが消え、入り直さない", async () => {
+    const attachment = await pending("索引移動の写し.txt");
+    const message = await post(V, "部屋の移ったメッセージの本文", [attachment]);
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    await env.DB.prepare("UPDATE messages SET room_id = ? WHERE id = ?")
+      .bind(OTHER, message.id)
+      .run();
+    await runAttachmentIndexStatements(message.id);
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 0,
+      fts: 0,
+    });
+  });
+
+  it("#155 AC-3 I-5 検索用の行の d.kind = 'attachment': 添付の組は、同じメッセージの本文の写しの検索用の行を入れない（本文は記号を除いた文で入れるもので、添付の組の担当ではない）", async () => {
+    const attachment = await pending("索引本文の担当外.txt");
+    const message = await post(V, "申**請**手続の本文", [attachment]);
+    const messageFts = () =>
+      env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id = ?)",
+      )
+        .bind(message.id)
+        .first<{ n: number }>();
+    expect((await messageFts())?.n).toBe(1);
+    await env.DB.prepare(
+      "DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id = ?)",
+    )
+      .bind(message.id)
+      .run();
+    await runAttachmentIndexStatements(message.id);
+    expect((await messageFts())?.n).toBe(0);
+    // 対照：添付の写しの検索用の行は残っている
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    // 記号を残した本文では引けない
+    const raw = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM search_fts WHERE search_fts MATCH ?",
+    )
+      .bind('"申**請"')
+      .first<{ n: number }>();
+    expect(raw?.n).toBe(0);
+  });
+});
+
 describe("#155 AC-3 155-B I-4 既存の戻り値の契約（添付つきでも書いた件数）", () => {
   it("#155 AC-3 I-4: 添付つきの投稿・返信は 1、削除は本人なら 1・拒否なら 0（索引の書き込みの数を含めない）", async () => {
     const a1 = await pending("索引戻値庚029.txt");

@@ -222,6 +222,39 @@ describe("#155 AC-4 155-B F-4 応答の検証（zod）", () => {
       },
     ],
     [
+      "matchedAttachments の要素に id がない",
+      {
+        matchedIn: ["attachment"],
+        matchedAttachments: [{ name: "id のない見積.txt" }],
+      },
+    ],
+    [
+      "matchedAttachments の要素の id が空",
+      {
+        matchedIn: ["attachment"],
+        matchedAttachments: [{ id: "", name: "id が空の見積.txt" }],
+      },
+    ],
+    [
+      "matchedAttachments の要素に name がない",
+      {
+        matchedIn: ["attachment"],
+        matchedAttachments: [{ id: "01JTESTATT155B00000000093" }],
+      },
+    ],
+    [
+      "matchedAttachments が配列でない",
+      {
+        matchedIn: ["attachment"],
+        matchedAttachments: {
+          id: "01JTESTATT155B00000000094",
+          name: "配列でない見積.txt",
+        },
+      },
+    ],
+    ["matchedIn が配列でない", { matchedIn: "body" }],
+    ["roomKind に未知の値", { roomKind: "thread" }],
+    [
       "matchedAttachments の名前が文字列でない",
       {
         matchedIn: ["attachment"],
