@@ -23,6 +23,7 @@ import {
   readDraft,
   readDraftContent,
   removeDraft,
+  removeRoomDrafts,
   removeUserDrafts,
   writeDraft,
 } from "./draft-storage";
@@ -535,5 +536,125 @@ describe("#139 1-8 AC-2 指名付き下書きの互換", () => {
       body,
       mentions,
     });
+  });
+});
+
+// #340 AC-1・AC-2・AC-5（計画 plan-340 改訂1 の「消す対象」とテストケースの表の1行目）：資格を失った案件の部屋の下書きだけを消す。
+// 前提にした口（実装の担当へ）：removeRoomDrafts(storage, userId, roomId): void。
+//   消すのは、その利用者の room:<部屋ID>（完全一致）と thread:<部屋ID>:<親ID>（区切りの ":" まで含めた前方一致）だけ。
+//   保存先の SecurityError・QuotaExceededError は DraftStorageUnavailableError に変え、それ以外の例外はそのまま投げる（既存の関数と同じ）。
+// キーは本番の draftKey・scope の関数を使わず、keyOf とリテラルで独立に書く。データは架空（[UNIT_TEST]）。
+describe("#340 資格を失った案件の部屋の下書きを消す（removeRoomDrafts）", () => {
+  const R1 = "01JTESTROOM340000000000R1";
+  // R1 の前方一致になるだけの、別の部屋（末尾が違う）
+  const R10 = `${R1}0`;
+  const R2 = "01JTESTROOM340000000000R2";
+  const P1 = "01JTESTMSG3400000000000P1";
+  const P2 = "01JTESTMSG3400000000000P2";
+  const USER_A10 = `${USER_A}0`;
+  const v = (label: string) => valueOf(`[UNIT_TEST]340${label}`, NOW);
+
+  function seeded() {
+    const storage = new MemoryStorage();
+    // 消すもの：A の、R1 の部屋への投稿と、R1 のスレッドの返信（2つ）
+    storage.setItem(keyOf(USER_A, `room:${R1}`), v("A-R1"));
+    storage.setItem(keyOf(USER_A, `thread:${R1}:${P1}`), v("A-R1-P1"));
+    storage.setItem(keyOf(USER_A, `thread:${R1}:${P2}`), v("A-R1-P2"));
+    // 残すもの
+    storage.setItem(keyOf(USER_A, `room:${R10}`), v("A-R10"));
+    storage.setItem(keyOf(USER_A, `thread:${R10}:${P1}`), v("A-R10-P1"));
+    storage.setItem(keyOf(USER_A, `room:${R2}`), v("A-R2"));
+    storage.setItem(keyOf(USER_A, `thread:${R2}:${P1}`), v("A-R2-P1"));
+    storage.setItem(keyOf(USER_A, "case-request:new"), v("A-申請"));
+    storage.setItem(keyOf(USER_A10, `room:${R1}`), v("A10-R1"));
+    storage.setItem(keyOf(USER_A10, `thread:${R1}:${P1}`), v("A10-R1-P1"));
+    storage.setItem(keyOf(USER_B, `room:${R1}`), v("B-R1"));
+    storage.setItem(keyOf(USER_B, `thread:${R1}:${P1}`), v("B-R1-P1"));
+    storage.setItem(
+      `internal-system:draft:v2:${USER_A}:room:${R1}`,
+      v("版違い"),
+    );
+    storage.setItem("other-app:setting", "keep");
+    return storage;
+  }
+
+  const KEPT = [
+    keyOf(USER_A, `room:${R10}`),
+    keyOf(USER_A, `thread:${R10}:${P1}`),
+    keyOf(USER_A, `room:${R2}`),
+    keyOf(USER_A, `thread:${R2}:${P1}`),
+    keyOf(USER_A, "case-request:new"),
+    keyOf(USER_A10, `room:${R1}`),
+    keyOf(USER_A10, `thread:${R1}:${P1}`),
+    keyOf(USER_B, `room:${R1}`),
+    keyOf(USER_B, `thread:${R1}:${P1}`),
+    `internal-system:draft:v2:${USER_A}:room:${R1}`,
+    "other-app:setting",
+  ];
+
+  it("#340 AC-1・AC-2: 持ち主 A の R1 の部屋の下書きと、R1 のスレッドの返信の下書き（すべて）だけを消し、ほかの部屋（前方一致の R10 を含む）・申請・ほかの利用者（前方一致の ID を含む）・版や接頭辞の違うキーは残す", () => {
+    const storage = seeded();
+    removeRoomDrafts(storage, USER_A, R1);
+    expect(storage.keys().sort()).toEqual([...KEPT].sort());
+    // 残したものは、中身も変わらない
+    expect(storage.getItem(keyOf(USER_B, `room:${R1}`))).toBe(v("B-R1"));
+  });
+
+  it("#340 AC-2: 部屋の ID の前方一致の部屋（R10）を指定しても、R1 の下書きは消えない", () => {
+    const storage = seeded();
+    removeRoomDrafts(storage, USER_A, R10);
+    expect(storage.getItem(keyOf(USER_A, `room:${R1}`))).not.toBeNull();
+    expect(storage.getItem(keyOf(USER_A, `thread:${R1}:${P1}`))).not.toBeNull();
+    expect(storage.getItem(keyOf(USER_A, `room:${R10}`))).toBeNull();
+    expect(storage.getItem(keyOf(USER_A, `thread:${R10}:${P1}`))).toBeNull();
+  });
+
+  it("#340 AC-1: スレッドの返信の下書きが連続していても・多くても、取りこぼさない", () => {
+    const storage = new MemoryStorage();
+    for (let i = 0; i < 6; i += 1)
+      storage.setItem(keyOf(USER_A, `thread:${R1}:P${i}`), v(`${i}`));
+    storage.setItem(keyOf(USER_A, `room:${R1}`), v("room"));
+    removeRoomDrafts(storage, USER_A, R1);
+    expect(storage.length).toBe(0);
+  });
+
+  it("#340 AC-1: 消す対象が無くても、例外にならない（ほかのキーは残る）", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(keyOf(USER_B, `room:${R1}`), v("B-R1"));
+    expect(() => removeRoomDrafts(storage, USER_A, R1)).not.toThrow();
+    expect(storage.keys()).toEqual([keyOf(USER_B, `room:${R1}`)]);
+  });
+
+  it.each([
+    ["removeItem", "SecurityError", security],
+    ["key", "SecurityError", security],
+    ["length", "SecurityError", security],
+    ["removeItem", "QuotaExceededError", quota],
+  ] as const)(
+    "#340 AC-5: %s が %s を投げたら、DraftStorageUnavailableError を投げる（消せたことにしない）",
+    (operation, _name, make) => {
+      const storage = seeded();
+      const cause = make();
+      storage.throwOn = { [operation]: cause };
+      let thrown: unknown;
+      try {
+        removeRoomDrafts(storage, USER_A, R1);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(DraftStorageUnavailableError);
+      expect((thrown as Error).cause).toBe(cause);
+      // エラーの文に、部屋の ID・利用者の ID・本文を入れない
+      expect((thrown as Error).message).not.toContain(R1);
+      expect((thrown as Error).message).not.toContain(USER_A);
+      expect((thrown as Error).message).not.toContain("[UNIT_TEST]");
+    },
+  );
+
+  it("#340 AC-5: 想定外の例外（SecurityError・QuotaExceededError 以外）は、変えずに投げる（もみ消さない）", () => {
+    const storage = seeded();
+    const unexpected = new TypeError("[UNIT_TEST]340想定外");
+    storage.throwOn = { removeItem: unexpected };
+    expect(() => removeRoomDrafts(storage, USER_A, R1)).toThrow(unexpected);
   });
 });

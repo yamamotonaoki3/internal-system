@@ -20,7 +20,12 @@ export function threadDraftScope(
   roomId: string,
   parentMessageId: string,
 ): string {
-  return `thread:${roomId}:${parentMessageId}`;
+  return `${roomThreadDraftScopePrefix(roomId)}${parentMessageId}`;
+}
+
+/** その部屋のスレッドの返信の scope の接頭辞（部屋の ID の前方一致で別の部屋を巻き込まないよう、区切りまで含める） */
+export function roomThreadDraftScopePrefix(roomId: string): string {
+  return `thread:${roomId}:`;
 }
 
 /** 案件の作成の申請（S-18）の説明欄の scope。申請の画面は1つなので固定の値 */

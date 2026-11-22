@@ -18,6 +18,7 @@ import {
   forgetCaseAfterLeave,
   forgetCaseContent,
   forgetCaseInLists,
+  forgetCaseRoomDraftsAfterLoss,
   invalidateCaseLists,
 } from "./useCaseWrites";
 
@@ -71,6 +72,7 @@ export function useCaseAccessLoss({
   caseId,
   userId,
   roomId,
+  participantRoomId = null,
   isParticipant,
   outsider = !isParticipant,
   onLost,
@@ -78,6 +80,11 @@ export function useCaseAccessLoss({
   caseId: string;
   userId: string;
   roomId: string | null;
+  /**
+   * 参加者の概要の部屋の ID（非参加・概要がないときは null）。詳細を受け取れないまま外されても、下書きを消せるように（#340）。
+   * 本番の呼び出しは必ず渡す。省くと、詳細の部屋の ID だけで決める
+   */
+  participantRoomId?: string | null;
   isParticipant: boolean;
   /**
    * 概要が、成功して非参加、または 404 で失敗している（参加者でないことが確かめられた）。概要の取り直しが 5xx・通信の失敗のときは偽（#363）。
@@ -99,6 +106,8 @@ export function useCaseAccessLoss({
   const previousOutsider = useRef(false);
   // 同じ参加の期間の中で、読み込み直しを1回だけ求める印（(a) の確かめと (b) の効果の両方が喪失を見るため。#338）
   const reloadRequested = useRef(false);
+  // 最後に分かった、この案件の部屋の ID（#340）。喪失の片付けで詳細が消え、非参加の概要には部屋の ID がないため、消す前に覚えておく
+  const knownRoomId = useRef<string | null>(null);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
   // 概要で参加者でないことが確かめられたら（成功して非参加・404）、この画面で参加者だったかに関わらず、参加者だけの中身
@@ -108,6 +117,8 @@ export function useCaseAccessLoss({
   // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける。
   // この効果は、それらの部品が外れた後に走るため、拒否を契機にした片付けの後に部品が作り直したキーも、ここで消える
   useEffect(() => {
+    // 片付けより前に覚える（片付けの後の描画では、どちらも null になりうる）
+    knownRoomId.current = roomId ?? participantRoomId ?? knownRoomId.current;
     if (isParticipant && !previousParticipant.current) {
       handling.current = false;
       reloadRequested.current = false;
@@ -127,10 +138,23 @@ export function useCaseAccessLoss({
       if (wasParticipant) void forgetCaseInLists(queryClient, userId, caseId);
       else void invalidateCaseLists(queryClient, userId);
     }
-    if (lostHere) requestReloadOnce(reloadRequested, queryClient, userId);
     previousOutsider.current = outsider;
     previousParticipant.current = isParticipant;
-  }, [isParticipant, outsider, onLost, queryClient, userId, caseId, roomId]);
+    if (lostHere) {
+      requestReloadOnce(reloadRequested, queryClient, userId);
+      // この画面で参加者だったと見た後の喪失に限る（見ていない非参加は、古い概要かもしれず、消すと戻らない）。想定外の例外は境界まで伝える
+      forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
+    }
+  }, [
+    isParticipant,
+    outsider,
+    onLost,
+    queryClient,
+    userId,
+    caseId,
+    roomId,
+    participantRoomId,
+  ]);
 
   // 画面を離れた後に届いた結果で、表示（状態・ダイアログ）や、移動先の部屋・スレッドのキャッシュに触れないため
   const mounted = useRef(false);
@@ -163,6 +187,9 @@ export function useCaseAccessLoss({
         // （その画面に新しい拒否が届くとは限らない）。重なった要求は、入口が同じ持ち主の待機に合流する（#338）
         if (verdict !== "participant")
           requestReloadOnce(reloadRequested, queryClient, userId);
+        // 確かめられない（unverified）ときは、参加者のままかもしれないので消さない（利用者の決定 2026-11-22 の Q2）
+        if (verdict === "lost" || verdict === "notFound")
+          forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
         return;
       }
       if (verdict === "participant") {
@@ -176,12 +203,15 @@ export function useCaseAccessLoss({
         setUnverified(false);
         void forgetCaseAfterLeave(queryClient, userId, caseId, roomId);
         requestReloadOnce(reloadRequested, queryClient, userId);
+        forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
         return;
       }
       // 概要は書き換えない：404 は既存の概要の失敗の表示に、確かめられないときは unverified の表示に任せる
       setUnverified(verdict === "unverified");
       void forgetCaseContent(queryClient, userId, caseId, roomId);
       requestReloadOnce(reloadRequested, queryClient, userId);
+      if (verdict === "notFound")
+        forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
     };
   }, [queryClient, userId, caseId, roomId, onLost]);
 

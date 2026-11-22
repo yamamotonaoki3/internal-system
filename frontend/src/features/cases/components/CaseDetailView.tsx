@@ -85,6 +85,13 @@ function isParticipantOf(summary: ReturnType<typeof useCaseSummary>): boolean {
   return summary.isSuccess && summary.data.isParticipant;
 }
 
+/** 参加者の概要から分かる部屋の ID（非参加者には null が返る。#340） */
+function participantRoomIdOf(
+  summary: ReturnType<typeof useCaseSummary>,
+): string | null {
+  return isParticipantOf(summary) ? (summary.data?.channelId ?? null) : null;
+}
+
 /** 資格を失った証拠がある：概要が成功して非参加、または 404。5xx・通信の失敗は含めない（#363） */
 function isOutsiderOf(summary: ReturnType<typeof useCaseSummary>): boolean {
   return summary.isSuccess
@@ -280,6 +287,7 @@ export function CaseDetailView({
     caseId,
     userId: selfId,
     roomId,
+    participantRoomId: participantRoomIdOf(summary),
     isParticipant,
     outsider: isOutsiderOf(summary),
     onLost: closeDialog,

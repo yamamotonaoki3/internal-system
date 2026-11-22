@@ -800,3 +800,148 @@ describe("#338 AC-2 API の直接の書き込みも待つ（コードレビュ�
     expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
   });
 });
+
+// #340 AC-5 D-5（計画 plan-340 改訂1 の「消去の失敗の扱い」(ア)、利用者の決定 Q3）：下書きを消せなかったことの印 noteDraftsRemain(ownerId)。
+// 待機中で持ち主が同じなら印を付け、読み込み直す直前に、印があれば「…DraftsRemain」の種類を書く（lost → lostDraftsRemain、left → leftDraftsRemain）。
+// 持ち主が違う・待機がない（取りやめの後を含む）・reloading の後は何もしない。保存するのは種類の文字列だけ。
+// 前提にした口（実装の担当へ）：reload-after-access-loss.ts の noteDraftsRemain(ownerId: string): void。
+//   access-loss-notice の AccessLossNoticeKind に "lostDraftsRemain"・"leftDraftsRemain" を足す。
+describe("#340 AC-5 D-5 下書きを消せなかった印と、知らせの種類", () => {
+  it("#340 AC-5 D-5: lost の待機に、同じ持ち主の印を付けると、読み込み直す前に lostDraftsRemain を書く（種類だけ。利用者の ID を書かない）", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    m.entry.noteDraftsRemain(USER_A);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.length).toBe(1);
+    const key = window.sessionStorage.key(0) ?? "";
+    const stored = `${key}=${window.sessionStorage.getItem(key) ?? ""}`;
+    expect(stored).not.toContain(USER_A);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "lostDraftsRemain",
+    );
+  });
+
+  it("#340 AC-5 D-5: left の待機に印を付けると leftDraftsRemain を書き、/cases へ置き換える（退出の理由・読み込み先は変えない）", async () => {
+    const m = await freshDocument();
+    window.history.replaceState(null, "", CASE_PATH);
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "left",
+      leftCasePath: CASE_PATH,
+    });
+    m.entry.noteDraftsRemain(USER_A);
+    await advance(1);
+    expect(m.location.replacePage).toHaveBeenCalledWith("/cases");
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "leftDraftsRemain",
+    );
+  });
+
+  it("#340 AC-5 D-5: lost の待機に印を付けた後に left が合流しても、印は残り、leftDraftsRemain を書く", async () => {
+    const m = await freshDocument();
+    window.history.replaceState(null, "", CASE_PATH);
+    const client = clientSignedInAs(USER_A);
+    const post = startPending(client);
+    await advance(0);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    m.entry.noteDraftsRemain(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "left",
+      leftCasePath: CASE_PATH,
+    });
+    post.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "leftDraftsRemain",
+    );
+  });
+
+  it("#340 AC-5 D-5: 印が無ければ、これまでどおり lost を書く", async () => {
+    const m = await freshDocument();
+    void m.entry.requestAccessLossReload(clientSignedInAs(USER_A), {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(1);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "lost",
+    );
+  });
+
+  it("#340 AC-5 D-5: 持ち主と違う利用者の印は付かない（前の利用者の知らせを、次の利用者に出さない）", async () => {
+    const m = await freshDocument();
+    void m.entry.requestAccessLossReload(clientSignedInAs(USER_A), {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    m.entry.noteDraftsRemain(USER_B);
+    await advance(1);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "lost",
+    );
+  });
+
+  it("#340 AC-5 D-5: 待機がないときの印は、例外にならず、後の要求にも持ち越さない", async () => {
+    const m = await freshDocument();
+    expect(() => m.entry.noteDraftsRemain(USER_A)).not.toThrow();
+    expect(m.entry.getAccessLossReloadState()).toBe("idle");
+    void m.entry.requestAccessLossReload(clientSignedInAs(USER_A), {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(1);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "lost",
+    );
+  });
+
+  it("#340 AC-5 D-5: 別の利用者に替わって取りやめた待機の印は、次の利用者の待機に持ち越さない", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    const post = startPending(client);
+    await advance(0);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    m.entry.noteDraftsRemain(USER_A);
+    client.setQueryData(authKeys.session, sessionOf(USER_B));
+    expect(m.entry.getAccessLossReloadState()).toBe("idle");
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_B,
+      reason: "lost",
+    });
+    post.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_B))).toBe(
+      "lost",
+    );
+  });
+
+  it("#340 AC-5 D-5: 読み込み直しが始まった後（reloading）の印は、何もしない（例外にならない）", async () => {
+    const m = await freshDocument();
+    void m.entry.requestAccessLossReload(clientSignedInAs(USER_A), {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(1);
+    expect(m.entry.getAccessLossReloadState()).toBe("reloading");
+    expect(() => m.entry.noteDraftsRemain(USER_A)).not.toThrow();
+    expect(m.notice.takeAccessLossNotice(clientSignedInAs(USER_A))).toBe(
+      "lost",
+    );
+  });
+});

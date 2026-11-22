@@ -8,9 +8,14 @@ import {
   type QueryFilters,
 } from "@tanstack/react-query";
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
-import { requestAccessLossReload } from "../../access-loss";
+import { noteDraftsRemain, requestAccessLossReload } from "../../access-loss";
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { channelKeys } from "../../channels";
+import {
+  DraftStorageUnavailableError,
+  openDraftStorage,
+  removeRoomDrafts,
+} from "../../drafts";
 import { messageKeys } from "../../messages";
 import { searchKeys } from "../../search/keys";
 import { threadKeys } from "../../threads";
@@ -319,6 +324,37 @@ export function forgetCaseInLists(
 }
 
 /**
+ * 資格を失った案件の部屋の、持ち主の端末の下書き（部屋への投稿と、その部屋のスレッドの返信）を消す（#340・C-207）。
+ * 下書きは取り直せないので、喪失が確定したときだけ呼ぶ（forgetCaseContent には入れない：確かめられない片付けからも呼ばれるため）。
+ * 部屋の ID が分からないときは、何もしない。保存先を開けない・使えないときは、保存した後に使えなくなった可能性があるので failed。
+ * ほかの例外は受け止めない
+ */
+export function forgetCaseRoomDrafts(
+  userId: string,
+  roomId: string | null,
+): "removed" | "failed" {
+  if (roomId === null) return "removed";
+  const storage = openDraftStorage();
+  if (storage === null) return "failed";
+  try {
+    removeRoomDrafts(storage, userId, roomId);
+    return "removed";
+  } catch (error) {
+    if (error instanceof DraftStorageUnavailableError) return "failed";
+    throw error;
+  }
+}
+
+/** 読み込み直しを求めた後に呼ぶ。消せなかったら、読み込み直した後の知らせで伝える（同じ持ち主の待機にだけ印が付く） */
+export function forgetCaseRoomDraftsAfterLoss(
+  ownerId: string,
+  roomId: string | null,
+): void {
+  if (forgetCaseRoomDrafts(ownerId, roomId) === "failed")
+    noteDraftsRemain(ownerId);
+}
+
+/**
  * 削除・本人の退出。退出に成功したら、画面が生きているかに依らず、ここ（定義の側）で forgetCaseAfterLeave を行う
  * （応答の前に画面を離れると、mutate に渡した onSuccess は呼ばれないため。コードレビュー2回目）。対象は、操作したときの利用者（actorId）と案件。
  * 画面が表示中なら、概要が非参加になって前の詳細は出ず、画面が外れるときに useParticipantWrites がもう一度片付ける。失敗したときは消さない
@@ -342,12 +378,15 @@ export function useRemoveCaseParticipant(caseId: string) {
         reason: "left",
         leftCasePath: `/cases/${encodeURIComponent(caseId)}`,
       });
-      return forgetCaseAfterLeave(
+      const forgotten = forgetCaseAfterLeave(
         queryClient,
         input.actorId,
         caseId,
         input.roomId,
       );
+      // 退出の成功（サーバーの答え）を根拠にした確定なので、その部屋の下書きも消す（利用者の決定 2026-11-22 の Q1）
+      forgetCaseRoomDraftsAfterLoss(input.actorId, input.roomId);
+      return forgotten;
     },
     onSettled: (_data, error, input) =>
       error === null && input.self

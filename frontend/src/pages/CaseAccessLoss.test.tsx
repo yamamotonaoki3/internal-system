@@ -7,7 +7,8 @@
 //   概要の取り直しが失敗（5xx）：中身を隠し、role="alert" で UNVERIFIED_TEXT と、button「再試行」を出す。
 //     再試行で概要が参加者なら元に戻り（詳細を新しく取り直す）、非参加なら非公開の表示。まだ失敗なら隠したまま。
 //   外された後に概要が参加者へ戻った（ほかの画面の取り直しなど）ときは、元に戻る。このとき、閉じたダイアログは開いたまま戻らない。
-//   本人の下書き（端末の保存）は、切り替えでも消さない。
+//   本人の下書き（端末の保存）：外されたと確定したら、その案件の部屋の下書きは消す（#340・C-207 で C-190(6) を置き換え。以前は「消さない」）。
+//     ほかの部屋の下書きは残す。網羅は CaseAccessLoss.drafts.test.tsx。
 // 利用者が替わったときの扱いは CaseAccessLoss.userSwitch.test.tsx。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -484,7 +485,17 @@ describe("#308 AC-1 外された後、操作・再読み込みなしで、自動
     expectNothingShown();
   });
 
-  it("#308 AC-1（本人の下書き）: 切り替わっても端末の下書きは消えず、参加者に戻ったとき入力欄に復元される", async () => {
+  // #340（C-207。利用者の決定 2026-11-20）：C-190(6)「下書きは消さない」を、資格を失った案件の部屋のメッセージの下書きに限って置き換えた。
+  // 以前の期待（切り替わっても消えず、参加者に戻ったとき入力欄に復元される）を、消える・戻っても空、に改めた。ほかの部屋の下書きは残る
+  it("#308 AC-1・#340 AC-1（本人の下書き。C-207）: 切り替わったら、その案件の部屋の下書きは端末から消え、参加者に戻っても入力欄は空。ほかの部屋の下書きは残る", async () => {
+    const otherRoomKey = `internal-system:draft:v1:${TEST_USER.id}:room:${caseRoomId(OTHER_N)}`;
+    window.localStorage.setItem(
+      otherRoomKey,
+      JSON.stringify({
+        body: "[UNIT_TEST]308ほかの部屋の下書き",
+        updatedAt: Date.now(),
+      }),
+    );
     const w = world();
     const { user, client } = renderPage();
     await waitForFullView();
@@ -496,14 +507,17 @@ describe("#308 AC-1 外された後、操作・再読み込みなしで、自動
     w.revoke();
     await advance(POLL_MS);
     await waitForSwitched();
-    expect(window.localStorage.getItem(DRAFT_KEY)).toContain(DRAFT_TEXT);
+    expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull();
+    expect(window.localStorage.getItem(otherRoomKey)).toContain(
+      "[UNIT_TEST]308ほかの部屋の下書き",
+    );
     w.restore();
     void client.invalidateQueries({ queryKey: caseKeys.all });
     await waitForFullView();
     const input = await screen.findByRole<HTMLTextAreaElement>("textbox", {
       name: "メッセージ",
     });
-    expect(input.value).toBe(DRAFT_TEXT);
+    expect(input.value).toBe("");
   });
 });
 

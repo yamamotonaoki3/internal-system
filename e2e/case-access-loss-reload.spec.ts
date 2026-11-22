@@ -10,6 +10,8 @@
 //   notifyManager の systemSetTimeoutZero）ため、画面の操作の間は止められない（止めると画面が更新されない）。そこで、覆いが出た後
 //   （⑤の確認の間）だけ止め、5秒の上限・通信の上限に届かないようにする。読み込み直しを進める⑥の前に resume する（コードレビュー1回目 軽微）。
 // E2E は同時に1つだけ実行する（検証用の DB・ポートを共有するため）。
+// #340（C-207）：E-1・E-2・E-3 に、読み込み直した後の文書の localStorage のキーの有無を足した（外された・退出した案件の部屋の下書きは無い、
+//   別のチャンネルの書きかけは残る）。値は読まない。消す時機・消さない場合の網羅は画面・フック・単体のテスト（*.drafts.test.ts*）に任せる。
 import { execFile } from "node:child_process";
 import type {
   Browser,
@@ -202,6 +204,39 @@ async function placeMarker(page: Page) {
   });
 }
 
+/**
+ * #340（C-207）：B の端末の下書きのキー（localStorage）。値は読まず、キーの有無だけを見る。
+ * キーの形は本番の関数を使わず、決めた形（internal-system:draft:v1:<利用者ID>:<scope>）を独立に書く。B の ID はシード（case-access-loss-reload.sql）の値
+ */
+const B_ID = "01JTE2E00000000000R0006338";
+const B_DRAFT_PREFIX = `internal-system:draft:v1:${B_ID}:`;
+const roomDraftKey = (roomId: string) => `${B_DRAFT_PREFIX}room:${roomId}`;
+const threadDraftKey = (roomId: string, parentId: string) =>
+  `${B_DRAFT_PREFIX}thread:${roomId}:${parentId}`;
+
+async function bDraftKeys(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (prefix) =>
+      Object.keys(window.localStorage)
+        .filter((key) => key.startsWith(prefix))
+        .sort(),
+    B_DRAFT_PREFIX,
+  );
+}
+
+/** 以前の文書で保存した下書きを、入力欄を使わずに置く（本文は架空。[E2E_TEST] の印） */
+async function putDraft(page: Page, key: string) {
+  await page.evaluate((k) => {
+    window.localStorage.setItem(
+      k,
+      JSON.stringify({
+        body: "[E2E_TEST]340前の文書の書きかけ",
+        updatedAt: Date.now(),
+      }),
+    );
+  }, key);
+}
+
 /** キーボードで入力する（click と打鍵で、beforeunload の確認に必要な利用者の操作になる。e2e/message-drafts.spec.ts と同じ） */
 async function typeInto(input: Locator, text: string) {
   await input.click();
@@ -359,6 +394,12 @@ test("#338 AC-1・AC-5 E-1: S-17 を開いたまま外されると、新しい�
   await expect(
     main.getByText(CASES.e1.description, { exact: true }),
   ).toBeVisible();
+  // #340 AC-1：S-17 の入力欄に書く（入力のたびに同期で保存される。キーができたことを、キー名で確かめる）
+  await typeInto(
+    main.getByRole("textbox", { name: "メッセージ" }),
+    "E2E 340の書きかけ",
+  );
+  expect(await bDraftKeys(page)).toContain(roomDraftKey(CASES.e1.room));
   await placeMarker(page);
   const reloaded = page.waitForEvent("load", { timeout: RELOAD_TIMEOUT_MS });
 
@@ -366,8 +407,15 @@ test("#338 AC-1・AC-5 E-1: S-17 を開いたまま外されると、新しい�
 
   await reloaded;
   expect(await documentState(page)).toEqual({ type: "reload", marker: null });
+  // #340 AC-1・AC-4：読み込み直した後の文書で、外された案件の部屋の下書きのキーが無い
+  expect(await bDraftKeys(page)).not.toContain(roomDraftKey(CASES.e1.room));
   await expect(page).toHaveURL(new RegExp(`/cases/${CASES.e1.id}$`));
   await expect(main.getByText(PRIVATE_TEXT, { exact: true })).toHaveCount(1);
+  // 非公開の表示が出た後に確かめる（描画の前に数えて空振りしない）：入力欄は出ず、キーも書き戻されていない
+  await expect(main.getByRole("textbox", { name: "メッセージ" })).toHaveCount(
+    0,
+  );
+  expect(await bDraftKeys(page)).not.toContain(roomDraftKey(CASES.e1.room));
   await expect(
     main.getByText(CASES.e1.description, { exact: true }),
   ).toHaveCount(0);
@@ -419,6 +467,12 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
   await expect(
     main.getByText(CASES.e2.description, { exact: true }),
   ).toBeVisible();
+  // #340 AC-1：以前の文書で保存した、この案件の部屋のスレッドの返信の下書き（投稿の下書きは、送信の成功で消えるため、別に置く）
+  const e2ThreadDraft = threadDraftKey(
+    CASES.e2.room,
+    "01JTE2E00000000000R0029338",
+  );
+  await putDraft(page, e2ThreadDraft);
   const caseComposer = main.getByRole("textbox", { name: "メッセージ" });
   await typeInto(caseComposer, CASE_POST_TEXT);
   await main.getByRole("button", { name: "送信", exact: true }).click();
@@ -442,6 +496,10 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
     .getByRole("textbox", { name: "メッセージ" });
   await typeInto(channelComposer, CHANNEL_DRAFT);
   await tag(channelComposer, "composer");
+  // #340：喪失の確定の前は、どちらのキーもある（否定の確認が空振りしない）
+  expect(await bDraftKeys(page)).toEqual(
+    expect.arrayContaining([e2ThreadDraft, roomDraftKey(CHANNEL_ROOM)]),
+  );
   const row = page
     .getByRole("log", { name: "メッセージ一覧" })
     .getByRole("listitem")
@@ -533,6 +591,17 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
     reasons: [],
     pagehide: "seen",
   });
+  // #340 AC-1・AC-2・AC-4：読み込み直した後の文書で、外された案件の部屋の下書き（投稿・スレッドの返信）のキーは無く、
+  // 別のチャンネルの書きかけ（CHANNEL_DRAFT）のキーは残っている
+  const keysAfter = await bDraftKeys(page);
+  expect(
+    keysAfter.filter(
+      (key) =>
+        key === roomDraftKey(CASES.e2.room) ||
+        key.startsWith(`${B_DRAFT_PREFIX}thread:${CASES.e2.room}:`),
+    ),
+  ).toEqual([]);
+  expect(keysAfter).toContain(roomDraftKey(CHANNEL_ROOM));
   await page.close();
   expect(b.errors).toEqual([]);
 });
@@ -602,6 +671,12 @@ test("#338 AC-1・AC-5 E-3: S-17 で自分から退出すると、/cases の新�
   await expect(
     main.getByText(CASES.e3.description, { exact: true }),
   ).toBeVisible();
+  // #340 AC-1 (c)（利用者の決定 Q1：本人の退出でも消す）：入力欄に書いてから退出する
+  await typeInto(
+    main.getByRole("textbox", { name: "メッセージ" }),
+    "E2E 340の退出の前の書きかけ",
+  );
+  expect(await bDraftKeys(page)).toContain(roomDraftKey(CASES.e3.room));
   await placeMarker(page);
   const loaded = page.waitForEvent("load", { timeout: RELOAD_TIMEOUT_MS });
 
@@ -622,5 +697,7 @@ test("#338 AC-1・AC-5 E-3: S-17 で自分から退出すると、/cases の新�
   await expect(
     page.getByText(CASES.e3.description, { exact: true }),
   ).toHaveCount(0);
+  // #340 AC-1 (c)：退出した後の新しい文書で、その案件の部屋の下書きのキーが無い
+  expect(await bDraftKeys(page)).not.toContain(roomDraftKey(CASES.e3.room));
   expect(b.errors).toEqual([]);
 });

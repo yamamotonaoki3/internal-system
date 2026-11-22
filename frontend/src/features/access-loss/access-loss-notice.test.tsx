@@ -241,3 +241,53 @@ describe("#338 AC-5 U-16b 最初のセッションの確認が成功する前の
     expect(screen.queryByText(LEFT_TEXT)).toBeNull();
   });
 });
+
+// #340 AC-5 D-5（利用者の決定 Q3、計画レビュー2回目の軽微）：下書きを消せなかったときの知らせの種類 lostDraftsRemain・leftDraftsRemain。
+// 文の全体は実装の担当が決めるため固定しない。役割（status）と、要点の語で確かめる：
+//   もとの知らせの要点（lost は「読み込み直しました」、left は「退出しました」）に、「書きかけ」「残っている可能性」と、共用の端末向けの「サイトデータ」の削除の案内を足す。
+//   「ログアウトすると消えます」とは言い切らない。
+describe("#340 AC-5 D-5 下書きを消せなかったときの知らせ", () => {
+  it.each([
+    ["lostDraftsRemain", "読み込み直しました"],
+    ["leftDraftsRemain", "退出しました"],
+  ] as const)(
+    "#340 AC-5 D-5: %s を書くと、読んで同じ種類が返り、役割 status で、もとの知らせの要点と、書きかけが残っている可能性・サイトデータの削除の案内を出す。「ログアウトすると消えます」とは言い切らない",
+    (kind, base) => {
+      writeAccessLossNotice(kind);
+      expect(window.sessionStorage.length).toBe(1);
+      const key = window.sessionStorage.key(0) ?? "";
+      expect(window.sessionStorage.getItem(key)).toBe(kind);
+      const client = newClient();
+      client.setQueryData(authKeys.session, sessionOf(USER_A));
+      expect(takeAccessLossNotice(client)).toBe(kind);
+      renderNotice(client);
+      const status = screen.getByRole("status");
+      const text = status.textContent ?? "";
+      expect(text).toContain(base);
+      expect(text).toContain("書きかけ");
+      expect(text).toContain("残っている可能性");
+      expect(text).toContain("サイトデータ");
+      expect(text).not.toContain("ログアウトすると消えます");
+    },
+  );
+
+  it("#340 AC-5 D-5: 新しい種類でも、「閉じる」で消え、別の利用者に替わると出さない", async () => {
+    writeAccessLossNotice("lostDraftsRemain");
+    const client = newClient();
+    client.setQueryData(authKeys.session, sessionOf(USER_A));
+    takeAccessLossNotice(client);
+    const user = renderNotice(client);
+    expect(screen.getByRole("status").textContent).toContain("書きかけ");
+    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    writeAccessLossNotice("leftDraftsRemain");
+    const other = newClient();
+    other.setQueryData(authKeys.session, sessionOf(USER_A));
+    takeAccessLossNotice(other);
+    act(() => {
+      other.setQueryData(authKeys.session, sessionOf(USER_B));
+    });
+    expect(screen.queryByText(/書きかけ/)).toBeNull();
+  });
+});

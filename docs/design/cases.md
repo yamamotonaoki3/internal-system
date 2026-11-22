@@ -1498,7 +1498,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 
 ## 資格を失ったときの画面の切り替え（#308）
 
-S-17 を開いたまま、ほかの参加者に外された人の画面が、開き直すまで、既に読み込んだ説明・参加者の一覧を出し続けていた（概要・詳細に自動の更新がなく、やり取りの自動の更新が拒否されても、詳細を取り直す経路がなかった。新しい中身は取得されない）。既存の参加者の削除（#147-B）からあった穴で、#150-B の計画レビューで見つかり、先に直した。決定は C-190。API・DB は変えない（フロントエンドだけ）。【#338（C-206）：以下の片付けの後に、ページの文書ごと読み込み直すようにした。数え上げで取り除けないもの（部品の状態・進行中の処理の続き）を、実行環境ごと消すため。呼ぶ場所と条件は「処理の流れ」の 8、入口の設計は[access-loss.md](access-loss.md)、判断の理由は[ADR-0033](../adr/0033-reload-page-after-access-loss.md)】
+S-17 を開いたまま、ほかの参加者に外された人の画面が、開き直すまで、既に読み込んだ説明・参加者の一覧を出し続けていた（概要・詳細に自動の更新がなく、やり取りの自動の更新が拒否されても、詳細を取り直す経路がなかった。新しい中身は取得されない）。既存の参加者の削除（#147-B）からあった穴で、#150-B の計画レビューで見つかり、先に直した。決定は C-190。API・DB は変えない（フロントエンドだけ）。【#338（C-206）：以下の片付けの後に、ページの文書ごと読み込み直すようにした。数え上げで取り除けないもの（部品の状態・進行中の処理の続き）を、実行環境ごと消すため。呼ぶ場所と条件は「処理の流れ」の 8、入口の設計は[access-loss.md](access-loss.md)、判断の理由は[ADR-0033](../adr/0033-reload-page-after-access-loss.md)】【#340（C-207）：確定したときに、その案件の部屋のメッセージの下書きも端末から消すようにした。消す場合・消さない場合は「処理の流れ」の 9、設計は[drafts.md](drafts.md)】
 
 ### ファイルと役割
 
@@ -1508,6 +1508,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | `frontend/src/features/cases/hooks/useCaseWrites.ts` | `forgetCaseContent`（中身〔詳細・TODO・添付の一覧（148-B-1。`caseKeys.attachments`）・TODO の履歴と削除済みの一覧（149-C）・この案件の完了した操作・部屋のメッセージ・スレッド・メンションの候補・チャンネルの詳細・スレッドの一覧と未読の件数のうちこの部屋の分〕の取り消しと取り除き。スレッドは引数`threads`で`"all"`か`"room"`）を足し、`forgetCaseAfterLeave`（概要を非参加に書き換えてから中身を取り除く）を、本人の退出と、この部品の両方から使う。`cachedCaseRoomId`（退出の前に部屋の ID を求める）も足した。添付の一覧のキャッシュも、本人の退出の後片付けと同じ関数を通って取り除かれる。`invalidateCaseLists`（#363）：その利用者の案件の一覧に、行を書き換えず・進行中の取得も取り消さずに、古い印だけを付ける（参加者として見ていない非参加の確かめで使う） |
 | `frontend/src/features/cases/hooks/useParticipantWrites.ts` | 退出で、送る前に`cachedCaseRoomId`で部屋の ID を求め、成功したときと、画面を離れるときの`forgetCaseAfterLeave`に渡す（#323） |
 | `frontend/src/features/cases/hooks/useCaseAccessLoss.ts`・`useCaseWrites.ts`（`useRemoveCaseParticipant`） | 【#338】片付けの後に、読み込み直しの入口（`requestAccessLossReload`。[access-loss.md](access-loss.md)）を呼ぶ。呼ぶ場所と条件は、下の「処理の流れ」の「読み込み直し（#338）」。`useCaseAccessLoss.ts`には、1つの部品の中で1回だけ呼ぶ印（`reloadRequested`）を足した。`useRemoveCaseParticipant`の定義の側の`onSuccess`は、本人の退出のとき、片付け（`forgetCaseAfterLeave`）より先に入口を呼ぶ |
+| `frontend/src/features/cases/hooks/useCaseAccessLoss.ts`・`useCaseWrites.ts`・`components/CaseDetailView.tsx`・`frontend/src/features/drafts/`・`frontend/src/features/access-loss/` | 【#340。C-207】資格を失った案件の部屋の下書きを消す。`useCaseWrites.ts`に、`forgetCaseRoomDrafts(userId, roomId)`（`removed`か`failed`を返す。部屋の ID が`null`なら何もしない。`openDraftStorage`が`null`・`DraftStorageUnavailableError`は`failed`、ほかの例外は投げる）と、`forgetCaseRoomDraftsAfterLoss(ownerId, roomId)`（`failed`のときだけ`noteDraftsRemain`を呼ぶ）を足した。`forgetCaseContent`・`forgetCaseAfterLeave`には入れない（確定していない片付けからも呼ばれるため）。`useCaseAccessLoss.ts`は、引数`participantRoomId`（参加者の概要の部屋の ID。省略できる。本番の呼び出しは必ず渡す）を受け、効果の先頭で、`roomId`・`participantRoomId`から、最後に分かった部屋の ID を ref（`knownRoomId`）に覚える（片付けの後の描画では、どちらも`null`になりうるため）。`CaseDetailView.tsx`の`participantRoomIdOf`が、参加者の概要の`channelId`を渡す（非参加者には`null`）。既存の`roomId`（中身の片付けに使う）は変えない。`drafts/`は`removeRoomDrafts`・`DraftStorageUnavailableError`を公開し、`access-loss/`は`noteDraftsRemain`を公開した |
 | `frontend/src/features/cases/api/query-keys.ts`・`frontend/src/features/messages/api/query-keys.ts` | `caseMutationKeys`（`todoWrite`・`write`）を足した。メンションの候補のキーを`messageKeys.mentionCandidates`・`roomMentionCandidates`に移した（`MentionTextArea.tsx`の直書きをやめた） |
 | `frontend/src/features/cases/components/CaseAttachments.tsx` | `caseId`を受け取り、`useChangeAttachmentVisibility(caseId)`を使う（操作の記録を案件で絞るため） |
 | `frontend/src/features/cases/components/CaseDetailView.tsx` | 部品を呼び、`isParticipantOf`で概要から参加者かを決め、`isOutsiderOf`（概要が成功して非参加、または 404 で失敗。5xx・通信の失敗は含めない）を引数`outsider`として渡す。確かめられないときは`UnverifiedAlert`（「案件の情報を確かめられませんでした」と「再試行」）を出し、中身を描かない。ダイアログは部品の`onLost`で閉じる |
@@ -1541,7 +1542,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
    - 既知の限界（#363）：5xx → 画面を離れる → 離れている間に外される → 戻る、の順序では、一覧のキャッシュの行に、参加者だけの値（最終更新・部屋の ID）が、次の一覧の取り直しまで残る。以前は 5xx の時点で誤って片付けていたので、この順序では消えていた（5xx の誤判定を直した裏返し）。メモリに残るものを消しきることは、#339〜#342 の範囲
 4. 重ねない印：同じ参加の期間の中で、確かめと後片付けを重ねない。印を外すのは、非参加から参加者に戻ったとき、再試行で参加者が返ったときだけ（詳細の取得の成功では外さない。参加者のままの 403 で循環するため）
 5. 本人の退出の後片付けで既に非参加になっているときは、確かめ直さない（退出の既存の動きのまま）
-6. 端末に保存した下書きは消さない。切り替わるまでの時間は、自動の更新の1回（2秒）と概要の取り直しの1往復
+6. 端末に保存した下書きは消さない。【#340（C-207）により置き換え：資格を失った案件の部屋のメッセージの下書きは、確定したときに消す（下の 9）。ほかの部屋・申請の下書きは、これまでどおり消さない。元の記述は残す】切り替わるまでの時間は、自動の更新の1回（2秒）と概要の取り直しの1往復
 7. 契機 (b) で`onLost`（`CaseDetailView.tsx`の`closeDialog`）が閉じるもの：開いているダイアログすべて（編集・再開の選び直し・納期の変更・終了の確認・参加者の管理・添付の公開範囲）と、編集の基準（説明・版）。管理の資格が残る人（担当部署のオーナーが参加者から外された場合など）も、いったん閉じる。開き直すと、編集は`expected`の方式（説明の欄なし）になる。本人の退出でも呼ばれる（退出の後は一覧へ移るので、害はない）
 8. 読み込み直し（#338。C-206）：上の片付けの**後に**、ページの文書ごと読み込み直す入口`requestAccessLossReload`を呼ぶ。入口の待ち方・隠し方・知らせは[access-loss.md](access-loss.md)。呼ぶのは、**この画面で参加者だったことを見た後に外された**と分かったときだけ（片付けだけが走る場合に読み込み直すと、参加していない案件を開くたびにページが読み込み直されるため）。持ち主は、確定を始めた時点の利用者（部品の`userId`。本人の退出は押した時点の`actorId`）。
    - 呼ぶ（理由`lost`）
@@ -1552,13 +1553,21 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
    - 1つの部品の中で、**参加者に戻るまで1回だけ**呼ぶ印（`reloadRequested`）：(a) の確かめと (b) の効果の両方が、同じ喪失を見るため。印を外すのは、非参加から参加者に戻ったとき（`handling`と同じ時点）だけ
    - #363 の片付けとの関係：(b) の判定（`isParticipantOf`・`isOutsiderOf`・`participantSeen`・`previousOutsider`）と、数え上げの関数（`forgetCaseContent`・`forgetCaseInLists`・`invalidateCaseLists`・`forgetCaseAfterLeave`）は変えない。読み込み直しを取りやめる枝（別の利用者に替わった）でも、いまの片付けの保証（クエリ・完了した操作の記録の消去）が残るように、片付けは消さずに先に走らせる
    - 読み込み直した後の画面：案件の中身は出ない。理由の知らせが1回出る（[access-loss.md](access-loss.md)の「知らせ」）
+9. 端末の下書きを消す（#340。C-207。下書きの設計は[drafts.md](drafts.md)）：確定したときに、持ち主の、その案件の部屋の下書き（部屋への投稿と、その部屋のスレッドの返信）を消す。順序は**片付け → 読み込み直しの要求 → 下書きの消去 → 消せなかったときだけ、知らせの印**（`forgetCaseRoomDraftsAfterLoss`が、消去と印を行う）。消去が想定外の例外を投げても、読み込み直しの要求は済んでいる。同じ同期の処理の中で行う（入口は呼んだその場で待機にして画面を覆うので、消してから覆うまでの間に、利用者の入力は割り込めない）
+   - 消す：(a) 拒否の後の確かめ（`settle`）で、非参加（`lost`）・404（`notFound`）が確定したとき（表示中も、画面を離れた後も）。(b) 効果の中の、この画面で参加者だったことを見た後に`outsider`になった枝（`lostHere`）。(c) 本人の退出の成功（`useRemoveCaseParticipant`の定義の側の`onSuccess`で、入口を呼び、`forgetCaseAfterLeave`の後に消す。利用者の決定。2026-11-22 の Q1）
+   - 消さない：確かめられない（`unverified`。5xx・通信の失敗）まま読み込み直す場合（利用者の決定の Q2。再試行で非参加が確定したら、そのとき消す）。この画面で参加者だったことを見ていない非参加（最初から非参加・古い非参加の概要・作り直しの経路。下書きは消すと戻らないので、キャッシュの片付け（#363）とは時機をそろえない）。参加者のままの 403。退出の失敗。部屋の ID が分からない場合
+   - 部屋の ID：詳細の`channelId`（`roomId`）と、参加者の概要の`channelId`（`participantRoomId`）の、最後に分かったものを`knownRoomId`に覚える。表示中の確定で詳細が消えた後の描画や、詳細を受け取れないまま外された場合でも、覚えた ID で消す。退出は、送る前に`cachedCaseRoomId`で求めた`input.roomId`を使う
+   - 持ち主：確定を始めた時点の利用者（部品の`userId`・退出は`actorId`）の ID を引数で受け、セッションのキャッシュの、いまの利用者を読まない。画面を離れた後に確定し、その間に別の利用者がログインしていても、消えるのは前の利用者の下書きだけで、新しい利用者の同じ部屋の下書きは残る
+   - 消せなかったとき：`forgetCaseRoomDrafts`が`failed`を返し、`noteDraftsRemain`が、同じ持ち主の待機に印を付ける。読み込み直した後の知らせが、書きかけが残っている可能性を伝える（`lostDraftsRemain`・`leftDraftsRemain`。[access-loss.md](access-loss.md)）
+   - 既知の限界：別のタブ（#341）・ブラウザの「戻る」で復元された入力欄（#342）・確かめられないまま読み込み直した場合（端末に残る）・知らせの保存も失敗した場合・ログに残らないこと（#372）。[drafts.md](drafts.md)の「既知の限界」
 
 ### テストの場所（#308）
 
 - 画面：`frontend/src/pages/CaseAccessLoss.test.tsx`（403・404・通信の失敗・5xx、再試行、ダイアログ、キャッシュの取り除き。#363：合わせて 15 件。参加者のまま概要の取り直しだけが 500・通信の失敗なら片付けず、404 なら片付ける〔3件〕。画面を作り直した後の 404・非参加で片付ける（R-1・R-2）、作り直さない場合の 500 の後の 404（R-3）、作り直した後にまた失敗なら片付けない（R-4）、画面を外している間に概要が 404・非参加に置き換わってから戻る（R-6・R-7）、応答が離れてから返る（R-8）、片付いた後の作り直しを重ねても壊れない（R-9）、最初から非参加・404 で開くと、この案件の詳細のキャッシュが消える（R-5・R-5b））、`frontend/src/pages/CaseAccessLoss.lists.test.tsx`（#363 の R-10〜R-14。6件。古い非参加の概要で開いても一覧の行を書き換えず、参加者になれば一覧が正しい／サーバーも非参加なら古い印が付き、ほかの利用者の一覧は印を付けない／この画面で参加者として見た後の喪失では行を直す〔回帰〕／離れている間の 404 でも行は書き換えず印だけ）、`CaseAccessLoss.userSwitch.test.tsx`（利用者の切り替え）
 - 取り除きの確認（#323）：`frontend/src/features/cases/hooks/useCaseAccessLoss.forget.test.tsx`（16件。取り除くキー・残すキー、スレッドの2通り、一覧の行）、`useCaseAccessLoss.mutations.test.tsx`（3件。操作の記録の取り除き）、`useCaseAccessLoss.history.test.tsx`（(ii) は #363 で期待を変えた：最初から非参加の描画では、この案件・この利用者の履歴・削除済みの一覧が消え、ほかの案件・ほかの利用者の分は残り、再描画では重ねて消さない）、`frontend/src/features/cases/hooks/useParticipantWrites.leave.test.tsx`（3件。退出の後片付けと部屋の ID）、`frontend/src/pages/CaseCacheAfterAccessLoss.test.tsx`（2件。画面から確かめる。キャッシュの中身を調べる補助が、操作の記録も調べる）
-- 読み込み直し（#338）：`frontend/src/pages/CaseAccessLossReload.test.tsx`（入口を`vi.fn`に差し替え、きっかけごとに、片付けの後に呼ばれる・呼ばれないを確かめる。(a)・(b)・(c)・画面を離れた後・作り直されて表示中〔P-10b〜P-10d。戻った画面に拒否が届かなくても呼ばれる〕・呼ばない場合・利用者の切り替え・401 の後の再ログイン）、`CaseAccessLossReload.waiting.test.tsx`（本物の入口で、投稿を保留したまま外される・知らせの表示）。入口そのものは[access-loss.md](access-loss.md)の「テストの場所」。既存の#308・#363 のテストの期待は変えていない（全体の画面のテストでは、`frontend/src/test/setup.ts`が入口を差し替える）
-- E2E：`e2e/case-access-loss.spec.ts`（1件。実ブラウザ2つで、外された人の画面が、操作・移動なしで、読み込み直された後に非公開の表示になる。#338 で、「再読み込みなしで」の期待を、この形に書き換えた）、`e2e/case-access-loss-reload.spec.ts`（#338。4件。[e2e.md](../testing/e2e.md)）
+- 読み込み直し（#338）：`frontend/src/pages/CaseAccessLossReload.test.tsx`（入口を`vi.fn`に差し替え、きっかけごとに、片付けの後に呼ばれる・呼ばれないを確かめる。(a)・(b)・(c)・画面を離れた後・作り直されて表示中〔P-10b〜P-10d。戻った画面に拒否が届かなくても呼ばれる〕・呼ばない場合・利用者の切り替え・401 の後の再ログイン）、`CaseAccessLossReload.waiting.test.tsx`（本物の入口で、投稿を保留したまま外される・知らせの表示）。入口そのものは[access-loss.md](access-loss.md)の「テストの場所」。既存の#308・#363 のテストの期待は変えていない（全体の画面のテストでは、`frontend/src/test/setup.ts`が入口を差し替える。**#340 で、1件だけ変えた**：下の「下書き（#340）」）
+- 下書き（#340。C-207）：`frontend/src/features/cases/hooks/useCaseAccessLoss.drafts.test.tsx`（きっかけごとの、消す・消さない。参加者の概要の部屋の ID だけを見ていた場合・詳細が先に消えた場合・画面を離れた後・持ち主と別の利用者・消せなかった場合・想定外の例外）、`useCaseWrites.room-drafts.test.ts`（`forgetCaseRoomDrafts`）、`useParticipantWrites.leave.test.tsx`（本人の退出で消える・退出の失敗では残る）、`frontend/src/pages/CaseAccessLoss.drafts.test.tsx`（実際の入力欄で書いた部屋・スレッドの下書きが、外される・退出で消える。ほかの部屋・申請・ほかの利用者は残る。確かめられない・見ていない非参加・参加者のままの 403・退出の失敗では残る）、`CaseAccessLossReload.drafts.test.tsx`（読み込み直しを待つ間・消せなかったときの知らせ）。**期待を変えた既存のテスト**：`frontend/src/pages/CaseAccessLoss.test.tsx`の「#308 AC-1（本人の下書き）」（以前：切り替わっても端末の下書きは消えず、参加者に戻ったとき入力欄に復元される。いま：その案件の部屋の下書きは端末から消え、参加者に戻っても入力欄は空。ほかの部屋の下書きは残る。理由：C-190(6) を置き換えた C-207）
+- E2E：`e2e/case-access-loss.spec.ts`（1件。実ブラウザ2つで、外された人の画面が、操作・移動なしで、読み込み直された後に非公開の表示になる。#338 で、「再読み込みなしで」の期待を、この形に書き換えた）、`e2e/case-access-loss-reload.spec.ts`（#338。4件。#340 で、E-1・E-2・E-3 に、読み込み直した後の端末の下書きのキーの有無の確かめを足した。[e2e.md](../testing/e2e.md)）
 
 ## 既知の差・未実施・未決定として記録するもの
 
@@ -1568,6 +1577,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | 概要が先に非参加になった時点（契機 (b)）では、詳細・やり取り・TODO の一覧・添付の一覧のキャッシュを取り除かないこと | **解消**（#323）。`forgetCaseContent`で、参加者だけの中身（メンションの候補を含む）を取り除く（上の「処理の流れ」の 3）。メンションの候補のキーは`messageKeys`に移した |
 | 資格を失った後に、参加者だけの中身が残りうる場所（#323。取り除ききれない） | (1) 画面を離れた後で、取得の途中だったスレッドの応答が、後から届いた場合（データのないスレッドは`"room"`では残すため）。(2) 部品が画面に付いたままの間に、`useMutation`の部品の側が持つ、直前の操作の結果。(3) 表示中の後片付けは、スレッドを全部取り除く（ほかの部屋のスレッドも。開き直すと取り直されるので、残る問題ではなく、余分な取り直し）。【#338：(1)(2) は、読み込み直しが起きる場合（上の「処理の流れ」の 8）は、文書ごと消える。読み込み直さない場合（作り直しの経路など）は、そのまま残る】 |
 | 5xx の後に画面を離れ、離れている間に外されて戻った場合（#363） | 一覧のキャッシュの行に、参加者だけの値（最終更新・部屋の ID）が、次の一覧の取り直しまで残る（中身は消える）。以前は 5xx の時点で誤って片付けていたので消えていた。メモリに残るものを消しきることは、#339〜#342 の範囲。【#338：この経路では、読み込み直さない（上の「処理の流れ」の 8。作り直した画面は参加者だったことを見ていない状態で始まり、区別できないため）。上の限界は、そのまま残る】 |
+| 確かめられないまま読み込み直した場合の、その案件の部屋の下書き（#340。C-207） | 消さない（利用者の決定の Q2）。本当に外されていた場合は、保存から7日が過ぎた後の、次の起動・読み取りのとき、または、ログアウトの成功のときまで、端末に残る（画面には出ない）。別のタブ（#341）・ブラウザの「戻る」での復元（#342）・ログに残らないこと（#372）も、[drafts.md](drafts.md)の「既知の限界」に書いた |
 | 表示中に、ロールの権限（`perm.case.view`）だけが外れた場合 | 既に読み込んだ説明・参加者は、次に開き直すまで残る（TODO・やり取りは欄ごとに 403 の表示）。権限の変更が、開いている画面にすぐ反映されないのは、ほかの画面と同じ既存の動き（ロール・権限を変えても、セッションは切れない）。#308 の範囲の外（C-190） |
 | 進捗（5-1 AC-2。S-16・S-17 の進捗） | 149-A で実装済み（下の「149-A の設計」）。147-A の時点では出していなかった（Q7） |
 | 最終更新・未読（S-16 の列）、サイドバーの案件の未読の印 | 148-C で実装済み（下の「148-C の設計」）。148-A・148-B-1 の時点では出していなかった（C-184(1)） |

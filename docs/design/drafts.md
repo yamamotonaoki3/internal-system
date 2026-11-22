@@ -12,7 +12,7 @@
 | --- | --- |
 | このIssueで作ったもの | チャンネル・DMの入力欄の下書き（保存・復元・期限・消去）／離脱の確認（画面の移動・ブラウザの戻る・再読み込み・タブを閉じる）／手動ログアウトの前の確認／ログアウトの成功時の下書きの消去／ログアウトの失敗の案内（共通レイアウト）／下書きを消せなかったときのログイン画面の案内 |
 | #245に分けたもの | メッセージ入力欄以外の入力画面（個人情報の入力画面など）の離脱の確認。この設計の`LeaveGuardProvider`・`useLeaveGuard`を使い回す |
-| 各Issueに残したもの | スレッド返信・案件の申請（S-18）の下書き。キーの`scope`を足すだけで保存できる（今は`room:<部屋ID>`だけ） |
+| 各Issueに残したもの | スレッド返信・案件の申請（S-18）の下書き。キーの`scope`を足すだけで保存できる（#239の時点では`room:<部屋ID>`だけ。スレッド返信は#137、案件の申請は#146で足した。下の各節） |
 | 作らないもの | 端末をまたぐ継続、保存内容の暗号化、複数タブへの反映（`storage`イベントは購読しない。1-1 AC-4・C-117）、フロントエンドの共通ロガーへの記録（#234） |
 
 ## ファイルと役割
@@ -23,8 +23,8 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `draft-policy.ts` | 規則の定義元。`DRAFT_TTL_MS`（7日）・`DRAFT_CLOCK_SKEW_MS`（5分）・`DRAFT_KEY_PREFIX`・`roomDraftScope`・`draftKey`・`userDraftKeyPrefix`・`isBlankDraft`・`isDraftExpired`。「空」（空白・改行だけ）の判定は下書き一般の規則としてここに持つ。`shared/message-rules.ts`の`messageBodySchema`（送信の可否）とは意味が違う定義（保存の要否）なので統合せず、`shared/`は変えない |
-| `draft-storage.ts` | 保存先（`Storage`）と現在時刻を引数で受ける関数。`openDraftStorage`・`readDraft`・`writeDraft`・`removeDraft`・`removeUserDrafts`・`purgeExpiredDrafts`・`purgeExpiredDraftsOnStartup`・`DraftStorageUnavailableError`。値はZodで検証する |
+| `draft-policy.ts` | 規則の定義元。`DRAFT_TTL_MS`（7日）・`DRAFT_CLOCK_SKEW_MS`（5分）・`DRAFT_KEY_PREFIX`・`roomDraftScope`・`threadDraftScope`・`roomThreadDraftScopePrefix`（#340。その部屋のスレッドの返信の scope の接頭辞。部屋の ID の前方一致で別の部屋を巻き込まないよう、区切りまで含める。`threadDraftScope`もこれを使う）・`caseRequestDraftScope`・`draftKey`・`userDraftKeyPrefix`・`isBlankDraft`・`isDraftExpired`。「空」（空白・改行だけ）の判定は下書き一般の規則としてここに持つ。`shared/message-rules.ts`の`messageBodySchema`（送信の可否）とは意味が違う定義（保存の要否）なので統合せず、`shared/`は変えない |
+| `draft-storage.ts` | 保存先（`Storage`）と現在時刻を引数で受ける関数。`openDraftStorage`・`readDraft`・`writeDraft`・`removeDraft`・`removeUserDrafts`・`removeRoomDrafts`（#340。その利用者の、その部屋の下書きだけを消す）・`purgeExpiredDrafts`・`purgeExpiredDraftsOnStartup`・`DraftStorageUnavailableError`（`removeRoomDrafts`と`DraftStorageUnavailableError`は、#340で`index.ts`から公開した。呼び出し側が、消せなかったことを受け止めるため）。値はZodで検証する |
 | `hooks/useDraft.ts` | 入力欄用。マウントで復元し、入力のたびに保存する。戻り値は`initialBody`・`unavailable`・`save`・`discard` |
 | `index.ts` | 公開部分。ほかの機能はここだけを通して使う |
 
@@ -61,9 +61,9 @@
 
 ## キーと値
 
-- キー：`internal-system:draft:v1:<利用者ID>:<scope>`。`scope`は今は`room:<部屋ID>`だけ（チャンネルとDMは部屋のIDで一意）。値の形を変えるときは版（`v1`）を上げる。利用者の分の削除は、利用者IDの後ろの区切りまで含めた接頭辞で絞る（別の利用者のIDの前方一致に巻き込まない）
-- 値：`{ body, updatedAt }`のJSON。`updatedAt`は最終編集の時刻（ミリ秒）。読むときにZodで検証し、JSONでない・形の違う値・小数・負の数は壊れた値として、そのキーを消して「下書きなし」にする
-- 保存するのはキー（利用者ID・部屋ID）・本文・更新日時だけ。トークンなどの秘密情報は置かない。名前・パスワード・メールなどの個人情報の欄と再認証の入力は保存しない（1-1 AC-4、0-1 AC-21）。保存するのはメッセージ入力欄だけ
+- キー：`internal-system:draft:v1:<利用者ID>:<scope>`。`scope`は、部屋の入力欄が`room:<部屋ID>`（チャンネル・DM・案件の部屋は部屋のIDで一意）、スレッドの返信が`thread:<部屋ID>:<親ID>`（#137）、案件の申請の説明欄が`case-request:new`（#146）。値の形を変えるときは版（`v1`）を上げる。利用者の分の削除は、利用者IDの後ろの区切りまで含めた接頭辞で絞る（別の利用者のIDの前方一致に巻き込まない）。部屋の分の削除（#340）は、`room:<部屋ID>`の完全一致の1件と、`thread:<部屋ID>:`の接頭辞（区切りまで含める）で絞る（部屋のIDの前方一致に巻き込まない）
+- 値：`{ body, mentions?, updatedAt }`のJSON。`mentions`は、本文でメンションした相手（任意。`shared/message-rules.ts`の`mentionSchema`で検証する）。`updatedAt`は最終編集の時刻（ミリ秒）。読むときにZodで検証し、JSONでない・形の違う値・小数・負の数は壊れた値として、そのキーを消して「下書きなし」にする
+- 保存するのはキー（利用者ID・部屋ID）・本文・メンションした相手・更新日時だけ。トークンなどの秘密情報は置かない。名前・パスワード・メールなどの個人情報の欄と再認証の入力は保存しない（1-1 AC-4、0-1 AC-21）。保存するのはメッセージ入力欄だけ
 
 ## 期限と消す時点
 
@@ -77,6 +77,7 @@
 | 送信の成功（`MessageComposer`） | その部屋の下書き。本文は復元値に戻さず空にする。送信の失敗（422・500）では残す |
 | 利用者が破棄したとき（離脱の確認の「破棄して離れる」） | 見張りの`onDiscard`（`useDraft`の`discard`） |
 | 手動ログアウトのAPIの成功（`useLogout`） | その利用者の下書きすべて（`removeUserDrafts`）。APIの失敗では消さない |
+| 案件の資格を失ったと確定したとき・案件から本人が退出したとき（#340・C-207。`useCaseAccessLoss`・`useRemoveCaseParticipant`） | **その案件の部屋の下書きだけ**（部屋への投稿の1件と、その部屋のスレッドの返信すべて。`removeRoomDrafts`）。持ち主は、確定を始めた時点の利用者。ほかの部屋・申請・ほかの利用者の下書きは消さない。確かめられない（5xx・通信の失敗）まま読み込み直す場合、この画面で参加者だったことを見ていない非参加、参加者のままの403、退出の失敗では消さない。呼ぶ場所と条件は[cases.md](cases.md)、消せなかったときの知らせは[access-loss.md](access-loss.md) |
 | 入力が空・空白だけになったとき（`writeDraft`） | そのキー |
 
 - 掃除は、先にキーを配列に集めてから消す（消しながら番号で数えると取りこぼすため）
@@ -143,6 +144,12 @@
 - **失敗の案内が出続ける**：上の`LogoutFailureNotice`の項のとおり
 - **読み上げの重複**：確認を出さない経路でログアウトが失敗したとき、アバターメニューが開いていれば、メニューの中と`LogoutFailureNotice`の両方に同じ文言が出うる（読み上げが重なる）。E2Eは、隠れた要素を除く`getByRole("alert")`か、案内の領域に絞ったlocatorを使う
 - **DMの相手が無効になったとき**：入力欄が閉じ、下書きは7日かログアウトまで端末に残る（画面には出ない）
+- **資格を失った案件の部屋の下書き（#340・C-207）の限界**：
+  - 別のタブで、同じ利用者が同じ部屋の入力欄を開いていると、その入力のたびに下書きが書き戻されうる（`storage`イベントは購読しない。C-117）。#341で扱う
+  - ブラウザの「戻る」で、前の文書がそのまま復元されると（bfcache）、復元された入力欄から入力して、消した下書きを、前の文書の利用者・部屋のキーへ保存し直せる。#342で扱う
+  - **確かめられないまま読み込み直した場合は消さない**（利用者の決定。2026-11-22 の Q2）。概要の取り直しが5xx・通信の失敗のとき、参加者のままかもしれないので消さない。本当に外されていた場合は、読み込み直した後は部屋のIDが分からず（概要の部屋のIDは非参加者には入らない）、消し直せない。その部屋の下書きは、保存から7日が過ぎた後の、次の起動（`purgeExpiredDraftsOnStartup`）か読み取りのとき、または、ログアウトの成功（`removeUserDrafts`）のときまで、端末に残る（7日後に動くタイマーはない。画面には出ない）
+  - **消せなかった場合**（保存先を開けない・削除が使えない例外）は、書きかけが残っている可能性を、読み込み直した後の知らせで伝える（[access-loss.md](access-loss.md)）。ログには残さない（画面の側のログの仕組みは#372）。知らせの保存も失敗したときは、利用者に伝わらない
+  - 部屋のIDを一度も受け取っていない（詳細も、参加者の概要の部屋のIDもない）まま確定した場合は、消さない（その描画で入力欄は描かれず、書かれた下書きもない）。以前の文書で保存した下書きが残ることがある
 
 ## 主な入出力
 
@@ -151,6 +158,7 @@
 | `readDraft(storage, userId, scope, now)` | 保存先・利用者ID・scope・現在時刻 | 本文または`null`。期限切れ・壊れた値はキーを消して`null` |
 | `writeDraft(storage, userId, scope, body, now)` | 同上＋本文 | 空白だけなら消す。そうでなければ`{ body, updatedAt: now }`を保存 |
 | `removeDraft(storage, userId, scope)`・`removeUserDrafts(storage, userId)` | 保存先・利用者ID（・scope） | 1件／その利用者の全件を消す |
+| `removeRoomDrafts(storage, userId, roomId)`（#340） | 保存先・利用者ID・部屋ID | その利用者の、`room:<部屋ID>`の1件と、`thread:<部屋ID>:`で始まる全件を消す。先にキーを集めてから消す。保存先が使えない例外は`DraftStorageUnavailableError`にして投げ、ほかは変えずに投げる |
 | `purgeExpiredDrafts(storage, now)` | 保存先・現在時刻 | 全利用者の期限切れ・壊れた値を消す |
 | `purgeExpiredDraftsOnStartup(storage \| null, now)` | 保存先（なければ何もしない）・現在時刻 | 保存先が使えない例外だけ受け止める |
 | `useDraft(userId, scope)` | 利用者ID（なければ読み書きしない）・scope | `initialBody`・`unavailable`・`save(body)`・`discard()` |
@@ -159,7 +167,8 @@
 
 ## テストの場所
 
-- 単体：`frontend/src/features/drafts/draft-storage.test.ts`（保存・復元・空白・7日−1ms／ちょうど・未来の日時の境界・壊れた値・他の利用者・掃除の連続・fast-check・保存できない環境）
+- 単体：`frontend/src/features/drafts/draft-storage.test.ts`（保存・復元・空白・7日−1ms／ちょうど・未来の日時の境界・壊れた値・他の利用者・掃除の連続・fast-check・保存できない環境。#340：`removeRoomDrafts`が、その部屋の投稿・スレッドの返信だけを消し、ほかの部屋〔前方一致する別の部屋を含む〕・申請・ほかの利用者を残すこと、保存先が使えない例外の扱い）
+- 資格の喪失での消去（#340）：`frontend/src/features/cases/hooks/useCaseWrites.room-drafts.test.ts`（`forgetCaseRoomDrafts`の`removed`・`failed`・想定外の例外）、`useCaseAccessLoss.drafts.test.tsx`（きっかけごとに、消す・消さない。読み込み直しの入口が先に呼ばれること、部屋のIDを覚えること）、`useParticipantWrites.leave.test.tsx`（本人の退出）、`frontend/src/pages/CaseAccessLoss.drafts.test.tsx`（画面の実際の入力欄で書いた下書きが、実際のキーで消えること）、`CaseAccessLossReload.drafts.test.tsx`（読み込み直しを待つ間・消せなかったときの知らせの種類）。[cases.md](cases.md)・[access-loss.md](access-loss.md)
 - 離脱の確認：`frontend/src/features/leave-guard/leave-guard.test.tsx`（`createMemoryRouter`。ダイアログ・戻る・`/login`・確認の待ちの競合・`beforeunload`）
 - 入力欄：`frontend/src/features/messages/messages.drafts.test.tsx`（復元・送信での消去・利用者の分離・複数のタブ・保存できない環境）
 - 追加のテスト：`frontend/src/features/drafts/hooks/useDraft.test.ts`、`frontend/src/features/leave-guard/LeaveGuardProvider.test.tsx`、`frontend/src/features/leave-guard/components/LeaveConfirmDialog.test.tsx`。`leave-guard.test.tsx`は全テストで`console.error`に`Invalid blocker state transition`がないことも確かめる
@@ -186,6 +195,15 @@
 - 「修正して再申請」でフォームに値を入れたときは、元の申請の説明を入れ、それも下書きとして保存する
 - 離脱の確認（S-18から離れるときの確認）は、この子では作らない（#245）
 
+## 資格を失った案件の部屋の下書きを消す（Issue #340）
+
+元の記述は残し、#340（C-207）で変わった点だけをここに書く。上の「期限と消す時点」の表の末尾の行と、「既知の限界」の#340の項が、この節の要点である。
+
+- 目的：資格を失った人の端末に、案件の中身（自分の書きかけ・メンションした参加者の名前）を残さない。C-190の(6)「下書きは消さない」を、**資格を失った案件の部屋のメッセージの下書きに限って**改めた。ほかの部屋・申請の下書きは、これまでどおり消さない
+- 消す対象：確定を始めた時点の利用者の、その案件の部屋の下書き（`room:<部屋ID>`の1件と、`thread:<部屋ID>:`で始まるスレッドの返信すべて）。`removeRoomDrafts`が、`roomDraftScope`と`roomThreadDraftScopePrefix`で絞る
+- 呼ぶ側：`frontend/src/features/cases/hooks/useCaseWrites.ts`の`forgetCaseRoomDrafts`（結果を`removed`か`failed`で返す）と`forgetCaseRoomDraftsAfterLoss`（`failed`のときだけ、`features/access-loss`の`noteDraftsRemain`を呼ぶ）。**確定していない片付け（`forgetCaseContent`）には入れない**（取り直せるキャッシュと違い、下書きは消すと戻らないため）。流れと条件は[cases.md](cases.md)の「資格を失ったときの画面の切り替え（#308）」の9
+- 保存先を開けない（`openDraftStorage`が`null`）・`DraftStorageUnavailableError`は`failed`（保存した後に使えなくなった可能性があるため、成功とは扱わない）。ほかの例外は受け止めず、呼び出し元へ伝える。読み込み直しの要求は、消去より先に済んでいる
+
 ## 関係するIssue・ADR
 
 - Issue #239：本Issue。親は#133（メッセージ）。#234（フロントエンドの共通ロガー。消去の失敗を記録する）、#245（ほかの入力画面の離脱の確認。この設計の提供元を使い回す）
@@ -193,3 +211,4 @@
 - 決定：C-170（C-82・C-117を具体化）。ADR-0020 (c)（ルーティングの枠・認証・テスト基盤の変更）に当たるため、ミューテーションとE2Eを全体で実行する
 - 関連：[messages.md](messages.md)（入力欄）、[auth-session.md](auth-session.md)（ログアウト・401）、[app-shell.md](app-shell.md)（共通レイアウト）、[dms.md](dms.md)
 - Issue #137：スレッド返信の下書き（scope `thread:`）を足した。詳細は[threads.md](threads.md)。決定記録C-172
+- Issue #340（親 #323）：資格を失った案件の部屋のメッセージの下書きを消す。決定記録C-207、[ADR-0033](../adr/0033-reload-page-after-access-loss.md)。別のタブは#341、bfcacheは#342、画面の側のログは#372
