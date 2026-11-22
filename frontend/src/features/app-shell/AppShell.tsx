@@ -2,6 +2,7 @@
 // 各画面は <Outlet /> に入る。ログイン済みかの確認は、この外側の RequireAuth が行う。
 import { useCallback, useId, useRef, useState } from "react";
 import { Outlet } from "react-router";
+import { AccessLossNotice } from "../access-loss";
 import { LogoutFailureNotice } from "../auth";
 import { AvatarMenuProvider } from "./AvatarMenu";
 import { Drawer } from "./Drawer";
@@ -33,6 +34,7 @@ export function AppShell() {
           drawerOpenerRef={drawerOpenerRef}
         />
         <LogoutFailureNotice />
+        <AccessLossNotice />
         <div className="flex flex-1">
           <Sidebar />
           <main

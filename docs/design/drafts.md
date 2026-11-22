@@ -104,7 +104,7 @@
 - **確認の待ちは1つ**：`LeaveGuardProvider`は確認の待ちを `none`／ブロッカーが止めた遷移／ログアウトの確認 のどれか1つだけ持ち、ダイアログも1つだけ描く。ルーター1つにつきブロッカーは1つなので、**#245でほかの入力画面が離脱の確認を使うときも、この`LeaveGuardProvider`と`useLeaveGuard`を使い回す**
 - **止める遷移**：見張りが1つでもあり、移動先の`pathname`が現在と違い、移動先が`/login`でないとき。同じ`pathname`への移動（クエリだけの変更など）と`/login`への移動は止めない。`/login`を止めない理由：自動ログアウトの2経路（`unauthenticated-handler.ts`の`router.navigate`、`RequireAuth`の`<Navigate>`）と、確認を済ませた後の手動ログアウトの移動のため。ブラウザの戻る・部屋の切り替え（`/channels/A`→`/channels/B`）も止める
 - **ダイアログ**：「入力した内容は失われます」。「編集を続ける」・Escで留まり、本文は残る。「破棄して離れる」は、見張りの`onDiscard`（下書きの削除）を呼んでから遷移を進める
-- **再読み込み・タブを閉じる**：`useLeaveGuard`が、変更ありの間だけ`beforeunload`を購読し、`preventDefault`と`returnValue = ""`を設定する。下書きは消さない
+- **再読み込み・タブを閉じる**：`useLeaveGuard`が、変更ありの間だけ`beforeunload`を購読し、`preventDefault`と`returnValue = ""`を設定する。下書きは消さない。【#338：資格を失って読み込み直す間は、`before-unload-suppression.ts`の印（`suppressBeforeUnload`で立て、`restoreBeforeUnload`で外す。立てる・外すのは`features/access-loss`の入口だけ）が立っていれば、この処理は何もしない（確認を出さずに読み込み直す）。[access-loss.md](access-loss.md)】
 - **ログアウトの前の確認**：`LogoutButton`は、変更があるとき（`hasChanges`）だけ`confirmLeave()`（`Promise<boolean>`）を呼び、真が返ったときに`mutate`する。変更がないとき・提供元がないときは、`confirmLeave`を経由せず同期のまま`mutate`を呼ぶ（連打で1回の動きを保つ）。「編集を続ける」ならAPIを呼ばない。「破棄して離れる」は見張りの`onDiscard`を呼ばない（消去はログアウトの成功時の`removeUserDrafts`だけ。APIが失敗したら下書きも本文も残る）
 - **競合の扱い**（`LeaveGuardProvider`）：
   - ログアウトの確認の待ち中に場所（`location.key`）が変わった（401の自動ログアウトを含む）ら、待ちを`false`で終える。この判定は「見張りがなくなった」より先に行う。さらに`LogoutButton`は、真を受け取った時点で自分が外れている・セッションのキャッシュがなければ`mutate`しない

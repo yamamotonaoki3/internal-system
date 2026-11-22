@@ -1,6 +1,7 @@
 // 入力欄に「変更あり」の見張りを付ける。再読み込み・タブを閉じる（beforeunload）は提供元がなくても止める。
 // アプリ内の画面の切り替えとログアウトの確認は、LeaveGuardProvider がある場合だけ働く。
 import { useContext, useEffect, useRef } from "react";
+import { isBeforeUnloadSuppressed } from "../before-unload-suppression";
 import { LeaveGuardContext } from "../leave-guard-context";
 
 type Options = {
@@ -22,6 +23,8 @@ export function useLeaveGuard({ isDirty, onDiscard, focus }: Options) {
   useEffect(() => {
     if (!isDirty) return;
     const handler = (event: BeforeUnloadEvent) => {
+      // 資格を失って読み込み直す間は止めない（#338）
+      if (isBeforeUnloadSuppressed()) return;
       event.preventDefault();
       // 古いブラウザは returnValue を設定しないと確認を出さない
       event.returnValue = "";

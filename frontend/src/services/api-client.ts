@@ -27,6 +27,43 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// 進行中の書き込みの要求（GET・HEAD・OPTIONS 以外）の数。資格を失ったときの読み込み直しが、MutationCache に載らない
+// 直接の送信も待つため（#338）。持つのは数だけ（本文・URL を覚えない）
+const READ_METHODS: readonly string[] = ["get", "head", "options"];
+let pendingWrites = 0;
+const pendingWriteListeners = new Set<() => void>();
+
+function changePendingWrites(delta: number): void {
+  pendingWrites += delta;
+  pendingWriteListeners.forEach((listener) => listener());
+}
+
+export function getPendingWriteCount(): number {
+  return pendingWrites;
+}
+
+export function subscribePendingWrites(listener: () => void): () => void {
+  pendingWriteListeners.add(listener);
+  return () => pendingWriteListeners.delete(listener);
+}
+
+// アダプター（実際の送信）を包んで数える。数えるのはアダプターの間だけなので、要求のインターセプターの例外・送信の前の取り消しでは
+// 増えず、アダプターがどう終わっても finally で必ず減る
+apiClient.interceptors.request.use((config) => {
+  const method = (config.method ?? "get").toLowerCase();
+  if (READ_METHODS.includes(method)) return config;
+  const send = axios.getAdapter(config.adapter ?? apiClient.defaults.adapter);
+  config.adapter = async (sending) => {
+    changePendingWrites(1);
+    try {
+      return await send(sending);
+    } finally {
+      changePendingWrites(-1);
+    }
+  };
+  return config;
+});
+
 // 応答：エラーを共通の形に変換する。もみ消さず、必ず失敗として返す（C-71・C-73）
 apiClient.interceptors.response.use(
   (response) => response,

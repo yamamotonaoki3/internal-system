@@ -1,7 +1,7 @@
 // フロントエンドのテスト（jsdom）の共通の準備。
 // API の応答は MSW で返す。決めていない通信は失敗にして、本物の通信が出ないようにする。
 import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./server";
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
@@ -13,6 +13,16 @@ afterEach(() => {
   window.sessionStorage.clear();
 });
 afterAll(() => server.close());
+
+// #338：読み込み直しの入口を、すべての画面のテストで何もしない関数に差し替える（待機の状態・購読・タイマーをテストの間に残さない）。
+// 入口そのものの単体テストは、このファイルの差し替えを使わず、本物（vi.importActual）で確かめる。
+vi.mock(
+  "../features/access-loss/reload-after-access-loss",
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    requestAccessLossReload: vi.fn(() => Promise.resolve()),
+  }),
+);
 
 // #121：jsdom に無いブラウザ機能の最小のスタブ（App を描画する全テストが共通で使う）。
 // すでに定義されていれば上書きしない。個別のテストは app-shell-harness.tsx のスタブで上書きできる。

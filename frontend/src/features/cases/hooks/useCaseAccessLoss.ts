@@ -9,6 +9,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { requestAccessLossReload } from "../../access-loss";
 import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
@@ -49,6 +50,23 @@ async function verifyParticipant(
     : "lost";
 }
 
+/**
+ * 読み込み直しを求めるのは、この画面で参加者だったことを見た後に外されたと分かったときだけ（片付けの後に呼ぶ。#338・C-206）。
+ * 持ち主は、確定を始めた時点の利用者（この部品の userId。利用者が替わると部品ごと作り直される）
+ */
+function requestReloadOnce(
+  requested: { current: boolean },
+  queryClient: QueryClient,
+  userId: string,
+): void {
+  if (requested.current) return;
+  requested.current = true;
+  void requestAccessLossReload(queryClient, {
+    ownerId: userId,
+    reason: "lost",
+  });
+}
+
 export function useCaseAccessLoss({
   caseId,
   userId,
@@ -79,6 +97,8 @@ export function useCaseAccessLoss({
   const participantSeen = useRef(isParticipant);
   // 片付けを、参加者でないと確かめられた状態に「なったとき」だけ走らせる印。偽から始め、作られた時点で既に確かめられていても1回片付ける
   const previousOutsider = useRef(false);
+  // 同じ参加の期間の中で、読み込み直しを1回だけ求める印（(a) の確かめと (b) の効果の両方が喪失を見るため。#338）
+  const reloadRequested = useRef(false);
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
   // 概要で参加者でないことが確かめられたら（成功して非参加・404）、この画面で参加者だったかに関わらず、参加者だけの中身
@@ -88,10 +108,14 @@ export function useCaseAccessLoss({
   // 拒否を契機にする確かめ（下の購読）は概要が既に非参加だと動かないため、ここで受ける。
   // この効果は、それらの部品が外れた後に走るため、拒否を契機にした片付けの後に部品が作り直したキーも、ここで消える
   useEffect(() => {
-    if (isParticipant && !previousParticipant.current) handling.current = false;
+    if (isParticipant && !previousParticipant.current) {
+      handling.current = false;
+      reloadRequested.current = false;
+    }
     if (isParticipant) participantSeen.current = true;
     const wasParticipant = participantSeen.current;
-    if (outsider && wasParticipant) {
+    const lostHere = outsider && wasParticipant;
+    if (lostHere) {
       participantSeen.current = false;
       onLost();
     }
@@ -103,6 +127,7 @@ export function useCaseAccessLoss({
       if (wasParticipant) void forgetCaseInLists(queryClient, userId, caseId);
       else void invalidateCaseLists(queryClient, userId);
     }
+    if (lostHere) requestReloadOnce(reloadRequested, queryClient, userId);
     previousOutsider.current = outsider;
     previousParticipant.current = isParticipant;
   }, [isParticipant, outsider, onLost, queryClient, userId, caseId, roomId]);
@@ -134,6 +159,10 @@ export function useCaseAccessLoss({
           );
         else if (verdict !== "participant")
           void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
+        // 確かめの応答の前に画面を離れていても、読み込み直す（利用者の決定 2026-11-21）。同じ案件の画面が作り直されて表示中でも呼ぶ
+        // （その画面に新しい拒否が届くとは限らない）。重なった要求は、入口が同じ持ち主の待機に合流する（#338）
+        if (verdict !== "participant")
+          requestReloadOnce(reloadRequested, queryClient, userId);
         return;
       }
       if (verdict === "participant") {
@@ -146,11 +175,13 @@ export function useCaseAccessLoss({
       if (verdict === "lost") {
         setUnverified(false);
         void forgetCaseAfterLeave(queryClient, userId, caseId, roomId);
+        requestReloadOnce(reloadRequested, queryClient, userId);
         return;
       }
       // 概要は書き換えない：404 は既存の概要の失敗の表示に、確かめられないときは unverified の表示に任せる
       setUnverified(verdict === "unverified");
       void forgetCaseContent(queryClient, userId, caseId, roomId);
+      requestReloadOnce(reloadRequested, queryClient, userId);
     };
   }, [queryClient, userId, caseId, roomId, onLost]);
 
