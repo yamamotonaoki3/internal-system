@@ -11,13 +11,28 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  noteDraftsRemain,
+  requestAccessLossReload,
+} from "../../access-loss/reload-after-access-loss";
 import { authKeys } from "../../auth";
 import { TEST_USER } from "../../../test/auth-handlers";
 import { server } from "../../../test/server";
 import type { CaseParticipant } from "../api/case-api";
 import { useCaseAccessLoss } from "./useCaseAccessLoss";
+import { useRemoveCaseParticipant } from "./useCaseWrites";
 import { useParticipantWrites } from "./useParticipantWrites";
+
+// #340：読み込み直しの入口（test/setup.ts と同じ vi.fn）に加え、消せなかったことの印 noteDraftsRemain も vi.fn にする
+vi.mock(
+  "../../access-loss/reload-after-access-loss",
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    requestAccessLossReload: vi.fn(() => Promise.resolve()),
+    noteDraftsRemain: vi.fn(),
+  }),
+);
 
 const USER = TEST_USER.id;
 const OTHER_USER = "01JTESTUSER323000000000LV2";
@@ -186,5 +201,184 @@ describe("#323 コードレビュー1回目 重大2 本人の退出の後に、�
 
     expect(remaining(client, ROOM_KEYS)).toEqual(Object.keys(ROOM_KEYS));
     expect(client.getQueryData([...DETAIL])).toBeDefined();
+  });
+});
+
+// #340 AC-1 (c)・AC-2・AC-3・AC-5（利用者の決定 Q1：本人の退出でも消す。Q3：消せなかったら知らせる）：
+// 本人の退出の成功で、操作した利用者（actorId）の、その案件の部屋の下書き（部屋への投稿・その部屋のスレッドの返信）を端末から消す。
+// 表示中の (b) の経路（概要が非参加に書き換わる）と切り分けるため、useCaseAccessLoss を使わず、useRemoveCaseParticipant だけを描く。
+// 前提にした口（実装の担当へ）：onSuccess（self のとき）で、入口 requestAccessLossReload と片付けの後に、
+//   forgetCaseRoomDrafts(actorId, input.roomId) を呼び、failed なら noteDraftsRemain(actorId) を呼ぶ。
+// キーはリテラルで独立に書く。データは架空（[UNIT_TEST]）。
+describe("#340 本人の退出の成功で、その案件の部屋の下書きを消す", () => {
+  const keyOf = (userId: string, scope: string) =>
+    `internal-system:draft:v1:${userId}:${scope}`;
+  const ERASED = [
+    keyOf(USER, `room:${ROOM}`),
+    keyOf(USER, `thread:${ROOM}:${PARENT}`),
+    keyOf(USER, `thread:${ROOM}:01JTESTMSG34000000000000LX`),
+  ];
+  const KEPT = [
+    keyOf(USER, `room:${OTHER_ROOM}`),
+    keyOf(USER, `room:${ROOM}0`),
+    keyOf(USER, "case-request:new"),
+    keyOf(OTHER_USER, `room:${ROOM}`),
+    keyOf(OTHER_USER, `thread:${ROOM}:${PARENT}`),
+  ];
+  const present = (list: string[]) =>
+    list.filter((key) => window.localStorage.getItem(key) !== null);
+
+  function failDraftRemoval(error: unknown) {
+    const original = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (
+        this === window.localStorage &&
+        key.startsWith("internal-system:draft:")
+      )
+        throw error;
+      original.call(this, key);
+    });
+  }
+
+  function leaveSetup(response: () => Response | Promise<Response>) {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    client.setQueryData(authKeys.session, {
+      user: TEST_USER,
+      mustChangePassword: false,
+      reauthenticatedAt: null,
+      permissions: [],
+    });
+    client.setQueryData([...SUMMARY], summary(true));
+    client.setQueryData([...DETAIL], { channelId: ROOM, secret: SECRET });
+    server.use(
+      http.delete("/api/cases/:caseId/participants/:userId", response),
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const view = renderHook(() => useRemoveCaseParticipant(CASE), { wrapper });
+    const leave = () =>
+      view.result.current.mutateAsync({
+        userId: USER,
+        self: true,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    return { client, leave, ...view };
+  }
+
+  beforeEach(() => {
+    for (const key of [...ERASED, ...KEPT])
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({
+          body: `[UNIT_TEST]340退出の前の書きかけ`,
+          updatedAt: Date.now(),
+        }),
+      );
+    vi.mocked(requestAccessLossReload).mockClear();
+    vi.mocked(noteDraftsRemain).mockClear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("#340 AC-1 (c) Q1: 退出に成功すると、操作した利用者の、その部屋の投稿とスレッドの返信の下書きが消える。ほかの部屋・前方一致の部屋・申請・ほかの利用者の下書きは残る", async () => {
+    const { leave } = leaveSetup(() => new HttpResponse(null, { status: 204 }));
+    await act(async () => {
+      await leave();
+    });
+    expect(present(ERASED)).toEqual([]);
+    expect(present(KEPT)).toEqual(KEPT);
+    expect(noteDraftsRemain).not.toHaveBeenCalled();
+  });
+
+  it("#340 AC-1 (c): 退出の応答の前に画面を離れても（部品が外れても）、成功したら、その部屋の下書きが消える", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { leave, unmount } = leaveSetup(async () => {
+      await gate;
+      return new HttpResponse(null, { status: 204 });
+    });
+    const done = leave();
+    unmount();
+    release();
+    await act(async () => {
+      await done;
+    });
+    await waitFor(() => expect(present(ERASED)).toEqual([]));
+    expect(present(KEPT)).toEqual(KEPT);
+  });
+
+  it.each([
+    ["409", 409],
+    ["500", 500],
+  ] as const)(
+    "#340 AC-3: 退出が %s で失敗したら、下書きは残る",
+    async (_name, status) => {
+      const { leave } = leaveSetup(() =>
+        HttpResponse.json(
+          { error: { code: "ERROR", message: "[UNIT_TEST]340失敗" } },
+          { status },
+        ),
+      );
+      await act(async () => {
+        await leave().catch(() => undefined);
+      });
+      expect(present(ERASED)).toEqual(ERASED);
+      expect(present(KEPT)).toEqual(KEPT);
+    },
+  );
+
+  it("#340 AC-3: ほかの人を外した（self が偽）ときは、自分の下書きは残る", async () => {
+    const { result } = leaveSetup(
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: OTHER_USER,
+        self: false,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    });
+    expect(present(ERASED)).toEqual(ERASED);
+  });
+
+  it("#340 AC-5 D-3 (c): 削除が SecurityError になると、退出は成功のまま、入口が先に呼ばれ、noteDraftsRemain が操作した利用者の ID で呼ばれる", async () => {
+    failDraftRemoval(new DOMException("denied", "SecurityError"));
+    const { leave } = leaveSetup(() => new HttpResponse(null, { status: 204 }));
+    await act(async () => {
+      await leave();
+    });
+    expect(requestAccessLossReload).toHaveBeenCalledTimes(1);
+    expect(noteDraftsRemain).toHaveBeenCalledWith(USER);
+    const requestOrder =
+      vi.mocked(requestAccessLossReload).mock.invocationCallOrder[0] ?? 0;
+    const noteOrder =
+      vi.mocked(noteDraftsRemain).mock.invocationCallOrder[0] ?? 0;
+    expect(requestOrder).toBeLessThan(noteOrder);
+  });
+
+  it("#340 AC-5 D-4 (c): 保存先を開けない（localStorage の参照が SecurityError）と、noteDraftsRemain が操作した利用者の ID で呼ばれる", async () => {
+    const { leave } = leaveSetup(() => new HttpResponse(null, { status: 204 }));
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    await act(async () => {
+      await leave();
+    });
+    expect(requestAccessLossReload).toHaveBeenCalledTimes(1);
+    expect(noteDraftsRemain).toHaveBeenCalledWith(USER);
   });
 });
