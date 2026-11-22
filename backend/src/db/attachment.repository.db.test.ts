@@ -22,6 +22,17 @@ import {
   insertAttachmentRow,
   type ThreadWorld,
 } from "../../test/attachment-fixtures";
+import {
+  ATTACHMENT_UPDATE,
+  interleavingDb,
+  markAttachmentDeleted,
+} from "../../test/attachment-delete-fixtures";
+import {
+  STORED_EMPTY_BODY,
+  cleanupAttachmentOnlyLeftovers,
+  emptyPostsWithoutAttachments,
+  rowCount,
+} from "../../test/attachment-only-fixtures";
 import { insertChannel, insertMember } from "../../test/department-fixtures";
 import { insertDm } from "../../test/dm-fixtures";
 import { leaveChannel, markDeleted } from "../../test/message-modify-fixtures";
@@ -91,7 +102,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await cleanupAttachmentScenario();
+  try {
+    await cleanupAttachmentOnlyLeftovers();
+  } finally {
+    await cleanupAttachmentScenario();
+  }
 });
 
 describe("#140 AC-1（1-6 AC-2・AC-7）可視性の事例表（配信の条件）", () => {
@@ -352,6 +367,147 @@ describe("#140 AC-1（1-6 AC-9）・AC-2（1-4 AC-5）返信への結び付け",
       expect(outcome).not.toEqual({ changes: 1 });
       expect(await parentRow(idAt(60))).toBeNull();
       expect((await attachmentRow(id))?.message_id).toBeNull();
+    },
+  );
+});
+
+// ---- #270（270-B）AC-3：本文が目印（本文なし）の投稿・返信の結び付けの原子性（計画 6章「AC-3（原子性。対応の表）」の「足すもの」）----
+// 根拠：計画 AC-3（指定した添付が1件でも結び付かなければ、メッセージ・指名・通知・索引のどれも残らない。本文も添付もないメッセージは DB に残らない）・
+//   計画 2.4（投稿・返信の batch に新しい不変条件の文は足さず、結び付けの件数の確かめで守る）・F-3（削除済みの添付は結び付き済み）。
+// 既存の事例（他人・別の部屋・別の文脈・使用済み・存在しない・11件・合計の超過）は上の describe のまま（本文の有無に依らない batch の SQL）。
+// ここは、本文が目印のときにも同じく取り消されることと、付随の行（指名・通知・索引）が残らないことを足す。
+// 掃除で消えた添付（c）は、結び付けの UPDATE を含む batch の直前に、未投稿の掃除（deletePendingBefore）を確定させる（interleavingDb）。
+describe("#270 AC-3 本文が目印の投稿・返信の結び付けの原子性", () => {
+  const MENTION = () => [{ userId: world.bob.userId, start: 0, end: 1 }];
+
+  const counts = async () => ({
+    messages: await rowCount("messages"),
+    mentions: await rowCount("message_mentions"),
+    notifications: await rowCount("notifications"),
+    documents: await rowCount("search_documents"),
+  });
+
+  it("#270 AC-3 (a): 正しい添付1件と他人の添付1件を混ぜた、本文なしの投稿は、メッセージ・指名・通知・索引のどれも残らず、正しい添付は未投稿のまま", async () => {
+    const mine = await insertAttachmentRow({
+      roomId: world.channel,
+      uploaderId: world.alice.userId,
+    });
+    const theirs = await insertAttachmentRow({
+      roomId: world.channel,
+      uploaderId: world.bob.userId,
+    });
+    const before = await counts();
+    const outcome = await post({
+      body: STORED_EMPTY_BODY,
+      mentions: MENTION(),
+      attachmentIds: [mine, theirs],
+    });
+    expect(outcome).not.toEqual({ changes: 1 });
+    expect(await parentRow(idAt(50))).toBeNull();
+    expect(await counts()).toEqual(before);
+    expect((await attachmentRow(mine))?.message_id).toBeNull();
+    expect(await emptyPostsWithoutAttachments()).toEqual([]);
+  });
+
+  it("#270 AC-3 (a)（返信）: 正しい添付と他人の添付を混ぜた、本文なしの返信も、何も残らない", async () => {
+    const parent = await seedParent(world.channel, world.bob.userId, 1);
+    const mine = await insertAttachmentRow({
+      roomId: world.channel,
+      uploaderId: world.alice.userId,
+      threadParentId: parent,
+    });
+    const theirs = await insertAttachmentRow({
+      roomId: world.channel,
+      uploaderId: world.bob.userId,
+      threadParentId: parent,
+    });
+    const before = await counts();
+    const outcome = await reply(parent, {
+      body: STORED_EMPTY_BODY,
+      mentions: MENTION(),
+      attachmentIds: [mine, theirs],
+    });
+    expect(outcome).not.toEqual({ changes: 1 });
+    expect(await parentRow(idAt(60))).toBeNull();
+    expect(await counts()).toEqual(before);
+    expect((await attachmentRow(mine))?.message_id).toBeNull();
+  });
+
+  it("#270 AC-3 (b): 削除済みの添付（別のメッセージに結び付いて削除の印のある行）を指定した、本文なしの投稿は失敗し、何も残らない", async () => {
+    const other = await seedParent(world.channel, world.alice.userId, 2);
+    const deleted = await insertAttachmentRow({
+      roomId: world.channel,
+      uploaderId: world.alice.userId,
+      messageId: other,
+    });
+    await markAttachmentDeleted(deleted, world.alice.userId);
+    const before = await counts();
+    const outcome = await post({
+      body: STORED_EMPTY_BODY,
+      attachmentIds: [deleted],
+    });
+    expect(outcome).not.toEqual({ changes: 1 });
+    expect(await parentRow(idAt(50))).toBeNull();
+    expect(await counts()).toEqual(before);
+    expect((await attachmentRow(deleted))?.message_id).toBe(other);
+  });
+
+  it.each(["post", "reply"] as const)(
+    "#270 AC-3 (c): 結び付けの batch の直前に、未投稿の掃除で添付が消えると、本文なしの %s は失敗し、メッセージと付随のデータが残らない",
+    async (kind) => {
+      const parent =
+        kind === "reply"
+          ? await seedParent(world.channel, world.bob.userId, 3)
+          : null;
+      const attachment = await insertAttachmentRow({
+        roomId: world.channel,
+        uploaderId: world.alice.userId,
+        threadParentId: parent,
+      });
+      const before = await counts();
+      const interleaved = interleavingDb(
+        env.DB,
+        async () => {
+          const removed = await withAttachments(env, (repository) =>
+            repository.deletePendingBefore("2999-01-01T00:00:00.000Z"),
+          );
+          expect(removed.length).toBeGreaterThanOrEqual(1);
+        },
+        ATTACHMENT_UPDATE,
+      );
+      const wrappedEnv = { ...env, DB: interleaved.db } as unknown as Env;
+      const outcome = await settle(
+        withMessages(wrappedEnv, (repository) =>
+          kind === "post"
+            ? repository.insertIfOrdered({
+                id: idAt(50),
+                roomId: world.channel,
+                senderId: world.alice.userId,
+                senderDisplayName: "テスト太郎",
+                body: STORED_EMPTY_BODY,
+                createdAt: isoAt(50),
+                mentions: MENTION(),
+                attachmentIds: [attachment],
+              })
+            : repository.insertReplyIfOrdered({
+                id: idAt(60),
+                roomId: world.channel,
+                parentMessageId: parent ?? "",
+                senderId: world.alice.userId,
+                senderDisplayName: "テスト太郎",
+                body: STORED_EMPTY_BODY,
+                createdAt: isoAt(60),
+                mentions: MENTION(),
+                attachmentIds: [attachment],
+              }),
+        ),
+      );
+      expect(interleaved.state.ran).toBe(true);
+      expect(outcome).not.toEqual({ changes: 1 });
+      expect(await parentRow(kind === "post" ? idAt(50) : idAt(60))).toBeNull();
+      expect(await attachmentRow(attachment)).toBeNull();
+      expect(await counts()).toEqual(before);
+      expect(await emptyPostsWithoutAttachments()).toEqual([]);
     },
   );
 });

@@ -496,3 +496,30 @@ describe("#137 AC-1（1-4 AC-3・AC-4）行を選ぶと S-07 が開く", () => {
     }
   });
 });
+
+// ---- #270（270-B）AC-4・計画 2.2 の8：本文のない投稿の親（API の body が空文字）の行のリンクは、本文の代わりに「（添付ファイルのみ）」を名前にする ----
+// 根拠：計画 AC-4（スレッド一覧のリンクは、本文の代わりに「（添付ファイルのみ）」を名前にする。名前のないリンクを作らない）・利用者の決定1（API は空文字）。
+describe("#270 AC-4 スレッド一覧：本文のない親", () => {
+  const ATTACHMENT_ONLY = "（添付ファイルのみ）";
+
+  it("#270 AC-4: 親の body が空文字の行のリンクの名前に「（添付ファイルのみ）」が入り、本文のある行には入らない", async () => {
+    respondMyThreads([threadItem(1, { parent: { body: "" } }), item(2)]);
+    renderPage();
+    const link = await within(
+      await screen.findByRole("list", { name: "スレッド一覧" }),
+    ).findByRole("link", { name: new RegExp(ATTACHMENT_ONLY) });
+    expect(link.textContent).toContain(ATTACHMENT_ONLY);
+    expect(linkOf(2).textContent).not.toContain(ATTACHMENT_ONLY);
+  });
+
+  it("#270 AC-4（いまの動き）: 削除済みの親は「このメッセージは削除されました」のまま（「（添付ファイルのみ）」にしない）", async () => {
+    respondMyThreads([
+      threadItem(1, { parent: { body: null, deleted: true } }),
+    ]);
+    renderPage();
+    const link = await within(
+      await screen.findByRole("list", { name: "スレッド一覧" }),
+    ).findByRole("link", { name: new RegExp(DELETED_TEXT) });
+    expect(link.textContent).not.toContain(ATTACHMENT_ONLY);
+  });
+});

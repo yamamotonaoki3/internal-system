@@ -172,21 +172,26 @@ export const ATTACHMENT_UPDATE =
 /**
  * D1 を包み、条件に合う文を含む最初の batch の直前に、interrupt を1回だけ実行する（確認の後・書き込みの直前の状態の変化）。
  * ran は割り込んだかどうか（挟めたことの確認に使う）。
+ * pattern に関数を渡すと、batch の文の SQL の一覧で判定する（#270 の 270-B：読み取りだけの batch を狙うため）。
  */
 export function interleavingDb(
   real: D1Database,
   interrupt: () => Promise<void>,
-  pattern: RegExp = ATTACHMENT_UPDATE,
+  pattern: RegExp | ((queries: string[]) => boolean) = ATTACHMENT_UPDATE,
 ) {
   const { db, sqlOf } = recordingDb(real);
   const state = { ran: false };
+  const matches = (queries: string[]) =>
+    typeof pattern === "function"
+      ? pattern(queries)
+      : queries.some((query) => pattern.test(query));
   const wrapped = new Proxy(db, {
     get(target, property, receiver) {
       if (property === "batch")
         return async (statements: D1PreparedStatement[]) => {
           if (
             !state.ran &&
-            statements.some((s) => pattern.test(sqlOf.get(s) ?? ""))
+            matches(statements.map((s) => sqlOf.get(s) ?? ""))
           ) {
             state.ran = true;
             await interrupt();

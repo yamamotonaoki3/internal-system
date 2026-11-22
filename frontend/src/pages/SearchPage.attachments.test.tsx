@@ -299,3 +299,31 @@ describe("#155 AC-4 155-B F-4 応答の検証（zod）", () => {
     expect(bodyText()).not.toContain("添付の行の本文の先頭");
   });
 });
+
+// ---- #270（270-B）AC-4・計画 2.2 の7：本文のない投稿（抜粋が空文字）の結果の行のリンクは、抜粋の代わりに「（添付ファイルのみ）」を名前にする ----
+// 根拠：計画 AC-4・AC-9（本文のない投稿はファイル名で一致し、結果の抜粋は空文字。名前のないリンクを作らない）・利用者の決定1。
+describe("#270 AC-4 検索の結果：本文のない投稿", () => {
+  const ATTACHMENT_ONLY = "（添付ファイルのみ）";
+
+  it("#270 AC-4: 抜粋が空文字の行のリンクの名前は「（添付ファイルのみ）」で、一致したファイル名は今までどおり出る。本文のある行には出ない", async () => {
+    respondSearch([
+      searchItem(1, {
+        excerpt: "",
+        matchedIn: ["attachment"],
+        matchedAttachments: [
+          { id: "01JTESTATT270B00000000001", name: "本文なしの見積.pdf" },
+        ],
+      }),
+      bodyRow,
+    ]);
+    renderApp("/search?q=見積");
+    const main = await pageMain();
+    await waitFor(() => expect(resultRows(main)).toHaveLength(2));
+    const link = within(main).getByRole("link", { name: ATTACHMENT_ONLY });
+    expect(link.closest("li")?.textContent).toContain("本文なしの見積.pdf");
+    const [, second] = resultRows(main);
+    if (second === undefined) throw new Error("2行目がありません");
+    expect(textOf(second)).not.toContain(ATTACHMENT_ONLY);
+    expect(errorMessages()).toEqual([]);
+  });
+});
