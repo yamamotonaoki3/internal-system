@@ -81,6 +81,7 @@ Issue の実装を AI が連続して進めるとき、同じ種類の判断を�
 5. **機能間の参照**
    - 方針：`frontend/src/features/<name>/index.ts` で公開したものだけを参照する。公開されていなければ、その機能の `index.ts` に export を足す
    - 例外（Issue #366。利用者の決定 2026-11-22）：`index.ts` を通すと読み込みが循環する場合に**限り**、クエリの**キーだけ**を公開する専用の入口 `features/<機能>/keys.ts` を設けてよい。中身は、キーの再公開（`export { xxxKeys } from "./api/query-keys"`）だけにする。部品・フック・API の関数・型の実装を、そこから公開しない。循環しない場合は、これまでどおり `index.ts` を通す。作った理由（どの読み込みが循環するか）を、その機能の設計書（`docs/design/<機能>.md`）と PR に書く。`npm run deps:check` が通ること。例：`frontend/src/features/search/keys.ts`（Issue #155 の3つ目）、`frontend/src/features/cases/keys.ts`（Issue #270 の1つ目）
+   - 以前からある例外（Issue #366。利用者の決定 2026-11-22）：`frontend/src/features/case-requests/form-parts.ts`（Issue #150 の 150-C）は、キー（`caseRequestKeys`）のほかに、部品・フック・型・文言も公開している。`index.ts` が案件の機能（`cases`）を参照する部品を含み、`cases` から `index.ts` を参照すると循環になるため、別にした。上の「キーだけ」の条件には合わないが、利用者の決定で、そのままにする。**新しく、キー以外を公開する専用の入口は作らない**（必要になったら、作らずに利用者に戻す）。`form-parts.ts` に、公開するものを足す場合も、足さずに利用者に戻す
    - 根拠：Skill「frontend」（ほかの機能の内部を直接参照せず、公開部分を通す）、Issue #206 の計画レビューの結果、Issue #366
    - 利用者に戻す条件：上の例外（キーだけの専用の入口）に当てはまらない形で、公開すると循環参照になるとき、または機能の境界を変える（機能の統合・分割）必要があるとき
 6. **フロントエンドのキャッシュ**

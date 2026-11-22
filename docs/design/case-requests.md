@@ -66,7 +66,7 @@ Issue #146 は2つの子に分けた。**この設計書は、146-A（申請・�
 | 〃（146-B） | `CaseRequestReviewList`（S-29の一覧。状態の絞り込み・4状態・承認のダイアログ`ApproveDialog`（同じファイルの中）・409の表示）・`RejectReasonDialog`（却下の理由。チャンネルの作成申請のダイアログとは共通化しない） |
 | `frontend/src/features/case-requests/components/MyCaseRequestList.tsx`（146-B） | 承認済みの行に案件番号を出す（`caseNumber`） |
 | `frontend/src/features/case-requests/components/DepartmentCheckboxes.tsx`・`SimilarTitleNotice.tsx`（#150 の 150-C） | `CaseRequestForm.tsx`の中にあった担当部署のチェックと類似件名の結果の表示を、案件の内容の再編集（S-17。`features/cases`の`CaseEditDialog`）と共用するために別ファイルへ移した（中身は同じ）。件名の欄の注意の文`TITLE_CAUTION`の定義元は`labels.ts`にした |
-| `frontend/src/features/case-requests/form-parts.ts`（#150 の 150-C） | 再編集が使う部品（上の2つ）・候補（`useClientChoices`・`useDepartmentChoices`）・`useSimilarTitle`・`caseRequestKeys`・`TITLE_CAUTION`の公開の入口。`index.ts`は案件の機能を参照する部品を含み、`features/cases`から参照すると循環になるため、別にした。`useSimilarTitle`は任意の`excludeCaseId`・`enabled`を受ける（キャッシュのキーにも含める） |
+| `frontend/src/features/case-requests/form-parts.ts`（#150 の 150-C） | 再編集が使う部品（上の2つ）・候補（`useClientChoices`・`useDepartmentChoices`）・`useSimilarTitle`・`caseRequestKeys`・`TITLE_CAUTION`の公開の入口。`index.ts`は案件の機能を参照する部品を含み、`features/cases`から参照すると循環になるため、別にした（キー以外も公開するので、`docs/project-rules.md`の既定の方針5で、以前からの例外としている）。`useSimilarTitle`は任意の`excludeCaseId`・`enabled`を受ける（キャッシュのキーにも含める） |
 | `frontend/src/features/case-requests/labels.ts`、`describe-error.ts` | 状態の表示名（5つ。`auto_cancelled`は「自動取消」）／通信の失敗の文言 |
 | `frontend/src/pages/CaseRequestPage.tsx` | S-18の構成だけ。APIや状態は持たない |
 | `frontend/src/pages/CaseApprovalsPage.tsx`（146-B） | S-29の構成だけ（見出し「案件作成の承認」と`CaseRequestReviewList`）。APIや状態は持たない |
