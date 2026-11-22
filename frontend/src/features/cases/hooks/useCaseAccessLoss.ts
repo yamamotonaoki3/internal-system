@@ -67,11 +67,6 @@ function requestReloadOnce(
   });
 }
 
-// 表示中の S-17（利用者と案件の組ごとの数）。画面を離れた後に届いた確かめの結果は、同じ組の画面が作り直されて表示中なら、
-// その画面の効果（(b)）に読み込み直しを任せる（同じ喪失で入口を重ねて呼ばない。#338）
-const mountedViews = new Map<string, number>();
-const viewKey = (userId: string, caseId: string) => `${userId}:${caseId}`;
-
 export function useCaseAccessLoss({
   caseId,
   userId,
@@ -145,15 +140,6 @@ export function useCaseAccessLoss({
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    const key = viewKey(userId, caseId);
-    mountedViews.set(key, (mountedViews.get(key) ?? 0) + 1);
-    return () => {
-      const rest = (mountedViews.get(key) ?? 1) - 1;
-      if (rest === 0) mountedViews.delete(key);
-      else mountedViews.set(key, rest);
-    };
-  }, [userId, caseId]);
 
   const settle = useRef<(verdict: Verdict, retried: boolean) => void>(
     () => undefined,
@@ -173,11 +159,9 @@ export function useCaseAccessLoss({
           );
         else if (verdict !== "participant")
           void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
-        // 確かめの応答の前に画面を離れていても、読み込み直す（利用者の決定 2026-11-21）
-        if (
-          verdict !== "participant" &&
-          !mountedViews.has(viewKey(userId, caseId))
-        )
+        // 確かめの応答の前に画面を離れていても、読み込み直す（利用者の決定 2026-11-21）。同じ案件の画面が作り直されて表示中でも呼ぶ
+        // （その画面に新しい拒否が届くとは限らない）。重なった要求は、入口が同じ持ち主の待機に合流する（#338）
+        if (verdict !== "participant")
           requestReloadOnce(reloadRequested, queryClient, userId);
         return;
       }
