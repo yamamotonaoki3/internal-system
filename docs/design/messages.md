@@ -286,7 +286,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 
 ### 投稿・返信
 
-- 本文が空（空白だけ）でよいのは、`attachmentIds`が1件以上のときだけ。Controller（`routes/messages.ts`の`postSchema`）が、本文が空で添付もなければ422（`fields: body`、「メッセージを入力してください」）にする。空の本文に指名（`mentions`）があれば、範囲の検査で422（`fields: mentions`）
+- 本文が空（空白だけ）でよいのは、`attachmentIds`が1件以上のときだけ。Controller（`routes/messages.ts`の`postSchema`）が、本文が空で添付もなければ422（`fields: body`。文は、共通の`validate`が返す「入力内容を確かめてください」）にする。画面の入力欄の案内「メッセージを入力してください」（`MESSAGE_BODY_REQUIRED_MESSAGE`）と、編集の Service の422（見える添付が0件のとき）の文は、別のもの。空の本文に指名（`mentions`）があれば、範囲の検査で422（`fields: mentions`）
 - 新しい不変条件の文は、投稿・返信の batch に足していない（既定の方針7）。守りは、結び付けの件数の確かめ（[attachments.md](attachments.md)。指定した添付が1件でも結び付かなければ batch 全体が取り消され、メッセージも残らない。削除済みの添付は結び付き済みなので、必ず合わない）と、上の先頭の確かめ。batch が成功したときは、必ず1件以上の添付が結び付いている
 - 判定の順（見えるか → 参加者か → 権限 → 部屋の状態）は変えない
 
