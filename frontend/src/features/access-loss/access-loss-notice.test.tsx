@@ -7,7 +7,11 @@
 //   takeAccessLossNotice(queryClient): "lost" | "left" | null：読んで消し、この文書で出す知らせとして持つ（main.tsx が描画の前に呼ぶ）。
 //     セッションのクエリを購読して、捨てる条件（5-7）を判定する
 //   AccessLossNotice：props なし。QueryClientProvider の下に置く。「閉じる」のボタンを持つ
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  isCancelledError,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -221,14 +225,16 @@ describe("#338 AC-5 U-16b 最初のセッションの確認が成功する前の
     const client = newClient();
     takeAccessLossNotice(client);
     renderNotice(client);
-    // 最初のセッションの確認が、応答の前に（401 の共通の処理で）消される。取り除かれた取得は終わらないまま捨てられる
-    void client.fetchQuery({
+    // 最初のセッションの確認が、応答の前に（401 の共通の処理で）消される。取り除かれた取得は取り消される
+    const firstCheck = client.fetchQuery({
       queryKey: authKeys.session,
       queryFn: () => new Promise<never>(() => undefined),
     });
     act(() => {
       client.removeQueries({ queryKey: authKeys.session });
     });
+    // 取り除かれた最初の確認は、取り消し（CancelledError）で終わる
+    await expect(firstCheck).rejects.toSatisfy(isCancelledError);
     act(() => {
       client.setQueryData(authKeys.session, sessionOf(USER_A));
     });

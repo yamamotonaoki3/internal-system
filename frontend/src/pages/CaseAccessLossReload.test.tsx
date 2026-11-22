@@ -92,7 +92,12 @@ function failureResponse(failure: Failure) {
   return apiErrorResponse(
     failure.status,
     CODES[failure.status] ?? "ERROR",
-    failure.status === 403 ? PRIVATE_TEXT : "[UNIT_TEST]338失敗",
+    // 403・404 は、実際のサーバーの文（画面は概要の失敗の文をそのまま出す。CaseAccessLoss.test.tsx と同じ）
+    failure.status === 403
+      ? PRIVATE_TEXT
+      : failure.status === 404
+        ? CASE_TEXTS.notFound
+        : "[UNIT_TEST]338失敗",
   );
 }
 
@@ -361,6 +366,60 @@ describe("#338 AC-1 (a) 中身の拒否の後の確かめで、喪失が確定�
     expect(calls()[0]?.request.ownerId).toBe(TEST_USER.id);
     expect(calls()[0]?.detailCached).toBe(false);
     expect(calls()[0]?.path).toBe("/cases");
+  });
+
+  // P-10 の続き（実装の担当が挙げた経路）：確かめの途中に S-17 を離れ、同じ利用者・同じ案件の S-17 に戻って表示している間に、確かめの結果が届く。
+  // 計画 5-2 (a)：settle の lost・notFound・unverified の枝（画面を離れた後も）で呼ぶ。AC-1：確定したら読み込み直す。AC-4：同じ喪失で重ねない。
+  // よって、どの部品が呼ぶかに関わらず、入口はちょうど1回（0回にも2回にもならない）。
+  async function leaveAndReturnDuringVerification(
+    w: World,
+    user: ReturnType<typeof userEvent.setup>,
+  ) {
+    const gate = deferred();
+    w.summaryGate = gate.promise;
+    const before = w.calls.summary;
+    w.participant = false;
+    denyTodos(w);
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.summary).toBeGreaterThan(before));
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    await user.click(await screen.findByRole("link", { name: "案件に戻る" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("path").textContent).toBe(CASE_PATH),
+    );
+    expect(calls()).toHaveLength(0);
+    return gate;
+  }
+
+  it("#338 AC-1・AC-4 P-10b: 確かめの途中に離れて同じ S-17 に戻り、表示中に非参加が届く：入口はちょうど1回（持ち主 lost）", async () => {
+    const w = world();
+    const { user } = renderPage();
+    await waitForFullView();
+    const gate = await leaveAndReturnDuringVerification(w, user);
+    w.summaryGate = null;
+    gate.release();
+    await waitForSwitched();
+    await waitFor(() => expect(calls("lost")).toHaveLength(1));
+    await advance(POLL_MS * 3);
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0]?.request).toEqual({
+      ownerId: TEST_USER.id,
+      reason: "lost",
+    });
+  });
+
+  it("#338 AC-1 P-10c: 確かめの途中に離れて同じ S-17 に戻り、表示中に確かめが 500（確かめられない）で届く：計画 5-2 (a) の unverified の枝として、入口が1回", async () => {
+    const w = world();
+    const { user } = renderPage();
+    await waitForFullView();
+    const gate = await leaveAndReturnDuringVerification(w, user);
+    w.summaryFail = { status: 500 };
+    w.summaryGate = null;
+    gate.release();
+    await advance(POLL_MS);
+    await waitFor(() => expect(calls("lost")).toHaveLength(1));
+    await advance(POLL_MS * 3);
+    expect(calls()).toHaveLength(1);
   });
 
   it("#338 AC-1 P-14: 外されても管理の資格が残る人（概要が非参加で canManage）：入口が1回", async () => {

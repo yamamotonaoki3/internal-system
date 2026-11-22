@@ -177,6 +177,9 @@ describe("#338 AC-4 同じ文書の同じ持ち主の要求は1回にまとめ�
     // 前の文書が書いた知らせが残ったまま、新しい文書で同じ持ち主の喪失が起きる
     expect(window.sessionStorage.length).toBe(1);
     const second = await freshDocument();
+    // vi.resetModules でも、vi.mock の差し替えの関数は作り直されない（前の文書と同じ関数）。前の文書の分を数えないよう、ここで数え直す
+    expect(second.location.reloadPage).toBe(first.location.reloadPage);
+    vi.mocked(second.location.reloadPage).mockClear();
     void second.entry.requestAccessLossReload(clientSignedInAs(USER_A), {
       ownerId: USER_A,
       reason: "lost",

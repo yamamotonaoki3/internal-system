@@ -166,7 +166,8 @@ describe("#338 AC-2 P-15 進行中の投稿を待ってから読み込み直す"
     );
     await screen.findByText(SECRET);
     const input = await screen.findByRole("textbox", { name: "メッセージ" });
-    await user.type(input, DRAFT_TEXT);
+    // user.type は「[」「{」をキーの指定として読むため、文字として打つよう重ねる
+    await user.type(input, DRAFT_TEXT.replace(/[[{]/g, "$&$&"));
     expect(window.localStorage.getItem(DRAFT_KEY)).toContain(DRAFT_TEXT);
     await user.click(screen.getByRole("button", { name: "送信" }));
 
