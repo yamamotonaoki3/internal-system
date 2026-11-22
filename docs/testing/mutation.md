@@ -116,6 +116,22 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
   - `frontend/src/features/messages/messages.attachment-only.test.tsx`：削除の表示は、`deleted` か、`body` が null のときだけ。空文字（添付だけの投稿）では出さない（3件）。既存のテストは、`deleted: true` と `body: null` を、同時に与えていた
   - **再実行**：テストを足した後に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、backend 401 ファイル・7,640 件、frontend 271 ファイル・2,966 件のテストと、型・Lint・整形が成功している。全体の実行は#160
   - 本番のコードの不具合は、見つかっていない
+- 対象（Issue #340。資格を失った案件の部屋の下書きを消す）：個人情報（端末に残る書きかけ・メンションした参加者の名前）と、誤って消すと戻らないデータに関わるもので、マージの前に、変えた行に絞って診断した（マージは止めない方針に従う）。`stryker.config.json`の`mutate`は変えていない。対象は、`frontend/src/features/drafts/draft-policy.ts`・`draft-storage.ts`、`features/cases/hooks/useCaseAccessLoss.ts`・`useCaseWrites.ts`、`features/cases/components/CaseDetailView.tsx`、`features/access-loss/reload-after-access-loss.ts`・`access-loss-notice.ts`・`components/AccessLossNotice.tsx`。バックエンド・`shared/`は変えていないので、対象に含めない
+- 絞った診断の結果（Issue #340。2026-11-22。対象のコミットは`2790c0e`。画面の側だけ。`--concurrency 2 --ignoreStatic`）：結果の JSON を数え直して確かめた（数は報告と一致した）。`--concurrency 2`にしたのは、PC のメモリのため（ふだんは 4）。
+  - 変異 72 個（無視 3 を除く 69 個）・約20分40秒・全体 95.65%（検出 66・生き残り 3・タイムアウト 0）。無視 3 は`AccessLossNotice.tsx`の変異のすべて（文言の定数）で、このファイルには、数える変異がない
+  - ファイルごと：`drafts/draft-policy.ts`・`draft-storage.ts`・`cases/hooks/useCaseAccessLoss.ts`・`access-loss/reload-after-access-loss.ts`・`access-loss-notice.ts`は 100%、`cases/hooks/useCaseWrites.ts`は 91.30%（検出 21・生き残り 2）、`cases/components/CaseDetailView.tsx`は 66.67%（検出 2・生き残り 1）
+  - 80%に届かないファイルの中身（足した後の再実行はしていない。下の「再実行」）：
+    - `CaseDetailView.tsx`：変異が3個だけで、1個の生き残りで 66.67% になる。生き残りは、`participantRoomIdOf`の`summary.data?.channelId`の`?.`。直前の`isParticipantOf`が、`summary.data`が存在する場合（概要の取得が成功している場合）だけ真になるので、`?.`を外しても同じ動きになる変異と判断した。**同値であることの確かめは、コードを読んだだけ**（証明ではない）。ADR-0023 の例外としては記録していない
+    - `useCaseWrites.ts`（80%以上）の生き残り 2 個：`forgetCaseRoomDrafts`の`roomId === null`の戻りの条件と、その戻り値。下の「見逃しを埋めたテスト」で埋めた
+- 条件の対照（Issue #340）：Stryker が変異を作りにくい、条件・呼ぶ順を、1つずつ外した版で、対応するテストが落ちるかを、手で確かめた。外した場所は 28 通りで、**26 通りで検出し、2 通りが見逃し**だった。
+  - 検出した 26 通りの対象：スレッドの前方一致の区切り／部屋の下書きを消す行／スレッドの下書きを消す処理／利用者の ID をキーに含めること（2か所）／`failed`と`removed`の区別（2か所）／`noteDraftsRemain`を呼ぶ条件（2通り）／(b) で、参加者として見ていたことの条件／`unverified`で消さない条件（2か所）／(a) の消去の呼び出し（4か所）／部屋の ID の覚え方（2通り）／(b) と退出の、「入口 → 消去」の順／退出の消去の呼び出しと、自分を外したときだけ、の条件／`noteDraftsRemain`の、持ち主・待機中の確かめ／読み込み直す直前の、知らせの種類の変更
+  - 見逃し 2：①`forgetCaseRoomDrafts`の、`roomId === null`のときの戻り、②(a) 表示中で`lost`のときの、「入口 → 消去」の順。どちらも、テストを足して埋めた（下）
+- 見逃しを埋めたテスト（Issue #340。ミューテーションの後に追加。条件を一時的に変えて落ちること、戻して通ることを確かめた）：
+  - 部屋の ID が null のとき、保存先を開けない・削除が`SecurityError`でも、`removed`を返し、保存先に触れず、`noteDraftsRemain`を呼ばない（`useCaseWrites.room-drafts.test.ts` 2件・`useCaseAccessLoss.drafts.test.tsx` 1件・`useParticipantWrites.leave.test.tsx` 1件）
+  - (a) の4つの場合 × 2つの失敗で、入口が先に呼ばれ、その後に`noteDraftsRemain`が、持ち主の ID で呼ばれる（`useCaseAccessLoss.drafts.test.tsx` 8件）
+  - 合わせて 12 件（`it`の宣言は 5 個。`it.each`の展開後の件数）
+  - **再実行**：テストを足した後に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、frontend 284 ファイル・3,165 件のテストと、型・Lint・整形が成功している。後追いは Issue #374
+  - 本番のコードの不具合は、見つかっていない
 
 ## 5. 後始末
 
