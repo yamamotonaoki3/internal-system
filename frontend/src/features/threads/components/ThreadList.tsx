@@ -5,7 +5,7 @@
 import { Link } from "react-router";
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
-import { formatMessageTime } from "../../messages";
+import { ATTACHMENT_ONLY_LABEL, formatMessageTime } from "../../messages";
 import { UnreadCountBadge } from "../../unread";
 import type { ThreadItem } from "../api/thread-api";
 import { describeError } from "../describe-error";
@@ -82,7 +82,11 @@ export function ThreadList() {
                   {formatMessageTime(item.lastReplyAt)}
                 </time>
                 <span className="block">
-                  {item.parent.body ?? "このメッセージは削除されました"}
+                  {item.parent.body === null
+                    ? "このメッセージは削除されました"
+                    : item.parent.body === ""
+                      ? ATTACHMENT_ONLY_LABEL
+                      : item.parent.body}
                 </span>
                 <span className="text-sm text-text-muted">
                   返信 {item.parent.replyCount} 件

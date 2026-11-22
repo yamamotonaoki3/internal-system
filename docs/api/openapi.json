@@ -8003,9 +8003,9 @@
               "string",
               "null"
             ],
-            "minLength": 1,
+            "minLength": 0,
             "maxLength": 4000,
-            "description": "本文。削除済み（deleted が真）なら null"
+            "description": "本文。削除済み（deleted が真）なら null。本文のない投稿（添付だけ）は空文字"
           },
           "createdAt": {
             "type": "string",
@@ -9167,8 +9167,9 @@
         "properties": {
           "body": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 4000
+            "minLength": 0,
+            "maxLength": 4000,
+            "description": "本文。空・空白だけは、attachmentIds が1件以上のときだけ受け付ける（編集は、削除されていない添付があるときだけ。#270・C-205）"
           },
           "mentions": {
             "type": "array",
@@ -9205,8 +9206,9 @@
           },
           "body": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 4000
+            "minLength": 0,
+            "maxLength": 4000,
+            "description": "本文。本文を空にした編集は空文字"
           },
           "editedAt": {
             "type": "string",

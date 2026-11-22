@@ -32,7 +32,7 @@ import { AttachmentPicker } from "./AttachmentPicker";
 import { MentionTextArea } from "./MentionTextArea";
 import { AttachmentUploadError, usePostMessage } from "../hooks/usePostMessage";
 import {
-  messageFormSchema,
+  messageFormSchemaFor,
   type MessageFormValues,
 } from "../schemas/message-form";
 
@@ -79,7 +79,10 @@ export function MessageComposer({
     control,
     formState: { errors, isSubmitting },
   } = useForm<MessageFormValues>({
-    resolver: zodResolver(messageFormSchema),
+    // 添付を選んでいれば、本文は空でもよい（#270）。件数が変わるたびに選び直す
+    resolver: zodResolver(
+      messageFormSchemaFor({ hasAttachments: attachments.length > 0 }),
+    ),
     defaultValues: { body: draft.initialBody },
   });
   const body = useWatch({ control, name: "body" });

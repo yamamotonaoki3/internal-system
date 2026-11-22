@@ -4,14 +4,28 @@ import { ULID_PATTERN } from "./ulid-rules";
 /** 本文の最大文字数（1-1 AC-5）。UTF-16 の単位で数える（他の入力と同じ） */
 export const MESSAGE_BODY_MAX_LENGTH = 4000;
 
+/** 本文も添付もないときの文（画面の入力欄と、サーバーの 422 で同じ文） */
+export const MESSAGE_BODY_REQUIRED_MESSAGE = "メッセージを入力してください";
+
+/** 空白・改行だけの本文は、空と同じに扱う（#201 U-2） */
+export function isBlankMessageBody(body: string): boolean {
+  return body.trim().length === 0;
+}
+
+const withinMaxLength = (value: string) =>
+  value.length <= MESSAGE_BODY_MAX_LENGTH;
+const MAX_LENGTH_MESSAGE = `メッセージは${MESSAGE_BODY_MAX_LENGTH}文字以内で入力してください`;
+
 // 空白・改行だけの本文は空として拒否する。保存は送られたまま（前後の空白は削らない）
 export const messageBodySchema = z
   .string()
-  .refine((value) => value.trim().length > 0, "メッセージを入力してください")
-  .refine(
-    (value) => value.length <= MESSAGE_BODY_MAX_LENGTH,
-    `メッセージは${MESSAGE_BODY_MAX_LENGTH}文字以内で入力してください`,
-  );
+  .refine((value) => !isBlankMessageBody(value), MESSAGE_BODY_REQUIRED_MESSAGE)
+  .refine(withinMaxLength, MAX_LENGTH_MESSAGE);
+
+/** 長さの上限だけを確かめる。空・空白だけも通す（添付だけの投稿。#270・C-137(3)。添付の有無はサーバーが別に確かめる） */
+export const messageBodyMaybeBlankSchema = z
+  .string()
+  .refine(withinMaxLength, MAX_LENGTH_MESSAGE);
 
 /** 指名範囲は本文のUTF-16半開区間。通常の@文字列は指名にしない。 */
 export const mentionSchema = z
@@ -24,45 +38,56 @@ export const mentionSchema = z
 
 export type Mention = z.infer<typeof mentionSchema>;
 
+function checkMentionRanges(
+  { body, mentions = [] }: { body: string; mentions?: Mention[] },
+  ctx: z.RefinementCtx,
+): void {
+  let previousEnd = 0;
+  for (const [index, mention] of mentions.entries()) {
+    const { start, end } = mention;
+    const left = body.charCodeAt(start - 1);
+    const first = body.charCodeAt(start);
+    const last = body.charCodeAt(end - 1);
+    const right = body.charCodeAt(end);
+    const cutsSurrogate =
+      (left >= 0xd800 &&
+        left <= 0xdbff &&
+        first >= 0xdc00 &&
+        first <= 0xdfff) ||
+      (last >= 0xd800 && last <= 0xdbff && right >= 0xdc00 && right <= 0xdfff);
+    if (
+      start < previousEnd ||
+      end <= start ||
+      end > body.length ||
+      body[start] !== "@" ||
+      cutsSurrogate
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mentions", index],
+        message: "指名の範囲が不正です",
+      });
+    }
+    previousEnd = end;
+  }
+}
+
 export const messageContentSchema = z
   .object({
     body: messageBodySchema,
     mentions: z.array(mentionSchema).optional(),
   })
   .strict()
-  .superRefine(({ body, mentions = [] }, ctx) => {
-    let previousEnd = 0;
-    for (const [index, mention] of mentions.entries()) {
-      const { start, end } = mention;
-      const left = body.charCodeAt(start - 1);
-      const first = body.charCodeAt(start);
-      const last = body.charCodeAt(end - 1);
-      const right = body.charCodeAt(end);
-      const cutsSurrogate =
-        (left >= 0xd800 &&
-          left <= 0xdbff &&
-          first >= 0xdc00 &&
-          first <= 0xdfff) ||
-        (last >= 0xd800 &&
-          last <= 0xdbff &&
-          right >= 0xdc00 &&
-          right <= 0xdfff);
-      if (
-        start < previousEnd ||
-        end <= start ||
-        end > body.length ||
-        body[start] !== "@" ||
-        cutsSurrogate
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["mentions", index],
-          message: "指名の範囲が不正です",
-        });
-      }
-      previousEnd = end;
-    }
-  });
+  .superRefine(checkMentionRanges);
+
+/** messageContentSchema と同じ形で、本文の空を通す（添付だけの投稿・本文を空にする編集。#270） */
+export const messageContentMaybeBlankSchema = z
+  .object({
+    body: messageBodyMaybeBlankSchema,
+    mentions: z.array(mentionSchema).optional(),
+  })
+  .strict()
+  .superRefine(checkMentionRanges);
 
 export type MessageContent = z.infer<typeof messageContentSchema>;
 

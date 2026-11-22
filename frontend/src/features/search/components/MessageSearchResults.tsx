@@ -4,7 +4,7 @@
 // 行のリンクは元の場所（チャンネル・案件の部屋は /channels、DM は /dms）の該当のスレッドへ。返信は親のスレッドを開く。
 import { Link } from "react-router";
 import { Button } from "../../../components/Button";
-import { formatMessageTime } from "../../messages";
+import { ATTACHMENT_ONLY_LABEL, formatMessageTime } from "../../messages";
 import type { MessageSearchConditions } from "../api/query-keys";
 import type { MessageSearchItem } from "../api/search-api";
 import { useMessageSearch } from "../hooks/useMessageSearch";
@@ -88,10 +88,14 @@ export function MessageSearchResults({
                 </time>
               </p>
               <Link to={linkOf(item)} className="block break-words underline">
-                <HighlightedExcerpt
-                  text={item.excerpt}
-                  keyword={conditions.q}
-                />
+                {item.excerpt === "" ? (
+                  ATTACHMENT_ONLY_LABEL
+                ) : (
+                  <HighlightedExcerpt
+                    text={item.excerpt}
+                    keyword={conditions.q}
+                  />
+                )}
               </Link>
               {item.matchedIn.includes("attachment") && (
                 <MatchedAttachmentNames
