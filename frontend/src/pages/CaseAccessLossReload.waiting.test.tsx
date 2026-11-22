@@ -40,6 +40,8 @@ import { apiErrorResponse, message } from "../test/message-handlers";
 import { server } from "../test/server";
 import { CaseDetailPage } from "./CaseDetailPage";
 
+// #338：test/setup.ts の入口の差し替えを外し、本物の入口を使う
+vi.unmock("../features/access-loss/reload-after-access-loss");
 vi.mock("../features/access-loss/browser-location", () => ({
   reloadPage: vi.fn(),
   replacePage: vi.fn(),

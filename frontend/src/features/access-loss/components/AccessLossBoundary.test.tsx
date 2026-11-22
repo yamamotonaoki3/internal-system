@@ -15,6 +15,8 @@ import {
   requestAccessLossReload,
 } from "..";
 
+// #338：test/setup.ts の入口の差し替えを外し、本物の入口を使う
+vi.unmock("../reload-after-access-loss");
 vi.mock("../browser-location", () => ({
   reloadPage: vi.fn(),
   replacePage: vi.fn(),
