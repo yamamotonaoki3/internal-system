@@ -291,3 +291,26 @@ describe("#340 AC-5 D-5 下書きを消せなかったときの知らせ", () =>
     expect(screen.queryByText(/書きかけ/)).toBeNull();
   });
 });
+
+// #341（計画 plan-341 の 8-1 と 13 の T-N1）：取り違え（画面は A、Cookie は B。#298・#376）で読み込み直した場合の、いまの動きを既知の動きとして固定する。
+// 保存先には種類だけがあり、書いた側の利用者を持たない（project-rules の #338 の項目）ため、新しい文書で最初に確定した利用者 B に lost が1回出る。
+// 案件の中身は含まない。続けて別の利用者 C に替わると、既存の条件で捨てる。期待は計画 8-1 から独立に書く（回帰のテスト。実装の前から通る）。
+describe("#341 T-N1 取り違えで読み込み直した後の知らせ（既知の動き）", () => {
+  const USER_C = "01JTESTUSER341C00000000001";
+
+  it("#341 T-N1: A の文書が lost を書く → 新しい文書の最初のセッションが B：lost の知らせが B に1回出る（中身は含まない）。続けて C に替わると消える", () => {
+    // A の画面のタブ（Cookie は B）が、読み込み直す前に種類だけを書いた
+    writeAccessLossNotice("lost");
+    const client = newClient();
+    expect(takeAccessLossNotice(client)).toBe("lost");
+    act(() => {
+      client.setQueryData(authKeys.session, sessionOf(USER_B));
+    });
+    renderNotice(client);
+    expect(screen.getAllByText(LOST_TEXT)).toHaveLength(1);
+    act(() => {
+      client.setQueryData(authKeys.session, sessionOf(USER_C));
+    });
+    expect(screen.queryByText(LOST_TEXT)).toBeNull();
+  });
+});
