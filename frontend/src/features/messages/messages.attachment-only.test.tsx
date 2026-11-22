@@ -23,6 +23,8 @@ import {
   type TestMessage,
 } from "../../test/message-handlers";
 import { SELF, renderInApp, respondSelf } from "../../test/thread-harness";
+import type { RoomMessage } from "./api/message-api";
+import { MessageItem } from "./components/MessageItem";
 import { RoomMessages } from "./index";
 
 const BLANK_MESSAGE = "メッセージを入力してください";
@@ -222,5 +224,64 @@ describe("#270 AC-11 編集欄：添付のある投稿は、本文を消して�
       ]),
     );
     expect(await screen.findByText("[E2E_TEST]足した本文")).toBeTruthy();
+  });
+});
+
+// ---- ミューテーションの見逃しの埋め合わせ（MessageItem.tsx の本文の段の「deleted か body が null なら、削除の表示」）----
+// 根拠：#134 の契約（deleted が真の項目、削除済みで body が null の項目は、本文の代わりに「このメッセージは削除されました」）・C-205（決定1：本文のない投稿は
+//   API の body が空文字。null〔削除済み〕と取り違えない）・計画 AC-4（本文のない投稿の行は、本文の段を出さず添付だけを出す）。
+// 既存のテスト（messages.edit-delete.test.tsx の削除済みの行）が変異を見逃した理由：deleted: true と body: null を同時に与えていたため、
+//   片方の条件だけでも、両方（&&）でも、同じ表示になっていた。ここでは、2つの条件を1つずつ与え、空文字（添付だけ）とも区別する。
+// 片方だけの組み合わせは、API の応答の検証（message-api.ts の refine）が一覧の取得では通さないため、部品（MessageItem）を直接描画して確かめる
+//   （部品の守りとして。API の契約は変えない）。
+describe("#270 AC-4 削除の表示は、deleted か body が null のときだけ（空文字と取り違えない）", () => {
+  const DELETED_TEXT = "このメッセージは削除されました";
+  const mine = { id: SELF.id, displayName: SELF.displayName };
+  const show = (item: TestMessage) => {
+    respondSelf();
+    return renderInApp(
+      <ul>
+        <MessageItem
+          message={item as unknown as RoomMessage}
+          retired={false}
+          canModify
+        />
+      </ul>,
+    );
+  };
+
+  it("#270 AC-4: deleted が真なら（body が残っていても）削除の表示を出し、本文も「編集」も出さない", () => {
+    const { container } = show(
+      message(1, {
+        author: mine,
+        deleted: true,
+        body: "[E2E_TEST]消えたはずの本文",
+      }),
+    );
+    expect(container.textContent).toContain(DELETED_TEXT);
+    expect(container.textContent).not.toContain("[E2E_TEST]消えたはずの本文");
+    expect(screen.queryByRole("button", { name: "編集" })).toBeNull();
+  });
+
+  it("#270 AC-4: deleted が偽でも、body が null なら削除の表示を出す", () => {
+    const { container } = show(
+      message(1, { author: mine, deleted: false, body: null }),
+    );
+    expect(container.textContent).toContain(DELETED_TEXT);
+  });
+
+  it("#270 AC-4（C-205）: body が空文字（添付だけの投稿）なら、削除の表示を出さず、添付と「編集」を出す", () => {
+    const { container } = show(
+      message(1, {
+        author: mine,
+        body: "",
+        attachments: [doc(1, "[E2E_TEST]空文字の添付.pdf")],
+      }),
+    );
+    expect(container.textContent).not.toContain(DELETED_TEXT);
+    expect(
+      screen.getByRole("link", { name: "[E2E_TEST]空文字の添付.pdf" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "編集" })).toBeTruthy();
   });
 });

@@ -47,7 +47,9 @@ import {
 } from "../../test/department-fixtures";
 import { insertMessage, ulidAt } from "../../test/message-fixtures";
 import {
+  archiveChannel,
   deleteAuditRows,
+  newSessionFor,
   insertModifyUser,
   leaveChannel,
   modifyTraceId,
@@ -110,11 +112,12 @@ async function deleteInterleaved(
   attachmentId: string,
   interrupt: () => Promise<void>,
   pattern?: Parameters<typeof interleavingDb>[2],
+  token = author.token,
 ) {
   const interleaved = interleavingDb(env.DB, interrupt, pattern);
   const recorded = recordingBucket(bucket());
   const response = await rawRequest("DELETE", attachmentPath(attachmentId), {
-    token: author.token,
+    token,
     envOverrides: { DB: interleaved.db, ATTACHMENTS: recorded.bucket },
   });
   const body =
@@ -304,4 +307,59 @@ describe("#270 AC-6（改訂2）⑤の読み取りの直前の割り込み", () 
     expect(result.status).toBe(409);
     expect(result.body).toMatchObject({ message: LAST_ATTACHMENT_MESSAGE });
   });
+});
+
+// ---- ミューテーションの見逃しの埋め合わせ（attachment.service.ts の requireDeletable の「⑤が null なら①〜④を読み直して、その理由で断る」）----
+// 根拠：計画 2.5（改訂2）・docs/design/attachments.md の判定の順（① 見えるか 404 → ①' → ② → ③ → ④ 部屋の状態 → ⑤ → ⑥ 再認証）・C-171(2)（断られる操作で
+//   パスワードを入れさせない）。⑤の読み取りが null（①〜④の条件が判定の後に崩れた）なら、⑥再認証・⑦書き込みへ進まず、読み直した①〜④の理由で断る。
+// 既存の⑤の割り込みのテストが変異（読み直しを飛ばす）を見逃した理由：再認証済みのセッションで要求していたため、読み直しを飛ばしても、⑥を通って⑦の書き込みが
+//   0 行になり、0 行の後の読み直しで同じ 404・403 になっていた（最終の応答が同じ）。ここでは、再認証していないセッションで要求する。
+//   読み直しを飛ばすと⑥で 403 REAUTH_REQUIRED になるため、読み直した理由（NOT_FOUND・FORBIDDEN）と区別できる。
+describe("#270 AC-6（改訂2）⑤が null のときは、①〜④の読み直しの理由で断り、再認証へ進まない", () => {
+  it.each<
+    [
+      string,
+      (seeded: { messageId: string }) => () => Promise<void>,
+      number,
+      string,
+    ]
+  >([
+    [
+      "メッセージの削除",
+      (seeded) => deleteMessageForReal(seeded.messageId),
+      404,
+      "NOT_FOUND",
+    ],
+    [
+      "チャンネルのアーカイブ",
+      () => () => archiveChannel(open),
+      404,
+      "NOT_FOUND",
+    ],
+    [
+      "参加の解除（公開チャンネル）",
+      () => () => leaveChannel(open, author.userId),
+      403,
+      "FORBIDDEN",
+    ],
+  ])(
+    "#270 AC-6: ⑤の読み取りの直前に%sが確定すると、再認証していないセッションでも、読み直しの理由の応答（REAUTH_REQUIRED・409 にしない）",
+    async (_label, makeInterrupt, status, code) => {
+      const seeded = await seedPost(true, 1);
+      const [target = ""] = seeded.ids;
+      const plain = await newSessionFor(author.userId, null);
+      const result = await deleteInterleaved(
+        target,
+        makeInterrupt(seeded),
+        FIFTH_READ,
+        plain,
+      );
+      expect(result.ran).toBe(true);
+      expect(result.status).toBe(status);
+      expect(result.body?.code).toBe(code);
+      expect(await auditRowsOf(ATTACHMENT_DELETE_ACTION, target)).toEqual([]);
+      expect(result.deletes).toEqual([]);
+      expect(await storedKeys()).toContain(seeded.keys[0] ?? "");
+    },
+  );
 });
