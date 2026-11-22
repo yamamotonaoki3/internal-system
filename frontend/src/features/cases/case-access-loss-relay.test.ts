@@ -168,6 +168,9 @@ beforeEach(async () => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
+  // vi.mock の差し替えの vi.fn は、vi.resetModules の後も同じものが使われる。前のテストの呼び出しの記録を持ち越さない
+  vi.mocked(entry.requestAccessLossReload).mockClear();
+  vi.mocked(entry.getAccessLossReloadState).mockClear();
   vi.mocked(entry.getAccessLossReloadState).mockReturnValue("idle");
   uninstall = relay.installCaseAccessLossRelay(client);
 });
