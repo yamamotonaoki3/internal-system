@@ -10,9 +10,18 @@ import {
   type AccessLossNoticeKind,
 } from "../access-loss-notice";
 
+const LOST_TEXT =
+  "この案件を表示できなくなったため、画面を読み込み直しました。保存していない入力は消えています。";
+const LEFT_TEXT = "案件から退出しました。";
+// 保存先が使えないままなら、ログアウトでも消せないため、消えると言い切らない（#340 計画レビュー2回目の軽微）
+const DRAFTS_REMAIN_TEXT =
+  "この案件のメッセージの書きかけが、この端末に残っている可能性があります。共用の端末では、ブラウザの設定から、このサイトのサイトデータを削除してください。";
+
 const NOTICE_TEXTS = {
-  lost: "この案件を表示できなくなったため、画面を読み込み直しました。保存していない入力は消えています。",
-  left: "案件から退出しました。",
+  lost: LOST_TEXT,
+  left: LEFT_TEXT,
+  lostDraftsRemain: `${LOST_TEXT}${DRAFTS_REMAIN_TEXT}`,
+  leftDraftsRemain: `${LEFT_TEXT}${DRAFTS_REMAIN_TEXT}`,
 } as const satisfies Record<AccessLossNoticeKind, string>;
 
 export function AccessLossNotice() {

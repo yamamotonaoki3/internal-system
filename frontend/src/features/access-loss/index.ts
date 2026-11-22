@@ -9,6 +9,7 @@ export { AccessLossBoundary } from "./components/AccessLossBoundary";
 export { AccessLossNotice } from "./components/AccessLossNotice";
 export {
   getAccessLossReloadState,
+  noteDraftsRemain,
   requestAccessLossReload,
   type AccessLossReloadRequest,
   type AccessLossReloadState,

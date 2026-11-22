@@ -17,10 +17,12 @@ import { reloadPage, replacePage } from "./browser-location";
 
 export type AccessLossReloadState = "idle" | "waiting" | "reloading";
 
+type AccessLossReason = Extract<AccessLossNoticeKind, "lost" | "left">;
+
 export type AccessLossReloadRequest = {
   /** 確定を始めた時点の利用者（退出は押した時点の利用者） */
   ownerId: string;
-  reason: AccessLossNoticeKind;
+  reason: AccessLossReason;
   /** 退出した案件の S-17 の場所（`/cases/<caseId>`）。reason が left のときだけ */
   leftCasePath?: string;
 };
@@ -31,8 +33,10 @@ const CASE_LIST_PATH = "/cases";
 
 type Waiting = {
   ownerId: string;
-  reason: AccessLossNoticeKind;
+  reason: AccessLossReason;
   leftCasePath: string | undefined;
+  /** その案件の部屋の下書きを消せなかった（noteDraftsRemain。#340） */
+  draftsRemain: boolean;
   cancel: () => void;
   done: Promise<void>;
 };
@@ -113,6 +117,7 @@ function startWaiting(
     ownerId: request.ownerId,
     reason: request.reason,
     leftCasePath: request.leftCasePath,
+    draftsRemain: false,
     done,
     cancel: () => {
       stopAll();
@@ -147,7 +152,9 @@ function startWaiting(
     waiting = null;
     // セッションが無い（ログアウト・401 の後）なら、誰に出す知らせか分からないので書かない
     if (readUserId(queryClient) !== undefined)
-      writeAccessLossNotice(entry.reason);
+      writeAccessLossNotice(
+        entry.draftsRemain ? `${entry.reason}DraftsRemain` : entry.reason,
+      );
     setState("reloading");
     if (destinationIsCaseList(entry)) replacePage(CASE_LIST_PATH);
     else reloadPage();
@@ -200,4 +207,13 @@ export function requestAccessLossReload(
     waiting.cancel();
   }
   return startWaiting(queryClient, request);
+}
+
+/**
+ * 片付けで、その案件の部屋の下書きを消せなかったときに呼ぶ（#340・C-207）。同じ持ち主の待機があれば、読み込み直した後の知らせで伝える。
+ * 待機がない・持ち主が違う（前の利用者の知らせを次の利用者に出さない）・読み込み直しが始まった後は、何もしない
+ */
+export function noteDraftsRemain(ownerId: string): void {
+  if (waiting === null || waiting.ownerId !== ownerId) return;
+  waiting.draftsRemain = true;
 }

@@ -7,6 +7,8 @@ import {
   draftKey,
   isBlankDraft,
   isDraftExpired,
+  roomDraftScope,
+  roomThreadDraftScopePrefix,
   userDraftKeyPrefix,
 } from "./draft-policy";
 
@@ -144,6 +146,22 @@ export function removeUserDrafts(storage: Storage, userId: string): void {
   guard(() => {
     for (const key of collectKeys(storage, userDraftKeyPrefix(userId)))
       storage.removeItem(key);
+  });
+}
+
+/** その利用者の、その部屋の下書き（部屋への投稿の1件と、その部屋のスレッドの返信すべて）だけを消す（#340・C-207） */
+export function removeRoomDrafts(
+  storage: Storage,
+  userId: string,
+  roomId: string,
+): void {
+  guard(() => {
+    const threadKeys = collectKeys(
+      storage,
+      draftKey(userId, roomThreadDraftScopePrefix(roomId)),
+    );
+    storage.removeItem(draftKey(userId, roomDraftScope(roomId)));
+    for (const key of threadKeys) storage.removeItem(key);
   });
 }
 

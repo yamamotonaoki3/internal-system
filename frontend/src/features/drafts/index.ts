@@ -6,8 +6,10 @@ export {
   threadDraftScope,
 } from "./draft-policy";
 export {
+  DraftStorageUnavailableError,
   openDraftStorage,
   purgeExpiredDraftsOnStartup,
+  removeRoomDrafts,
   removeUserDrafts,
 } from "./draft-storage";
 export { useDraft } from "./hooks/useDraft";

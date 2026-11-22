@@ -5,11 +5,15 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { authKeys, type SessionInfo } from "../auth";
 
-export type AccessLossNoticeKind = "lost" | "left";
+/** …DraftsRemain：その案件の部屋の下書きを、端末から消せなかった（#340・C-207） */
+export type AccessLossNoticeKind =
+  "lost" | "left" | "lostDraftsRemain" | "leftDraftsRemain";
 
 const NOTICE_KINDS: readonly string[] = [
   "lost",
   "left",
+  "lostDraftsRemain",
+  "leftDraftsRemain",
 ] satisfies readonly AccessLossNoticeKind[];
 const NOTICE_KEY = "internal-system:access-loss-notice:v1";
 
