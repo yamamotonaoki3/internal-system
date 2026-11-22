@@ -21,6 +21,7 @@
 | `components/AccessLossNotice.tsx` | 知らせの表示（`Alert`と「閉じる」）。表示の判定は持たない |
 | `index.ts` | 公開部分。ほかの機能はここだけを通して使う |
 | `frontend/src/features/leave-guard/before-unload-suppression.ts` | 離脱の確認（`beforeunload`）を止めない印（`suppressBeforeUnload`・`restoreBeforeUnload`・`isBeforeUnloadSuppressed`）。`leave-guard/index.ts`から前の2つを公開し、`hooks/useLeaveGuard.ts`の`beforeunload`の処理が印を読む。立てる・外すのは入口だけ |
+| `frontend/src/services/api-client.ts` | 進行中の**書き込みの要求**（GET・HEAD・OPTIONS 以外）の数を数える口（`getPendingWriteCount`・`subscribePendingWrites`）。リクエストのインターセプターで、実際の送信（アダプター）を包み、増減は`try`/`finally`で必ず戻す。持つのは**数だけ**（本文・URL・応答を覚えない）。`useMutation`を使わない送信（パスワードの変更・ログイン・再認証・アカウントの作成・初期設定など。`MutationCache`に載らない）も、入口の待つ対象になる。入口だけが使う口で、通常の機能は直接使わない |
 | `frontend/src/main.tsx` | `QueryClientProvider`の中で、`RouterProvider`を`AccessLossBoundary`で包む（`LeaveGuardProvider`は、ルーターの要素として`App`を包んでいるので、境界はその外側になり、離脱の確認も隠れる）。描画の前に`takeAccessLossNotice`を1回呼ぶ |
 | `frontend/src/features/app-shell/AppShell.tsx` | `LogoutFailureNotice`の直後に`AccessLossNotice`を置く |
 
@@ -35,11 +36,12 @@
 1. いまのセッションの利用者が分かっていて持ち主と違えば、何もしない。セッションが無いときは続ける
 2. 状態が`reloading`なら何もしない。`waiting`で持ち主が同じなら**合流**する（同じ文書の同じ持ち主は1回にまとめる）。合流では、理由は`left`を優先し、`left`のときは退出した案件の場所（`leftCasePath`）を持つ。持ち主が違えば、古い待機を取りやめてから続ける
 3. `waiting`にし、離脱の確認の抑止を立てる。セッションのキャッシュを購読し、いまの利用者が持ち主と**別の利用者**になった時点で取りやめる（`idle`に戻し、抑止を外し、購読とタイマーを外す）。セッションが無くなるだけでは取りやめない（401・ログアウトの後も続ける）
-4. 進行中の操作を待つ。
+4. 進行中の操作を待つ（判定は`mustWait()`）。
    - 上限なし：状態が`pending`の、ログアウトの操作のうち、押した時点の利用者（`useLogout`が操作の文脈に持つ）が持ち主と同じもの。その操作が`pending`でなくなる（成功・失敗の後処理が済む）まで待つ。セッションの消失は待ちの終わりの合図にしない
-   - 上限5秒（定数`WAIT_LIMIT_MS`）：それ以外の`pending`の操作すべて（ほかの利用者のログアウトを含む）
-5. 待ちが終わったら、1つ後のタスクまで待つ（操作の完了の後に続く処理、たとえば`mutateAsync`の続きの下書きの消去を、先に走らせるため）
-6. もう一度、利用者を比べる（別の利用者なら取りやめ）。セッションがあれば、知らせの種類を書く
+   - 上限5秒（定数`WAIT_LIMIT_MS`）：それ以外の、`MutationCache`の`pending`の操作すべて（ほかの利用者のログアウトを含む）と、`services/api-client.ts`が数える進行中の書き込みの要求（`MutationCache`に載らない直接の送信）。上限は**最初の要求から数え、延ばさない**。上限の後は、持ち主のログアウトだけを待つ
+   - 待ちの終わりは、`MutationCache`・進行中の書き込みの数の購読と、上限のタイマーの知らせで確かめ直す
+5. 待つものが無くなったら、1つ後のタスクまで待つ（操作の完了の後に続く処理、たとえば`mutateAsync`・`await`の続きの下書きの消去を、先に走らせるため）
+6. **実行の直前に、もう一度`mustWait()`で確かめる**。予約の後に始まった操作（離脱の確認の解除で始まるログアウトなど）があれば、待機に戻る（読み込み直しを予約した後も、待機は終わっていない）。そのうえで、利用者を比べる（別の利用者なら取りやめ）。セッションがあれば、知らせの種類を書く
 7. 状態を`reloading`にし（以後`idle`に戻らない）、読み込み先を決める：理由が`left`で、いまの場所が、退出した案件の S-17 か`/cases`なら、`/cases`へ置き換える（`replacePage`）。それ以外は、いまの場所を読み込み直す（`reloadPage`）。読み込み先は、読み込み直す時点で決める（退出の後の一覧への移動より先に読み込み直しても、`/cases`になるため）
 
 時間による歯止めは持たない。読み込み直した後の文書で同じ喪失を繰り返さないのは、呼ぶ条件（参加者だったことを見た後に限る）による。
@@ -88,7 +90,8 @@
 - 知らせ：`frontend/src/features/access-loss/access-loss-notice.test.tsx`（種類だけの保存・保存先の失敗・捨てる条件・「閉じる」）
 - 境界：`frontend/src/features/access-loss/components/AccessLossBoundary.test.tsx`（`hidden`・`inert`・覆い・Esc・開き直し）
 - 離脱の確認の抑止：`frontend/src/features/leave-guard/leave-guard.suppress.test.tsx`
-- 画面：`frontend/src/pages/CaseAccessLossReload.test.tsx`（きっかけごとに、片付けの後に入口が呼ばれる・呼ばれない。退出の理由と場所・持ち主）、`CaseAccessLossReload.waiting.test.tsx`（実際の入力欄で投稿を保留したまま外される・保存先の知らせの表示）
+- 進行中の書き込みの数：`frontend/src/services/api-client.pending-writes.test.ts`（書き込みのメソッドだけ数える・読み取りは数えない・失敗・取り消しでも必ず減る）
+- 画面：`frontend/src/pages/CaseAccessLossReload.test.tsx`（P-10d を含む。きっかけごとに、片付けの後に入口が呼ばれる・呼ばれない。退出の理由と場所・持ち主）、`CaseAccessLossReload.directWrite.test.tsx`（`MutationCache`に載らない直接の送信を保留している間は読み込み直さない）、`CaseAccessLossReload.waiting.test.tsx`（実際の入力欄で投稿を保留したまま外される・保存先の知らせの表示）
 - E2E：`e2e/case-access-loss-reload.spec.ts`（実際の読み込み直し・最上位の層が隠れる・Tab・Esc・「戻る」・`beforeunload`。[e2e.md](../testing/e2e.md)）
 
 ## 関係するIssueとADR
