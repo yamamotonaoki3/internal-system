@@ -551,3 +551,84 @@ describe("#340 AC-5 消せなかった場合（D-3・D-4、Q3 の (ア)）", () 
     expect(noteDraftsRemain).not.toHaveBeenCalled();
   });
 });
+
+// #340 AC-5 D-3・D-4（決定 C-207 の Q3）：(a) 拒否の後の確かめで確定した4つの場合でも、消せなかったことは、
+// 読み込み直しの待機に印を付けて伝える。待機は入口が作るので、入口が先、noteDraftsRemain(持ち主) が後でなければ、印が付かない。
+describe("#340 AC-5 D-3・D-4 (a) の確定でも、入口が先に呼ばれ、その後に noteDraftsRemain が持ち主の ID で呼ばれる", () => {
+  function failDraftRemoval() {
+    const original = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (
+        this === window.localStorage &&
+        key.startsWith("internal-system:draft:")
+      )
+        throw new DOMException("denied", "SecurityError");
+      original.call(this, key);
+    });
+  }
+  function failStorageOpen() {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+  }
+
+  function expectRequestThenNote() {
+    expect(noteDraftsRemain).toHaveBeenCalledWith(USER);
+    const requestOrder =
+      vi.mocked(requestAccessLossReload).mock.invocationCallOrder[0] ?? 0;
+    const noteOrder =
+      vi.mocked(noteDraftsRemain).mock.invocationCallOrder[0] ?? 0;
+    expect(requestOrder).toBeGreaterThan(0);
+    expect(requestOrder).toBeLessThan(noteOrder);
+  }
+
+  const cases = [
+    ["表示中", "非参加", false, "lost"],
+    ["表示中", "404", false, 404],
+    ["画面を離れた後", "非参加", true, "lost"],
+    ["画面を離れた後", "404", true, 404],
+  ] as const;
+  const failures = [
+    ["削除が SecurityError", failDraftRemoval],
+    ["保存先を開けない", failStorageOpen],
+  ] as const;
+
+  for (const [where, what, leave, answer] of cases)
+    for (const [failureName, fail] of failures)
+      it(`#340 AC-5 (a) ${where}・${what}・${failureName}: 入口が先、その後に noteDraftsRemain(持ち主)`, async () => {
+        const { client, server, unmount } = setup();
+        const gate = deferred();
+        server.gate = gate.promise;
+        server.answer = answer;
+        await rejectTodos(client);
+        await waitFor(() =>
+          expect(client.isFetching({ queryKey: [...SUMMARY] })).toBe(1),
+        );
+        if (leave) unmount();
+        fail();
+        gate.release();
+        await waitFor(() => expect(noteDraftsRemain).toHaveBeenCalled());
+        expectRequestThenNote();
+      });
+
+  it("#340 AC-5: 部屋の ID が一度も分からないまま (b) で確定し、保存先を開けなくても、noteDraftsRemain は呼ばれない（消す対象がない）", () => {
+    const { rerender } = setup({
+      isParticipant: true,
+      outsider: false,
+      roomId: null,
+      participantRoomId: null,
+    });
+    failStorageOpen();
+    rerender({
+      isParticipant: false,
+      outsider: true,
+      roomId: null,
+      participantRoomId: null,
+    });
+    expect(requestAccessLossReload).toHaveBeenCalled();
+    expect(noteDraftsRemain).not.toHaveBeenCalled();
+  });
+});

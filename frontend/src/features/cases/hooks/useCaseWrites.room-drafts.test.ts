@@ -93,3 +93,35 @@ describe("#340 forgetCaseRoomDrafts：その部屋の下書きを消し、結果
     expect(() => forgetCaseRoomDrafts(USER, ROOM)).toThrow(unexpected);
   });
 });
+
+// #340 AC-5（決定 C-207 の Q3）：部屋の ID が分からない（null）＝消す対象がない。保存先が使えなくても「消せなかった」とはしない
+// （誤って「書きかけが残っている可能性」の知らせを出さない）。保存先にも触れない。
+describe("#340 forgetCaseRoomDrafts：部屋の ID が null のとき", () => {
+  it("#340 AC-5: 保存先を開けない（参照が SecurityError）ときも removed を返し、保存先を参照しない", () => {
+    const getter = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("denied", "SecurityError");
+      });
+    expect(forgetCaseRoomDrafts(USER, null)).toBe("removed");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("#340 AC-5: 削除が SecurityError になる状態でも removed を返し、removeItem・key・length に触れない", () => {
+    seed();
+    const thrower = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(thrower);
+    const key = vi.spyOn(Storage.prototype, "key").mockImplementation(thrower);
+    const length = vi
+      .spyOn(Storage.prototype, "length", "get")
+      .mockImplementation(thrower);
+    expect(forgetCaseRoomDrafts(USER, null)).toBe("removed");
+    expect(removeItem).not.toHaveBeenCalled();
+    expect(key).not.toHaveBeenCalled();
+    expect(length).not.toHaveBeenCalled();
+  });
+});

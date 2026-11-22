@@ -382,3 +382,49 @@ describe("#340 本人の退出の成功で、その案件の部屋の下書き�
     expect(noteDraftsRemain).toHaveBeenCalledWith(USER);
   });
 });
+
+describe("#340 AC-5 退出で部屋の ID が分からないとき", () => {
+  it("#340 AC-5（C-207 の Q3）: 部屋の ID が null のまま退出に成功し、保存先を開けなくても、noteDraftsRemain は呼ばれない（消す対象がない）", async () => {
+    vi.mocked(noteDraftsRemain).mockClear();
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    client.setQueryData(authKeys.session, {
+      user: TEST_USER,
+      mustChangePassword: false,
+      reauthenticatedAt: null,
+      permissions: [],
+    });
+    server.use(
+      http.delete(
+        "/api/cases/:caseId/participants/:userId",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useRemoveCaseParticipant(CASE), {
+      wrapper,
+    });
+    const getter = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("denied", "SecurityError");
+      });
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: USER,
+        self: true,
+        actorId: USER,
+        roomId: null,
+      });
+    });
+    getter.mockRestore();
+    expect(requestAccessLossReload).toHaveBeenCalled();
+    expect(noteDraftsRemain).not.toHaveBeenCalled();
+  });
+});
