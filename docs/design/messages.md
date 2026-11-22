@@ -194,7 +194,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 | 一覧（EP-1-01の一部） | `GET /api/rooms/{roomId}/messages`。`after?`・`cursor?`・`limit`。`after`なしは200で`items`（新しい順）と`nextCursor`、`after`ありは`items`（ID昇順）と`hasMore`。401／404／422【Issue #134で、`items[]`に`editedAt`（文字列かnull）・`deleted`（真偽）を足し、`body`をnullableにした。削除済みは`body: null`・`editedAt: null`】 |
 | 投稿（EP-1-02の一部） | `POST /api/rooms/{roomId}/messages`。本文は`body`だけ。201で`id`・`roomId`・`createdAt`。401／403（未参加の公開・お知らせ専用で権限なし）／403（Origin）／404／422／503（IDの作り直しが上限を超えた） |
 | 詳細（EP-2-06） | 応答に`canPost`（参加者で、お知らせ専用なら部署のオーナーか全体管理者）を足した。既存の項目は変えていない【Issue #134で、`readOnly`（部署が無効で読み取り専用）も足した。元の記述は残す】 |
-| 編集・削除（EP-1-03・EP-1-04。Issue #134） | `PATCH /api/messages/{messageId}`（本文は`body`だけ。200で`id`・`body`・`editedAt`）、`DELETE /api/messages/{messageId}`（204）。401／403（`FORBIDDEN`・`FORBIDDEN_ORIGIN`・`REAUTH_REQUIRED`）／404／409／422。詳細は[message-edit-markdown.md](message-edit-markdown.md) |
+| 編集・削除（EP-1-03・EP-1-04。Issue #134） | `PATCH /api/messages/{messageId}`（本文は`body`だけ。200で`id`・`body`・`editedAt`）、`DELETE /api/messages/{messageId}`（204）。401／403（`FORBIDDEN`・`FORBIDDEN_ORIGIN`・`REAUTH_REQUIRED`）／404／409／422。詳細は[message-edit-markdown.md](message-edit-markdown.md)【Issue #270の1つ目：削除は、そのメッセージの添付にも同じbatchで印を付ける。204は変わらない】 |
 
 ## 主な入出力
 
@@ -283,4 +283,5 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - Issue #137：スレッドの返信を足した（`parent_message_id`、EP-1-01から返信を除く、`replyCount`）。詳細は[threads.md](threads.md)。決定記録C-172。要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08
 - Issue #138：リアクション・スタンプを足した（表`message_reactions`、EP-1-12・EP-1-13、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`reactions`を追加。削除済みは`[]`）。`MessageRepository.listLatest`・`listAfter`の`viewerId`は必須。詳細は[reactions.md](reactions.md)。決定記録C-174。要件：1-7 AC-1〜AC-5、1-4 AC-6
 - Issue #140：メッセージの添付を足した（表`message_attachments`、EP-1-09・EP-1-10、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`attachments`を追加。削除済みは`[]`。投稿・返信の入力に`attachmentIds`。`insertIfOrdered`と`insertReplyIfOrdered`の`db.batch`に結び付けの文を追加。`requirePostable`・`requireReplyable`をアップロードの入口にも公開）。`message.service.ts`の`requireVisible`と`attachment-visibility.sql.ts`は同じ規則で、変えるときは両方を直す。詳細は[attachments.md](attachments.md)。決定記録C-176。要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5
+- Issue #270の1つ目：添付の削除。メッセージの削除（`deleteIfModifiable`）が、同じ`db.batch`で、そのメッセージの添付にも削除の印を付け（監査は`message.delete`の1件に含める）、成功の後に`remove`が依存`purgeAttachmentsOf`で実体（R2）の削除を1回試す。一覧の`attachments`は、削除済みの添付を含めない（`loadMessageAttachments`）。自分の添付を1件ずつ消す`DELETE /api/attachments/:attachmentId`（EP-1-11）と画面の操作は、[attachments.md](attachments.md)の「添付の削除」。決定記録C-204。要件：1-6 AC-4
 - Issue #148の148-A：案件専用チャンネルの部屋を、この設計のAPIにそのまま通した（案件の権限・終了中の409・SQLの`caseRoomOpen`）。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-1・AC-4、5-1 AC-11

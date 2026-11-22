@@ -5,7 +5,7 @@
 //   DM：本人が当事者で、当事者に無効な社員がいない
 // お知らせ専用の投稿権限は条件に入れない（利用者の決定 U-3：今その部屋に参加している本人なら編集・削除できる）。
 import { sql, type SQL } from "drizzle-orm";
-import { messageMentions, messages } from "../../db/schema";
+import { messageAttachments, messageMentions, messages } from "../../db/schema";
 import type { Mention } from "../../../shared/message-rules";
 import {
   insertMentionNotifications,
@@ -21,7 +21,8 @@ import {
   syncMessageIndexStatements,
 } from "./search-index.sql";
 
-export function modifiable(messageId: string, userId: string): SQL {
+/** messageId は値か、外側の行の列（添付の削除の条件 deletable が添付の message_id を渡す） */
+export function modifiable(messageId: string | SQL, userId: string): SQL {
   return sql`EXISTS (
     SELECT 1 FROM messages m
     WHERE m.id = ${messageId} AND m.sender_id = ${userId} AND m.deleted_at IS NULL
@@ -117,6 +118,7 @@ export async function updateBodyIfModifiable(
 /**
  * 削除の印（deleted_at・deleted_by）を付け、削除した行数（1 か 0）を返す。本文は残す（EP-1-04）。
  * 監査は、削除できるときだけ残す。UPDATE の後は条件が偽になるため、UPDATE より前に置く。detail に本文を入れない。
+ * 同じ batch で、そのメッセージの添付にも削除の印を付ける（#270。監査は message.delete の1件に含める）。
  */
 export async function deleteIfModifiable(
   db: Database,
@@ -128,7 +130,8 @@ export async function deleteIfModifiable(
     traceId: string;
   },
 ): Promise<number> {
-  const [, update] = await db.batch([
+  const allowed = modifiable(input.messageId, input.userId);
+  const statements = [
     auditLogInsert(
       db,
       {
@@ -140,17 +143,30 @@ export async function deleteIfModifiable(
         traceId: input.traceId,
         detail: { roomId: input.roomId },
       },
-      { onlyWhen: modifiable(input.messageId, input.userId) },
+      { onlyWhen: allowed },
     ),
+    // 添付の削除の印（#270）。メッセージの UPDATE の後は条件が偽になるため、その前に置く。既に印のある添付は書き換えない
+    db
+      .update(messageAttachments)
+      .set({ deletedAt: input.deletedAt, deletedBy: input.userId })
+      .where(
+        sql`${messageAttachments.messageId} = ${input.messageId} AND ${messageAttachments.deletedAt} IS NULL AND ${allowed}`,
+      ),
+  ] as const;
+  // 戻り値はメッセージの UPDATE の結果。末尾に索引の文があるので、積んだ時点の位置を保持して読む
+  const updateAt = statements.length;
+  const results = await db.batch([
+    ...statements,
     db
       .update(messages)
       .set({ deletedAt: input.deletedAt, deletedBy: input.userId })
-      .where(
-        sql`${messages.id} = ${input.messageId} AND ${modifiable(input.messageId, input.userId)}`,
-      ),
+      .where(sql`${messages.id} = ${input.messageId} AND ${allowed}`),
     // 検索の索引（#155）。削除が確定したときだけ、写しが対象外になって消える
     ...removeStaleMessageIndexStatements(db, input.messageId),
     ...removeStaleAttachmentIndexStatements(db, input.messageId),
   ]);
+  const update = results[updateAt];
+  if (update === undefined)
+    throw new Error("メッセージの削除の結果を読めませんでした");
   return update.meta.changes;
 }

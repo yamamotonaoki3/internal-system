@@ -21,6 +21,21 @@ export async function replaceRoomMessage(
   );
 }
 
+/** スレッドのキャッシュの親（部屋の一覧とは別に持たれている）を書き換える。スレッドを開いていなければ何もしない */
+export async function replaceThreadParent(
+  queryClient: QueryClient,
+  parentMessageId: string,
+  replace: (message: RoomMessage) => RoomMessage,
+): Promise<void> {
+  const queryKey = messageKeys.thread(parentMessageId);
+  await queryClient.cancelQueries({ queryKey });
+  queryClient.setQueryData<ThreadRepliesData>(queryKey, (thread) =>
+    thread === undefined
+      ? undefined
+      : { ...thread, parent: replace(thread.parent) },
+  );
+}
+
 async function replaceThreadReply(
   queryClient: QueryClient,
   parentMessageId: string,

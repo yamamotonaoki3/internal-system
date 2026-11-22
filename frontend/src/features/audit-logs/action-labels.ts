@@ -48,6 +48,7 @@ export const ACTION_LABELS: ReadonlyMap<string, string> = new Map([
   ["retirement_request.reject", "退職処理の申請の却下"],
   ["retirement_request.withdraw", "退職処理の申請の取り下げ"],
   ["message.delete", "メッセージの削除"],
+  ["attachment.delete", "添付の削除"],
   ["audit_log.view", "監査ログの閲覧"],
 ]);
 

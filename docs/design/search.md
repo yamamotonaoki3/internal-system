@@ -149,13 +149,17 @@
 | 返信への結び付け | `reply-insert.sql.ts`の`insertReplyIfOrdered`の batch | 同上 | 同上 |
 | 結び付けの失敗（件数・容量・他人の添付） | 同上 | 組を含めて batch ごと取り消される | 索引も残らない |
 | 論理削除 | `message-modify.sql.ts`の`deleteIfModifiable` | 末尾に`removeStaleAttachmentIndexStatements` | 削除が確定したときだけ、名前の写しが対象外になって消える |
+| 添付の削除（#270） | `attachment-delete.sql.ts`の`markAttachmentDeleted`の batch | 末尾に`removeStaleAttachmentIndexStatements` | `staleAttachmentDocuments`が削除済み（`deleted_at`が入った行）を古い写しとみなすため、削除が確定したときだけ写しが消える。拒否（0行）なら残る。`syncAttachmentIndexStatements`も削除済みを入れない（`reindexMessages`の登録し直しでも出ない） |
+| 後始末の物理削除（#270） | `attachment-purge.ts`の`deletePurgedRow` | 何もしない | 印を付けた時点で写しは消えている。行の削除は、すでにない写しに触れない |
 | 既存の分の登録 | `search-reindex.ts`の`reindexMessages` | 行ごとの batch に、メッセージの組と添付の組 | シード・migration の後の登録 |
 | 本文の編集（2経路） | `updateBodyIfModifiable` | 何もしない | 添付は変わらない。メッセージの組は`kind = 'message'`だけを見るので、添付の写しは残る |
 | アップロード（未投稿） | `attachment.repository.ts`の`insertPending` | 何もしない | 未投稿の添付は索引に入れない（本人にも検索で出さない） |
 | 未投稿の掃除 | `deletePendingBefore` | 何もしない | 未投稿だけを消すので、写しはない |
 | 案件の添付の公開範囲の変更 | `case-attachment.repository.ts`の`changeVisibility` | 何もしない | 公開範囲は検索の読み取りの資格に使わない（下の「見える範囲」） |
 
-チャンネル・案件・添付を物理削除するアプリのコードは、いまはない。**#270（添付の削除）など、`message_attachments`を変える処理を新しく足すときは、同じ batch の末尾に添付の組を足し**、`backend/src/db/search-index.attachments.db.test.ts`の書き込みの経路の一覧のテストにも足す（漏れると、消えた添付の名前は検索の SQL の条件で出ないが、新しい名前が検索に出ない）。
+チャンネル・案件を物理削除するアプリのコードは、いまはない。添付の行の物理削除は、#270 の後始末（削除済みの行だけ。上の表）にだけある。**今後、`message_attachments`を変える処理を新しく足すときは、同じ batch の末尾に添付の組を足し**、`backend/src/db/search-index.attachments.db.test.ts`の書き込みの経路の一覧のテストにも足す（漏れると、消えた添付の名前は検索の SQL の条件で出ないが、新しい名前が検索に出ない）。
+
+添付の削除の索引の確かめ（#270）：削除した添付がファイル名で一致しないこと・`matchedAttachments`に出ないことは`backend/src/routes/attachments.deleted-visibility.test.ts`（検索の節）で確かめる。詳細は[attachments.md](attachments.md)の「添付の削除」。
 
 ## 既存のメッセージの登録（D-9）
 
@@ -219,6 +223,7 @@
 | --- | --- |
 | 本文の行：`d.ref_id = m.id` | 種類の取り違え（本文の行に添付の ID が入っている） |
 | 添付の行：添付が実在する（`a.id = d.ref_id`） | 消えた添付の名前（索引の遅れ・後始末の漏れ） |
+| 添付の行：削除されていない（`a.deleted_at IS NULL`。#270） | **削除した添付の名前**（索引の更新が遅れても出さない） |
 | 添付の行：`a.message_id = m.id` | 別のメッセージ・未投稿の添付の名前 |
 | 添付の行：`a.room_id = m.room_id` | 部屋の食い違う添付の名前 |
 | 添付の行：`a.original_name = d.source_body` | **写しの名前と、いまの名前が食い違う添付は出さない**（統括の決定。古い名前でも新しい名前でも、同期までは出ない） |
@@ -235,6 +240,7 @@ SQL の見える範囲：
 | 閲覧者が有効・部屋を見てよい | `roomViewableBy`（添付の部屋） | `roomViewableBy`（メッセージの部屋）と、添付の部屋＝メッセージの部屋 |
 | 投稿に結び付いている | 結び付いた添付 | `a.message_id = m.id` |
 | メッセージが未削除 | 条件にある | 同じ |
+| 添付が未削除（#270） | 条件にある（`a.deleted_at IS NULL`） | 同じ（上の「添付の行：削除されていない」） |
 | 未投稿の添付 | アップロードした本人だけ | 出さない（本人にも。検索のほうが狭い） |
 
 Service の権限：
@@ -442,7 +448,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 
 ## 関係するIssue・ADR
 
-- Issue #155（155-A・155-B・155-C）、#356（全社員公開アーカイブの検索）・#357（TODO の検索）、#160（本番での確認と適用・実測）、#353（本番で索引を作る経路）、#350（本物の D1 での確認）、#323（資格を失ったときの後片付け）、#270（添付の削除。索引の組を足す）
+- Issue #155（155-A・155-B・155-C）、#356（全社員公開アーカイブの検索）・#357（TODO の検索）、#160（本番での確認と適用・実測）、#353（本番で索引を作る経路）、#350（本物の D1 での確認）、#323（資格を失ったときの後片付け）、#270（添付の削除。1つ目で実装し、索引の組を足した。添付だけの投稿は2つ目。決定記録C-204）
 - ADR-0010（FTS5 trigram）、ADR-0031（手で書く migration・既存の分の登録）、ADR-0026（マークダウンの許可リスト）、ADR-0030（利用者の切り替え）、ADR-0006（カーソル）、ADR-0012（毎回サーバー側で認可）
 - 決定記録 C-152・C-200・C-201（155-B）・C-202（155-C）、C-199（再編集の文の上限）、C-168（`instr`）、C-90（1〜100文字）、C-94・C-117（未参加の公開チャンネル・案件番号の前方一致）、C-120（案件番号の正規化）、C-87・C-89（結果の概要）
 - 要件：4-1 AC-1〜AC-3、4-2 AC-1〜AC-3、EP-4-01・EP-4-02、S-15、R-58・R-78

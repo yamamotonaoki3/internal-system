@@ -182,6 +182,8 @@ export function createCaseAttachmentRepository(db: Database) {
               isNull(messages.deletedAt),
               eq(messageAttachments.messageId, messages.id),
               eq(messageAttachments.roomId, messages.roomId),
+              // 削除済みの添付は出さない（#270。attachment-visibility.sql.ts の一覧の3）
+              isNull(messageAttachments.deletedAt),
               visible,
               before,
             ),

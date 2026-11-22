@@ -105,6 +105,8 @@ function splitMigrations() {
     empty: all[emptyIndex] as D1Migration,
     between: all.slice(emptyIndex + 1, kindIndex),
     kind: all[kindIndex] as D1Migration,
+    // 種類を変える migration より後ろのもの（検索と関係しない。例：添付の削除の列）。今のコードは、これらの列を読む
+    rest: all.slice(kindIndex + 1),
   };
 }
 
@@ -404,8 +406,8 @@ describe("#155 AC-3 155-B M-1 種類の CHECK を変える migration の更新�
   it("#155 AC-3 M-1 対照: 索引を空にする migration を飛ばして作り直しだけを当てると、孤立した番号が使い回され、新しい投稿が古い文の語で誤って一致する（MATCH・instr）", async () => {
     const db = upgradeDb();
     const { orphanId } = await prepareLegacyState(db);
-    const { before, kind } = splitMigrations();
-    await applyD1Migrations(db, [...before, kind]);
+    const { before, kind, rest } = splitMigrations();
+    await applyD1Migrations(db, [...before, kind, ...rest]);
 
     const fresh = await postOn(db, "対照の新規投稿の語");
     const reused = await db
@@ -426,10 +428,10 @@ describe("#155 AC-3 155-B M-1 種類の CHECK を変える migration の更新�
   it("#155 AC-3 M-1: 0034 で両方の表が0件 → 両方の区間の投稿・編集・削除 → 0035 → 再登録で、古い文で0件・新しい語で引け、不一致0件。CHECK は attachment・case_title を通しほかを拒否", async () => {
     const db = upgradeDb();
     const { m1, m2, ma, legacyAttachment } = await prepareLegacyState(db);
-    const { before, empty, between, kind } = splitMigrations();
+    const { before, empty, between, kind, rest } = splitMigrations();
 
-    // ① 索引を空にする
-    await applyD1Migrations(db, [...before, empty]);
+    // ① 索引を空にする。区間の投稿・編集・削除は今のコードで行い、そのコードは添付の削除の列を読むため、検索と関係しない後ろの migration も先に当てる
+    await applyD1Migrations(db, [...before, empty, ...rest]);
     expect(await counts(db)).toEqual({ documents: 0, fts: 0 });
 
     // ② 0034 と 0035 の間：投稿・編集・削除（このときの CHECK は message だけ。添付は付けない）

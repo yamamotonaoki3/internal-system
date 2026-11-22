@@ -70,8 +70,12 @@ describe("#148 AC-8 migration：message_attachments.publication_visibility", () 
   });
 
   it("#148 AC-8 D2: 既存の列（#140 の11列）は変わらず、足したのは publication_visibility の1列だけ", async () => {
+    // #270 計画 4.7（migration 0036）で deleted_at・deleted_by・purge_failed_at の3列が足された（purge_failed_at はコードレビューの指摘1の直し）。それ以外の増減はないこと
     expect((await columns()).map((c) => c.name).sort()).toEqual(
       [
+        "deleted_at",
+        "deleted_by",
+        "purge_failed_at",
         "id",
         "room_id",
         "thread_parent_id",
@@ -125,5 +129,41 @@ describe("#148 AC-8 migration：message_attachments.publication_visibility", () 
     expect(column?.name).toBe("publication_visibility");
     expect(column?.notNull).toBe(true);
     expect(column?.default).toBe("participants_only");
+  });
+});
+
+describe("#270 指摘1 migration 0036：message_attachments.purge_failed_at", () => {
+  it("#270 指摘1: 列があり、TEXT・NULL 可・既定値なし（実体の削除に最後に失敗した時刻。失敗していない行は NULL）", async () => {
+    const column = (await columns()).find((c) => c.name === "purge_failed_at");
+    expect(column).toBeDefined();
+    expect(column?.type.toLowerCase()).toBe("text");
+    expect(column?.notnull).toBe(0);
+    expect(column?.dflt_value).toBeNull();
+  });
+
+  it("#270 指摘1: 値を指定しない INSERT（既存の書き方）は purge_failed_at が NULL になる", async () => {
+    const id = await insertAttachmentRow({
+      roomId: cw.normal,
+      uploaderId: cw.w.memberS1.id,
+    });
+    const row = await env.DB.prepare(
+      "SELECT purge_failed_at FROM message_attachments WHERE id = ?",
+    )
+      .bind(id)
+      .first<{ purge_failed_at: string | null }>();
+    expect(row).not.toBeNull();
+    expect(row?.purge_failed_at).toBeNull();
+  });
+
+  it("#270 指摘1: Drizzle のスキーマにも列があり、名前・NULL 可が migration と一致する", () => {
+    const column = (
+      getTableColumns(messageAttachments) as Record<
+        string,
+        { name: string; notNull: boolean } | undefined
+      >
+    ).purgeFailedAt;
+    expect(column).toBeDefined();
+    expect(column?.name).toBe("purge_failed_at");
+    expect(column?.notNull).toBe(false);
   });
 });

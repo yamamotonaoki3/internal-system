@@ -39,7 +39,10 @@ import { searchRoutes } from "./routes/search";
 import { threadRoutes } from "./routes/threads";
 import { unreadRoutes } from "./routes/unread";
 import { userRoutes } from "./routes/users";
-import { attachmentCleanupJob } from "./services/attachment.service";
+import {
+  attachmentCleanupJob,
+  attachmentPurgeJob,
+} from "./services/attachment.service";
 import { authCleanupJob } from "./services/auth.service";
 import { createScheduledHandler } from "./scheduled";
 
@@ -89,5 +92,6 @@ export default {
   scheduled: createScheduledHandler([
     authCleanupJob(withAuth),
     attachmentCleanupJob(),
+    attachmentPurgeJob(),
   ]),
 } satisfies ExportedHandler<Env>;
