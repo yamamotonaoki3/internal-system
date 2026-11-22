@@ -143,12 +143,25 @@ async function login(browser: Browser, loginId: string): Promise<Signed> {
 }
 
 /** 同じ利用者の、別のページ（Cookie を共有）。console の監視も付ける */
-async function openPage(
+/**
+ * 時計を使うテスト（E-2・E-2 対照）のページ。page.clock はブラウザのコンテキストの時計そのもので（playwright-core 1.64.1 の
+ * Page の clock = browserContext.clock）、install・pauseAt・resume・runFor は、コンテキストの初期化のスクリプトとして積まれ、
+ * 同じコンテキストの後の文書すべてで再生される。止めた時計をほかのテスト（E-3 の b.page など）に持ち越さないよう、
+ * テストごとに、同じ利用者の Cookie を写した使い捨てのコンテキストで開き、テストの後（失敗した場合も）に必ず閉じる（afterEach）
+ */
+const clockContexts: BrowserContext[] = [];
+async function openClockPage(
+  browser: Browser,
   signed: Signed,
-  viewport = { width: 1280, height: 800 },
+  viewport: { width: number; height: number },
 ) {
-  const page = await signed.context.newPage();
-  await page.setViewportSize(viewport);
+  const context = await browser.newContext({
+    baseURL: ORIGIN,
+    viewport,
+    storageState: await signed.context.storageState(),
+  });
+  clockContexts.push(context);
+  const page = await context.newPage();
   watch(page, signed.errors);
   return page;
 }
@@ -328,6 +341,9 @@ test.beforeAll(async ({ browser }) => {
   a = await login(browser, "e2euser_reload_a");
   b = await login(browser, "e2euser_reload_b");
 });
+test.afterEach(async () => {
+  for (const context of clockContexts.splice(0)) await context.close();
+});
 test.afterAll(async () => {
   await a.context.close();
   await b.context.close();
@@ -365,9 +381,11 @@ test("#338 AC-1・AC-5 E-1: S-17 を開いたまま外されると、新しい�
   expect(a.errors).toEqual([]);
 });
 
-test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル（付けた人）と書きかけを持った状態で喪失が確定すると、覆いの間、同じモーダルが開いたまま見えず、入力欄も見えず、Tab・Esc・クリック・「戻る」で変わらず、離脱の確認も見えず、beforeunload の確認が出ない", async () => {
+test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル（付けた人）と書きかけを持った状態で喪失が確定すると、覆いの間、同じモーダルが開いたまま見えず、入力欄も見えず、Tab・Esc・クリック・「戻る」で変わらず、離脱の確認も見えず、beforeunload の確認が出ない", async ({
+  browser,
+}) => {
   // 準備：スマホの幅（「付けた人」はスマホ幅の部品）。最初の読み込みの前に時計を固定する
-  const page = await openPage(b, { width: 390, height: 844 });
+  const page = await openClockPage(browser, b, { width: 390, height: 844 });
   await page.clock.install();
   const beforeUnload: Dialog[] = [];
   page.on("dialog", (dialog) => {
@@ -519,8 +537,10 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
   expect(b.errors).toEqual([]);
 });
 
-test("#338 AC-2 E-2 対照: E-2 の④と同じ状態（喪失なし・時計の固定も同じ）でテストが再読み込みすると、beforeunload の確認が1回出る（見張りが生きていることを示す）", async () => {
-  const page = await openPage(b, { width: 390, height: 844 });
+test("#338 AC-2 E-2 対照: E-2 の④と同じ状態（喪失なし・時計の固定も同じ）でテストが再読み込みすると、beforeunload の確認が1回出る（見張りが生きていることを示す）", async ({
+  browser,
+}) => {
+  const page = await openClockPage(browser, b, { width: 390, height: 844 });
   await page.clock.install();
   const beforeUnload: string[] = [];
   page.on("dialog", (dialog) => {
