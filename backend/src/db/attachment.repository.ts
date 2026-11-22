@@ -16,6 +16,15 @@ import {
   type AttachmentKind,
   type PublicationVisibility,
 } from "../../../shared/attachment-rules";
+import {
+  deletePurgedRow,
+  listDeletedOfMessage,
+  listPurgeTargets,
+  markAttachmentDeleted,
+  markPurgeFailed,
+  type AttachmentDeletion,
+  type PurgeCursor,
+} from "./attachment-delete.sql";
 import { attachmentVisible } from "./attachment-visibility.sql";
 import { caseRoomOpen } from "./case-room.sql";
 import {
@@ -172,6 +181,7 @@ export async function loadMessageAttachments(
     .from(messageAttachments)
     .where(
       sql`${messageAttachments.messageId} IN (SELECT value FROM json_each(${JSON.stringify(messageIds)}))
+        AND ${messageAttachments.deletedAt} IS NULL
         AND ${messageViewableBy(sql`${messageAttachments.messageId}`, viewerId)}`,
     )
     .orderBy(asc(messageAttachments.messageId), asc(messageAttachments.id));
@@ -246,6 +256,37 @@ export function createAttachmentRepository(db: Database) {
         contentType: row.contentType as AttachmentContentType,
       };
     },
+    /** 削除の判定の材料（#270）。見えない・存在しない・削除済みは null（条件は attachment-visibility.sql.ts） */
+    async findForDeletion(attachmentId: string, viewerId: string) {
+      const rows = await db
+        .select({
+          id: messageAttachments.id,
+          roomId: messageAttachments.roomId,
+          messageId: messageAttachments.messageId,
+          uploaderId: messageAttachments.uploaderId,
+          storageKey: messageAttachments.storageKey,
+        })
+        .from(messageAttachments)
+        .where(
+          and(
+            eq(messageAttachments.id, attachmentId),
+            attachmentVisible(viewerId),
+          ),
+        )
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    /** 削除してよいときだけ、監査・削除の印・索引を書き、印を付けた行数（1 か 0）を返す */
+    markDeleted: (input: AttachmentDeletion) =>
+      markAttachmentDeleted(db, input),
+    listPurgeTargets: (cursor: PurgeCursor, limit: number) =>
+      listPurgeTargets(db, cursor, limit),
+    listDeletedOfMessage: (messageId: string) =>
+      listDeletedOfMessage(db, messageId),
+    deletePurgedRow: (attachmentId: string) =>
+      deletePurgedRow(db, attachmentId),
+    markPurgeFailed: (attachmentId: string, failedAt: string) =>
+      markPurgeFailed(db, attachmentId, failedAt),
     /** 資格（pendingInsertable）を満たすときだけ1行を登録し、登録した行数（1 か 0）を返す */
     async insertPending(input: PendingAttachmentInsert): Promise<number> {
       // 列は名前で指定する（表に列が加わっても、値の位置がずれないように）。

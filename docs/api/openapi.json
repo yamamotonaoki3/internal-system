@@ -463,6 +463,63 @@
             "$ref": "#/components/responses/ValidationError"
           }
         }
+      },
+      "delete": {
+        "operationId": "deleteAttachment",
+        "summary": "自分の添付を削除する",
+        "description": "投稿・返信に結び付いた、本人がアップロードした添付を1件削除する（#270。要件 1-6 AC-4）。他人の添付の削除は、権限を持つ役割がないため全員 403。再認証（5 分以内）が必要。判定の順：見えるか（404）→ 未投稿（409）→ 本人か（403）→ 権限（403）→ 部屋の状態（未参加 403・部署が無効 409・DM の相手が無効 409・案件が終了 409）→ 再認証（403 REAUTH_REQUIRED）。お知らせ専用チャンネルでも、今参加している本人なら削除できる。削除した添付は、一覧・配信・検索のどこにも出さず、戻せない。同じ要求の中で保存物（R2）の削除を1回試し、失敗しても応答は変えない（毎日の後始末が再試行する）。監査ログ（attachment.delete）を残す。要求の本文は読まない。",
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "削除した（本文なし）。Cache-Control: no-store"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "本人の添付ではない・今その部屋に参加していない・権限がない（FORBIDDEN）、再認証が必要（REAUTH_REQUIRED）、送信元（Origin）が許可されていない（FORBIDDEN_ORIGIN）、初回パスワードのまま（PASSWORD_CHANGE_REQUIRED）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "見えない添付（存在しない・見えない部屋・アーカイブ済み・削除済み・メッセージが削除済み・他人の未投稿）。区別せず 404（NOT_FOUND「添付が見つかりません」）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "未投稿の自分の添付（CONFLICT「送信前の添付は、送信前の一覧で取り消してください」）、部署が無効・DM の相手が無効・案件専用チャンネルで案件が終了している、または判定の後に状態が変わった（CONFLICT）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
       }
     },
     "/api/admin/accounts": {
@@ -12070,6 +12127,7 @@
               "case.edit",
               "case.attachment.visibility.change",
               "message.delete",
+              "attachment.delete",
               "audit_log.view"
             ],
             "description": "操作の種類"
@@ -12185,6 +12243,7 @@
               "case.edit",
               "case.attachment.visibility.change",
               "message.delete",
+              "attachment.delete",
               "audit_log.view"
             ]
           },

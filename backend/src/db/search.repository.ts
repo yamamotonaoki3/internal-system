@@ -125,8 +125,8 @@ export function createSearchRepository(db: Database) {
         WHERE ${termCondition(options.term)}
           AND (
             (d.kind = 'message' AND d.ref_id = m.id)
-            -- 索引が遅れても、消えた・結び付きや部屋や名前の変わった添付を出さない
-            OR (d.kind = 'attachment' AND a.id IS NOT NULL AND a.message_id = m.id
+            -- 索引が遅れても、消えた・削除済みの（#270）・結び付きや部屋や名前の変わった添付を出さない
+            OR (d.kind = 'attachment' AND a.id IS NOT NULL AND a.deleted_at IS NULL AND a.message_id = m.id
               AND a.room_id = m.room_id AND a.original_name = d.source_body))
           AND m.deleted_at IS NULL AND m.room_id = d.room_id
           ${options.roomId === undefined ? sql`` : sql`AND d.room_id = ${options.roomId}`}

@@ -5,6 +5,7 @@
 //   GET /api/attachments/:attachmentId
 //     Content-Type はサーバーの検査の結果だけ。画像・動画は inline、それ以外は attachment。正しい単一の Range だけ 206 で返す。
 //   PATCH /api/attachments/:attachmentId（#148。案件の添付の公開範囲の変更。業務の判定は case-attachment.service.ts）
+//   DELETE /api/attachments/:attachmentId（#270。本人の添付の削除。成功は 204。判定の順は attachment.service.ts）
 // 認証と送信元の確認は app.ts が /api/* に一括で適用する。
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -32,7 +33,11 @@ function actorOf(c: Context<{ Bindings: Env }>): AttachmentActor {
   const principal = c.get("principal");
   if (principal === null)
     throw new AppError("UNAUTHENTICATED", "ログインしてください");
-  return { userId: principal.userId, traceId: traceIdOf(c) };
+  return {
+    userId: principal.userId,
+    traceId: traceIdOf(c),
+    reauthenticatedAt: principal.reauthenticatedAt,
+  };
 }
 
 function decodeFileName(header: string | undefined): string | null {
@@ -111,6 +116,18 @@ export function attachmentRoutes() {
           ),
         );
         return c.json(changed);
+      },
+    )
+    .delete(
+      "/:attachmentId",
+      noStore,
+      validate("param", attachmentParamSchema),
+      async (c) => {
+        const actor = actorOf(c);
+        await withAttachmentService(c.env, actor, (service) =>
+          service.remove(actor, c.req.valid("param").attachmentId),
+        );
+        return c.body(null, 204);
       },
     )
     .get(

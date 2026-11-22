@@ -1590,7 +1590,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 | migration 0031（`case_todos_assignee_id_id_idx`。149-D） | **本番に未適用**（0029・0030 と合わせて、利用者の承認の後に適用する）。索引の追加だけで、破壊的な変更はない。テスト用の DB には適用して確かめた（実行計画のテスト） |
 | 添付の一覧の自動の更新 | しない（ポーリングなし。#117 の既存の動き）。ほかの人の添付は、開き直すか、自分の添付つきの投稿・返信の成功の後に出る |
 | 添付の一覧の種類（`kind`）の表示 | 出さない（応答には含める）。画面は名前・大きさ・投稿者・日時だけ |
-| 添付の削除 | 作らない。#270（一覧の項目にも削除の操作はない） |
+| 添付の削除 | 案件の添付の一覧の項目には、削除の操作はない。**削除は#270の1つ目で実装した**（S-05・S-06・S-07のメッセージの添付から。案件の部屋のメッセージも同じ。[attachments.md](attachments.md)の「添付の削除」）。削除した添付は一覧から外れる（下の「添付の削除との関係（#270）」）。元の記述は残す |
 | 終了した案件の実際の状態 | 150-A で終了・再開の操作を実装した（解消。下の「150-A の設計」）。以前は、終了した案件はテストのデータ・シードにしか存在せず、書き込みの 409 は DB に直接`status`を書いて確かめていた |
 | 審査中の公開申請・再開申請の自動取消・取り下げ（5-1 AC-10 の原文、C-142 の案） | 作らない。申請の仕組み（5-5・5-6）が未実装。#153（後回し）・5-5 の Issue で扱う |
 | 再開時の参加者の選び直し（5-1 AC-16）と、確定前の確認の表示 | 150-B で実装済み（解消。下の「150-B の設計」。C-194）。150-A では、いまの参加者のまま再開していた。確定のボタンは「危険な操作」の見た目のまま（外れる人の内容が見えなくなる操作のため） |
@@ -1629,6 +1629,16 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 - route・Service：`backend/src/routes/cases.test.ts`（状態コード・判定の順・存在の非開示・「認証 → 操作者の無効化 → 取得」の順・退職者の残り方・自動参加が未適用の案件の管理者）、`backend/src/openapi.test.ts`（契約）。テスト部品は`backend/test/case-fixtures.ts`
 - フロントエンド：`frontend/src/pages/CasesPage.test.tsx`・`CaseDetailPage.test.tsx`・`CaseRoutes.test.tsx`・`CaseSessionSwitch.test.tsx`（利用者を切り替えても前の利用者の案件が一瞬も出ないこと・ID が確かめられる前は要求を送らないこと）、`frontend/src/features/app-shell/navigation.case-requests.test.ts`（メニュー「案件」）、`frontend/src/features/notifications/notification-views.case-request.test.ts`（移動先）。MSW は`frontend/src/test/case-handlers.tsx`
 - E2E：`e2e/cases.spec.ts`（参加者の流れと、非参加者が非公開の表示になる流れ）。シードは`e2e/seeds/cases.sql`、後始末は`e2e/seeds/cases-cleanup.sql`（[e2e.md](../testing/e2e.md)）。既存の`e2e/case-requests.spec.ts`・`case-approvals.spec.ts`は、入口が「案件」→「案件の作成を申請」に変わったため修正した
+
+## 添付の削除との関係（#270 の1つ目）
+
+案件の部屋の添付も、本人が自分の添付を1件ずつ削除できる（`DELETE /api/attachments/:attachmentId`。案件の部屋は、`perm.case.post`と、案件が進行中であること〔終了中は409。監査`case_closed`〕を確かめる。メッセージの削除と同じ規則）。設計は[attachments.md](attachments.md)の「添付の削除」。案件に関わる点だけをここに書く。
+
+- **一覧から外れる**：`case-attachment.repository.ts`の`listCaseAttachments`の WHERE に、削除済み（`message_attachments.deleted_at`が入った行）を除く条件を足した。148-B-1 の「範囲は配信と同じ規則」に、「削除されていない添付」が加わった
+- **公開範囲の変更の対象から外れる**：148-B-2 の変更（EP-1-23）は、`attachment-visibility.sql.ts`の`attachmentVisible`の条件を通すので、削除済みの添付は見えない扱いで404になる。削除が先に確定すれば、同時に送られた公開範囲の変更は404になる
+- **S-17 の一覧の取り直し**：添付の削除が成功したら、画面は`caseKeys.all`を取り直す（案件の添付の一覧のキャッシュが、削除した添付を出し続けないため）。`features/cases/keys.ts`は、案件のキャッシュのキー`caseKeys`だけの公開の入口で、`features/messages`が使う。`features/cases/index.ts`は`messages`の部品を読み込むため、`messages`から`index.ts`を参照すると循環になる（検索の`features/search/keys.ts`と同じ理由。既定の方針5の「循環参照になる」場合の例外として、キーだけを分けて公開した）
+- **終了した案件**：削除できない（409）。取得（ダウンロード）・一覧は、これまでどおり読める
+- テスト：`backend/src/routes/attachments.delete.case-room.test.ts`（進行中は削除でき一覧から消える・終了中は409・参加を外れた人は404・確認と書き込みの間に終了すると0行で409）
 
 ## 関係するIssue・ADR
 

@@ -42,6 +42,7 @@ import {
 } from "../../../shared/reaction-rules";
 import type { Reaction } from "../db/message-reactions.sql";
 import { createAppAuthorizer } from "./authorizer";
+import { purgeAttachmentsOfMessage } from "./attachment-purge";
 import { assertRecentReauth } from "./credentials.service";
 import type { CursorPayload } from "../lib/cursor";
 
@@ -72,6 +73,8 @@ export type ReactionsResult = { messageId: string; reactions: Reaction[] };
 type Dependencies = {
   authorizer: Pick<ReturnType<typeof createAppAuthorizer>, "authorize">;
   now?: () => Date;
+  /** メッセージの削除が成功した後に、その添付の実体の削除を1回試す（#270。省略時は何もしない） */
+  purgeAttachmentsOf?: (messageId: string) => Promise<void>;
 };
 
 export type MessageEdited = {
@@ -104,16 +107,14 @@ export function withMessageService<T>(
   actor: MessageActor,
   run: (service: ReturnType<typeof createMessageService>) => Promise<T>,
 ): Promise<T> {
+  const logger = createLogger({ traceId: actor.traceId, userId: actor.userId });
   return withMessages(env, (repository) =>
     withRoleAssignments(env, (roles) =>
       run(
         createMessageService(repository, {
-          authorizer: createAppAuthorizer(roles, {
-            logger: createLogger({
-              traceId: actor.traceId,
-              userId: actor.userId,
-            }),
-          }),
+          authorizer: createAppAuthorizer(roles, { logger }),
+          purgeAttachmentsOf: (messageId) =>
+            purgeAttachmentsOfMessage(env, messageId, logger),
         }),
       ),
     ),
@@ -144,7 +145,7 @@ function insideCode(body: string, position: number): boolean {
 
 export function createMessageService(
   repository: MessageRepository,
-  { authorizer, now = () => new Date() }: Dependencies,
+  { authorizer, now = () => new Date(), purgeAttachmentsOf }: Dependencies,
 ) {
   /** 本文に選ばれた表示名が存在し、現在有効な社員IDを指すことを確かめる。 */
   async function validateMentions(
@@ -405,12 +406,7 @@ export function createMessageService(
   ) {
     const message = await repository.findForModification(messageId);
     if (message === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
-    const room = await findRoom(message.roomId, actor);
-    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
-    if (room.kind === "direct")
-      await authorizeDm(actor, "perm.dm.message.view");
-    else if (!canViewChannel(room.channel, room.channel.joinedAt !== null))
-      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    const room = await findModifiableRoom(actor, message.roomId);
     if (message.senderId !== actor.userId) {
       createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
         `message.${operation}`,
@@ -427,40 +423,58 @@ export function createMessageService(
     );
     if (message.deletedAt !== null)
       throw new AppError("CONFLICT", "このメッセージはすでに削除されています");
+    await requireRoomModifiable(actor, room, {
+      action: `message.${operation}`,
+      target: messageId,
+    });
+    return message;
+  }
+
+  // 編集・削除（メッセージ・添付）の部屋が見えるか（DM は perm.dm.message.view、チャンネルは canViewChannel。見えなければ 404）
+  async function findModifiableRoom(actor: MessageActor, roomId: string) {
+    const room = await findRoom(roomId, actor);
+    if (room === null) throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    if (room.kind === "direct")
+      await authorizeDm(actor, "perm.dm.message.view");
+    else if (!canViewChannel(room.channel, room.channel.joinedAt !== null))
+      throw new AppError("NOT_FOUND", NOT_FOUND_MESSAGE);
+    return room;
+  }
+
+  // 編集・削除（メッセージ・添付）の部屋の状態（DM の相手が無効 409・未参加 403・案件の権限と終了 409・部署が無効 409）。拒否は audit の名前で残す
+  async function requireRoomModifiable(
+    actor: MessageActor,
+    room: FoundRoom,
+    audit: { action: string; target: string },
+  ) {
     if (room.kind === "direct") {
       if (!room.partnerIsActive)
         throw new AppError(
           "CONFLICT",
           "相手のアカウントが無効になっているため、操作できません",
         );
-    } else {
-      const { channel } = room;
-      if (channel.joinedAt === null) {
-        createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
-          `message.${operation}`,
-          messageId,
-          "failure",
-          { reason: "not_member" },
-        );
-        throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
-      }
-      await authorizeCase(actor, room, "perm.case.post");
-      requireCaseOpen(
-        actor,
-        room,
-        { action: `message.${operation}`, target: messageId },
-        CASE_CLOSED_MESSAGES.modify,
-      );
-      if (
-        channel.departmentId !== null &&
-        !(await repository.isDepartmentActive(channel.departmentId))
-      )
-        throw new AppError(
-          "CONFLICT",
-          "部署が無効になっているため、操作できません",
-        );
+      return;
     }
-    return message;
+    const { channel } = room;
+    if (channel.joinedAt === null) {
+      createLogger({ traceId: actor.traceId, userId: actor.userId }).audit(
+        audit.action,
+        audit.target,
+        "failure",
+        { reason: "not_member" },
+      );
+      throw new AppError("FORBIDDEN", "このチャンネルには参加していません");
+    }
+    await authorizeCase(actor, room, "perm.case.post");
+    requireCaseOpen(actor, room, audit, CASE_CLOSED_MESSAGES.modify);
+    if (
+      channel.departmentId !== null &&
+      !(await repository.isDepartmentActive(channel.departmentId))
+    )
+      throw new AppError(
+        "CONFLICT",
+        "部署が無効になっているため、操作できません",
+      );
   }
 
   // リアクションを付け外ししてよいかを、①〜⑤の順に確かめる（⑥書き込みは呼び出し側）。
@@ -651,6 +665,35 @@ export function createMessageService(
         traceId: actor.traceId,
       });
       if (deleted === 0) return failWrite(actor, messageId, "delete");
+      // 添付の実体の削除を1回試す（#270）。後始末の失敗は削除の結果を変えず、error ログに残す（次の定期の処理が消す）
+      if (purgeAttachmentsOf === undefined) return;
+      try {
+        await purgeAttachmentsOf(messageId);
+      } catch (error) {
+        createLogger({ traceId: actor.traceId, userId: actor.userId }).error(
+          "メッセージの添付の後始末に失敗した",
+          { error },
+        );
+      }
+    },
+    /**
+     * 添付の削除（#270）の③権限・④部屋の状態を確かめる（①見えるか・未投稿・②本人かは attachment.service が先に確かめる）。
+     * お知らせ専用の投稿権限は問わない（メッセージの削除と同じ。C-171 U-3）
+     */
+    async requireAttachmentDeletable(
+      actor: MessageActor,
+      target: { attachmentId: string; roomId: string },
+    ): Promise<void> {
+      await authorizer.authorize(
+        { userId: actor.userId },
+        "perm.attachment.delete.own",
+        { type: "company" },
+      );
+      const room = await findModifiableRoom(actor, target.roomId);
+      await requireRoomModifiable(actor, room, {
+        action: "attachment.delete",
+        target: target.attachmentId,
+      });
     },
     addReaction: (
       actor: MessageActor,

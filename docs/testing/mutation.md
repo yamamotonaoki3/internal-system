@@ -67,6 +67,29 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
 - 対象（Issue #150の150-A。案件の終了・再開）：認可・書き込みの前提・競合の検知・通知の宛先に関わるもので、マージの前に、変えた行に絞って診断する。対象は、`backend/src/db/case.repository.ts`（`closeCase`・`reopenCase`の前提の条件・通知の宛先・`listCaseNotifyRecipients`・`findWriteFacts`の`version`）、`backend/src/services/case.service.ts`（`decideClose`・`decideReopen`・判定の順・版の不一致の 409 `stale`・宛先の再試行と 409 `retry`）、`backend/src/db/channel-member.sql.ts`（`channel-manage.sql.ts`から移した`recipientsUnchanged`）の変えた行。DB のテスト（`case-close.repository.db.test.ts`）と割り込みのテスト（`case-close.interleave.test.ts`）で殺す。`stryker.config.json`の`mutate`は 150-A では変えていない。それ以外（画面・文言・OpenAPI）は #160。結果は次の行（統括が足す）
 - 対象（Issue #148の148-B-1。案件の添付の一覧）：認可・存在の非開示・中身を読む SQL の資格に関わるもので、マージの前に、変えた行に絞って診断する。対象は、`backend/src/db/case-attachment.repository.ts`（新規。資格の条件`visibleTo`・一覧の範囲〔投稿済み・削除されていない・同じ部屋〕・並びとカーソル・`findAttachmentListFacts`。ファイル全体）、`backend/src/services/case-attachment.service.ts`（新規。判定の順・拒否の記録。`backend/src/services/**/*.ts`に含まれる）。DB のテスト（`case-attachment.repository.db.test.ts`・実行計画の`case-attachment.explain.db.test.ts`）、Service・割り込みのテスト（`case-attachment.service.test.ts`・`case-attachment.interleave.test.ts`）、結合のテスト（`cases.attachments.test.ts`）で殺す。`stryker.config.json`の`mutate`は 148-B-1 では変えていない。それ以外（画面・文言・OpenAPI）は #160。結果は次の行（統括が足す）
 - 対象（Issue #148の148-C。案件の一覧・概要の最終更新・部屋の ID）：認可（有効な参加者にだけ返す資格。管理の資格の条件を写していないこと）・中身を読む SQL に関わるもので、マージの前に、変えた行に絞って診断する。対象は、`backend/src/db/case.repository.ts`の`selectRows`で足した項目（`lastActivityAt`の副問い合わせ〔削除済みを除く・最新の 1 行・外側の案件の行を指す部屋の条件〕と、`lastActivityAt`・`channelId`の資格の CASE 式）と、`list`・`findSummary`の応答へ写す行。DB のテスト（`case.repository.activity.db.test.ts`・`case.repository.db.test.ts`・実行計画の`case-activity.explain.db.test.ts`）と結合のテスト（`cases.activity.test.ts`）で殺す。`stryker.config.json`の`mutate`は 148-C では変えていない。それ以外（画面・文言・OpenAPI）は #160。結果は次の行（統括が足す）
+- 対象（Issue #270 の1つ目。添付の削除）：認可・見える範囲・個人情報（添付）・取り消せない実体の削除に関わるもので、マージの前に、変えた行に絞って診断した（マージは止めない方針に従う）。`stryker.config.json`の`mutate`は変えていない。バックエンドは、`backend/src/db/attachment-delete.sql.ts`・`services/attachment-purge.ts`（新規。ファイル全体）、`services/attachment.service.ts`・`services/message.service.ts`・`db/message-modify.sql.ts`・`db/attachment.repository.ts`・`db/search-index.sql.ts`・`routes/attachments.ts`の変えた行。画面は、`DeleteAttachmentDialog.tsx`・`MessageAttachments.tsx`・`hooks/useDeleteAttachment.ts`。`attachment-visibility.sql.ts`・`case-attachment.repository.ts`・`search.repository.ts`は、変えた行が SQL のテンプレートの中だけのため、変異が作られなかった
+- 絞った診断の結果（Issue #270 の1つ目。2026-11-22。対象のコミットは`0ba54a5`。`--concurrency 4 --ignoreStatic`）：
+  - **バックエンド**：1回目は変異 209 個・全体 13分10秒・スコア 81.95%（検出 168〔検出 167・タイムアウト 1〕・生き残り 30・未カバー 7・無視 4。無視はスコアに数えない）。ファイルごとは、`attachment-delete.sql.ts` 90.32%・`attachment.repository.ts` 100%・`routes/attachments.ts` 100%・`message.service.ts` 85.71%・`message-modify.sql.ts` 71.43%・`attachment.service.ts` 76.54%・`attachment-purge.ts` 72.22%。2回目は、1回目の範囲に入らなかった1行だけの8か所（`--mutate`に`N-N`と書いた）で、変異 2 個・2個とも検出・全体 12分。2回を合わせると、変異 211 個・スコア 82.13%（`message.service.ts` は 85.96%）。結果の JSON を数え直して確かめた
+  - **画面**：変異 71 個・全体 13分34秒・スコア 76.06%（検出 54・生き残り 11・未カバー 6）。ファイルごとは、`MessageAttachments.tsx` 93.10%・`useDeleteAttachment.ts` 80.00%・`DeleteAttachmentDialog.tsx` 41.18%
+  - 80%に届かないファイルの中身（足した後も再実行していない。下の「再実行」）：
+    - `attachment.service.ts`・`attachment-purge.ts`・`message-modify.sql.ts`・`message.service.ts`の生き残りは、多くが**ログ・エラーの文言と引数**（後始末の失敗の error ログ、`createLogger`の引数、`AppError`の文言）と、**到達しない守り**（batch の結果が読めないときの例外。`updateAt`の位置の結果は、必ずある）。これらは、ログ・文言の内容を検証していないために生き残った（キー・名前をログに出さないことは別のテストで確かめている）。ファイル別80%の基準に届かないが、本番のコードをスコアのために変えていない。同値であると証明したものではないため、ADR-0023 の例外としては記録していない（足すテストを増やすか、例外として承認を求めるかは、利用者の判断）
+    - 定期の処理の進め方（`attachment.service.ts`の`attachmentPurgeJob`）の生き残りのうち、ページの大きさ・上限・失敗した行の続きの作り方に当たるものは、テストを足した（下）。足さなかったのは、`phase: "failed"`の値を空にする変異と、`Math.min`をページの大きさだけにする変異（同じ動きになると確かめた）
+    - 画面の`DeleteAttachmentDialog.tsx`は、送信中に Esc で閉じない動き（`onCancel`）が未カバー、ダイアログの開閉の呼び出し（`showModal`・`close`）が生き残りだった。前者はテストを足した。後者（`dialog?.`の`?.`・閉じる呼び出し・依存配列）は、テストを足していない（足すかは未判断）
+- SQL の条件の対照（Issue #270 の1つ目）：SQL のテンプレートの中は、Stryker が変異を作らない（上の147-C-1の記録）ため、条件を1つずつ外した版で、対応するテストが落ちるかを、手で確かめた。外した場所は23か所で、**落ちた（検出）15**・**落ちなかった（見逃し）8**。検出した15か所の個別の一覧は、この記録には残していない（統括の報告は件数だけ）。見逃した8か所と、その扱いは次のとおり：
+
+| 外した条件 | 結果 | 扱い |
+| --- | --- | --- |
+| `deletable`の`uploader_id = 本人` | 見逃し | テストを足した（他人の添付を指定すると偽になること）。条件を一時的に外して落ちること、戻して通ることを確かめた |
+| `markPurgeFailed`の`deleted_at IS NOT NULL` | 見逃し | テストを足した（印のない行を更新しないこと）。同上の確かめ |
+| `deletePurgedRow`の`deleted_at IS NOT NULL` | 見逃し | テストを足した（印のない行を消さないこと）。同上 |
+| `listPurgeTargets`のカーソルの条件（2か所） | 見逃し 2 | テストを足した（カーソルの2か所と、次のページのカーソルの作り方・ページの大きさ・上限）。同上 |
+| 補完のSQLの`m.deleted_at IS NOT NULL` | 見逃し | テストを足した（変更された行の数で確かめる）。同上 |
+| `deletable`の`message_id IS NOT NULL` | 見逃し | **足さなかった**。メッセージとの内部結合で、`message_id`が NULL の行は必ず落ちるため、同じ動きになる。未投稿の添付が偽になることは、既存のテストが確かめている |
+| 補完のSQLの`message_id IS NOT NULL` | 見逃し | **足さなかった**。同じ文の`EXISTS`が、`message_id`が NULL のとき偽になるため、同じ動きになる |
+
+  - 見逃しを埋めたテストには、ほかに、他人の添付の削除の拒否の監査（対象・理由`not_author`・行為者）と、画面（送信中の Esc・送信の前と後の失敗の表示・削除を押すまでダイアログを出さない）がある。いずれも、実装を写さず、受け入れ条件・設計書から期待を決めた
+  - **再実行**：テストを足した後（`e66ccdd`）に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、backend 392 ファイル・7463 件、frontend 270 ファイル・2947 件のテストと、型・Lint・整形が成功している。全体の実行は#160
+  - 本番のコードの不具合は、見つかっていない。`attachment-visibility.sql.ts`・`case-attachment.repository.ts`・`search.repository.ts`の`deleted_at IS NULL`は、変異が作られないため、`docs/design/attachments.md`の「削除済みを出さない7か所」の事例表（DB のテスト）で確かめている
 
 ## 5. 後始末
 
@@ -80,4 +103,5 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
 | 初期のテスト実行（dry run）が5分を超えてタイムアウトする（対象が大きいとき。全体実行で4分38秒の実績） | `npm run mutation -- --dryRunTimeoutMinutes 40` のように上限を延ばす。恒久的に延ばす場合は `stryker.config.json` の `dryRunTimeoutMinutes` を使う |
 | 開発中に範囲を絞りたい | ADR0020の範囲（変更した重要処理と参照元）に、上の方法で絞る。絞った設定はコミットせず、元の対象に戻す。`--mutate` は検証済みで、絞った実行に使う（[ADR0020](../adr/0020-test-scope-mutation-e2e.md)の「`--mutate` の検証結果（2026-11-11）」）。`--incremental` は未検証のため、検証が済むまで使わない。絞った結果を全体の合格として扱わない |
 | 絞った実行（ADR0020）のコマンド | `npx stryker run --mutate "<ファイル>" --reporters clear-text,json --dryRunTimeoutMinutes 40` を直接使う（`json` は生存した変異体の一覧をレビュー用に作るため。既定は clear-text,html。`scripts/run-local.ts` は stryker を起動できない） |
+| `--mutate`で、ファイルの1行だけを指定したい（例：`message.service.ts`の148行目） | `file:148` だけでは一致しなかった。**`file:148-148`のように`N-N`で書く**（#270 の2回目の実行で確かめた）。複数の範囲は、カンマでつなぐ |
 | 振る舞いのテストで殺せない変異体（同値変異体）が残り、ファイル別80%に届かない | 本番コードをスコアのために変えない。Strykerの除外設定も足さない。同値であることをコードの根拠つきで証明し、ADRに例外として記録して利用者の承認を得る（[ADR-0023](../adr/0023-mutation-equivalent-mutants-exception.md)） |
