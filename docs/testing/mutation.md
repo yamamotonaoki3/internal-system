@@ -90,6 +90,7 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
   - 見逃しを埋めたテストには、ほかに、他人の添付の削除の拒否の監査（対象・理由`not_author`・行為者）と、画面（送信中の Esc・送信の前と後の失敗の表示・削除を押すまでダイアログを出さない）がある。いずれも、実装を写さず、受け入れ条件・設計書から期待を決めた
   - **再実行**：テストを足した後（`e66ccdd`）に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、backend 392 ファイル・7463 件、frontend 270 ファイル・2947 件のテストと、型・Lint・整形が成功している。全体の実行は#160
   - 本番のコードの不具合は、見つかっていない。`attachment-visibility.sql.ts`・`case-attachment.repository.ts`・`search.repository.ts`の`deleted_at IS NULL`は、変異が作られないため、`docs/design/attachments.md`の「削除済みを出さない7か所」の事例表（DB のテスト）で確かめている
+- 対象の追加（Issue #270 の2つ目。添付だけの投稿）：`backend/src/db/message-body.ts`（本文なしの目印の変換と、投稿・返信の守り。書き込み・見える範囲の判定の入口）を`stryker.config.json`の`mutate`に足した。`shared/message-rules.ts`・`message.service.ts`・`attachment.service.ts`は既に対象。SQL のテンプレートの中の条件（`leavesMessageNonEmpty`・`hasVisibleAttachment`・検索の索引の条件）は変異が作られないため、条件を外した版でテストが落ちることを手で確かめて記録する（上の147-C-1・#270 の1つ目と同じ）。結果の記録は、実行の後に足す
 
 ## 5. 後始末
 

@@ -19,10 +19,10 @@
 | ファイル | 役割 |
 | --- | --- |
 | `backend/db/schema.ts`、`backend/db/migrations/0019_add_message_edit_delete.sql` | `messages`に`edited_at`・`deleted_at`・`deleted_by`（`users.id`を参照）を足した。すべてNULL可の`ADD COLUMN`だけで、既存データの補完は要らない |
-| `backend/src/db/message-modify.sql.ts` | 【#270：`modifiable`がメッセージのIDを値か外側の行の列で受けられるようにした。`deleteIfModifiable`が添付の削除の印も同じbatchで書く】新しいDAO。「編集・削除してよい」条件（本人の投稿で未削除、かつ、チャンネルなら本人が参加中・未削除・部署が有効〔部署のない会社直属は有効扱い〕、DMなら本人が当事者で当事者に無効な社員がいない）を持つ。`updateBodyIfModifiable`（本文と編集日時の更新）と`deleteIfModifiable`（削除の印と監査を1つの`db.batch`で書く）が、更新した行数を返す |
+| `backend/src/db/message-modify.sql.ts` | 【#270：`modifiable`がメッセージのIDを値か外側の行の列で受けられるようにした。`deleteIfModifiable`が添付の削除の印も同じbatchで書く】新しいDAO。「編集・削除してよい」条件（本人の投稿で未削除、かつ、チャンネルなら本人が参加中・未削除・部署が有効〔部署のない会社直属は有効扱い〕、DMなら本人が当事者で当事者に無効な社員がいない）を持つ。`updateBodyIfModifiable`（本文と編集日時の更新）と`deleteIfModifiable`（削除の印と監査を1つの`db.batch`で書く）が、更新した行数を返す【#270の2つ目（C-205）：`updateBodyIfModifiable`は、渡された本文が目印（本文なし）のときだけ、「見える添付がある」（`hasVisibleAttachment`）も条件に足す。`visibleAttachmentCountIfModifiable`を足した（編集できる条件`modifiable`と、見える添付の件数を、同じ`db.batch`で読む。条件が成り立たなければnull）】 |
 | `backend/src/db/message.repository.ts` | `findForModification`（部屋・投稿者・削除済みかだけを読む）・`isDepartmentActive`・DAOの呼び出しを足した。一覧の項目に`editedAt`・`deleted`を足し、削除済みの`body`は`null`にする（本文はDBに残し、APIでは返さない）。`insertIfOrdered`のINSERT…SELECTは、スキーマの全列を挿入先に並べるため、末尾に新しい3列分のNULLを足した |
-| `backend/src/services/message.service.ts` | `edit`・`remove`を足した。判定の順は下の「判定の順」。`MessageActor`に`reauthenticatedAt`を足した（削除だけが使う）。書き込みが0行だったときの`failWrite`【#270：`requireModifiable`の「部屋が見えるか」と「部屋の状態」を、内部関数`findModifiableRoom`・`requireRoomModifiable`に分けた（判定の順・応答は変えていない。添付の削除の`requireAttachmentDeletable`と共用する）。`remove`が、成功した後に依存`purgeAttachmentsOf`を1回呼ぶ】 |
-| `backend/src/routes/messages.ts` | `messageItemRoutes`（`PATCH /:messageId`・`DELETE /:messageId`）。編集の入力は`{ body }`だけの`strict`で、本文の規則は`shared/message-rules.ts`の`messageBodySchema`を参照する。`backend/src/index.ts`が`/api/messages`へ登録する |
+| `backend/src/services/message.service.ts` | `edit`・`remove`を足した。判定の順は下の「判定の順」。`MessageActor`に`reauthenticatedAt`を足した（削除だけが使う）。書き込みが0行だったときの`failWrite`【#270の2つ目（C-205）：`edit`は本文が空白だけのとき、①〜⑤の後に`requireVisibleAttachment`（見える添付が0件なら422）を呼び、保存の前に`toStoredBody`、応答の前に`fromStoredBody`を通す。`failWrite`は、①〜⑤の読み直しの後に、操作ごとの追加の確かめ（`recheck`）を呼べる。下の「本文を空にする編集」】【#270：`requireModifiable`の「部屋が見えるか」と「部屋の状態」を、内部関数`findModifiableRoom`・`requireRoomModifiable`に分けた（判定の順・応答は変えていない。添付の削除の`requireAttachmentDeletable`と共用する）。`remove`が、成功した後に依存`purgeAttachmentsOf`を1回呼ぶ】 |
+| `backend/src/routes/messages.ts` | `messageItemRoutes`（`PATCH /:messageId`・`DELETE /:messageId`）。編集の入力は`{ body }`だけの`strict`で、本文の規則は`shared/message-rules.ts`の`messageBodySchema`を参照する【#270の2つ目（C-205）：`editSchema`は、空を通す`messageContentMaybeBlankSchema`に替えた（長さの上限・余分な項目・指名の範囲の検査は従来どおり Controller が先。空の本文に添付があるかは Service が判定する）】。`backend/src/index.ts`が`/api/messages`へ登録する |
 | `backend/src/lib/audit-actions.ts` | 監査の種類`message.delete`を足した【#270：`attachment.delete`も足した】 |
 | `backend/src/db/channel.repository.ts`、`backend/src/services/channel.service.ts` | `findForViewer`が部署の有効・無効（`departmentIsActive`）を外部結合で読み、EP-2-06の応答に`readOnly`を足した。画面の編集・削除のボタンの表示に使う。投稿の権限`canPost`とは別 |
 | `backend/src/db/unread-counts.sql.ts` | 未読の数に`deleted_at IS NULL`の条件を足した（削除済みは数えない） |
@@ -39,7 +39,7 @@
 | `frontend/src/features/messages/components/MessageBody.tsx` | `MarkdownBody`を`React.lazy`で動的に読み込む。読み込むまでは、書いたままの文字（`whitespace-pre-wrap`）を出す |
 | `frontend/src/features/messages/components/MessageBodyBoundary.tsx` | 動的な読み込みの失敗を受け止めるエラー境界。その本文だけを原文と案内に替える。例外の詳細は出さず、ログは#234で足す【コードレビュー2回目の指摘で変更：動的読み込みの失敗だけを専用のエラー`MarkdownLoadError`（`MessageBody.tsx`の`lazy`の`import()`の失敗を包んで投げ直す）で識別する。それなら「書式つきの表示を読み込めませんでした。再読み込みしてください。」と原文を出す。読み込みに成功した後の描画中の例外は、原文と「この本文は書式つきで表示できませんでした。」を出す（例外の詳細を出さず、再読み込みを勧めず、その行だけ）。元の記述は残す】 |
 | `frontend/src/features/messages/components/MessageItem.tsx` | 1件の行。投稿者・日時・本文・「（編集済み）」・削除済みの文言（「このメッセージは削除されました」）。自分の投稿（`canModify`）に「編集」「削除」を付ける【#270：同じ条件で、各添付に「〈名前〉を削除」を付ける（`MessageAttachments`・`DeleteAttachmentDialog`・`hooks/useDeleteAttachment.ts`。キャッシュは`replaceCachedMessage`と`replaceThreadParent`で更新する。[attachments.md](attachments.md)）】 |
-| `frontend/src/features/messages/components/MessageEditForm.tsx` | その場の編集欄。保存（Ctrl+Enter・Cmd+Enter）・キャンセル（Esc）。本文が元と同じとき・保存中は保存を押せない。422の`fields`を出す。端末の下書きと離脱の確認の対象にしない（C-170(5)） |
+| `frontend/src/features/messages/components/MessageEditForm.tsx` | その場の編集欄。保存（Ctrl+Enter・Cmd+Enter）・キャンセル（Esc）。本文が元と同じとき・保存中は保存を押せない。422の`fields`を出す【#270の2つ目：見える添付があれば（`hasAttachments`。`MessageItem`が渡す）本文を空にして保存できる（`messageFormSchemaFor`）】。端末の下書きと離脱の確認の対象にしない（C-170(5)） |
 | `frontend/src/features/messages/components/DeleteMessageDialog.tsx` | 削除の確認のダイアログ。確認 → 再認証（`withReauth`）→ 送信。送信中は押せない |
 | `frontend/src/features/messages/hooks/useEditMessage.ts`、`useDeleteMessage.ts` | 編集・削除の送信。成功したら`replace-room-message.ts`で一覧の該当の1件を置き換える。削除は再認証が完了しなかったとき、要求を送らない |
 | `frontend/src/features/messages/hooks/replace-room-message.ts` | `cancelQueries`で実行中のポーリングを止めてから、`setQueryData`で該当の1件だけを置き換える |
@@ -70,9 +70,31 @@
 
 ### 編集（`PATCH /api/messages/:messageId`）
 
-- 入力は`{ body }`だけ（`strict`）。空白だけ・上限超過・余分な項目は422。成功は200で`{ id, body, editedAt }`
+- 入力は`{ body }`だけ（`strict`）。空白だけ・上限超過・余分な項目は422【#270の2つ目：空白だけの本文は、見える添付があれば通る。下の「本文を空にする編集」】。成功は200で`{ id, body, editedAt }`
 - 版の列は足さない。編集どうしは後勝ち（更新できるのは本人だけで、競合は同じ人の複数のタブに限られる）。過去の本文は返さない
 - 編集の監査は残さない。同じ内容でも送られた編集は`edited_at`を更新する（画面は、変更がないとき保存を押せなくする）
+
+### 本文を空にする編集（Issue #270の2つ目。C-205）
+
+添付のある投稿・返信は、編集で本文を空にできる（利用者の決定）。見える（削除されていない）添付が1件もないときは、本文も添付もない投稿になるため、422（`fields: body`、「メッセージを入力してください」）にする。本文のない投稿に本文を足す編集は、これまでの編集と同じ（添付の有無を見ない）。目印の扱いは[messages.md](messages.md)の「添付だけの投稿と本文の目印」。
+
+**空の本文は Controller では断らない**（添付の有無は DB を見ないと決まらないため）。その結果、空の本文の編集の応答の順が変わる（C-171(2) の一部の置き換え。利用者の決定 2026-11-22）：他人の投稿は403、存在しない投稿は404が、422より先。長さの上限・余分な項目・指名の範囲の422は、従来どおり Controller が先。
+
+編集の判定の流れ（`message.service.ts`の`edit`。どの読み取りでどの応答が決まるか）：
+
+1. **形の検査**（Controller。`editSchema`）：長さの上限・余分な項目・指名の範囲。空の本文は通す
+2. **①〜⑤**（`requireModifiable`。上の「判定の順」）：404（見えない）→ 403（他人）→ 権限 → 409（削除済み）→ 部屋の状態。ここで決まればその応答
+3. **本文が空白だけのときだけ**、`visibleAttachmentCountIfModifiable`で件数を読む。「編集できる条件（`modifiable`）」と「見える添付の件数」を**同じ`db.batch`**で読み、同じ時点の事実にする
+   - `null`（条件が崩れた）：手順2を読み直し、拒否の理由があればその応答を返す。なければ409「状態が変わったため…」
+   - 0件：422（`fields: body`）
+   - 1件以上：次へ
+4. **指名の検査**（`validateMentions`。範囲が不正なら422、`fields: mentions`）。空の本文に指名があれば、範囲が必ず不正になる
+5. **書き込み**（`updateBodyIfModifiable`）：渡す本文は`toStoredBody`を通した値。目印のときは、`allowed`に`hasVisibleAttachment`を足す。batch の1文目（`CASE WHEN allowed THEN body ELSE NULL END`）、通知・指名・本文の更新が、同じ`allowed`を使うため、条件が崩れると全体が0行になる。1行なら200（応答の`body`は`fromStoredBody`で空文字）
+6. **0行のとき**（`failWrite`）：必ず先に手順2を読み直す（メッセージの削除が割り込んで添付にも印が付いた場合は④で409。資格の喪失は403・404）。通れば、本文が空白だけの編集は手順3と同じ読み取りに分ける（`null` → 手順2を読み直し、なければ409／0件 → 422／1件以上 → 409）。本文が空白でなければ409
+
+どの422（添付の欠如）も、「同じ batch の中で、編集できる条件が成り立っていた」ときだけ返る。条件が崩れていれば、必ず手順2の読み直しの応答か409になる（資格のない人に、投稿の添付の状態を知らせない）。
+
+競合：本文あり＋添付1件の投稿で、「本文を空にする編集」と「その添付の削除」が同時に来ても、先に確定したほうが通り、後のほうは0行になる（編集が先なら、削除は[attachments.md](attachments.md)の⑤で409。削除が先なら、編集は件数0で422）。どの順でも、本文も添付もない投稿は残らない。編集どうしは、これまでどおり後勝ち（版の列は足さない）。
 
 ### 削除（`DELETE /api/messages/:messageId`）
 
@@ -109,7 +131,8 @@
 
 | 項目 | 入力 | 出力 |
 | --- | --- | --- |
-| `edit(actor, messageId, body)` | 操作者、メッセージID、新しい本文 | `{ id, body, editedAt }`。拒否は`AppError`（404・403・409） |
+| `edit(actor, messageId, body)` | 操作者、メッセージID、新しい本文 | `{ id, body, editedAt }`（本文を空にした編集の`body`は空文字）。拒否は`AppError`（404・403・409）。【#270：本文が空白だけで見える添付が0件なら422（`fields: body`）】 |
+| `visibleAttachmentCountIfModifiable(messageId, userId)`（`message-modify.sql.ts`） | メッセージID・本人のID | 編集できる条件が成り立つときだけ、見える添付の件数（0以上）。成り立たなければ`null` |
 | `remove(actor, messageId)` | 操作者（`reauthenticatedAt`を含む）、メッセージID | なし（204）。再認証が古い・ないときは403`REAUTH_REQUIRED` |
 | `updateBodyIfModifiable` / `deleteIfModifiable` | メッセージID・本人のID・値 | 更新した行数（1か0） |
 | `isAllowedUrl(url)` | URL文字列 | 許可したスキームの絶対URLだけtrue |
@@ -131,6 +154,7 @@
 | Service・DB | `backend/src/services/message.modify.test.ts`・`message.modify-race.test.ts`（確認から書き込みの間の変化・同時の2回）、`backend/src/db/message-modify.db.test.ts`・`unread-counts.deleted.db.test.ts`（EXPLAINを含む）、共通のデータ`backend/test/message-modify-fixtures.ts` |
 | マークダウン（画面の単体・fast-check） | `frontend/src/features/messages/markdown/`の`MarkdownBody.test.tsx`・`MarkdownBody.xss.test.tsx`・`markdown-rules.test.ts`・`markdown-dependencies.test.ts` |
 | 画面（MSW） | `frontend/src/features/messages/messages.edit-delete.test.tsx`・`messages.markdown.test.tsx`・`api/message-api.test.ts`、`features/channels/channel-detail.edit-permission.test.tsx`・`channel-detail.reopen.test.tsx`・`channel-detail.markdown-load-error.test.tsx`・`channel-detail.markdown-render-error.test.tsx`、`features/dms/DmView.edit-permission.test.tsx` |
+| 本文を空にする編集（#270の2つ目） | `backend/src/routes/messages.edit-blank.test.ts`（判定の順と応答）、`backend/src/db/message-modify.blank.db.test.ts`（SQLの条件。バッチの経路・互換の経路）、`backend/src/services/message.edit-blank.interleave.test.ts`（確認・件数の読み取り・書き込みの直前の割り込み）、`backend/src/services/attachment-only.race.test.ts`（編集と最後の添付の削除の同時）、画面`frontend/src/features/messages/messages.attachment-only.test.tsx`。既存の`backend/src/routes/messages.edit.test.ts`は、空の本文の応答の順の期待を変えた |
 | E2E | `e2e/messages-edit-delete.spec.ts`・`e2e/messages-markdown.spec.ts`（開発サーバー）、`e2e-prod/markdown-csp.spec.ts`（本番形）。詳細は[e2e.md](../testing/e2e.md) |
 
 ## 削除した親への返信の不可（Issue #137で実装）
@@ -145,4 +169,5 @@
 - 関連する設計書：[messages.md](messages.md)・[dms.md](dms.md)・[unread.md](unread.md)・[channels.md](channels.md)・[drafts.md](drafts.md)
 - Issue #137：削除した親への返信の不可を実装した。設計は[threads.md](threads.md)。決定記録C-172
 - Issue #270の1つ目：メッセージの削除が、添付にも印を付け、成功の後に実体の削除を1回試すようにした。設計は[attachments.md](attachments.md)の「添付の削除」。決定記録C-204
+- Issue #270の2つ目：本文を空にする編集（添付があるときだけ）。設計は下の「本文を空にする編集」と[messages.md](messages.md)の「添付だけの投稿と本文の目印」。決定記録C-205（C-171(2) の一部の置き換え）
 - テスト（#270）：`backend/src/db/message-modify.attachments.db.test.ts`・`backend/src/routes/messages.delete-attachments.test.ts`・`backend/src/services/message.delete-purge.test.ts`

@@ -49,6 +49,7 @@
     "shared/message-rules.ts",
     "shared/reaction-rules.ts",
     "backend/src/db/message.repository.ts",
+    "backend/src/db/message-body.ts",
     "backend/src/db/message-reactions.sql.ts",
     "backend/src/db/attachment-visibility.sql.ts",
     "backend/src/db/attachment.repository.ts",

@@ -115,6 +115,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 - **並び**：最後の返信のIDの降順、同じなら親のIDの降順（削除された返信も含める）。カーソルは`(最後の返信のID, 親のID)`。`cursor.ts`の`cursorQuerySchema`（既定20・最大100）
 - **DMの権限**：`perm.dm.message.view`を持たない利用者には、DMのスレッドを含めない（一覧自体は200）。取得の後に除くとページの件数と`nextCursor`がずれるので、**SQLの条件**（`includeDirect`）で除く。表示の判定なので、`can`（拒否を監査に残さない）を使う。2秒ごとの取り直しで、拒否が監査に溜まらないようにするため【#148：案件専用チャンネルのスレッドも同じ作りで、`perm.case.view`を持たない利用者には含めない。`thread-list.sql.ts`の`includeCase`（**必須の引数**）と`case-room.sql.ts`の`caseRoomListable`。権限があれば、案件のスレッドも一覧に出る。`/channels/<部屋>`を作る入口は、チャンネルの詳細が案件の画面（`/cases/:caseId?thread=`）へ置き換えて移る。通知`message.mentioned`の移動先はS-35のまま。C-184(2)）。[cases.md](cases.md)】
 - **未読（`unreadCount`）**：0〜100（`UNREAD_COUNT_LIMIT`）。自分の返信と削除済みの返信は数えない。下限は`unreadLowerBound`（スレッドの既読位置と、チャンネルの`joined_at`の新しい方）
+- **本文のない親**（#270の2つ目。C-205）：親が添付だけの投稿のとき、`parent.body`は空文字（`toItem`が目印を空文字にする）。画面（`ThreadList.tsx`）は、親の本文が空文字なら「（添付ファイルのみ）」をリンクの文字にする（名前のないリンクを作らない。削除済みの`null`は従来の「このメッセージは削除されました」）。定数`ATTACHMENT_ONLY_LABEL`は`features/messages/index.ts`から読む
 - **応答の形**：項目は`parent`（親の1件と`replyCount`）・`room`（チャンネルは`kind`・`id`・`name`、DMは`kind`・`id`・`partner`）・`lastReplyAt`・`unreadCount`。権限は`perm.notification.own`。応答は`no-store`
 - SQLは2本（一覧 → 未読数）で、スレッドの数に比例しない。2本の間に返信が付く・既読になると、その1回だけ古い未読数になる（次の取得で直る）【#297：資格を持ったままの部屋でのずれだけが許容。2本の間に閲覧者が資格を失った部屋のスレッドは、未読数の文の条件（`messageViewableBy`）で 0 になる（行は残す）。親・付随の情報の読み取り（メンション・リアクション・添付）にも同じ条件が入る。DMの当事者の条件には、閲覧者が有効であることも足した（`directVisible`）。[cases.md](cases.md)】
 
@@ -179,6 +180,7 @@ SQLの本数：スレッド一覧は2本、返信のGETは6本（認証・親・
 
 ## 関係するIssue・ADR
 
+- Issue #270の2つ目：本文のない親の、スレッド一覧の代わりの文（「（添付ファイルのみ）」）。返信にも添付だけの投稿ができる（EP-1-08。3種の部屋とも）。決定記録C-205。設計は[messages.md](messages.md)の「添付だけの投稿と本文の目印」。テスト：`frontend/src/pages/ThreadsPage.test.tsx`・`backend/src/routes/messages.attachment-only.test.ts`
 - Issue #137（親：#133）。#139（メンション。1-4 AC-4の「自分がメンションされたスレッド」の条件を追記）・#140（添付）・#138（リアクション）・#117（リアルタイム化）・#245（離脱の確認）・#240（未読の合計）・#154（部署が無効の投稿）・#160（負荷の実測）に申し送る
 - 決定：C-172（C-147の「スレッドごとの既読位置は未決定」を置き換えた）。C-59（親の削除）・C-94（公開チャンネルは未参加でも読める）・C-169（未読）・C-171（編集・削除）に従う
 - [ADR-0006](../adr/0006-id-cursor-unread.md)（ID・カーソル・未読）・[ADR-0004](../adr/0004-realtime-polling-then-websocket.md)（ポーリング）・[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーションとE2Eの範囲。(c)に当たる）
