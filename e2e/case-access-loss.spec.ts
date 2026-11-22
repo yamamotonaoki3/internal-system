@@ -1,6 +1,8 @@
-// #308 AC-1・AC-3（5-1 AC-2・AC-3）、画面 S-17：案件の画面を開いたまま、ほかの参加者に外された人の画面が、再読み込みなしで、
+// #308 AC-1・AC-3（5-1 AC-2・AC-3）、画面 S-17：案件の画面を開いたまま、ほかの参加者に外された人の画面が、
 // 自動の更新（やり取り・TODO の2秒ごとの取り直し）の後に、「参加者だけが見られます（非公開）」に切り替わることを、実ブラウザ2つで確かめる。
-// 流れ：外される人 B が S-17 を開いて説明を見る → 外す人 A が「参加者を管理」で B を削除する → B の画面は、開き直さず（reload・移動なし）に非公開の表示になり、説明が消える。
+// #338（C-206）で、喪失が確定したら片付けの後にページの文書ごと読み込み直すようにしたため、「再読み込みなしで非公開の表示」の期待だけを
+// 「読み込み直した後に（同じ場所で）非公開の表示」に書き換えた（既定の方針2。読み込み直しそのものの網羅は e2e/case-access-loss-reload.spec.ts）。
+// 流れ：外される人 B が S-17 を開いて説明を見る → 外す人 A が「参加者を管理」で B を削除する → B の画面は、操作・移動なしで読み込み直され、非公開の表示になり、説明が消える。
 //   A の画面は参加者のまま変わらない（AC-3）。
 // 切り替えの網羅（403・404・通信の失敗・再試行・ダイアログ・キャッシュ）は frontend/src/pages/CaseAccessLoss.test.tsx で確かめ、ここでは重ねない。
 // 前提：e2e/seeds/case-access-loss.sql（[E2E_TEST]部署308・作成者 e2euser_loss_a・参加者 e2euser_loss_b・取引先 テスト商事外され [E2E_TEST]（QKM）・進行中の案件 QKM-261119-0001）。
@@ -106,7 +108,7 @@ test.afterAll(async () => {
   expect(output).not.toMatch(/"remaining_\w+":\s*[1-9]/);
 });
 
-test("#308 AC-1・AC-3 5-1 AC-2・AC-3: 参加者に外された人の画面は、開いたまま（再読み込みなし）で、自動の更新の後に非公開の表示に切り替わり、外した人の画面は変わらない", async ({
+test("#308 AC-1・AC-3 5-1 AC-2・AC-3 #338 AC-1: 参加者に外された人の画面は、操作・移動なしで、自動の更新の後に読み込み直されて非公開の表示に切り替わり、外した人の画面は変わらない", async ({
   page,
   browser,
   baseURL,
@@ -124,6 +126,10 @@ test("#308 AC-1・AC-3 5-1 AC-2・AC-3: 参加者に外された人の画面は�
     await expect(
       removedMain.getByRole("heading", { name: "やり取り" }),
     ).toBeVisible();
+    // #338：外された後に、文書ごと読み込み直される（読み込みの完了を待つ）
+    const reloaded = removed.page.waitForEvent("load", {
+      timeout: SWITCH_TIMEOUT_MS,
+    });
 
     // 外す人が、B を参加者から削除する
     await page.goto(`/cases/${CASE_ID}`);
@@ -146,9 +152,18 @@ test("#308 AC-1・AC-3 5-1 AC-2・AC-3: 参加者に外された人の画面は�
       manager.getByRole("listitem").filter({ hasText: REMOVED_NAME }),
     ).toHaveCount(0);
 
-    // 外された人の画面：再読み込み・移動をしないまま、非公開の表示に切り替わり、説明・やり取りが消える
-    // 切り替えの途中は、TODO・やり取りの区画がそれぞれ拒否の文言を出すため、同じ文言が一時的に2つ出る（正しい途中の状態）。
-    // 先に説明が消える（切り替わった）のを待ち、その後に、非公開の文言が最終的にちょうど1つ（概要の側だけ）になることを確かめる
+    // 外された人の画面：操作・移動をしないまま、読み込み直され（ナビゲーションの種類が reload）、非公開の表示に切り替わり、説明・やり取りが消える
+    await reloaded;
+    expect(
+      await removed.page.evaluate(
+        () =>
+          (
+            performance.getEntriesByType("navigation")[0] as
+              PerformanceNavigationTiming | undefined
+          )?.type,
+      ),
+    ).toBe("reload");
+    // 先に説明が消えるのを待ち、その後に、非公開の文言が最終的にちょうど1つ（概要の側だけ）になることを確かめる
     await expect(
       removedMain.getByText(CASE_DESCRIPTION, { exact: true }),
     ).toHaveCount(0, { timeout: SWITCH_TIMEOUT_MS });

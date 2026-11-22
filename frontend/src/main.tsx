@@ -5,6 +5,10 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 import "./lib/zod-config";
 import { App } from "./App";
+import {
+  AccessLossBoundary,
+  takeAccessLossNotice,
+} from "./features/access-loss";
 import { installUserSwitchGuard } from "./features/auth";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
@@ -43,6 +47,8 @@ setUnauthenticatedHandler(
 );
 // 利用者が替わったら、前の利用者のキャッシュを捨てる（アプリの間ずっと有効なので解除しない）
 installUserSwitchGuard(queryClient);
+// 資格を失って読み込み直した前の文書の知らせを、描画の前に読んで消す（#338）
+takeAccessLossNotice(queryClient);
 
 const root = document.getElementById("root");
 if (root === null)
@@ -51,7 +57,10 @@ if (root === null)
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* 読み込み直しを待つ間、ルーターの下（離脱の確認・モーダルを含む）をすべて描画から外す（#338） */}
+      <AccessLossBoundary>
+        <RouterProvider router={router} />
+      </AccessLossBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );

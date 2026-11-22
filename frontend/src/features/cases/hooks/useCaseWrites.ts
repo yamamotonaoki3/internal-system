@@ -8,6 +8,7 @@ import {
   type QueryFilters,
 } from "@tanstack/react-query";
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
+import { requestAccessLossReload } from "../../access-loss";
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { channelKeys } from "../../channels";
 import { messageKeys } from "../../messages";
@@ -333,10 +334,21 @@ export function useRemoveCaseParticipant(caseId: string) {
       /** 退出の前に求めた部屋の ID（cachedCaseRoomId）。部屋のキャッシュも片付ける */
       roomId: string | null;
     }) => removeCaseParticipant(caseId, input.userId),
-    onSuccess: (_data, input) =>
-      input.self
-        ? forgetCaseAfterLeave(queryClient, input.actorId, caseId, input.roomId)
-        : undefined,
+    onSuccess: (_data, input) => {
+      if (!input.self) return undefined;
+      // 片付けより先に求める：片付けが概要を非参加に書くと、喪失（lost）としても求められるが、同じ持ち主の待機に合流して left のまま（#338）
+      void requestAccessLossReload(queryClient, {
+        ownerId: input.actorId,
+        reason: "left",
+        leftCasePath: `/cases/${encodeURIComponent(caseId)}`,
+      });
+      return forgetCaseAfterLeave(
+        queryClient,
+        input.actorId,
+        caseId,
+        input.roomId,
+      );
+    },
     onSettled: (_data, error, input) =>
       error === null && input.self
         ? undefined
