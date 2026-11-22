@@ -151,10 +151,15 @@ test("#270 AC-1・AC-4・AC-11（C-137(3)）: S-05 で本文なしで添付だ�
   expect((await posted).status()).toBe(201);
 
   // 2. 再読み込みなしで、本文の段のない行に、添付のリンクが出る（AC-4）
+  // メッセージの行は、添付のリンクと、行の操作「編集」（自分の投稿の行だけが持つ。添付の一覧〔list「添付」〕の行は持たない）の両方を含む listitem。
+  // 添付の一覧の行（「〈名前〉を削除」とリンクだけ）を除くため、「編集」で絞る（MessageItem.tsx・MessageAttachments.tsx）
   const row = page
     .getByRole("log", { name: "メッセージ一覧" })
     .getByRole("listitem")
-    .filter({ has: page.getByRole("link", { name: FILE_NAME }) });
+    .filter({ has: page.getByRole("link", { name: FILE_NAME }) })
+    .filter({
+      has: page.getByRole("button", { name: "編集", exact: true }),
+    });
   await expect(row.getByRole("link", { name: FILE_NAME })).toBeVisible();
   await expect(row.locator(".markdown-body")).toHaveCount(0);
   await expect(page.getByText("メッセージを入力してください")).toHaveCount(0);
