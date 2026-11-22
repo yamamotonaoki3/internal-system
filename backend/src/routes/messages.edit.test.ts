@@ -519,12 +519,25 @@ describe("#134 共通：本文の検証（V-18・V-19。messageBodySchema）", (
     });
   });
 
-  it("#134 AC-1（判定の順）: 本文の形の誤りは、他人の投稿・存在しないメッセージでも 422（Controller が先）", async () => {
+  // #270（270-B）利用者の決定4（2026-11-22。C-171(2) の一部の置き換え）：空の本文は、添付の有無を DB で見ないと決まらないため Controller を通る。
+  // 空の本文の編集は、他人の投稿は 403、存在しないメッセージは 404 が、422 より先。長さの上限などの形の誤りは、これまでどおり Controller が先（422）。
+  it("#134 AC-1（判定の順）・#270 決定4: 長さの上限を超える本文は、他人の投稿・存在しないメッセージでも 422（Controller が先）", async () => {
     const id = await seed(deptA.dedicatedChannelId);
-    expect((await editMessage(id, { body: "" }, other.token)).status).toBe(422);
+    const long = "a".repeat(4001);
+    expect((await editMessage(id, { body: long }, other.token)).status).toBe(
+      422,
+    );
+    expect(
+      (await editMessage(testId("NOMSG"), { body: long }, author.token)).status,
+    ).toBe(422);
+  });
+
+  it("#270 決定4（C-171(2) の一部の置き換え）: 空の本文の編集は、他人の投稿は 403、存在しないメッセージは 404（422 より先）", async () => {
+    const id = await seed(deptA.dedicatedChannelId);
+    expect((await editMessage(id, { body: "" }, other.token)).status).toBe(403);
     expect(
       (await editMessage(testId("NOMSG"), { body: "" }, author.token)).status,
-    ).toBe(422);
+    ).toBe(404);
   });
 
   it("#134 AC-1: messageId が長すぎる（65文字）とき、422 または 404 で、500 にならない", async () => {

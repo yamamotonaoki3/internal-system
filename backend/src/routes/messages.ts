@@ -17,7 +17,11 @@ import {
   type MessageListQuery,
 } from "../services/message.service";
 import { attachmentIdsSchema } from "../../../shared/attachment-rules";
-import { messageContentSchema } from "../../../shared/message-rules";
+import {
+  isBlankMessageBody,
+  MESSAGE_BODY_REQUIRED_MESSAGE,
+  messageContentMaybeBlankSchema,
+} from "../../../shared/message-rules";
 import {
   isValidReaction,
   REACTION_KINDS,
@@ -27,9 +31,19 @@ import { searchKeywordSchema } from "../../../shared/search-rules";
 const roomParamSchema = z.object({ roomId: z.string().min(1).max(64) });
 
 // 投稿・返信には、アップロード済みの添付の ID を付けられる（#140）。結び付けてよいかは Service と同じ batch の条件で確かめる
-const postSchema = messageContentSchema.safeExtend({
-  attachmentIds: attachmentIdsSchema.optional(),
-});
+// 本文が空（空白だけ）でよいのは、添付を1件以上付けたときだけ（#270・C-137(3)）
+const postSchema = messageContentMaybeBlankSchema
+  .safeExtend({
+    attachmentIds: attachmentIdsSchema.optional(),
+  })
+  .superRefine(({ body, attachmentIds = [] }, ctx) => {
+    if (isBlankMessageBody(body) && attachmentIds.length === 0)
+      ctx.addIssue({
+        code: "custom",
+        path: ["body"],
+        message: MESSAGE_BODY_REQUIRED_MESSAGE,
+      });
+  });
 const candidateQuerySchema = cursorQuerySchema({
   defaultLimit: PAGE_LIMIT.default,
 })
@@ -73,7 +87,8 @@ const listQuerySchema = z
 const messageParamSchema = z.object({ messageId: z.string().min(1).max(64) });
 
 // 編集は本文だけ。削除の理由（reason）は他人の投稿の削除（#142）で扱うため、ここでは受け付けない
-const editSchema = messageContentSchema;
+// 本文の空は通す。見える添付があるかは、Service が①〜⑤の後に判定する（#270・C-205）
+const editSchema = messageContentMaybeBlankSchema;
 
 // リアクションの値は、固定の一覧（shared/reaction-rules.ts）にあるものだけ。422 の応答に入力値を含めない（validate は項目名だけを返す）
 const reactionValueSchema = z.object({

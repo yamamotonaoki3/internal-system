@@ -19,6 +19,7 @@ import {
 import {
   deletePurgedRow,
   listDeletedOfMessage,
+  lastOfBodylessIfDeletable,
   listPurgeTargets,
   markAttachmentDeleted,
   markPurgeFailed,
@@ -279,6 +280,9 @@ export function createAttachmentRepository(db: Database) {
     /** 削除してよいときだけ、監査・削除の印・索引を書き、印を付けた行数（1 か 0）を返す */
     markDeleted: (input: AttachmentDeletion) =>
       markAttachmentDeleted(db, input),
+    /** ⑤の判定の材料（#270）。⑤を除いた削除の条件が成り立たなければ null */
+    lastOfBodylessIfDeletable: (attachmentId: string, userId: string) =>
+      lastOfBodylessIfDeletable(db, attachmentId, userId),
     listPurgeTargets: (cursor: PurgeCursor, limit: number) =>
       listPurgeTargets(db, cursor, limit),
     listDeletedOfMessage: (messageId: string) =>

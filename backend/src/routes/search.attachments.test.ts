@@ -8,6 +8,10 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest } from "../../test/api-request";
+import {
+  STORED_EMPTY_BODY,
+  cleanupAttachmentOnlyLeftovers,
+} from "../../test/attachment-only-fixtures";
 import { cleanupCaseTestData } from "../../test/case-fixtures";
 import {
   setupCaseWorld,
@@ -134,6 +138,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   try {
+    await cleanupAttachmentOnlyLeftovers();
     await cleanupSearchIndex();
   } finally {
     await cleanupRelatedReadsRooms([ROOM, SECRET_ROOM]);
@@ -231,5 +236,72 @@ describe("#155 AC-1 155-B A-1 応答の項目（matchedIn・matchedAttachments�
     expect(joined).not.toContain("A1秘匿ファイル名");
     expect(joined).not.toContain(fileName);
     expect(errorLines).toEqual([]);
+  });
+});
+
+// ---- #270（270-B）AC-9：本文のない投稿（本文が目印）の検索の応答（計画 2.2 の 6・2.8）----
+// 根拠：計画 AC-9（本文の検索のどの語でも目印で一致しない。添付のファイル名では一致し、結果の抜粋は空文字。matchedIn に attachment。空白だけの語は 422 のまま）・
+//   利用者の決定1（API は本文なしを空文字で返す）。目印は test/attachment-only-fixtures.ts の値。シードの後に reindexMessages で登録し直す（buildSearchIndex）。
+describe("#270 AC-9 本文のない投稿の検索", () => {
+  async function seedBodyless(names: string[]) {
+    seq += 1;
+    const ms = BASE_MS + 10_000 + seq * 1_000;
+    const id = fixedIdAt(ms);
+    await env.DB.prepare(
+      `INSERT INTO messages (id, room_id, sender_id, sender_display_name, body, created_at)
+       VALUES (?, ?, ?, 'テスト太郎', ?, ?)`,
+    )
+      .bind(id, ROOM, V.id, STORED_EMPTY_BODY, new Date(ms).toISOString())
+      .run();
+    const attachments: string[] = [];
+    for (const name of names)
+      attachments.push(
+        await insertAttachmentRow({
+          roomId: ROOM,
+          uploaderId: V.id,
+          messageId: id,
+          originalName: name,
+        }),
+      );
+    return { id, attachments };
+  }
+
+  it("#270 AC-9: ファイル名の語で一致し、excerpt は空文字、matchedIn は attachment だけ", async () => {
+    const seeded = await seedBodyless(["N270本文なしの見積.pdf"]);
+    await buildSearchIndex();
+    const page = await ok({ q: "N270本文なし" });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      messageId: seeded.id,
+      excerpt: "",
+      matchedIn: ["attachment"],
+      matchedAttachments: [
+        { id: seeded.attachments[0], name: "N270本文なしの見積.pdf" },
+      ],
+    });
+    expect(JSON.stringify(page)).not.toContain(`"excerpt":" "`);
+  });
+
+  it.each([
+    ["1文字の語", "Z"],
+    ["2文字の語", "ZQ"],
+    ["3文字以上の語", "ZQX270"],
+  ])(
+    "#270 AC-9: %s では、本文のない投稿は本文で一致しない（ファイル名にもない語）",
+    async (_label, q) => {
+      const seeded = await seedBodyless(["N270別名の資料.txt"]);
+      await buildSearchIndex();
+      const page = await ok({ q });
+      expect(page.items.map((item) => item.messageId)).not.toContain(seeded.id);
+    },
+  );
+
+  it("#270 AC-9: 半角の空白だけの語は、これまでどおり 422（目印に一致させる入口がない）", async () => {
+    await seedBodyless(["N270空白の確認.txt"]);
+    await buildSearchIndex();
+    const response = await apiRequest("GET", searchPath({ q: " " }), {
+      token: V.token,
+    });
+    expect(response.status).toBe(422);
   });
 });

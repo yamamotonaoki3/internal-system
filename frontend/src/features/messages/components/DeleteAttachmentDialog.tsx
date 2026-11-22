@@ -13,12 +13,19 @@ import {
 type DeleteAttachmentDialogProps = {
   owner: AttachmentOwner;
   attachment: Pick<Attachment, "id" | "name">;
+  /** 本文のない投稿の、最後の見える添付か（#270・決定2。真なら案内だけを出し、削除の要求を送らない） */
+  lastOfBodyless?: boolean;
   onClose: () => void;
 };
+
+/** 本文のない投稿の最後の添付の案内（サーバーの 409 と同じ文。正はサーバーの判定で、すれ違いの 409 はサーバーの文を出す） */
+const LAST_OF_BODYLESS_MESSAGE =
+  "本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。";
 
 export function DeleteAttachmentDialog({
   owner,
   attachment,
+  lastOfBodyless = false,
   onClose,
 }: DeleteAttachmentDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -43,31 +50,44 @@ export function DeleteAttachmentDialog({
     >
       <section>
         <h2 className="mb-4 text-xl font-bold">添付の削除</h2>
-        <p className="mb-4">
-          「{attachment.name}
-          」を削除します。削除すると、表示されなくなり、元に戻せません。
-        </p>
-        {remove.isError && (
-          <Alert tone="error" role="alert">
-            {describeError(remove.error)}
-          </Alert>
+        {lastOfBodyless ? (
+          <>
+            <p className="mb-4">{LAST_OF_BODYLESS_MESSAGE}</p>
+            <Button variant="secondary" onClick={onClose}>
+              閉じる
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="mb-4">
+              「{attachment.name}
+              」を削除します。削除すると、表示されなくなり、元に戻せません。
+            </p>
+            {remove.isError && (
+              <Alert tone="error" role="alert">
+                {describeError(remove.error)}
+              </Alert>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="danger"
+                disabled={remove.isPending}
+                onClick={() =>
+                  remove.mutate(attachment.id, { onSuccess: onClose })
+                }
+              >
+                削除する
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={remove.isPending}
+                onClick={onClose}
+              >
+                キャンセル
+              </Button>
+            </div>
+          </>
         )}
-        <div className="flex gap-2">
-          <Button
-            variant="danger"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate(attachment.id, { onSuccess: onClose })}
-          >
-            削除する
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={remove.isPending}
-            onClick={onClose}
-          >
-            キャンセル
-          </Button>
-        </div>
       </section>
     </dialog>
   );

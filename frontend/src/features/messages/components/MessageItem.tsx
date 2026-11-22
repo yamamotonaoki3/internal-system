@@ -2,6 +2,7 @@
 // 編集はその場で編集欄に切り替え、削除は確認のダイアログを出す。削除済みは本文の代わりに「このメッセージは削除されました」を出す（C-57）。
 // onOpenThread があるときは、スレッドを開く「返信 n 件」（まだなければ「返信」）のボタンを付ける。返信（親がある投稿）には付けない（返信は1段だけ）。
 // 削除済みの投稿は、返信が残っているときだけ付ける（既存の返信を見られる）。
+// 本文のない投稿（添付だけ。API の body が空文字。#270）は、本文の段を出さない。
 // 添付（#140）は本文の下に出す。削除済みには出さない。自分の投稿（canModify）の添付には、1件ずつの削除を付ける（#270）。
 import { useState } from "react";
 import { Button } from "../../../components/Button";
@@ -99,6 +100,34 @@ function MessageActions({
   );
 }
 
+/** 本文の段（削除済みの表示・編集欄・本文）。本文のない投稿（body が空文字。#270）は何も出さない */
+function MessageContent({
+  message,
+  editing,
+  onCloseEdit,
+}: {
+  message: RoomMessage;
+  editing: boolean;
+  onCloseEdit: () => void;
+}) {
+  if (message.deleted || message.body === null)
+    return <p className="text-text-muted">このメッセージは削除されました</p>;
+  if (editing)
+    return (
+      <MessageEditForm
+        roomId={message.roomId}
+        parentMessageId={message.parentMessageId}
+        messageId={message.id}
+        originalBody={message.body}
+        originalMentions={message.mentions}
+        hasAttachments={message.attachments.length > 0}
+        onClose={onCloseEdit}
+      />
+    );
+  if (message.body === "") return null;
+  return <MessageBody body={message.body} mentions={message.mentions} />;
+}
+
 export function MessageItem({
   message,
   retired,
@@ -124,20 +153,11 @@ export function MessageItem({
           <span className="text-text-muted">（編集済み）</span>
         )}
       </p>
-      {message.deleted || message.body === null ? (
-        <p className="text-text-muted">このメッセージは削除されました</p>
-      ) : mode === "edit" ? (
-        <MessageEditForm
-          roomId={message.roomId}
-          parentMessageId={message.parentMessageId}
-          messageId={message.id}
-          originalBody={message.body}
-          originalMentions={message.mentions}
-          onClose={close}
-        />
-      ) : (
-        <MessageBody body={message.body} mentions={message.mentions} />
-      )}
+      <MessageContent
+        message={message}
+        editing={mode === "edit"}
+        onCloseEdit={close}
+      />
       {!message.deleted && (
         <MessageAttachments
           attachments={message.attachments}
@@ -149,6 +169,9 @@ export function MessageItem({
                   messageId: message.id,
                 }
               : undefined
+          }
+          lastOfBodyless={
+            message.body === "" && message.attachments.length === 1
           }
         />
       )}
