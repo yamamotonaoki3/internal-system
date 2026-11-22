@@ -1492,7 +1492,7 @@ Issue #150（案件の終了・再開・再編集）も「影響大」で、3つ
 - **後ろの文の条件は、案件の ID と進行中だけ**：先頭の前提で版・`expected`・資格・各変更の条件を確かめれば足りる。後ろに版の一致を足すと、`expected`の方式で説明・納期だけが変わった場合に、後ろの文が0行になり 500 になる
 - **更新は指定した列だけを書く**：説明・納期など、指定していない列は書かない。`expected`の方式で、相手が読んだ後に変えた説明を上書きしないため
 - **監査の`onlyWhen`を使う**：`auditLogInsertWithDetailSql`は条件を付けられないため、案件がないときに監査だけが残る。`detail`は SQL ではなく、読んだ材料から組む
-- **`form-parts.ts`を`case-requests/index.ts`と別にした**：`index.ts`は案件の機能（`cases`）を参照する部品を含む。`cases`から`index.ts`を参照すると循環になるため、再編集が使う部品・候補・類似件名だけを`form-parts.ts`から公開した（既存の機能どうしの公開の入口の決まりの範囲で、循環を避ける）
+- **`form-parts.ts`を`case-requests/index.ts`と別にした**：`index.ts`は案件の機能（`cases`）を参照する部品を含む。`cases`から`index.ts`を参照すると循環になるため、再編集が使う部品・候補・類似件名だけを`form-parts.ts`から公開した（キー以外も公開するため、`docs/project-rules.md`の既定の方針5で、以前からの例外としている。循環を避けるための入口）
 - **`TITLE_CAUTION`の定義元は`case-requests/labels.ts`の1か所**。申請の画面と再編集の両方が参照する
 - **D1 の1つの batch の文の数の上限は未確認**（150-B と同じ）。最大12文にして、150-A・150-B と同じ桁に収めた（#155 の155-C で、件名の索引の組を足して最大16文。同じ桁のまま）。手元のテスト（Miniflare）が確かめるのは、120部署・多数のオーナーで動くことと、全文の束縛値が 100 以下であることだけで、本番の D1 の上限の証明ではない
 
@@ -1647,7 +1647,7 @@ S-17 を開いたまま、ほかの参加者に外された人の画面が、開
 
 - **一覧から外れる**：`case-attachment.repository.ts`の`listCaseAttachments`の WHERE に、削除済み（`message_attachments.deleted_at`が入った行）を除く条件を足した。148-B-1 の「範囲は配信と同じ規則」に、「削除されていない添付」が加わった
 - **公開範囲の変更の対象から外れる**：148-B-2 の変更（EP-1-23）は、`attachment-visibility.sql.ts`の`attachmentVisible`の条件を通すので、削除済みの添付は見えない扱いで404になる。削除が先に確定すれば、同時に送られた公開範囲の変更は404になる
-- **S-17 の一覧の取り直し**：添付の削除が成功したら、画面は`caseKeys.all`を取り直す（案件の添付の一覧のキャッシュが、削除した添付を出し続けないため）。`features/cases/keys.ts`は、案件のキャッシュのキー`caseKeys`だけの公開の入口で、`features/messages`が使う。`features/cases/index.ts`は`messages`の部品を読み込むため、`messages`から`index.ts`を参照すると循環になる（検索の`features/search/keys.ts`と同じ理由。既定の方針5の「循環参照になる」場合の例外として、キーだけを分けて公開した）
+- **S-17 の一覧の取り直し**：添付の削除が成功したら、画面は`caseKeys.all`を取り直す（案件の添付の一覧のキャッシュが、削除した添付を出し続けないため）。`features/cases/keys.ts`は、案件のキャッシュのキー`caseKeys`だけの公開の入口で、`features/messages`が使う。`features/cases/index.ts`は`messages`の部品を読み込むため、`messages`から`index.ts`を参照すると循環になる（検索の`features/search/keys.ts`と同じ理由。`docs/project-rules.md`の既定の方針5の例外（循環する場合に限り、キーだけの専用の入口を設けてよい）に当てはまる）
 - **終了した案件**：削除できない（409）。取得（ダウンロード）・一覧は、これまでどおり読める
 - テスト：`backend/src/routes/attachments.delete.case-room.test.ts`（進行中は削除でき一覧から消える・終了中は409・参加を外れた人は404・確認と書き込みの間に終了すると0行で409）
 
