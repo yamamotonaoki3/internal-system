@@ -198,6 +198,77 @@ async function tag(locator: Locator, name: string) {
   }, name);
 }
 
+/**
+ * 隠したままであることの見張り（#338 AC-2。E-2 の⑥）。文書の応答を保留している間（reloading）は、Playwright の expect・locator が
+ * 移動の完了を待つ（playwright-core 1.64.1 の Frame.expect → Page.performActionPreChecks → _performWaitForNavigationCheck が
+ * pendingDocument の完了を待つ）ため、その間の DOM を外から取れない。そこで、見張りをページの中に置き、隠す仕組みが外れたこと
+ * （包みの hidden・inert が外れた・覆いが閉じた・目印の「付けた人」が閉じた/見えた・入力欄の値が変わった）を見つけたら、
+ * 新しい文書でも読める sessionStorage に理由を書く。古い文書が捨てられる直前（pagehide）にも同じ確認をして、印を残す。
+ * 包みは #root の直下の div（AccessLossBoundary）。キーはテスト専用（e2e338:）
+ */
+const WATCH_KEY = "e2e338:hidden-watch";
+async function installHiddenWatch(page: Page) {
+  await page.evaluate(
+    ({ key, title, draft }) => {
+      const record = (reason: string) => {
+        const list = JSON.parse(
+          window.sessionStorage.getItem(key) ?? "[]",
+        ) as string[];
+        if (!list.includes(reason)) list.push(reason);
+        window.sessionStorage.setItem(key, JSON.stringify(list));
+      };
+      const check = (when: string) => {
+        const wrapper = document.querySelector<HTMLElement>("#root > div");
+        if (wrapper === null || !wrapper.hidden) record(`${when}:shown`);
+        if (wrapper === null || !wrapper.hasAttribute("inert"))
+          record(`${when}:not-inert`);
+        const overlay = [...document.querySelectorAll("dialog")].find(
+          (dialog) => dialog.textContent?.includes(title),
+        );
+        if (overlay === undefined || !overlay.open)
+          record(`${when}:no-overlay`);
+        const reactors = document.querySelector<HTMLDialogElement>(
+          'dialog[data-e2e338="reactors"]',
+        );
+        if (reactors === null || !reactors.open)
+          record(`${when}:reactors-closed`);
+        if (reactors?.checkVisibility()) record(`${when}:reactors-visible`);
+        const composer = document.querySelector<HTMLTextAreaElement>(
+          '[data-e2e338="composer"]',
+        );
+        if (composer === null || composer.value !== draft)
+          record(`${when}:composer-changed`);
+        if (composer?.checkVisibility()) record(`${when}:composer-visible`);
+      };
+      window.sessionStorage.setItem(key, "[]");
+      check("install");
+      new MutationObserver(() => check("mutation")).observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+      });
+      window.addEventListener("pagehide", () => {
+        check("pagehide");
+        window.sessionStorage.setItem(`${key}:pagehide`, "seen");
+      });
+    },
+    { key: WATCH_KEY, title: OVERLAY_TITLE, draft: CHANNEL_DRAFT },
+  );
+}
+
+async function readHiddenWatch(page: Page) {
+  return page.evaluate((key) => {
+    const result = {
+      reasons: JSON.parse(window.sessionStorage.getItem(key) ?? "null") as
+        string[] | null,
+      pagehide: window.sessionStorage.getItem(`${key}:pagehide`),
+    };
+    window.sessionStorage.removeItem(key);
+    window.sessionStorage.removeItem(`${key}:pagehide`);
+    return result;
+  }, WATCH_KEY);
+}
+
 let a: Signed;
 let b: Signed;
 
@@ -365,7 +436,9 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
   await expect(leaveConfirm).toBeHidden();
   await expectHiddenButKept();
 
-  // ⑥ 文書の取得を保留する登録をしてから、POST の応答を返す → 文書の要求が届く（reloading の間）
+  // ⑥ 見張りを置いてから（まだ移動は始まっていないので、置いた時点の違反は0のはず）、文書の取得を保留する登録をし、POST の応答を返す
+  //    → 文書の要求が届く（reloading の間）。この間は外から DOM を取れないので、見張りに任せる
+  await installHiddenWatch(page);
   const documentArrived = signal();
   const documentRelease = signal();
   await page.route("**/*", async (route) => {
@@ -376,17 +449,18 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
   });
   postRelease.fire();
   await documentArrived.fired;
-  await expectHiddenButKept();
-  await expect(
-    page.getByRole("heading", { name: OVERLAY_TITLE }),
-  ).toBeVisible();
 
-  // ⑦ 文書の応答を返し、新しい文書が読み込まれる。この間の beforeunload の確認は0回
+  // ⑦ 文書の応答を返し、新しい文書が読み込まれる。この間の beforeunload の確認は0回。
+  //    見張り：置いてから古い文書が捨てられるまで（pagehide を含む）、隠す仕組みが一度も外れていない
   const loaded = page.waitForEvent("load");
   documentRelease.fire();
   await loaded;
   expect(beforeUnload).toHaveLength(0);
   expect((await documentState(page)).marker).toBeNull();
+  expect(await readHiddenWatch(page)).toEqual({
+    reasons: [],
+    pagehide: "seen",
+  });
   await page.close();
   expect(b.errors).toEqual([]);
 });
@@ -409,9 +483,33 @@ test("#338 AC-2 E-2 対照: E-2 の④と同じ状態（喪失なし・時計の
     .getByRole("listitem")
     .filter({ hasText: REACTED_TEXT });
   await row.getByRole("button", { name: /^付けた人/ }).click();
-  await expect(page.getByRole("dialog", { name: "付けた人" })).toBeVisible();
+  const reactorsDialog = page.getByRole("dialog", { name: "付けた人" });
+  await expect(reactorsDialog).toBeVisible();
+  // E-2 の⑥の見張りが、隠していない状態を実際に見つけることを示す（働かない見張りは、何も守らない）
+  await tag(channelComposer, "composer");
+  await tag(reactorsDialog, "reactors");
+  await installHiddenWatch(page);
+  const watched = await page.evaluate(
+    (key) => JSON.parse(window.sessionStorage.getItem(key) ?? "[]") as string[],
+    WATCH_KEY,
+  );
+  expect(watched).toEqual(
+    expect.arrayContaining([
+      "install:shown",
+      "install:not-inert",
+      "install:no-overlay",
+      "install:reactors-visible",
+      "install:composer-visible",
+    ]),
+  );
 
   await page.reload();
+  // reload の後、pagehide でも違反（隠していない）を記録している
+  const afterReload = await readHiddenWatch(page);
+  expect(afterReload.pagehide).toBe("seen");
+  expect(afterReload.reasons).toEqual(
+    expect.arrayContaining(["pagehide:shown", "pagehide:no-overlay"]),
+  );
   // 計画は dismiss だが、dismiss すると reload の完了を待てないため、e2e/message-drafts.spec.ts と同じく accept で数える
   expect(beforeUnload).toEqual(["beforeunload"]);
   await page.close();
