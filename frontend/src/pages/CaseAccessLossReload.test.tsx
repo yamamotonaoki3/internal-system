@@ -18,6 +18,10 @@ import { http, HttpResponse } from "msw";
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestAccessLossReload } from "../features/access-loss";
+import {
+  reloadPage,
+  replacePage,
+} from "../features/access-loss/browser-location";
 import { authKeys } from "../features/auth";
 import { caseKeys } from "../features/cases";
 import { TEST_USER } from "../test/auth-handlers";
@@ -48,6 +52,12 @@ vi.mock(
     requestAccessLossReload: vi.fn(() => Promise.resolve()),
   }),
 );
+
+// 本物の入口を通すテスト（useRealEntry）で、実際の読み込み直しを数える
+vi.mock("../features/access-loss/browser-location", () => ({
+  reloadPage: vi.fn(),
+  replacePage: vi.fn(),
+}));
 
 const N = 338;
 const POLL_MS = 2_000;
@@ -291,7 +301,34 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.mocked(reloadPage).mockClear();
+  vi.mocked(replacePage).mockClear();
 });
+
+/**
+ * 入口の記録はそのままに、本物の入口（新しい文書の状態）へ渡す。コードレビュー1回目 重大1 の直し方
+ * （元の確かめから入口を必ず呼び、重なった要求は入口が同じ持ち主の待機に合流する）では、入口の呼び出しは1回とは限らない。
+ * 確かめるのは、文書の単位の読み込み直しが1回であること（AC-4・C-206）
+ */
+async function useRealEntry() {
+  vi.resetModules();
+  const actual = await vi.importActual<
+    typeof import("../features/access-loss/reload-after-access-loss")
+  >("../features/access-loss/reload-after-access-loss");
+  const record = vi.mocked(requestAccessLossReload).getMockImplementation();
+  vi.mocked(requestAccessLossReload).mockImplementation((client, request) => {
+    void record?.(client, request);
+    return actual.requestAccessLossReload(client, request);
+  });
+}
+
+/** 実際の読み込み直し（reloadPage と replacePage の合計） */
+function reloads(): number {
+  return (
+    vi.mocked(reloadPage).mock.calls.length +
+    vi.mocked(replacePage).mock.calls.length
+  );
+}
 
 describe("#338 AC-1 (a) 中身の拒否の後の確かめで、喪失が確定したら、片付けの後に入口を呼ぶ", () => {
   it("#338 AC-1 P-1: TODO の 403 → 概要が非参加：片付け（詳細・TODO のキャッシュの消去）の後に、入口が1回（理由 lost・持ち主はこの画面の利用者）", async () => {
@@ -391,7 +428,8 @@ describe("#338 AC-1 (a) 中身の拒否の後の確かめで、喪失が確定�
     return gate;
   }
 
-  it("#338 AC-1・AC-4 P-10b: 確かめの途中に離れて同じ S-17 に戻り、表示中に非参加が届く：入口はちょうど1回（持ち主 lost）", async () => {
+  it("#338 AC-1・AC-4 P-10b: 確かめの途中に離れて同じ S-17 に戻り、表示中に非参加が届く：入口は持ち主 A・lost で1回以上、読み込み直しは文書の単位で1回", async () => {
+    await useRealEntry();
     const w = world();
     const { user } = renderPage();
     await waitForFullView();
@@ -399,16 +437,16 @@ describe("#338 AC-1 (a) 中身の拒否の後の確かめで、喪失が確定�
     w.summaryGate = null;
     gate.release();
     await waitForSwitched();
-    await waitFor(() => expect(calls("lost")).toHaveLength(1));
+    await waitFor(() => expect(reloads()).toBe(1));
     await advance(POLL_MS * 3);
-    expect(calls()).toHaveLength(1);
-    expect(calls()[0]?.request).toEqual({
-      ownerId: TEST_USER.id,
-      reason: "lost",
-    });
+    expect(reloads()).toBe(1);
+    expect(calls().length).toBeGreaterThan(0);
+    for (const entry of calls())
+      expect(entry.request).toEqual({ ownerId: TEST_USER.id, reason: "lost" });
   });
 
-  it("#338 AC-1 P-10c: 確かめの途中に離れて同じ S-17 に戻り、表示中に確かめが 500（確かめられない）で届く：計画 5-2 (a) の unverified の枝として、入口が1回", async () => {
+  it("#338 AC-1 P-10c: 確かめの途中に離れて同じ S-17 に戻り、表示中に確かめが 500（確かめられない）で届く：計画 5-2 (a) の unverified の枝として、読み込み直しは文書の単位で1回", async () => {
+    await useRealEntry();
     const w = world();
     const { user } = renderPage();
     await waitForFullView();
@@ -417,9 +455,48 @@ describe("#338 AC-1 (a) 中身の拒否の後の確かめで、喪失が確定�
     w.summaryGate = null;
     gate.release();
     await advance(POLL_MS);
-    await waitFor(() => expect(calls("lost")).toHaveLength(1));
+    await waitFor(() => expect(reloads()).toBe(1));
     await advance(POLL_MS * 3);
-    expect(calls()).toHaveLength(1);
+    expect(reloads()).toBe(1);
+    for (const entry of calls())
+      expect(entry.request).toEqual({ ownerId: TEST_USER.id, reason: "lost" });
+  });
+
+  // コードレビュー1回目 重大1：戻った画面に、新しい拒否が1回も届かない場合。概要の取得が失敗すると、参加者向けの取得は止まる
+  // （CaseDetailView.tsx の isParticipantOf）。ここでは、戻った後に通信が失敗し続ける（通信の失敗は拒否の契機にならない）形で作る。
+  // 離れた画面の確かめは、通信の失敗で unverified に終わる → 計画 5-2 (a)・利用者の決定（離れた後も読み込み直す）・C-206 により、読み込み直す
+  it("#338 AC-1 P-10d: 確かめの途中に離れて同じ S-17 に戻り、戻った画面に拒否が届かないまま、離れた画面の確かめが通信の失敗（unverified）で終わる：入口が呼ばれ、読み込み直しは1回", async () => {
+    await useRealEntry();
+    const w = world();
+    const { user } = renderPage();
+    await waitForFullView();
+    const gate = deferred();
+    w.summaryGate = gate.promise;
+    const before = w.calls.summary;
+    w.participant = false;
+    denyTodos(w);
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.summary).toBeGreaterThan(before));
+    // 拒否の契機が届いた後から、通信がすべて失敗する（戻った画面の取得は、拒否ではなく通信の失敗になる）
+    server.use(
+      http.get("/api/cases/:caseId/todos", () => HttpResponse.error()),
+      http.get("/api/cases/:caseId/detail", () => HttpResponse.error()),
+      http.get("/api/cases/:caseId/attachments", () => HttpResponse.error()),
+    );
+    w.roomFail = "network";
+    w.summaryFail = "network";
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    await user.click(await screen.findByRole("link", { name: "案件に戻る" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("path").textContent).toBe(CASE_PATH),
+    );
+    w.summaryGate = null;
+    gate.release();
+    await advance(POLL_MS);
+    await waitFor(() => expect(calls("lost").length).toBeGreaterThan(0));
+    await waitFor(() => expect(reloads()).toBe(1));
+    await advance(POLL_MS * 3);
+    expect(reloads()).toBe(1);
   });
 
   it("#338 AC-1 P-14: 外されても管理の資格が残る人（概要が非参加で canManage）：入口が1回", async () => {
@@ -696,7 +773,8 @@ describe("#338 AC-3 利用者の切り替え・401 との組み合わせ（持�
       expect(entry.request.ownerId).toBe(TEST_USER.id);
   });
 
-  it("#338 AC-3 P-13: A → 401（セッションが消える）→ A が再ログイン → 保留した確かめが非参加：入口が1回（持ち主 A）", async () => {
+  it("#338 AC-3 P-13: A → 401（セッションが消える）→ A が再ログイン → 保留した確かめが非参加：入口は持ち主 A で、読み込み直しは文書の単位で1回", async () => {
+    await useRealEntry();
     const w = world();
     const { client } = renderPage();
     await waitForFullView();
@@ -715,7 +793,11 @@ describe("#338 AC-3 利用者の切り替え・401 との組み合わせ（持�
     });
     w.summaryGate = null;
     gate.release();
-    await waitFor(() => expect(calls("lost")).toHaveLength(1));
-    expect(calls()[0]?.request.ownerId).toBe(TEST_USER.id);
+    await waitFor(() => expect(reloads()).toBe(1));
+    await advance(POLL_MS * 3);
+    expect(reloads()).toBe(1);
+    expect(calls().length).toBeGreaterThan(0);
+    for (const entry of calls())
+      expect(entry.request.ownerId).toBe(TEST_USER.id);
   });
 });

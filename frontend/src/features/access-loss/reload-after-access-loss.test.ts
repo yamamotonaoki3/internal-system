@@ -36,6 +36,7 @@ type Modules = {
   location: typeof import("./browser-location");
   leaveGuard: typeof import("../leave-guard");
   notice: typeof import("./access-loss-notice");
+  api: typeof import("../../services/api-client");
 };
 
 /** 新しい文書として読み込む（入口の状態・保存先の参照を前のテストから持ち越さない） */
@@ -45,7 +46,8 @@ async function freshDocument(): Promise<Modules> {
   const location = await import("./browser-location");
   const leaveGuard = await import("../leave-guard");
   const notice = await import("./access-loss-notice");
-  return { entry, location, leaveGuard, notice };
+  const api = await import("../../services/api-client");
+  return { entry, location, leaveGuard, notice, api };
 }
 
 function sessionOf(id: string) {
@@ -618,5 +620,178 @@ describe("#338 AC-4・AC-5 退出（left）と喪失（lost）の合流と、読
     await advance(1);
     expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
     expect(m.location.replacePage).not.toHaveBeenCalled();
+  });
+});
+
+// コードレビュー1回目 重大2：待ちが終わり、1つ後のタスクでの読み込み直しを予約した後に始まった操作。
+// 直し方：実行の直前にも進行中の操作を確かめ直し、待つべきものがあれば待機に戻る（AC-2・AC-3）。上限は、最初の要求からの5秒のまま（延ばし続けない）
+describe("#338 AC-2・AC-3 予約の後に始まった操作も待つ（コードレビュー1回目 重大2）", () => {
+  it("#338 AC-3: 予約の後、タスクが進む前に持ち主のログアウトが始まる → 読み込み直さず、5秒を過ぎても待ち、ログアウトの後処理の後に1回読み込み直す", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    const order: string[] = [];
+    vi.mocked(m.location.reloadPage).mockImplementation(() => {
+      order.push("reload");
+    });
+    // 進行中の操作がないので、要求の時点で予約される
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    const logout = startLogout(client, USER_A, {
+      onSuccess: () => {
+        order.push("logout-cleanup");
+        client.clear();
+      },
+    });
+    await advance(1);
+    await advance(LIMIT_MS * 3);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    expect(m.entry.getAccessLossReloadState()).toBe("waiting");
+    logout.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(order).toEqual(["logout-cleanup", "reload"]);
+  });
+
+  it("#338 AC-2: 予約の後に、ほかの操作が始まる → その完了を待ち、完了の後に1回読み込み直す", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    const post = startPending(client);
+    await advance(1);
+    await advance(1_000);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    post.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("#338 AC-2: 予約の後に始まった、終わらない操作は、最初の要求から5秒で打ち切る（上限を延ばさない）", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(0);
+    startPending(client);
+    await advance(LIMIT_MS - 1);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("#338 AC-3: 予約の後に始まったのが、持ち主と別の利用者のログアウトなら、上限の対象（最初の要求から5秒で読み込み直す）", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    startLogout(client, USER_B);
+    await advance(LIMIT_MS - 1);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// コードレビュー1回目 重大3：MutationCache に載らない、API の直接の書き込み（usePasswordChange など）。
+// 直し方：API クライアントの層で、進行中の書き込みの要求（GET・HEAD・OPTIONS 以外）の数を数え、入口の待つ対象に含める（上限は同じ5秒）。
+// 応答の後の処理（await の続き）は、要求が終わった1つ後のタスクで読み込み直すことで、先に走らせる（AC-2）。
+// 通信はアダプターで保留する（本物の通信・時計に頼らない）。インターセプターはアダプターの前後で動く
+describe("#338 AC-2 API の直接の書き込みも待つ（コードレビュー1回目 重大3）", () => {
+  type Api = Modules["api"];
+  function heldRequest(api: Api, method: "post" | "get") {
+    const gate = deferred();
+    const adapter = (config: import("axios").InternalAxiosRequestConfig) =>
+      gate.promise.then(() => ({
+        data: {},
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }));
+    const request =
+      method === "post"
+        ? api.apiClient.post("/[UNIT_TEST]338-write", { value: 1 }, { adapter })
+        : api.apiClient.get("/[UNIT_TEST]338-read", { adapter });
+    return { gate, request };
+  }
+
+  it("#338 AC-2: 直接の書き込みの要求が進行中なら読み込み直さず、応答の後の処理（await の続き）の後に1回読み込み直す", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    const order: string[] = [];
+    vi.mocked(m.location.reloadPage).mockImplementation(() => {
+      order.push("reload");
+    });
+    const held = heldRequest(m.api, "post");
+    void held.request.then(() => order.push("continuation"));
+    await advance(0);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(LIMIT_MS - 1_000);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    held.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(order).toEqual(["continuation", "reload"]);
+  });
+
+  it("#338 AC-2: 直接の書き込みが終わらなければ、5秒で打ち切る", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    heldRequest(m.api, "post");
+    await advance(0);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(LIMIT_MS - 1);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("#338 AC-2: 読み取り（GET）の進行中は待たない", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    heldRequest(m.api, "get");
+    await advance(0);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("#338 AC-2: 予約の後に始まった直接の書き込みも待つ（重大2 と同じく、実行の直前に確かめ直す）", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    const held = heldRequest(m.api, "post");
+    await advance(1);
+    await advance(1_000);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    held.gate.resolve();
+    await advance(1);
+    await advance(1);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,10 @@
 //   後始末は e2e/seeds/case-access-loss-reload-cleanup.sql（識別子だけ。残数 0 を確かめる）。
 // ログインの試行制限に当たらないよう、ログインは利用者ごとに1回だけ（beforeAll）。同じ利用者の別のページは、同じブラウザのコンテキスト（Cookie を共有）で開く。
 // E-2 は、段階を時計（page.clock）と通信の到達の通知（page.route）で固定する。固定の待ち・やり直し（toPass）・条件つきの分岐は使わない。
+// 時計（playwright-core 1.64.1 で確かめた）：install() の後も時間は進む（注入の inject が controller.resume() を呼ぶ）。pauseAt で止めると、
+//   止めた状態は次の文書にも引き継がれる（_replayLogOnce）。ただし、TanStack Query の通知は setTimeout(0) で動く（query-core の
+//   notifyManager の systemSetTimeoutZero）ため、画面の操作の間は止められない（止めると画面が更新されない）。そこで、覆いが出た後
+//   （⑤の確認の間）だけ止め、5秒の上限・通信の上限に届かないようにする。読み込み直しを進める⑥の前に resume する（コードレビュー1回目 軽微）。
 // E2E は同時に1つだけ実行する（検証用の DB・ポートを共有するため）。
 import { execFile } from "node:child_process";
 import type {
@@ -207,9 +211,9 @@ async function tag(locator: Locator, name: string) {
  * 包みは #root の直下の div（AccessLossBoundary）。キーはテスト専用（e2e338:）
  */
 const WATCH_KEY = "e2e338:hidden-watch";
-async function installHiddenWatch(page: Page) {
+async function installHiddenWatch(page: Page, watchLeave: boolean) {
   await page.evaluate(
-    ({ key, title, draft }) => {
+    ({ key, title, draft, leaveTitle, watchLeave }) => {
       const record = (reason: string) => {
         const list = JSON.parse(
           window.sessionStorage.getItem(key) ?? "[]",
@@ -217,28 +221,66 @@ async function installHiddenWatch(page: Page) {
         if (!list.includes(reason)) list.push(reason);
         window.sessionStorage.setItem(key, JSON.stringify(list));
       };
-      const check = (when: string) => {
-        const wrapper = document.querySelector<HTMLElement>("#root > div");
-        if (wrapper === null || !wrapper.hidden) record(`${when}:shown`);
-        if (wrapper === null || !wrapper.hasAttribute("inert"))
-          record(`${when}:not-inert`);
-        const overlay = [...document.querySelectorAll("dialog")].find(
-          (dialog) => dialog.textContent?.includes(title),
+      const flag = (when: string, failed: boolean, reason: string) => {
+        if (failed) record(`${when}:${reason}`);
+      };
+      const findOverlay = () =>
+        [...document.querySelectorAll("dialog")].find((dialog) =>
+          dialog.textContent?.includes(title),
         );
-        if (overlay === undefined || !overlay.open)
-          record(`${when}:no-overlay`);
+      const checkBoundary = (when: string) => {
+        const wrapper = document.querySelector<HTMLElement>("#root > div");
+        flag(when, wrapper === null || !wrapper.hidden, "shown");
+        flag(
+          when,
+          wrapper === null || !wrapper.hasAttribute("inert"),
+          "not-inert",
+        );
+        flag(when, findOverlay()?.open !== true, "no-overlay");
+      };
+      const checkKept = (when: string) => {
         const reactors = document.querySelector<HTMLDialogElement>(
           'dialog[data-e2e338="reactors"]',
         );
-        if (reactors === null || !reactors.open)
-          record(`${when}:reactors-closed`);
-        if (reactors?.checkVisibility()) record(`${when}:reactors-visible`);
+        flag(when, reactors?.open !== true, "reactors-closed");
+        flag(when, reactors?.checkVisibility() === true, "reactors-visible");
         const composer = document.querySelector<HTMLTextAreaElement>(
           '[data-e2e338="composer"]',
         );
-        if (composer === null || composer.value !== draft)
-          record(`${when}:composer-changed`);
-        if (composer?.checkVisibility()) record(`${when}:composer-visible`);
+        flag(when, composer?.value !== draft, "composer-changed");
+        flag(when, composer?.checkVisibility() === true, "composer-visible");
+      };
+      // 「戻る」の後の離脱の確認（コードレビュー1回目 軽微）：開いたまま、見えない
+      const checkLeaveConfirm = (when: string) => {
+        if (!watchLeave) return;
+        const leave = [
+          ...document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
+        ].find((dialog) => dialog.textContent?.includes(leaveTitle));
+        flag(when, leave === undefined, "leave-confirm-closed");
+        flag(when, leave?.checkVisibility() === true, "leave-confirm-visible");
+      };
+      // 覆いの外に、見える操作部品・文が無い（境界の外に描かれたもの）。フォーカスも覆いの外に無い
+      const checkOutside = (when: string) => {
+        const overlay = findOverlay();
+        const inOverlay = (node: Element) => overlay?.contains(node) === true;
+        const visibleOutside = [
+          ...document.querySelectorAll<HTMLElement>(
+            "button, a, input, textarea, select, dialog, [popover], p, li, h1, h2, h3",
+          ),
+        ].some((element) => !inOverlay(element) && element.checkVisibility());
+        flag(when, visibleOutside, "visible-outside");
+        const active = document.activeElement;
+        flag(
+          when,
+          active !== null && active !== document.body && !inOverlay(active),
+          "focus-outside",
+        );
+      };
+      const check = (when: string) => {
+        checkBoundary(when);
+        checkKept(when);
+        checkLeaveConfirm(when);
+        checkOutside(when);
       };
       window.sessionStorage.setItem(key, "[]");
       check("install");
@@ -252,7 +294,13 @@ async function installHiddenWatch(page: Page) {
         window.sessionStorage.setItem(`${key}:pagehide`, "seen");
       });
     },
-    { key: WATCH_KEY, title: OVERLAY_TITLE, draft: CHANNEL_DRAFT },
+    {
+      key: WATCH_KEY,
+      title: OVERLAY_TITLE,
+      draft: CHANNEL_DRAFT,
+      leaveTitle: LEAVE_CONFIRM_TITLE,
+      watchLeave,
+    },
   );
 }
 
@@ -412,6 +460,10 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
   await expect(
     page.getByRole("heading", { name: OVERLAY_TITLE }),
   ).toBeVisible();
+  // 覆いの確認の間は時計を止める（5秒の上限・通信の上限10秒に届かせない）。止める時刻は、いまの時計より先でなければならないため、
+  // 1秒先にする（その1秒の間に来るタイマーは1回ずつ動く。待機の開始から、まだ5秒には届かない）
+  const pageNow = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(pageNow + 1_000);
   // (1)(2) 同じモーダルが開いたまま見えず、入力欄も値が残ったまま見えない
   await expectHiddenButKept();
   // (3) Tab・Esc（2回）・「閉じる」があった位置のクリックで、変わらない（覆いも残る）
@@ -438,7 +490,9 @@ test("#338 AC-2 E-2: 確かめの途中に別の画面へ移り、モーダル�
 
   // ⑥ 見張りを置いてから（まだ移動は始まっていないので、置いた時点の違反は0のはず）、文書の取得を保留する登録をし、POST の応答を返す
   //    → 文書の要求が届く（reloading の間）。この間は外から DOM を取れないので、見張りに任せる
-  await installHiddenWatch(page);
+  await installHiddenWatch(page, true);
+  // 読み込み直しを進める：止めていた時計を戻す（POST の完了の後の1つ後のタスクは、時計で進む）
+  await page.clock.resume();
   const documentArrived = signal();
   const documentRelease = signal();
   await page.route("**/*", async (route) => {
@@ -488,7 +542,8 @@ test("#338 AC-2 E-2 対照: E-2 の④と同じ状態（喪失なし・時計の
   // E-2 の⑥の見張りが、隠していない状態を実際に見つけることを示す（働かない見張りは、何も守らない）
   await tag(channelComposer, "composer");
   await tag(reactorsDialog, "reactors");
-  await installHiddenWatch(page);
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000);
+  await installHiddenWatch(page, true);
   const watched = await page.evaluate(
     (key) => JSON.parse(window.sessionStorage.getItem(key) ?? "[]") as string[],
     WATCH_KEY,
@@ -500,6 +555,9 @@ test("#338 AC-2 E-2 対照: E-2 の④と同じ状態（喪失なし・時計の
       "install:no-overlay",
       "install:reactors-visible",
       "install:composer-visible",
+      "install:leave-confirm-closed",
+      "install:visible-outside",
+      "install:focus-outside",
     ]),
   );
 
