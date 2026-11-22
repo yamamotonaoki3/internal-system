@@ -2,6 +2,7 @@
 // API の応答は MSW で返す。決めていない通信は失敗にして、本物の通信が出ないようにする。
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
+import { FakeBroadcastChannel } from "./fake-broadcast-channel";
 import { server } from "./server";
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
@@ -11,6 +12,8 @@ afterEach(() => {
   // #239：端末の下書き（localStorage）をテストの間で持ち越さない
   window.localStorage.clear();
   window.sessionStorage.clear();
+  // #341：送った合図の記録だけを消す（closeAll にしない：モジュールの中で遅れて作ったチャンネルを、続くテストでも使うため）
+  FakeBroadcastChannel.clearSent();
 });
 afterAll(() => server.close());
 
@@ -23,6 +26,15 @@ vi.mock(
     requestAccessLossReload: vi.fn(() => Promise.resolve()),
   }),
 );
+
+// #341：資格の喪失の合図のチャンネルを、テスト専用の差し替えにする（Node の本物のチャンネルは、閉じないままプロセスに残るため）。
+// 送った合図は、差し替えの記録で数える（合図を送る関数そのものは差し替えない）
+vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+// jsdom には reportError が無い。ブラウザと同じく、window の error イベントにする
+if (typeof globalThis.reportError !== "function")
+  vi.stubGlobal("reportError", (error: unknown) =>
+    window.dispatchEvent(new ErrorEvent("error", { error })),
+  );
 
 // #121：jsdom に無いブラウザ機能の最小のスタブ（App を描画する全テストが共通で使う）。
 // すでに定義されていれば上書きしない。個別のテストは app-shell-harness.tsx のスタブで上書きできる。

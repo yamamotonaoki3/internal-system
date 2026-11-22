@@ -14,3 +14,8 @@ export {
   type AccessLossReloadRequest,
   type AccessLossReloadState,
 } from "./reload-after-access-loss";
+export {
+  announceCaseAccessLoss,
+  subscribeCaseAccessLoss,
+  type CaseAccessLossHint,
+} from "./access-loss-broadcast";

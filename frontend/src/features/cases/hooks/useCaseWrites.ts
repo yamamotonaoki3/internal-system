@@ -8,7 +8,11 @@ import {
   type QueryFilters,
 } from "@tanstack/react-query";
 import type { PublicationVisibility } from "../../../../../shared/attachment-rules";
-import { noteDraftsRemain, requestAccessLossReload } from "../../access-loss";
+import {
+  announceCaseAccessLoss,
+  noteDraftsRemain,
+  requestAccessLossReload,
+} from "../../access-loss";
 import { caseRequestKeys } from "../../case-requests/form-parts";
 import { channelKeys } from "../../channels";
 import {
@@ -378,6 +382,8 @@ export function useRemoveCaseParticipant(caseId: string) {
         reason: "left",
         leftCasePath: `/cases/${encodeURIComponent(caseId)}`,
       });
+      // ほかのタブへ知らせる（#341）。送る処理は投げないので、続く下書きの消去を止めない
+      announceCaseAccessLoss({ userId: input.actorId, caseId });
       const forgotten = forgetCaseAfterLeave(
         queryClient,
         input.actorId,

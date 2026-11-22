@@ -10,6 +10,7 @@ import {
   takeAccessLossNotice,
 } from "./features/access-loss";
 import { installUserSwitchGuard } from "./features/auth";
+import { installCaseAccessLossRelay } from "./features/cases";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
   openDraftStorage,
@@ -49,6 +50,13 @@ setUnauthenticatedHandler(
 installUserSwitchGuard(queryClient);
 // 資格を失って読み込み直した前の文書の知らせを、描画の前に読んで消す（#338）
 takeAccessLossNotice(queryClient);
+// ほかのタブで確定した資格の喪失の合図を受ける（#341。アプリの間ずっと有効なので解除しない）。
+// 登録の想定外の失敗では、アプリの描画を止めない（合図を受けられないだけで、これまでの動きのまま）。失敗はもみ消さず、標準の報告に渡す
+try {
+  installCaseAccessLossRelay(queryClient);
+} catch (error) {
+  reportError(error);
+}
 
 const root = document.getElementById("root");
 if (root === null)
