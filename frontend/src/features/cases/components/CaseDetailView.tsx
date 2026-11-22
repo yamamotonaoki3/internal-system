@@ -19,7 +19,7 @@ import type {
   TodoProgress,
 } from "../api/case-api";
 import { describeError, isApiError } from "../describe-error";
-import { useCaseAccessLoss } from "../hooks/useCaseAccessLoss";
+import { isCaseNotFound, useCaseAccessLoss } from "../hooks/useCaseAccessLoss";
 import { useCaseStatusChange } from "../hooks/useCaseWrites";
 import { useCaseAttachments } from "../hooks/useCaseAttachments";
 import { useCaseDetail, useCaseSummary } from "../hooks/useCases";
@@ -83,6 +83,13 @@ function CloseTodoWarning({
 /** 概要の取り直しが失敗している間（前の値が残っていても）は、参加者として取りにいかない */
 function isParticipantOf(summary: ReturnType<typeof useCaseSummary>): boolean {
   return summary.isSuccess && summary.data.isParticipant;
+}
+
+/** 資格を失った証拠がある：概要が成功して非参加、または 404。5xx・通信の失敗は含めない（#363） */
+function isOutsiderOf(summary: ReturnType<typeof useCaseSummary>): boolean {
+  return summary.isSuccess
+    ? !summary.data.isParticipant
+    : summary.isError && isCaseNotFound(summary.error);
 }
 
 function todosWanted(detail: ReturnType<typeof useCaseDetail>): boolean {
@@ -274,6 +281,7 @@ export function CaseDetailView({
     userId: selfId,
     roomId,
     isParticipant,
+    outsider: isOutsiderOf(summary),
     onLost: closeDialog,
   });
 
