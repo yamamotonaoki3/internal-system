@@ -90,7 +90,32 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
   - 見逃しを埋めたテストには、ほかに、他人の添付の削除の拒否の監査（対象・理由`not_author`・行為者）と、画面（送信中の Esc・送信の前と後の失敗の表示・削除を押すまでダイアログを出さない）がある。いずれも、実装を写さず、受け入れ条件・設計書から期待を決めた
   - **再実行**：テストを足した後（`e66ccdd`）に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、backend 392 ファイル・7463 件、frontend 270 ファイル・2947 件のテストと、型・Lint・整形が成功している。全体の実行は#160
   - 本番のコードの不具合は、見つかっていない。`attachment-visibility.sql.ts`・`case-attachment.repository.ts`・`search.repository.ts`の`deleted_at IS NULL`は、変異が作られないため、`docs/design/attachments.md`の「削除済みを出さない7か所」の事例表（DB のテスト）で確かめている
-- 対象の追加（Issue #270 の2つ目。添付だけの投稿）：`backend/src/db/message-body.ts`（本文なしの目印の変換と、投稿・返信の守り。書き込み・見える範囲の判定の入口）を`stryker.config.json`の`mutate`に足した。`shared/message-rules.ts`・`message.service.ts`・`attachment.service.ts`は既に対象。SQL のテンプレートの中の条件（`leavesMessageNonEmpty`・`hasVisibleAttachment`・検索の索引の条件）は変異が作られないため、条件を外した版でテストが落ちることを手で確かめて記録する（上の147-C-1・#270 の1つ目と同じ）。結果の記録は、実行の後に足す
+- 対象の追加（Issue #270 の2つ目。添付だけの投稿）：`backend/src/db/message-body.ts`（本文なしの目印の変換と、投稿・返信の守り。書き込み・見える範囲の判定の入口）を`stryker.config.json`の`mutate`に足した。`shared/message-rules.ts`・`message.service.ts`・`attachment.service.ts`は既に対象。SQL のテンプレートの中の条件（`leavesMessageNonEmpty`・`hasVisibleAttachment`・検索の索引の条件）は変異が作られないため、条件を外した版でテストが落ちることを手で確かめて記録する（上の147-C-1・#270 の1つ目と同じ）。結果の記録は、次の行以降
+- 絞った診断の結果（Issue #270 の2つ目。2026-11-22。対象のコミットは`6568960`。`--concurrency 4 --ignoreStatic`）：結果の JSON を数え直して確かめた（数は報告と一致した）。
+  - **バックエンド**：変異 213 個（無視 11 を除く 202 個）・全体 84.16%（検出 170・生き残り 27・未カバー 5・タイムアウト 0）。約29分30秒（初期のテスト実行が24分18秒。別の worktree のテストと同時に動いていたため、遅い）。ファイルごとは、`db/message-body.ts` 94.44%・`routes/messages.ts` 90.91%・`services/message.service.ts` 92.00%・`db/attachment-delete.sql.ts` 89.29%・`shared/message-rules.ts` 80.25%・`db/message-modify.sql.ts` 77.27%・`services/attachment.service.ts` 63.64%・`db/message.repository.ts`・`reply-insert.sql.ts`・`attachment.repository.ts`・`search-index.sql.ts` 100%。`db/search.repository.ts` は変異が作られなかった
+  - **画面**：変異 57 個（無視 3 を除く 54 個）・全体 98.2%（検出 52・生き残り 2）。約18分。`MessageItem.tsx` 92.86%、ほか7ファイルは 100%。`message-form.ts`・`MessageSearchResults.tsx` は、`mutate`に入っていないため、`--mutate`の指定で、変えた範囲だけを足して実行した
+  - 80%に届かないファイルの中身（足した後の再実行はしていない。下の「再実行」）：
+    - `attachment.service.ts`（63.64%）：生き残りは、⑤の読み取りが null のときの読み直し（2件。**テストを足して埋めた**。下）と、409 の文言
+    - `message-modify.sql.ts`（77.27%）：到達しない守り（batch の結果が、必ず1行返る）と、文言。本番のコードをスコアのために変えていない。同値であると証明したものではないため、ADR-0023 の例外としては記録していない（足すテストを増やすか、例外として承認を求めるかは、全体の実行〔#160〕で決める）
+    - `shared/message-rules.ts` の生き残り 16 件のうち 14 件は、指名の範囲が、サロゲートペアの途中を切るかの判定。`main` にもある判定で、今回は関数に移しただけ（新しい見逃しではない）。テストは、後追いの Issue にする（`#369`）
+    - 画面は、全ファイルが80%以上。`MessageItem.tsx` の生き残り 2 件を踏まえて、削除の表示の条件のテストを足した（下）
+- SQL の条件の対照（Issue #270 の2つ目）：SQL のテンプレートの中は、Stryker が変異を作らないため、条件・変換を1つずつ外した版で、対応するテストが落ちるかを、手で確かめた。外した場所は22か所で、**22か所すべて、検出（落ちるテストがある）**。対象は次のとおり：
+  - `deletable` の `leavesMessageNonEmpty`
+  - ⑤の読み取りの「最後の添付か」（常に最後でない・常に最後、の2通り）と `deletableExceptLast`
+  - `leavesMessageNonEmpty` の `deleted_at IS NULL`・「いま消す添付を除く」
+  - `updateBodyIfModifiable` の `hasVisibleAttachment`（全体・互換の経路）
+  - `hasVisibleAttachment` の `deleted_at IS NULL`
+  - `visibleAttachmentCountIfModifiable` の `modifiable`・件数の `deleted_at IS NULL`
+  - `search-index.sql.ts` の `hasBody`（2か所）
+  - `fromStoredBody`（`toItem`・検索の抜粋・編集の応答）
+  - `assertBodyOrAttachments` の呼び出し（2か所）
+  - `storedBodyIsEmpty`・`isStoredEmptyBody`（それぞれ、常に偽・常に真）
+  - 補足で、落ちなかった3つ（本番の動きは変わらない）：batch の経路の `hasVisibleAttachment` は、`CASE WHEN` と最後の UPDATE の2か所に入っている二重の守りで、片方だけ外しても、もう片方が守る（両方を外すと、8件が落ちる）。`visibleAttachmentCountIfModifiable` の、件数の側の `allowed` は、同じ batch の確かめが先に決めるので、同じ動きになる
+- 見逃しを埋めたテスト（Issue #270 の2つ目。ミューテーションの後に追加。条件を一時的に変えて落ちること、戻して通ることを確かめた）：
+  - `backend/src/services/attachment-only.interleave.test.ts`：⑤の読み取りが null のとき（メッセージの削除・アーカイブ → 404、参加の解除 → 403）、①〜④の読み直しの理由で断り、再認証へ進まない（3件）。既存のテストで検出できなかった理由は、再認証済みのセッションで要求していたので、読み直しを飛ばしても、最後の応答が同じだったため
+  - `frontend/src/features/messages/messages.attachment-only.test.tsx`：削除の表示は、`deleted` か、`body` が null のときだけ。空文字（添付だけの投稿）では出さない（3件）。既存のテストは、`deleted: true` と `body: null` を、同時に与えていた
+  - **再実行**：テストを足した後に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、backend 401 ファイル・7,640 件、frontend 271 ファイル・2,966 件のテストと、型・Lint・整形が成功している。全体の実行は#160
+  - 本番のコードの不具合は、見つかっていない
 
 ## 5. 後始末
 
