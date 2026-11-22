@@ -5,6 +5,7 @@ export {
   roomMessageSchema,
   type RoomMessage,
 } from "./api/message-api";
+export { ATTACHMENT_ONLY_LABEL } from "./attachment-only-label";
 export type { AttachmentPublicationConfig } from "./components/AttachmentList";
 export { RoomMessages } from "./components/RoomMessages";
 export { ThreadReplies } from "./components/ThreadReplies";

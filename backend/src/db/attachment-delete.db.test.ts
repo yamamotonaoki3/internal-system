@@ -18,6 +18,7 @@ import {
   attachmentRow,
   insertAttachmentRow,
 } from "../../test/attachment-fixtures";
+import { insertBodylessMessage } from "../../test/attachment-only-fixtures";
 import {
   TEST_TAG,
   insertChannel,
@@ -314,5 +315,71 @@ describe("#270 AC-5 後始末の書き込みは、削除の印のある行だけ
       deleted_by: author.userId,
       purge_failed_at: "2026-11-22T00:00:00.000Z",
     });
+  });
+});
+
+// ---- #270（270-B）AC-6・利用者の決定2：本文のない投稿の、最後の添付は削除できない（計画 2.5 の leavesMessageNonEmpty を deletable に AND で足す）----
+// 根拠：決定2（本文のない投稿で、最後の添付を消そうとしたら断る）・計画 2.5（条件：結び付いたメッセージの本文が目印でない、
+//   または、同じメッセージに、この添付のほかに削除されていない添付がある）。目印は test/attachment-only-fixtures.ts の値（本番の定数から作らない）。
+// 対象でない添付（decoy。別の部署のチャンネルの、本文ありの投稿の添付）は、上の beforeEach のまま置く（#294）。
+describe("#270 AC-6 deletable：本文のない投稿の最後の添付", () => {
+  async function bodyless(roomId = room) {
+    seq += 1;
+    const id = ulidAt(1_892_000_000_000 + seq * 1_000);
+    await insertBodylessMessage({ roomId, senderId: author.userId, id });
+    return id;
+  }
+
+  it("#270 AC-6（決定2）: 本文なし＋見える添付1件 → その添付は偽。decoy は真のまま", async () => {
+    const id = await attach(room, await bodyless());
+    expect(await isDeletable(id)).toBe(false);
+    expect(await isDeletable(decoy)).toBe(true);
+  });
+
+  it("#270 AC-6: 本文なし＋見える添付2件 → どちらも真（最後の1件の手前まで消せる）", async () => {
+    const messageId = await bodyless();
+    const first = await attach(room, messageId);
+    const second = await attach(room, messageId);
+    expect(await isDeletable(first)).toBe(true);
+    expect(await isDeletable(second)).toBe(true);
+  });
+
+  it("#270 AC-6: 本文なし＋添付2件のうち1件が削除済み → 残りの1件は偽", async () => {
+    const messageId = await bodyless();
+    const gone = await attach(room, messageId);
+    const left = await attach(room, messageId);
+    await markAttachmentDeleted(gone, author.userId);
+    expect(await isDeletable(left)).toBe(false);
+    expect(await isDeletable(decoy)).toBe(true);
+  });
+
+  it("#270 AC-6: 本文なし＋未投稿の添付（同じ部屋・本人）は数えない → 結び付いた1件は偽", async () => {
+    const messageId = await bodyless();
+    const only = await attach(room, messageId);
+    await attach(room, null);
+    expect(await isDeletable(only)).toBe(false);
+  });
+
+  it("#270 AC-6: 本文あり＋見える添付1件 → 真（本文があれば最後の添付も消せる）", async () => {
+    const id = await attach(room, await post(room));
+    expect(await isDeletable(id)).toBe(true);
+  });
+
+  it("#270 AC-6（境界）: 本文が空白2文字（目印と完全に等しくない）＋添付1件 → 真", async () => {
+    seq += 1;
+    const messageId = ulidAt(1_892_000_000_000 + seq * 1_000);
+    await insertMessage({
+      roomId: room,
+      senderId: author.userId,
+      id: messageId,
+      body: "  ",
+    });
+    expect(await isDeletable(await attach(room, messageId))).toBe(true);
+  });
+
+  it("#270 AC-6: DM の本文なし＋添付1件 → 偽", async () => {
+    const dm = await insertDm(author.userId, other.userId);
+    const id = await attach(dm, await bodyless(dm));
+    expect(await isDeletable(id)).toBe(false);
   });
 });

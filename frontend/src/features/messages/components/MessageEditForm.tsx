@@ -10,7 +10,7 @@ import { describeError, isApiError } from "../describe-error";
 import { MentionTextArea } from "./MentionTextArea";
 import { useEditMessage } from "../hooks/useEditMessage";
 import {
-  messageFormSchema,
+  messageFormSchemaFor,
   type MessageFormValues,
 } from "../schemas/message-form";
 
@@ -22,6 +22,8 @@ type MessageEditFormProps = {
   /** 編集の前の本文 */
   originalBody: string;
   originalMentions: readonly Mention[];
+  /** 見える添付があるか（あれば本文を空にして保存できる。#270） */
+  hasAttachments: boolean;
   onClose: () => void;
 };
 
@@ -31,6 +33,7 @@ export function MessageEditForm({
   messageId,
   originalBody,
   originalMentions,
+  hasAttachments,
   onClose,
 }: MessageEditFormProps) {
   const edit = useEditMessage(roomId, parentMessageId);
@@ -41,7 +44,8 @@ export function MessageEditForm({
     control,
     formState: { errors, isSubmitting },
   } = useForm<MessageFormValues>({
-    resolver: zodResolver(messageFormSchema),
+    // 見える添付がある投稿は、本文を空にして保存できる（#270・決定3）
+    resolver: zodResolver(messageFormSchemaFor({ hasAttachments })),
     defaultValues: { body: originalBody },
   });
   const unchanged =

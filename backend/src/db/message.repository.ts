@@ -30,9 +30,11 @@ import {
 import { isUlid } from "../lib/ulid";
 import { createChannelRepository } from "./channel.repository";
 import { withDatabase, type Database } from "./database";
+import { assertBodyOrAttachments, fromStoredBody } from "./message-body";
 import {
   deleteIfModifiable,
   updateBodyIfModifiable,
+  visibleAttachmentCountIfModifiable,
 } from "./message-modify.sql";
 import {
   addReactionIfReactable,
@@ -143,7 +145,7 @@ export function toItem(
       displayName: row.senderDisplayName,
       isActive: row.authorIsActive,
     },
-    body: deleted ? null : row.body,
+    body: deleted ? null : fromStoredBody(row.body),
     createdAt: row.createdAt,
     editedAt: deleted ? null : row.editedAt,
     deleted,
@@ -311,6 +313,9 @@ export function createMessageRepository(db: Database) {
     updateBodyIfModifiable: (
       input: Parameters<typeof updateBodyIfModifiable>[1],
     ) => updateBodyIfModifiable(db, input),
+    /** 編集できる条件が成り立つときだけ、見える添付の件数（#270）。成り立たなければ null */
+    visibleAttachmentCountIfModifiable: (messageId: string, userId: string) =>
+      visibleAttachmentCountIfModifiable(db, messageId, userId),
     deleteIfModifiable: (input: Parameters<typeof deleteIfModifiable>[1]) =>
       deleteIfModifiable(db, input),
     async findDisplayName(userId: string): Promise<string | null> {
@@ -489,6 +494,7 @@ export function createMessageRepository(db: Database) {
      * ④の規則は channel-member.sql.ts の announcementPostable（添付の登録と共通）
      */
     async insertIfOrdered(input: MessageInsert): Promise<number> {
+      assertBodyOrAttachments(input.body, input.attachmentIds);
       const postable = sql`EXISTS (
         SELECT 1 FROM channels c
         WHERE c.room_id = ${input.roomId} AND c.deleted_at IS NULL

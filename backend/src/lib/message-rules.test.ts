@@ -4,7 +4,10 @@
 import { describe, expect, it } from "vitest";
 import {
   canPostToChannel,
+  isBlankMessageBody,
+  messageBodyMaybeBlankSchema,
   messageBodySchema,
+  messageContentMaybeBlankSchema,
   messageContentSchema,
 } from "../../../shared/message-rules";
 
@@ -249,5 +252,100 @@ describe("#139 AC-1 指名の範囲の右端とサロゲートペアの境界", 
       path: ["mentions", 0],
     });
     expect(result.error.issues[0]?.message.length).toBeGreaterThan(0);
+  });
+});
+
+// ---- #270（270-B）添付だけの投稿の、本文が空かの規則（計画 2.1。shared/message-rules.ts）----
+// 根拠：#201 U-2（空白・改行だけは空と同じ）・利用者の決定1・3・計画 2.1（既存の messageBodySchema・messageContentSchema の意味は変えない）。
+// 契約（実装前の仮置き。実装の担当へ）：shared/message-rules.ts が次を export する
+//   isBlankMessageBody(body: string): boolean（trim の後の長さが0）
+//   messageBodyMaybeBlankSchema：長さの上限（4,000）だけを確かめる（空・空白も通す）
+//   messageContentMaybeBlankSchema：messageContentSchema と同じ形（strict・指名の範囲の検査）で、本文に上の schema を使う
+describe("#270 AC-1・AC-5 本文が空か（isBlankMessageBody）", () => {
+  it.each([
+    ["空文字", "", true],
+    ["半角の空白1文字", " ", true],
+    ["半角の空白2文字", "  ", true],
+    ["全角の空白だけ", "　", true],
+    ["改行だけ", "\n", true],
+    ["タブと改行と空白", " \t\r\n　", true],
+    ["1文字", "a", false],
+    ["前後に空白のある本文", " a ", false],
+    ["改行の後に文字", "\nb", false],
+  ])("#270 AC-1（U-2）: %s は空=%s", (_label, body, blank) => {
+    expect(isBlankMessageBody(body)).toBe(blank);
+  });
+});
+
+describe("#270 AC-1・AC-5 空を許す本文の規則（messageBodyMaybeBlankSchema）", () => {
+  it.each([
+    ["空文字", "", true],
+    ["空白と改行だけ", " \n ", true],
+    ["1文字", "a", true],
+    ["4,000文字", "a".repeat(4000), true],
+    ["4,001文字", "a".repeat(4001), false],
+    ["空白だけで4,001文字", " ".repeat(4001), false],
+  ])("#270 AC-1: %s は受け付ける=%s", (_label, body, accepted) => {
+    expect(messageBodyMaybeBlankSchema.safeParse(body).success).toBe(accepted);
+  });
+
+  it("#270 AC-1: 送られたままの値を返す（空白を削らない）", () => {
+    expect(messageBodyMaybeBlankSchema.parse(" \n")).toBe(" \n");
+  });
+
+  it("#270（既存の意味を保つ）: messageBodySchema は、空・空白だけをこれまでどおり断る", () => {
+    expect(messageBodySchema.safeParse("").success).toBe(false);
+    expect(messageBodySchema.safeParse(" ").success).toBe(false);
+  });
+});
+
+describe("#270 AC-1・AC-5 空を許す本文＋指名（messageContentMaybeBlankSchema）", () => {
+  const USER_ID = "01JZ0000000000000000000001";
+
+  it("#270 AC-1: 空の本文で指名なしは受け付ける", () => {
+    expect(messageContentMaybeBlankSchema.safeParse({ body: "" }).success).toBe(
+      true,
+    );
+    expect(
+      messageContentMaybeBlankSchema.safeParse({ body: " ", mentions: [] })
+        .success,
+    ).toBe(true);
+  });
+
+  it("#270 AC-1（計画 2.2 の11）: 空の本文に指名の範囲があれば断り、mentions の位置に issue を付ける", () => {
+    const result = messageContentMaybeBlankSchema.safeParse({
+      body: "",
+      mentions: [{ userId: USER_ID, start: 0, end: 1 }],
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues[0]?.path).toEqual(["mentions", 0]);
+  });
+
+  it("#270 AC-1: 空でない本文の指名の検査は messageContentSchema と同じ（@ で始まらない範囲は断る）", () => {
+    const payload = {
+      body: "ab@",
+      mentions: [{ userId: USER_ID, start: 0, end: 1 }],
+    };
+    expect(messageContentMaybeBlankSchema.safeParse(payload).success).toBe(
+      false,
+    );
+    expect(
+      messageContentMaybeBlankSchema.safeParse({
+        body: "@a",
+        mentions: [{ userId: USER_ID, start: 0, end: 2 }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("#270 AC-1: 余分な項目は断る（strict）。4,001文字も断る", () => {
+    expect(
+      messageContentMaybeBlankSchema.safeParse({ body: "", roomId: "x" })
+        .success,
+    ).toBe(false);
+    expect(
+      messageContentMaybeBlankSchema.safeParse({ body: "a".repeat(4001) })
+        .success,
+    ).toBe(false);
   });
 });

@@ -17,6 +17,7 @@ import {
   ATTACHMENT_DELETE_ACTION,
   ATTACHMENT_UPDATE,
   PENDING_DELETE_MESSAGE,
+  attachmentDocumentCount,
   auditRowsOf,
   cleanupAttachmentDeleteScenario,
   deleteAttachment,
@@ -59,7 +60,16 @@ import {
   newSessionFor,
   type ModifyUser,
 } from "../../test/message-modify-fixtures";
-import { cleanupSearchIndex } from "../../test/search-fixtures";
+import {
+  buildSearchIndex,
+  cleanupSearchIndex,
+} from "../../test/search-fixtures";
+import {
+  LAST_ATTACHMENT_MESSAGE,
+  cleanupAttachmentOnlyLeftovers,
+  insertBodylessMessage,
+  visibleAttachmentCount,
+} from "../../test/attachment-only-fixtures";
 import { attachmentPurgeJob } from "../services/attachment.service";
 import { BAD_ORIGIN, codeOf } from "../../test/thread-fixtures";
 
@@ -180,6 +190,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   try {
+    await cleanupAttachmentOnlyLeftovers();
     await cleanupSearchIndex();
   } finally {
     await cleanupAttachmentDeleteScenario();
@@ -630,5 +641,141 @@ describe("#270 同時の操作", () => {
     expect((await deleteAttachment(seeded.target, author.token)).status).toBe(
       404,
     );
+  });
+});
+
+// ---- #270（270-B）AC-6・利用者の決定2：本文のない投稿の、最後の添付の削除は 409 で、投稿ごとの削除を案内する ----
+// 根拠：決定2・計画 AC-6（応答の文は「本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。」。何も変わらない〔印・監査・索引・R2〕。
+//   再認証は求めない〔判定は再認証より前〕。添付が2件以上なら、最後の1件の手前まで1件ずつ消せる）・計画 2.5（判定の順：①見えるか 404 → ①' 未投稿 409 →
+//   ② 本人か 403 → ③ 権限 → ④ 部屋の状態 → ⑤ 本文のない投稿の最後の添付 409 → ⑥ 再認証。⑤の 409 は状態の衝突なので logger.audit に残さない）。
+describe("#270 AC-6 本文のない投稿の最後の添付（決定2）", () => {
+  /** 本文なしの投稿（目印）と、結び付いた添付 count 件。実体は R2 に入れ、索引も作る */
+  async function seedBodyless(count: number, roomId = room) {
+    const messageId = nextMessageId();
+    await insertBodylessMessage({
+      roomId,
+      senderId: author.userId,
+      id: messageId,
+    });
+    const ids: string[] = [];
+    const keys: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const id = await seedStoredAttachment(
+        {
+          roomId,
+          uploaderId: author.userId,
+          messageId,
+          originalName: `[UNIT_TEST]本文なしの添付${i}.txt`,
+        },
+        TEXT_BYTES,
+      );
+      ids.push(id);
+      keys.push((await attachmentRow(id))?.storage_key ?? "");
+    }
+    await buildSearchIndex();
+    return { messageId, ids, keys };
+  }
+
+  /** 印・監査・索引・R2 のどれも変わらない */
+  async function expectNothingChanged(attachmentId: string, key: string) {
+    await expectUntouched(attachmentId, key);
+    expect(await attachmentDocumentCount(attachmentId)).toBe(1);
+  }
+
+  it("#270 AC-6: 本文なし＋添付1件の、その添付の削除は 409 CONFLICT で、文は案内のとおり。印・監査・索引・R2 は変わらず、拒否の監査も残さない", async () => {
+    const seeded = await seedBodyless(1);
+    const [id = "", key = ""] = [seeded.ids[0], seeded.keys[0]];
+    const response = await deleteAttachment(id, author.token);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "CONFLICT",
+      message: LAST_ATTACHMENT_MESSAGE,
+    });
+    await expectNothingChanged(id, key);
+    expect(failureAudits()).toEqual([]);
+    expect(await visibleAttachmentCount(seeded.messageId)).toBe(1);
+  });
+
+  it("#270 AC-6（⑤は⑥再認証より前）: 再認証していないセッションでも、403 REAUTH_REQUIRED ではなく AC-6 の 409", async () => {
+    const seeded = await seedBodyless(1);
+    const response = await deleteAttachment(seeded.ids[0] ?? "", authorPlain);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      message: LAST_ATTACHMENT_MESSAGE,
+    });
+    await expectNothingChanged(seeded.ids[0] ?? "", seeded.keys[0] ?? "");
+  });
+
+  it("#270 AC-6（②は⑤より先）: 同じ部屋の他人が消そうとすると、AC-6 の 409 ではなく 403", async () => {
+    const seeded = await seedBodyless(1);
+    const response = await deleteAttachment(seeded.ids[0] ?? "", other.token);
+    expect(response.status).toBe(403);
+    expect(await codeOf(response)).toBe("FORBIDDEN");
+  });
+
+  it("#270 AC-6（①は⑤より先）: 見えない人（部屋の外）には 404 で、投稿の中身（本文がないこと）を知らせない", async () => {
+    const seeded = await seedBodyless(1);
+    const response = await deleteAttachment(
+      seeded.ids[0] ?? "",
+      outsider.token,
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("#270 AC-6（①・④は⑤より先）: アーカイブしたチャンネルでは 404、部署が無効なら④の 409（AC-6 の文ではない）", async () => {
+    const archived = await seedBodyless(1);
+    const inactive = await seedBodyless(1);
+    await archiveChannel(room);
+    expect(
+      (await deleteAttachment(archived.ids[0] ?? "", author.token)).status,
+    ).toBe(404);
+    await env.DB.prepare(
+      "UPDATE channels SET deleted_at = NULL WHERE room_id = ?",
+    )
+      .bind(room)
+      .run();
+    await deactivateDepartment(dept.id);
+    const response = await deleteAttachment(
+      inactive.ids[0] ?? "",
+      author.token,
+    );
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { message: string }).message).not.toBe(
+      LAST_ATTACHMENT_MESSAGE,
+    );
+  });
+
+  it("#270 AC-6: 本文なし＋添付2件なら、1件目は 204 で消え、残りの1件は AC-6 の 409 になる", async () => {
+    const seeded = await seedBodyless(2);
+    const first = await deleteAttachment(seeded.ids[0] ?? "", author.token);
+    expect(first.status).toBe(204);
+    const second = await deleteAttachment(seeded.ids[1] ?? "", author.token);
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({
+      message: LAST_ATTACHMENT_MESSAGE,
+    });
+    expect(await visibleAttachmentCount(seeded.messageId)).toBe(1);
+    expect(await storedKeys()).toContain(seeded.keys[1] ?? "");
+  });
+
+  it("#270 AC-6: DM の本文なし＋添付1件も、AC-6 の 409", async () => {
+    const dm = await insertDm(author.userId, other.userId);
+    const seeded = await seedBodyless(1, dm);
+    const response = await deleteAttachment(seeded.ids[0] ?? "", author.token);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      message: LAST_ATTACHMENT_MESSAGE,
+    });
+  });
+
+  it("#270 AC-6（対照）: 本文あり＋添付の最後の1件は、これまでどおり 204 で消せる", async () => {
+    const seeded = await seedPosted();
+    expect((await deleteAttachment(seeded.target, author.token)).status).toBe(
+      204,
+    );
+    expect((await deleteAttachment(seeded.kept, author.token)).status).toBe(
+      204,
+    );
+    expect(await messageRow(seeded.messageId)).toMatchObject({ body: BODY });
   });
 });

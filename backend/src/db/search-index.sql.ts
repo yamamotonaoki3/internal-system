@@ -8,6 +8,7 @@ import { searchDocuments } from "../../db/schema";
 import { toSearchText } from "../../../shared/search-text";
 import { searchMethodOf, toFtsPhrase } from "../lib/search-query";
 import type { BatchItem, Database } from "./database";
+import { storedBodyIsEmpty } from "./message-body";
 
 // 検索用の表（FTS5。手で書いた migration 0033）。Drizzle の生成に乗せないため schema.ts には置かず、batch に入れる文を組むためだけにここで形を示す
 const searchFts = sqliteTable("search_fts", {
@@ -19,13 +20,19 @@ const searchFts = sqliteTable("search_fts", {
 const indexedMessage = (messageId: SQL) =>
   sql`m.id = ${messageId} AND m.deleted_at IS NULL AND m.room_id IS NOT NULL`;
 
-/** いまの行と一致しない写し（元が無い・削除済み・本文が違う）の、対応の表の行 */
+/**
+ * 本文の写しを作る対象：本文がある（本文のない投稿〔#270〕は写しを作らない）。
+ * indexedMessage には足さない（添付の名前の写しの条件でも使い、本文のない投稿の添付も名前で検索に出すため）
+ */
+const hasBody = sql`NOT ${storedBodyIsEmpty(sql`m.body`)}`;
+
+/** いまの行と一致しない写し（元が無い・削除済み・本文が違う・本文がない）の、対応の表の行 */
 const staleDocuments = (messageId: string) => sql`
   SELECT d.id FROM search_documents d
   WHERE d.kind = 'message' AND d.ref_id = ${messageId}
     AND NOT EXISTS (
       SELECT 1 FROM messages m
-      WHERE ${indexedMessage(sql`d.ref_id`)} AND m.body = d.source_body)`;
+      WHERE ${indexedMessage(sql`d.ref_id`)} AND m.body = d.source_body AND ${hasBody})`;
 
 /** いまの行と一致しない写しだけを消す（削除の確定・本文の変更の後に、古い写しを消す） */
 export function removeStaleMessageIndexStatements(
@@ -54,7 +61,7 @@ export function syncMessageIndexStatements(
     db.insert(searchDocuments).select(sql`
       SELECT NULL, 'message', m.id, m.room_id, m.id, m.created_at, ${sourceBody}
       FROM messages m
-      WHERE ${indexedMessage(sql`${messageId}`)} AND m.body = ${sourceBody}
+      WHERE ${indexedMessage(sql`${messageId}`)} AND m.body = ${sourceBody} AND ${hasBody}
         AND NOT EXISTS (SELECT 1 FROM search_documents d WHERE d.kind = 'message' AND d.ref_id = m.id)`),
     db.insert(searchFts).select(sql`
       SELECT d.id, ${toSearchText(sourceBody)}

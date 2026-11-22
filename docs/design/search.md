@@ -86,9 +86,9 @@
 
 `syncMessageIndexStatements(db, { messageId, sourceBody })`は、次の4つの文の組を返す。記号を除いた本文は、部品の中で`toSearchText(sourceBody)`から作る（呼び出し側は元の本文だけを渡す）。
 
-1. いまの行と一致しない写し（元がない・削除済み・本文が`source_body`と違う）を、検索用の表から消す
+1. いまの行と一致しない写し（元がない・削除済み・本文が`source_body`と違う）を、検索用の表から消す【#270の2つ目（C-205）：**本文がない（目印）**も「一致しない」に含める。`hasBody`（`NOT storedBodyIsEmpty(m.body)`）を条件に足した】
 2. 同じ条件で、対応の表の行を消す
-3. いまの本文が`sourceBody`と一致し、まだ写しがないときだけ、対応の表に行を入れる
+3. いまの本文が`sourceBody`と一致し、まだ写しがないときだけ、対応の表に行を入れる【#270の2つ目：本文がない投稿（目印）には、本文の写しを作らない。`hasBody`を満たすときだけ入れる。`indexedMessage`には足さない（添付の名前の写しの条件でも使うため。足すと、本文のない投稿の添付がファイル名で検索に出なくなる）】
 4. 対応の表の行があり、`source_body`が`sourceBody`と一致し、検索用の表にまだ行がないときだけ、記号を除いた本文を入れる
 
 `removeStaleMessageIndexStatements`は、1・2 だけの組（削除で使う）。
@@ -266,6 +266,7 @@ Service の権限：
 ### 抜粋と強調
 
 - 資格を確かめた後の、いまの本文に`toSearchText`を当て、その文の中で一致を探して切り出す（`buildExcerpt`）。索引と同じ文の上で探すので、記号をまたぐ一致（`申**請**手続`を「申請手続」で）も抜粋に出る。抜粋は記号を除いた文で、画面ではマークダウンとして描かない
+- **本文のない投稿**（#270の2つ目。C-205）：本文の写しを作らないので、本文の検索（3文字以上の MATCH・1〜2文字の`instr`のどちらも）では一致しない。添付のファイル名では一致し（添付の名前の写しは本文を見ない）、その行の抜粋は**空文字**（`search.repository.ts`が`fromStoredBody`を通してから`buildExcerpt`に渡す）。画面は、抜粋が空文字のとき、リンクの名前を「（添付ファイルのみ）」にする。`reindexMessages`の登録し直しの後も同じ（組の中で決まる）。本文を空にする編集では、前の本文の写しが消え、前の本文では一致しなくなる。空から本文を足す編集では、新しい本文で一致する
 - **名前だけの一致**（155-B）：本文に一致がないため、`buildExcerpt`の一致なしの動きで、本文の先頭（120 コードポイントまで。強調なし）を抜粋にする
 - 長さ：120 コードポイント。本文がそれ以下なら全体。長いときは、最初の一致の前に最大40 コードポイントを残して切り出す。語が長く、一致の長さと40の和が120を超えるときは、前に残す長さを縮め、一致の全体が抜粋に入るようにする。コードポイントの単位で切るので、サロゲートペアを切らない
 - 一致の位置（`findSearchMatches`）：英字（ASCII）だけ大小文字を区別しない。左から重ならずに数える。画面の強調（`HighlightedExcerpt`）も同じ部品を使う。ASCII 以外の大小文字は、trigram の一致と強調が合わない場合がある
@@ -287,7 +288,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 - 入口は2つ（Issue #337）。①768px以上：ヘッダーの検索欄（`HeaderSearch`）から、前後の空白を除いた語で`/search?q=…`へ移る。②768px未満：ヘッダーには検索欄もボタンも出さず（高さ48を保つため。`HeaderSearch`が form ごと隠す）、ドロワーの先頭のリンク「メッセージを検索」（`navigation.ts`の`searchNavItem`。[app-shell.md](app-shell.md)）から`/search`を開く。語の検査は`searchKeywordSchema`を共有する（空・101文字以上は送らずにエラーを出す。サーバーでも検証する）
 - 語の欄（`SearchKeywordForm`）は、共通の`TextField`（`type="search"`、ラベル「検索する言葉」を`hideLabel`で画面から隠す）で作る。送信ボタンの名前は`submitLabel`で決め、既定は「検索」（S-15 の本文）。ヘッダーだけ「メッセージを検索」にする（同じ画面に「検索」のボタンが並び、名前で区別できなくなるため）。結果の画面の見出しは「検索結果」、ボタンは「検索」のまま
 - S-15（`SearchPage`）：言葉なし（`q`なし、または`q`が空白（半角・全角）だけ）で開いたときは、見出しの下に案内の文「検索する言葉を入れて、『検索』を押してください。」を1つだけ出し、結果の部品と検索の要求は出さない（`q`ありの読み込み中・結果あり・0件・失敗では出さない。Issue #337）。空白だけを言葉なしと扱うのは、URL の条件を読む`conditionsOf`の`q`だけ（案内の文・結果の部品・検索の要求の有無が同じ条件で決まる）。ほかの条件（`roomId`・`from`・`to`）は、そのまま API に渡り、不正な値は、これまでどおりエラーになる。前後に空白のある語は、そのまま語として検索する。語の欄と、折りたたんだ「絞り込み」（開始日・終了日）。送ると URL を書き換えて取り直す。部屋の絞り込みは URL の`roomId`を引き継ぐだけで、選ぶ部品はない
-- 結果：部屋の名前（DM は相手の表示名）・投稿者・日時・抜粋（一致を強調）。押すと元の場所のスレッドへ（チャンネル・案件の部屋は`/channels/<部屋>?thread=`、DM は`/dms/<部屋>?thread=`。返信は親のスレッド。案件の部屋は、チャンネルの画面が案件の画面へ移す）
+- 結果：部屋の名前（DM は相手の表示名）・投稿者・日時・抜粋（一致を強調。【#270の2つ目：抜粋が空文字〔本文のない投稿〕のときは、リンクの名前を「（添付ファイルのみ）」にする。定数`ATTACHMENT_ONLY_LABEL`は`features/messages/index.ts`から読む】）。押すと元の場所のスレッドへ（チャンネル・案件の部屋は`/channels/<部屋>?thread=`、DM は`/dms/<部屋>?thread=`。返信は親のスレッド。案件の部屋は、チャンネルの画面が案件の画面へ移す）
 - **ファイル名で一致した行**（155-B。B-4）：抜粋の下に、印「ファイル名で一致」と、一致したファイル名の一覧（`aria-label="一致したファイル名"`。複数なら全部。1件のメッセージの添付は最大10件）を出す。名前の中の一致は`HighlightedExcerpt`（`findSearchMatches`）で`<mark>`に強調し、名前は文字として描く。名前は**リンクにしない**（結果からファイルを直接開かせず、配信の経路を増やさないため）。行を押したときの移り先は、本文の一致と同じ（そのメッセージのスレッド）。長い名前は行の中で折り返し（`break-all`）、横にはみ出さない。本文だけの一致の行には、印も一覧も出さない
 - 応答の`matchedIn`と`matchedAttachments`が食い違う（片方だけ）ときは、zod の検証で取得の失敗として扱い、取得済みの行も出さない（統括の決定。印と名前の片方だけを出さないため）
 - 状態：読み込み中・0件（「一致するメッセージはありません」）・失敗と再試行・さらに表示
@@ -417,6 +418,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
   - API：`backend/src/routes/search.cases.test.ts`、`services/search.service.cases.test.ts`、`openapi.search.cases.test.ts`
   - 画面：`frontend/src/pages/SearchPage.cases.test.tsx`、`SearchPage.cases.accessLoss.test.tsx`、`frontend/src/features/cases/hooks/useCaseWrites.search-forget.cases.test.ts`。モックは`frontend/src/test/search-handlers.ts`
   - E2E：`e2e/search-cases.spec.ts`（[e2e.md](../testing/e2e.md)）
+- 添付だけの投稿（#270の2つ目。C-205）：`backend/src/db/search-index.attachments.db.test.ts`（本文なしの写しを作らない・目印の写しを消す・添付の名前の写しは作る・`reindexMessages`・編集で空にする／足す）、`backend/src/routes/search.attachments.test.ts`、画面`frontend/src/pages/SearchPage.attachments.test.tsx`
 - E2E：`e2e/search.spec.ts`（シードは`e2e/seeds/search.sql`、後始末は`search-cleanup.sql`。155-B の事例も同じ spec。155-C で、`search-cleanup.sql`に件名の写しの後始末を足した。[e2e.md](../testing/e2e.md)）
 - ヘッダーに「検索」のボタンが増えたため（155-A）、名前で「検索」のボタンを探していた既存のテスト（`e2e/clients.spec.ts`・`e2e/channel-management.spec.ts`・`frontend/src/features/members/members.dm.test.tsx`・`frontend/src/channel-admin.session-switch.test.tsx`）は、本文（`main`）の中に絞った。Issue #337 でヘッダーのボタンの名前を「メッセージを検索」にしたが、この絞り込みは変えていない
 - Issue #337 の画面のテスト：`frontend/src/components/TextField.test.tsx`（`hideLabel`）、`frontend/src/features/search/components/HeaderSearch.reauth.test.tsx`（再認証の後も、ヘッダーの検索欄の語が残ること。`App`全体を描画する）、`frontend/src/features/app-shell/Drawer.test.tsx`（先頭のリンク）、`SearchPage.test.tsx`（言葉なしの案内の文）。E2E は`e2e/app-shell.spec.ts`（360・1280 のヘッダー）と`e2e/search.spec.ts`
@@ -448,6 +450,7 @@ ADR-0026 の許可リストの書式の記号を除き、文字は残す。画�
 
 ## 関係するIssue・ADR
 
+- Issue #270の2つ目：本文のない投稿（添付だけの投稿）は本文の写しを作らない。決定記録C-205。目印は[messages.md](messages.md)の「添付だけの投稿と本文の目印」
 - Issue #155（155-A・155-B・155-C）、#356（全社員公開アーカイブの検索）・#357（TODO の検索）、#160（本番での確認と適用・実測）、#353（本番で索引を作る経路）、#350（本物の D1 での確認）、#323（資格を失ったときの後片付け）、#270（添付の削除。1つ目で実装し、索引の組を足した。添付だけの投稿は2つ目。決定記録C-204）
 - ADR-0010（FTS5 trigram）、ADR-0031（手で書く migration・既存の分の登録）、ADR-0026（マークダウンの許可リスト）、ADR-0030（利用者の切り替え）、ADR-0006（カーソル）、ADR-0012（毎回サーバー側で認可）
 - 決定記録 C-152・C-200・C-201（155-B）・C-202（155-C）、C-199（再編集の文の上限）、C-168（`instr`）、C-90（1〜100文字）、C-94・C-117（未参加の公開チャンネル・案件番号の前方一致）、C-120（案件番号の正規化）、C-87・C-89（結果の概要）

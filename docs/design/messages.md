@@ -19,7 +19,8 @@
 | ファイル | 役割 |
 | --- | --- |
 | `backend/db/schema.ts`、`backend/db/migrations/0012_add_messages.sql` | `messages`テーブルと索引`messages_room_id_id_idx`（`room_id`, `id`）。`db:generate`で生成したmigration（手で書き換えていない）。本文の下限（1文字以上）だけをCHECKにし、上限はアプリで検証する（SQLiteの`length`はコードポイント数でUTF-16と数え方が違うため）。返信・編集・削除用の列は入れていない（後から`ADD COLUMN`で足せる） |
-| `shared/message-rules.ts` | 本文の上限`MESSAGE_BODY_MAX_LENGTH`・`messageBodySchema`・純粋関数`canPostToChannel`の**定義元**。サーバーと画面が参照する。サーバー側の検証は省略しない |
+| `shared/message-rules.ts` | 本文の上限`MESSAGE_BODY_MAX_LENGTH`・`messageBodySchema`・純粋関数`canPostToChannel`の**定義元**。サーバーと画面が参照する。サーバー側の検証は省略しない【Issue #270の2つ目（C-205）：`isBlankMessageBody`（空白・改行だけは空）・`MESSAGE_BODY_REQUIRED_MESSAGE`・空を通す`messageBodyMaybeBlankSchema`・`messageContentMaybeBlankSchema`を足した。`messageBodySchema`・`messageContentSchema`の意味は変えていない（下書きなどほかの利用者のため）】 |
+| `backend/src/db/message-body.ts`（#270の2つ目。C-205） | 本文なし（添付だけの投稿）の**目印**を知っている唯一のファイル。`toStoredBody`（API → 保存。空白だけなら目印）・`fromStoredBody`（保存 → API。目印だけ空文字）・`isStoredEmptyBody`・`storedBodyIsEmpty`（SQLの比較の断片。値はパラメータ）・`assertBodyOrAttachments`（投稿・返信の守り）。詳細は下の「添付だけの投稿と本文の目印」 |
 | `backend/src/lib/ulid.ts` | `ulidAfter(previous, now)`を足した。指定したIDより必ず大きいULIDを返す（既存の`createUlidFactory`・`newUlid`は変えていない） |
 | `backend/src/lib/cursor.ts` | 「最後のID以降」の共通部品`afterIdQuerySchema`（`after`は必須・ULID形式、`limit`は1〜100で既定100）と`toAfterIdPage`（`limit+1`件から`items`と`hasMore`を作る）を足した。DM・スレッドなどが同じ部品を使う |
 | `backend/src/db/message.repository.ts` | `createMessageRepository`が`listLatest`（新しい順）・`listAfter`（ID昇順）・`maxId`・`findDisplayName`・`insertIfOrdered`（条件付きの投稿）を扱う。見えるかの読み取りは`channel.repository.ts`の`findForViewer`を再利用する。`withMessages`が構成する【Issue #136で、`findDirectForParticipant`（自分が当事者のDMか・相手が有効か）と、`insertIfOrdered`のDMの条件を足した】【Issue #238で、内部の関数`selectWithAuthor`が`users`を主キーでINNER JOINし、投稿者の今の有効・無効（`users.is_active`）を一覧の各行に付けるようにした。`listLatest`・`listAfter`が共用する。SQLは1ページ1文のまま。元の記述は残す】【Issue #134で、一覧の項目に`editedAt`・`deleted`を足し、削除済みの`body`を`null`にした。`findForModification`・`isDepartmentActive`・DAO（`message-modify.sql.ts`）の呼び出しを足した。`insertIfOrdered`のINSERT…SELECTは、末尾に新しい3列分のNULLを足した（元の記述は残す）】 |
@@ -42,7 +43,7 @@
 | `frontend/src/features/messages/merge-messages.ts` | `mergeMessages`。既存の一覧と新着を、IDで重複を除いてID昇順に並べる純粋関数 |
 | `frontend/src/features/messages/hooks/useRoomMessages.ts` | 2秒ごとの取得。`refetchInterval`で繰り返す【Issue #134で、クエリに`gcTime: 0`を足した。部屋の画面を外れたらキャッシュを捨て、開き直すと最新の一覧から取り直す】 |
 | `frontend/src/features/messages/hooks/usePostMessage.ts` | 投稿。成功したらその部屋の一覧を`invalidateQueries`で取り直し、取り直しが終わるまで送信中のままにする |
-| `frontend/src/features/messages/schemas/message-form.ts` | 入力チェック。本文の規則は`shared/message-rules.ts`を参照する |
+| `frontend/src/features/messages/schemas/message-form.ts` | 入力チェック。本文の規則は`shared/message-rules.ts`を参照する【Issue #270の2つ目：`messageFormSchemaFor({ hasAttachments })`に置き換えた（添付があれば空を通す）】 |
 | `frontend/src/features/messages/components/` | `RoomMessages`（一覧と入力欄を並べる。`roomId`・`canPost`・`joined`を受け取る）・`MessageList`（読み込み中・エラー・0件・ありの4つの状態。`role="log"`・`aria-live="polite"`）・`MessageComposer`（入力欄。React Hook Form＋Zod）【Issue #136で、`RoomMessages`に任意のprops（`notFoundText`・`emptyText`・`cannotPostText`・`retiredAuthorIds`・`onPosted`・`onPostError`）を足した。既定値はチャンネルの文言と動きのままで、DMは`features/dms`から渡す。`MessageList`は`emptyText`・`retiredAuthorIds`、`MessageComposer`は`onPosted`・`onPostError`を受ける】【Issue #238で、`MessageList`が`author.isActive`が偽の投稿者の表示名に「（退職者）」を、文字だけで併記するようにした（`isRetired`＝`!isActive`または`retiredAuthorIds`に含まれる）。退職者の名前にはボタン・リンクを付けない。下の「退職者の併記（Issue #238）」】【Issue #237で、`RoomMessages`に任意のprop`onLatestMessageIdChange`を足した。表示している最新のメッセージIDが変わったときに呼ぶ（0件・取得失敗では呼ばない）。渡さなければ既存の動きのまま。既読の送信は`features/unread`が行い、`messages`は`unread`を参照しない。[unread.md](unread.md)】 |【Issue #239：`RoomMessages`が`useSignedInUserId`で利用者IDを取り、`MessageComposer`の`key`を`<利用者ID>:<部屋ID>`にして渡す。`MessageComposer`は`useDraft`・`useLeaveGuard`で下書きの復元・保存と離脱の確認を行う。元の記述は残す】【Issue #134で、1件の表示を`MessageItem`に分け、本文を`MessageBody`（マークダウン）に替えた。`MessageList`・`RoomMessages`は`currentUserId`・`canModifyOwn`を受ける】
 | `frontend/src/features/messages/describe-error.ts` | 通信の失敗を利用者向けの文にする。`features/channels/describe-error.ts`と**内容が重複している**（下の「未実施・未決定」） |
 | `frontend/src/components/TextAreaField.tsx` | 複数行の入力欄の共通部品（`TextField`と同じ作り）。素の`textarea`にクラスを書かない規則（ADR-0015）のために足した |
@@ -97,7 +98,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 1. **見えるか**（`channel-rules.ts`の`canViewChannel`）：アーカイブされておらず、公開か、参加中の非公開。見えなければ**404**。存在しない・非公開で未参加・アーカイブ済み・チャンネルでない部屋（DMなど。`channels`に行がない）を区別しない（存在を開示しない）【#147（147-C-1）：「参加中」は有効な参加者（`activeChannelMember`）。投稿・編集・削除・リアクション・既読位置の書き込みの条件も同じ。本文・返信を読む SQL には`roomViewableBy`を入れ、確認と取得の間に無効化が確定しても返さない。本文の後に別の文で読む付随の情報（メンション・リアクション・添付）にも、`messageViewableBy`で同じ資格の条件を入れた（#297。閲覧者は必須の引数）。無効な利用者は参加の行が残っていても書き込めない。[cases.md](cases.md)の「147-C-1 が広げた経路」】
 2. **参加者か**：未参加なら**403**（公開チャンネルは未参加でも**読める**ので、一覧は200、投稿だけが403）
 3. **お知らせ専用なら権限**（`purpose = announcement`のとき）：`perm.announcement.post`を部署の範囲（`channel.departmentId`）で`authorize`する。持たなければ**403**。拒否は`authorize`が`logger.audit`に記録する。全体管理者・オーナーでも、**未参加なら②で403**（参加者だけが投稿できる、を先に判定する）
-4. 本文の形（1〜4,000文字、空白だけは不可、余分な項目は不可）は**Controllerの`validate`が先に422**にする。見えないチャンネルに不正な本文を送ると422になり得るが、本文の形だけの判定で、存在の開示にはならない（既存の`channels`のルートと同じ順序）
+4. 本文の形（1〜4,000文字、空白だけは不可、余分な項目は不可）は**Controllerの`validate`が先に422**にする。見えないチャンネルに不正な本文を送ると422になり得るが、本文の形だけの判定で、存在の開示にはならない（既存の`channels`のルートと同じ順序）【Issue #270の2つ目（C-205）：本文が**空（空白だけ）**でよいのは、添付が1件以上あるときだけ。投稿・返信は、Controller の`postSchema`が、本文が空で`attachmentIds`も空のときに限り422（`fields: body`）にする（順は従来どおり Controller が先）。**編集**は、空の本文を Controller では断らず、Service の`edit`が①〜⑤の後に、見える添付が0件なら422にする（他人の投稿は403、存在しない投稿は404が先。C-171(2) の一部の置き換え）。詳しくは[message-edit-markdown.md](message-edit-markdown.md)の「本文を空にする編集」。元の記述は残す】
 
 #### DMの部屋の判定の順（Issue #136。C-168。元の記述は残す）
 
@@ -181,7 +182,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 ### 入力欄
 
 - **Enterは改行**。**Ctrl+Enter（MacはCmd+Enter）か「送信」ボタンで送る**。送信中は「送信」を押せず、Ctrl+Enterでも送らない（多重送信の防止）
-- 画面でも入力を確かめる（空白だけ・4,000文字超）が、サーバーの検証が正（422の`fields`に`body`があれば入力欄の下に出す）
+- 画面でも入力を確かめる（空白だけ・4,000文字超）が、サーバーの検証が正（422の`fields`に`body`があれば入力欄の下に出す）【Issue #270の2つ目（C-205）：添付を1件以上選んでいれば、本文が空（空白だけ）でも送れる。入力チェックは`schemas/message-form.ts`の`messageFormSchemaFor({ hasAttachments })`が、添付があれば空を通し（長さの上限だけ）、なければ従来どおり空を断る（文は「メッセージを入力してください」）。`MessageComposer`は選んだ添付の件数、`MessageEditForm`は`MessageItem`から渡される`hasAttachments`（見えている添付があるか）で選ぶ。本文も添付もない送信は、送らずに入力欄の下に出す。元の記述は残す】
 - 成功したら入力欄を空にする。本文はテキストとして出し、`dangerouslySetInnerHTML`を使わない（改行は表示のスタイルで保つ）
 - 【Issue #239：書きかけの本文は、入力のたびに端末の`localStorage`へ下書きとして保存し（キーは利用者と部屋ごと、最終編集から7日で期限切れ）、入力欄を作り直すと復元する。成功したら下書きを消して入力欄を空にする（復元値には戻さない）。失敗（422・500）では残す。保存できない環境では、入力欄の下に「この環境では下書きを一時保存できません。」（`role="status"`）を出し、送信はそのまま使える。復元した値から変わっているあいだは、画面の移動・再読み込みの前に確認を出す。詳細は[drafts.md](drafts.md)。元の記述は残す】
 
@@ -222,6 +223,7 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - テスト部品：`backend/test/api-request.ts`・`message-fixtures.ts`、`frontend/src/test/message-handlers.ts`
 - フロントエンド：`frontend/src/features/messages/merge-messages.test.ts`、`hooks/useRoomMessages.test.tsx`（fake timers）、`messages.components.test.tsx`、`messages.mutation.test.tsx`、`frontend/src/features/channels/channel-detail.messages.test.tsx`、`channels.components.test.tsx`、`frontend/src/channels-route.test.tsx`
 - E2E：`e2e/messages.spec.ts`（[e2e.md](../testing/e2e.md)）。シードは`e2e/seeds/messages.sql`・`messages-cleanup.sql`
+- 添付だけの投稿（Issue #270の2つ目。C-205）：純粋関数は`backend/src/db/message-body.test.ts`・`backend/src/lib/message-rules.test.ts`。DBは`backend/src/db/message.repository.attachment-only.db.test.ts`（出口・先頭の確かめ）・`message-modify.blank.db.test.ts`（編集の条件）・`attachment.repository.db.test.ts`（結び付けの原子性）・`attachment-delete.db.test.ts`（削除の条件⑤）・`search-index.attachments.db.test.ts`。結合は`backend/src/routes/messages.attachment-only.test.ts`・`messages.edit-blank.test.ts`・`attachments.delete.test.ts`・`messages.delete-attachments.test.ts`・`search.attachments.test.ts`。競合・割り込みは`backend/src/services/attachment-only.race.test.ts`・`attachment-only.interleave.test.ts`・`message.edit-blank.interleave.test.ts`（部品は`backend/test/attachment-only-fixtures.ts`・`attachment-delete-fixtures.ts`の`interleavingDb`）。契約は`backend/src/openapi.message-body.test.ts`。画面は`frontend/src/features/messages/messages.attachment-only.test.tsx`・`messages.attachment-delete.test.tsx`・`frontend/src/pages/ThreadsPage.test.tsx`・`SearchPage.attachments.test.tsx`。E2Eは`e2e/attachment-only-post.spec.ts`（シードは`e2e/seeds/attachment-only-post.sql`・`attachment-only-post-cleanup.sql`）
 - 退職者の併記（Issue #238）：`backend/src/db/message.repository.author-active.db.test.ts`（`isActive`の値・SQLの数・実行計画）、`backend/src/routes/messages.retired-author.test.ts`、`frontend/src/features/messages/messages.retired-author.test.tsx`、`frontend/src/features/channels/channel-detail.retired-author.test.tsx`。既存の`backend/src/routes/messages.test.ts`・`messages.dm.test.ts`、`frontend/src/features/messages/messages.dm-props.test.tsx`、`frontend/src/test/message-handlers.ts`は、期待・応答に`isActive`を足した。E2Eは`e2e/messages-retired.spec.ts`（シードは`e2e/seeds/messages-retired.sql`・`messages-retired-cleanup.sql`）
 
 ## 未実施・未決定として記録するもの
@@ -271,6 +273,60 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - `backend/db/seeds/cleanup.sql`は、メッセージを消した後に、元のメッセージがなくなった索引の行を消す
 - 【155-B（2026-11-21）】投稿・返信の batch の末尾（メッセージの組の後ろ）に、添付のファイル名の組`syncAttachmentIndexStatements`を、`deleteIfModifiable`の末尾に`removeStaleAttachmentIndexStatements`を足した。本文の編集には足していない（添付は変わらず、メッセージの組は添付の写しに触れない）。経路の一覧は[search.md](search.md)の「添付の書き込みの経路」
 
+## 添付だけの投稿と本文の目印（Issue #270の2つ目。C-205）
+
+元の記述は残し、#270の2つ目で足した点だけをここに書く。1-1 AC-5（C-137(3)）の「添付があれば、本文が空でも投稿できる」を満たす。
+
+### 保存の方式と、目印を扱う場所
+
+- 本文のない投稿は、`messages.body`に**見えない目印（半角の空白1文字）**を保存する。migration は足さない（利用者の決定。`messages`の CHECK（1文字以上）は変えない）。空白・改行だけの入力は、画面とサーバーで「空」と同じに扱う（#201 U-2）ので、利用者の本文と意味が重ならない。区別せず、送った空白は保存しない
+- 目印を知っているのは`backend/src/db/message-body.ts`**だけ**。ほかの場所に目印の値を書かない。API・画面は、本文なしを**空文字**で受け渡し、目印を返さない。目印は保存の表し方なので`shared/`には置かない。「空か」の判定規則（`isBlankMessageBody`）だけが画面とサーバーで同じ意味なので`shared/message-rules.ts`にある
+- 変換の呼び出し元：保存の前は`message.service.ts`の`post`・`postReply`・`edit`が`toStoredBody`を通す。APIへ出す前は`message.repository.ts`の`toItem`・`message.service.ts`の`edit`の応答・`search.repository.ts`の抜粋が`fromStoredBody`を通す。SQLで本文が空かを比べるときは`storedBodyIsEmpty`だけを使う（`attachment-delete.sql.ts`の`leavesMessageNonEmpty`、`search-index.sql.ts`の`hasBody`）。`message-modify.sql.ts`の`updateBodyIfModifiable`は、渡された本文が目印かを`isStoredEmptyBody`で見る
+- 投稿と返信の守り：`insertIfOrdered`・`insertReplyIfOrdered`の先頭で`assertBodyOrAttachments`が、本文が目印で`attachmentIds`が空なら Error を投げる（呼び出し側の誤りを、DBへ送る前に止める。成功に見せない）
+
+### 投稿・返信
+
+- 本文が空（空白だけ）でよいのは、`attachmentIds`が1件以上のときだけ。Controller（`routes/messages.ts`の`postSchema`）が、本文が空で添付もなければ422（`fields: body`。文は、共通の`validate`が返す「入力内容を確かめてください」）にする。画面の入力欄の案内「メッセージを入力してください」（`MESSAGE_BODY_REQUIRED_MESSAGE`）と、編集の Service の422（見える添付が0件のとき）の文は、別のもの。空の本文に指名（`mentions`）があれば、範囲の検査で422（`fields: mentions`）
+- 新しい不変条件の文は、投稿・返信の batch に足していない（既定の方針7）。守りは、結び付けの件数の確かめ（[attachments.md](attachments.md)。指定した添付が1件でも結び付かなければ batch 全体が取り消され、メッセージも残らない。削除済みの添付は結び付き済みなので、必ず合わない）と、上の先頭の確かめ。batch が成功したときは、必ず1件以上の添付が結び付いている
+- 判定の順（見えるか → 参加者か → 権限 → 部屋の状態）は変えない
+
+### 目印の出口（本文を外へ出す場所と、それぞれの扱い）
+
+| # | 場所 | 扱い | 処理 |
+| --- | --- | --- | --- |
+| 1 | APIの項目（一覧・1件・スレッドの親と返信・スレッド一覧） | 空文字 | `message.repository.ts`の`toItem`が`fromStoredBody`（スレッド一覧・返信も`toItem`を通る） |
+| 2 | 編集の応答（`id`・`body`・`editedAt`） | 空文字（空白だけで送っても空文字） | `message.service.ts`の`edit`が`fromStoredBody(toStoredBody(body))`を返す |
+| 3 | 投稿・返信の応答 | 本文を返さないので変更なし | — |
+| 4 | 検索の索引（message の写し） | 作らない。目印の古い写しは消す | `search-index.sql.ts`の`syncMessageIndexStatements`のINSERTと`staleDocuments`に`hasBody`（本文が目印でない）。`indexedMessage`には足さない（添付の名前の写しの条件でも使い、本文のない投稿の添付が名前で検索に出なくなるため） |
+| 5 | 索引の作り直し（`reindexMessages`） | 4の組が写しを作らない | 変更なし（組の中で決まる） |
+| 6 | 検索の結果の抜粋 | 空文字 | `search.repository.ts`が`fromStoredBody`を通してから`buildExcerpt` |
+| 7 | 検索の結果の画面 | 抜粋が空文字なら、リンクの名前を「（添付ファイルのみ）」にする（名前のないリンクを作らない） | `MessageSearchResults.tsx`（定数は`features/messages/attachment-only-label.ts`の`ATTACHMENT_ONLY_LABEL`。`index.ts`で公開） |
+| 8 | スレッド一覧の画面 | 親の本文が空文字なら「（添付ファイルのみ）」（削除済みの`null`は従来の文） | `ThreadList.tsx`。[threads.md](threads.md) |
+| 9 | メッセージの行 | 本文の段を出さない（添付の一覧は出す） | `MessageItem.tsx`の`MessageContent`（本文が空文字なら何も出さない） |
+| 10 | 編集欄の初期値 | 空文字で開く | 1で決まる |
+| 11 | メンションの取り出し・通知 | 本文を解析しない（範囲は利用者が送る値）。本文が空なら指名の範囲は必ず不正で、指名なしでしか保存できない。通知の文面に本文は入らない | 変更なし（テストで確かめる） |
+| 12 | 監査（`message.delete`・`attachment.delete`） | `detail`は`roomId`などだけで、本文は出ない | 変更なし |
+| 13 | 未読の件数・スレッドの未読・DMの一覧・案件の最終更新 | 本文を読まない | 変更なし |
+| 14 | エクスポート・引用・コピー | 機能がない | — |
+| 15 | ログ | 本文を出さない | 変更なし |
+
+本文を読む処理を新しく足すときは、`fromStoredBody`を通す。SQLで本文が空かを比べるときは`storedBodyIsEmpty`を使う（[project-rules.md](../project-rules.md)）。漏れたときの害は「空白に見える」・「中身のない検索用の行ができる」程度。
+
+### 添付の削除・編集との関係
+
+- 本文のない投稿の**最後の見える添付**は、削除できない（409）。判定⑤の流れと SQL は[attachments.md](attachments.md)の「添付の削除」
+- 添付のある投稿は、編集で本文を空にできる。判定の流れは[message-edit-markdown.md](message-edit-markdown.md)の「本文を空にする編集」。本文のない投稿に本文を足す編集もできる
+- この2つの条件は、どちらも「本文も見える添付もない投稿を作らない」ためで、同時の操作でも、SQL の条件で後に書くほうが0行になり、読み直しで409／422になる
+- メッセージの削除は、本文の有無を見ない。本文のない投稿も、投稿ごと削除でき、添付にも印が付く（C-204のまま）
+- 画面の本文のない行は、本文の段がない。添付の一覧が残り、本文のない投稿で見える添付が1件のとき、その添付の「削除」は、確認・再認証へ進まず、案内と「閉じる」だけを出す（`MessageItem.tsx`が`lastOfBodyless`を渡す。画面の判定は補助で、正はサーバーの409）
+
+### 既知の限界
+
+- **下書きに添付は入らない**（C-176）。本文が空で添付だけを選んだ書きかけは、画面を離れると、確認なしで失われる（離脱の確認は本文が空白だけなら出ない。いまの決まりのまま）
+- DBを直接書き換えた・Time Travelで一部だけ戻したなどで、「本文も見える添付もない投稿」ができた場合の専用の表示は作らない（作る経路がない）。画面は本文の段も添付もない行（投稿者・日時・リアクション・操作は出る）で、本人は投稿ごと削除でき、本文を足す編集もできる（空のままの保存は422）
+- 画面の「最後の添付」の案内は、ほかのタブで添付が消えた後は古い。サーバーの409が正で、その文をダイアログに出す
+- 競合の守りは、D1が書き込みを直列に実行することに依存する（上の「前提」）
+
 ## 関係するIssue・ADR
 
 - Issue #155の155-A：メッセージの検索。本文を書く batch の末尾に索引の組を足した。詳細は[search.md](search.md)。ADR-0031、決定記録C-200
@@ -284,4 +340,5 @@ DMの権限（`perm.dm.message.send`）は、**SQLに入れない**。固定ロ�
 - Issue #138：リアクション・スタンプを足した（表`message_reactions`、EP-1-12・EP-1-13、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`reactions`を追加。削除済みは`[]`）。`MessageRepository.listLatest`・`listAfter`の`viewerId`は必須。詳細は[reactions.md](reactions.md)。決定記録C-174。要件：1-7 AC-1〜AC-5、1-4 AC-6
 - Issue #140：メッセージの添付を足した（表`message_attachments`、EP-1-09・EP-1-10、EP-1-01・返信・スレッドの親・スレッド一覧の項目に`attachments`を追加。削除済みは`[]`。投稿・返信の入力に`attachmentIds`。`insertIfOrdered`と`insertReplyIfOrdered`の`db.batch`に結び付けの文を追加。`requirePostable`・`requireReplyable`をアップロードの入口にも公開）。`message.service.ts`の`requireVisible`と`attachment-visibility.sql.ts`は同じ規則で、変えるときは両方を直す。詳細は[attachments.md](attachments.md)。決定記録C-176。要件：1-6 AC-1〜AC-3・AC-5〜AC-7・AC-9、1-4 AC-5
 - Issue #270の1つ目：添付の削除。メッセージの削除（`deleteIfModifiable`）が、同じ`db.batch`で、そのメッセージの添付にも削除の印を付け（監査は`message.delete`の1件に含める）、成功の後に`remove`が依存`purgeAttachmentsOf`で実体（R2）の削除を1回試す。一覧の`attachments`は、削除済みの添付を含めない（`loadMessageAttachments`）。自分の添付を1件ずつ消す`DELETE /api/attachments/:attachmentId`（EP-1-11）と画面の操作は、[attachments.md](attachments.md)の「添付の削除」。決定記録C-204。要件：1-6 AC-4
+- Issue #270の2つ目：添付だけの投稿（本文のない投稿の保存・表示・編集・検索・最後の添付の削除の断り）。目印を`backend/src/db/message-body.ts`の1か所に閉じ込めた。決定記録C-205。要件：1-1 AC-5、1-3 AC-1・AC-4、1-6 AC-4、C-137(3)
 - Issue #148の148-A：案件専用チャンネルの部屋を、この設計のAPIにそのまま通した（案件の権限・終了中の409・SQLの`caseRoomOpen`）。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-1・AC-4、5-1 AC-11

@@ -24,6 +24,7 @@ import {
   translateAttachmentBindError,
 } from "./attachment.repository";
 import { activeChannelMember } from "./channel-member.sql";
+import { assertBodyOrAttachments } from "./message-body";
 import { caseRoomOpen } from "./case-room.sql";
 import {
   syncAttachmentIndexStatements,
@@ -48,6 +49,7 @@ export async function insertReplyIfOrdered(
   db: Database,
   input: ReplyInsert,
 ): Promise<number> {
+  assertBodyOrAttachments(input.body, input.attachmentIds);
   try {
     const [result] = await db.batch([
       db.insert(messages).select(sql`

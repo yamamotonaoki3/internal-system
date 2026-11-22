@@ -232,3 +232,72 @@ describe("#270 AC-8 確認 → 再認証 → 送信", () => {
     },
   );
 });
+
+// ---- #270（270-B）AC-11・利用者の決定2：本文のない投稿の最後の添付の「削除」は、再認証へ進まずに案内だけを出す ----
+// 根拠：決定2（断って「投稿ごと削除してください」と案内する）・計画 AC-6・AC-11・2.10（本文のない投稿で見える添付が1件なら、ダイアログは確認・再認証の代わりに
+//   AC-6 の案内の文と「閉じる」だけを出す。画面の判定は表示の補助で、正はサーバーの 409。すれ違いで 409 が返れば、その文をダイアログの中に出す）。
+// ダイアログの名前は、いまの「添付の削除」のまま（計画は新しい名前を決めていない）。
+describe("#270 AC-11 本文のない投稿の最後の添付", () => {
+  const LAST_ATTACHMENT_MESSAGE =
+    "本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。";
+  const bodylessWith = (attachments: TestAttachment[]) =>
+    message(1, { body: "", attachments });
+
+  it("#270 AC-11（決定2）: 本文なし＋添付1件の「削除」は、案内の文と「閉じる」だけを出し、「削除する」・再認証を出さず、DELETE を送らない", async () => {
+    respondMessages([bodylessWith([TARGET])]);
+    const api = respondAttachmentDeletes();
+    const passwords = respondReauthentication();
+    const { user } = render({ reauthenticatedAt: null });
+    const dialog = await openDialog(user);
+    expect(dialog.textContent).toContain(LAST_ATTACHMENT_MESSAGE);
+    expect(within(dialog).getByRole("button", { name: "閉じる" })).toBeTruthy();
+    expect(
+      within(dialog).queryByRole("button", { name: "削除する" }),
+    ).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "再認証" })).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "添付の削除" })).toBeNull(),
+    );
+    expect(api.deletes).toEqual([]);
+    expect(passwords).toEqual([]);
+    expect(screen.getByRole("link", { name: TARGET.name })).toBeTruthy();
+  });
+
+  it("#270 AC-11: 本文なし＋添付2件なら、これまでどおり確認（「削除する」）を出し、送れる", async () => {
+    respondMessages([bodylessWith([TARGET, KEPT])]);
+    const api = respondAttachmentDeletes();
+    const { user } = render();
+    const dialog = await openDialog(user);
+    expect(dialog.textContent).not.toContain(LAST_ATTACHMENT_MESSAGE);
+    await user.click(within(dialog).getByRole("button", { name: "削除する" }));
+    await waitFor(() => expect(api.deletes).toEqual([TARGET.id]));
+  });
+
+  it("#270 AC-11（正はサーバー）: 画面では2件に見えても、サーバーが AC-6 の 409 を返したら、その文をダイアログの中の role=alert に出し、表示を変えない", async () => {
+    respondMessages([bodylessWith([TARGET, KEPT])]);
+    const api = respondAttachmentDeletes();
+    api.failWith = {
+      status: 409,
+      code: "CONFLICT",
+      message: LAST_ATTACHMENT_MESSAGE,
+    };
+    const { user } = render();
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "削除する" }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain(LAST_ATTACHMENT_MESSAGE);
+    expect(screen.getByRole("link", { name: TARGET.name })).toBeTruthy();
+  });
+
+  it("#270 AC-11（対照）: 本文のある投稿の最後の1件は、これまでどおり確認（「削除する」）を出す", async () => {
+    respondMessages([mineWith([TARGET])]);
+    respondAttachmentDeletes();
+    const { user } = render();
+    const dialog = await openDialog(user);
+    expect(
+      within(dialog).getByRole("button", { name: "削除する" }),
+    ).toBeTruthy();
+    expect(dialog.textContent).not.toContain(LAST_ATTACHMENT_MESSAGE);
+  });
+});

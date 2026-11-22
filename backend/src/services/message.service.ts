@@ -5,7 +5,8 @@
 //   → ③ お知らせ専用なら権限（perm.announcement.post を部署の範囲で。拒否は authorize が監査に記録する）
 //   DM の部屋（#136）：当事者か（違えば 404。文言はチャンネルと同じ）
 //   → 権限（一覧は perm.dm.message.view、投稿は perm.dm.message.send。拒否は 403）→（投稿だけ）相手が無効なら 409。一覧は相手が無効でも読める。
-//   ※ 本文の形の検証（422）は Controller が先に行う。
+//   ※ 本文の形の検証（422）は Controller が先に行う。ただし編集の本文の空（#270・C-205）は、①〜⑤の後に edit が見える添付の件数で判定する。
+//   本文なしは DB に目印で保存する（db/message-body.ts の toStoredBody。応答は fromStoredBody で空文字）。
 // 返信（#137。EP-1-07・EP-1-08）：親を ID で引き、部屋の判定は親の部屋で行う。
 //   postReply の判定の順（この順を変えない）：① 親が存在して見えるか（404）→ ② 親が返信でないか（404）→ ③ チャンネルで参加しているか（403）
 //   → ④ perm.message.reply（R-30。拒否は authorize が監査に記録する）→ ⑤ 親が削除済みか（409。C-59）→ ⑥ 部屋の状態（部署が無効・DM の相手が無効は 409）→ ⑦ 条件付きの INSERT。
@@ -31,10 +32,13 @@ import { canViewChannel } from "../lib/channel-rules";
 import { createLogger } from "../lib/logger/logger";
 import { newUlid, ulidAfter } from "../lib/ulid";
 import {
-  messageContentSchema,
+  isBlankMessageBody,
+  MESSAGE_BODY_REQUIRED_MESSAGE,
+  messageContentMaybeBlankSchema,
   REPLY_BLOCKED_REASONS,
   type Mention,
 } from "../../../shared/message-rules";
+import { fromStoredBody, toStoredBody } from "../db/message-body";
 import { MAX_ATTACHMENT_TOTAL_BYTES } from "../../../shared/attachment-rules";
 import {
   MAX_REACTION_TYPES,
@@ -67,7 +71,8 @@ const NOT_FOUND_MESSAGE = "チャンネルが見つかりません";
 
 const REACTION_LIMIT_MESSAGE = `リアクションは${MAX_REACTION_TYPES}種類までです`;
 const REACTION_CONFLICT_MESSAGE = "状態が変わりました。もう一度お試しください";
-
+const STATE_CHANGED_MESSAGE =
+  "状態が変わったため、操作できませんでした。読み込み直してからお試しください";
 export type ReactionsResult = { messageId: string; reactions: Reaction[] };
 
 type Dependencies = {
@@ -152,7 +157,8 @@ export function createMessageService(
     body: string,
     mentions: readonly Mention[],
   ): Promise<void> {
-    const parsed = messageContentSchema.safeParse({ body, mentions });
+    // 本文の空は、投稿・返信は Controller（添付の有無）、編集は edit（見える添付）が判定する（#270）
+    const parsed = messageContentMaybeBlankSchema.safeParse({ body, mentions });
     if (!parsed.success)
       throw new AppError("VALIDATION_ERROR", "指名の範囲を確かめてください", {
         fields: ["mentions"],
@@ -563,16 +569,36 @@ export function createMessageService(
   }
 
   // 書き込みが 0 行のとき、状態を読み直して原因に合う応答にする。原因が分からなくても成功にしない（書き込みはやり直さない）
+  // recheck は①〜⑤の後に確かめ直す、操作ごとの条件（本文を空にする編集の、見える添付。#270）
   async function failWrite(
     actor: MessageActor,
     messageId: string,
     operation: ModifyOperation,
+    recheck: () => Promise<void> = () => Promise.resolve(),
   ): Promise<never> {
     await requireModifiable(actor, messageId, operation);
-    throw new AppError(
-      "CONFLICT",
-      "状態が変わったため、操作できませんでした。読み込み直してからお試しください",
+    await recheck();
+    throw new AppError("CONFLICT", STATE_CHANGED_MESSAGE);
+  }
+
+  // 本文を空にする編集で、見える添付がなければ 422（#270）。件数は編集できる条件と同じ batch で読み、
+  // 条件が崩れていれば（null）①〜⑤を読み直してその理由で断る。資格のない人に添付の状態を知らせない
+  async function requireVisibleAttachment(
+    actor: MessageActor,
+    messageId: string,
+  ): Promise<void> {
+    const count = await repository.visibleAttachmentCountIfModifiable(
+      messageId,
+      actor.userId,
     );
+    if (count === null) {
+      await requireModifiable(actor, messageId, "edit");
+      throw new AppError("CONFLICT", STATE_CHANGED_MESSAGE);
+    }
+    if (count === 0)
+      throw new AppError("VALIDATION_ERROR", MESSAGE_BODY_REQUIRED_MESSAGE, {
+        fields: ["body"],
+      });
   }
 
   // 結び付けが取り消されたときの原因を、今の添付の行で分ける（判定の順はファイルの先頭のコメント）
@@ -640,19 +666,33 @@ export function createMessageService(
       mentions: readonly Mention[] = [],
     ): Promise<MessageEdited> {
       const message = await requireModifiable(actor, messageId, "edit");
+      // 本文を空にする編集は、見える添付があるときだけ（#270。決定3）。判定は①〜⑤の後
+      const blank = isBlankMessageBody(body);
+      if (blank) await requireVisibleAttachment(actor, messageId);
       await validateMentions(body, mentions);
       const editedAt = now().toISOString();
+      const storedBody = toStoredBody(body);
       const updated = await repository.updateBodyIfModifiable({
         messageId,
         userId: actor.userId,
-        body,
+        body: storedBody,
         editedAt,
         roomId: message.roomId,
         parentMessageId: message.parentMessageId ?? messageId,
         mentions,
       });
-      if (updated === 0) return failWrite(actor, messageId, "edit");
-      return { id: messageId, body, editedAt, mentions: [...mentions] };
+      if (updated === 0)
+        return failWrite(actor, messageId, "edit", () =>
+          blank
+            ? requireVisibleAttachment(actor, messageId)
+            : Promise.resolve(),
+        );
+      return {
+        id: messageId,
+        body: fromStoredBody(storedBody),
+        editedAt,
+        mentions: [...mentions],
+      };
     },
     async remove(actor: MessageActor, messageId: string): Promise<void> {
       const message = await requireModifiable(actor, messageId, "delete");
@@ -798,7 +838,7 @@ export function createMessageService(
               parentMessageId: parentId,
               senderId: actor.userId,
               senderDisplayName: displayName,
-              body,
+              body: toStoredBody(body),
               createdAt,
               mentions,
               attachmentIds,
@@ -847,7 +887,7 @@ export function createMessageService(
               roomId,
               senderId: actor.userId,
               senderDisplayName: displayName,
-              body,
+              body: toStoredBody(body),
               createdAt,
               mentions,
               attachmentIds,

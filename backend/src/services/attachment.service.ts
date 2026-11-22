@@ -14,8 +14,9 @@
 // 削除（#270。EP-1-11）の判定の順（この順を変えない）：
 //   ① 見えるか（attachment-visibility.sql.ts。見えない・存在しない・削除済み・メッセージが削除済みは 404）→ 未投稿なら 409
 //   → ② 本人か（403。logger.audit に not_author）→ ③ perm.attachment.delete.own → ④ 部屋の状態（message.service の requireAttachmentDeletable）
+//   → ⑤ 本文のない投稿の、最後の見える添付なら 409（#270 の2つ目。監査に残さない。①〜④と同じ batch の条件で読み、崩れていれば①〜④を読み直す）
 //   → ⑥ 再認証（最後）→ ⑦ 監査・印・索引の1回の batch（attachment-delete.sql.ts の deletable を条件にする）。
-//   ⑦が0行なら①〜④を読み直し、理由があればその応答、なければ 409。成功したら、同じ要求の中で実体の削除を1回試す（attachment-purge.ts）。
+//   ⑦が0行なら①〜⑤を読み直し、理由があればその応答、なければ 409。成功したら、同じ要求の中で実体の削除を1回試す（attachment-purge.ts）。
 //   後始末の失敗は 204 を変えず、error ログに残す（行は印つきで残り、attachmentPurgeJob が次の回に消す）。
 // ログにファイル名・保存先のキーを出さない。
 import { withAttachments } from "../db/attachment.repository";
@@ -84,6 +85,11 @@ const PURGE_PAGE_SIZE = 100;
 const PURGE_LIMIT_PER_RUN = 500;
 const PENDING_DELETE_MESSAGE =
   "送信前の添付は、送信前の一覧で取り消してください";
+/** ⑤（#270。利用者の決定2）：本文のない投稿の、最後の添付の削除の 409 */
+const LAST_OF_BODYLESS_MESSAGE =
+  "本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。";
+const DELETE_STATE_CHANGED_MESSAGE =
+  "状態が変わったため、削除できませんでした。読み込み直してからお試しください";
 
 const invalid = (field: string, message: string) =>
   new AppError("VALIDATION_ERROR", message, { fields: [field] });
@@ -376,8 +382,27 @@ export function createAttachmentService(
       type: "company",
     });
 
-  // 削除してよいかを①〜④の順に確かめ、削除の対象を返す（⑥再認証・⑦書き込みは呼び出し側）
+  // 削除してよいかを①〜⑤の順に確かめ、削除の対象を返す（⑥再認証・⑦書き込みは呼び出し側）
   async function requireDeletable(
+    actor: AttachmentActor,
+    attachmentId: string,
+  ) {
+    const target = await requireDeletableRoom(actor, attachmentId);
+    // ⑤は①〜④と同じ batch の条件で読む。条件が崩れていれば①〜④を読み直して、その理由で断る
+    const last = await withAttachments(env, (repository) =>
+      repository.lastOfBodylessIfDeletable(attachmentId, actor.userId),
+    );
+    if (last === null) {
+      await requireDeletableRoom(actor, attachmentId);
+      throw new AppError("CONFLICT", DELETE_STATE_CHANGED_MESSAGE);
+    }
+    // 状態の衝突で、権限の拒否ではないので、監査に残さない（未投稿の 409 と同じ）
+    if (last) throw new AppError("CONFLICT", LAST_OF_BODYLESS_MESSAGE);
+    return target;
+  }
+
+  // ①〜④
+  async function requireDeletableRoom(
     actor: AttachmentActor,
     attachmentId: string,
   ) {
@@ -450,10 +475,7 @@ export function createAttachmentService(
       if (marked === 0) {
         // 確認の後に状態が変わった。理由があればその応答、分からなくても成功にしない
         await requireDeletable(actor, attachmentId);
-        throw new AppError(
-          "CONFLICT",
-          "状態が変わったため、削除できませんでした。読み込み直してからお試しください",
-        );
+        throw new AppError("CONFLICT", DELETE_STATE_CHANGED_MESSAGE);
       }
       const logger = createLogger({
         traceId: actor.traceId,

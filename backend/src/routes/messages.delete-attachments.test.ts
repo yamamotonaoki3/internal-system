@@ -26,10 +26,12 @@ import {
   insertDepartmentWithChannels,
   insertMember,
 } from "../../test/department-fixtures";
+import { insertBodylessMessage } from "../../test/attachment-only-fixtures";
 import { insertMessage, ulidAt } from "../../test/message-fixtures";
 import {
   deleteMessage,
   insertModifyUser,
+  messageRow,
   messageItemPath,
   type ModifyUser,
 } from "../../test/message-modify-fixtures";
@@ -189,5 +191,32 @@ describe("#270 AC-6 メッセージの削除で、添付の実体の削除を要
     );
     expect(response.status).toBe(204);
     expect(recorded.deletes).toEqual([]);
+  });
+});
+
+// ---- #270（270-B）AC-10：本文のない投稿も、これまでどおり投稿ごと削除できる（1つ目の動きのまま。計画 2.7）----
+describe("#270 AC-10 本文のない投稿の、投稿ごとの削除", () => {
+  it("#270 AC-10: 本文のない投稿（目印・添付1件）を消すと 204。メッセージに削除の印が付き、添付の実体と行がなくなる", async () => {
+    seq += 1;
+    const messageId = ulidAt(1_895_000_000_000 + seq * 1_000);
+    await insertBodylessMessage({
+      roomId: room,
+      senderId: author.userId,
+      id: messageId,
+    });
+    const attachment = await seedStoredAttachment(
+      {
+        roomId: room,
+        uploaderId: author.userId,
+        messageId,
+        originalName: NAME,
+      },
+      TEXT_BYTES,
+    );
+    const response = await deleteMessage(messageId, author.token);
+    expect(response.status).toBe(204);
+    expect((await messageRow(messageId))?.deleted_by).toBe(author.userId);
+    expect(await attachmentRow(attachment)).toBeNull();
+    expect(await storedKeys()).toEqual([]);
   });
 });

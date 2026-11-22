@@ -13,6 +13,7 @@ import {
 } from "./message-mentions.sql";
 import { auditLogInsert } from "./audit-log.repository";
 import type { Database } from "./database";
+import { isStoredEmptyBody } from "./message-body";
 import { activeChannelMember } from "./channel-member.sql";
 import { caseRoomOpen } from "./case-room.sql";
 import {
@@ -39,7 +40,44 @@ export function modifiable(messageId: string | SQL, userId: string): SQL {
           AND NOT EXISTS (SELECT 1 FROM conversation_members cv JOIN users u ON u.id = cv.user_id WHERE cv.conversation_id = m.room_id AND u.is_active = 0))))`;
 }
 
-/** 本文と編集日時を更新し、更新した行数（1 か 0）を返す */
+/** そのメッセージに、削除されていない（見える）添付がある（#270。本文を目印にする書き込みの条件） */
+function hasVisibleAttachment(messageId: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM message_attachments va WHERE va.message_id = ${messageId} AND va.deleted_at IS NULL)`;
+}
+
+/**
+ * modifiable を満たすときだけ、そのメッセージの見える添付の件数を返す。条件が成り立たないときは null（#270。計画 2.6a）。
+ * 条件の確かめと件数を同じ batch で読み、「編集できる」と「見える添付の件数」を同じ時点の事実にする（間に書き込みが入らない）。
+ */
+export async function visibleAttachmentCountIfModifiable(
+  db: Database,
+  messageId: string,
+  userId: string,
+): Promise<number | null> {
+  const allowed = modifiable(messageId, userId);
+  const [counted, check] = await db.batch([
+    db
+      .select({ n: sql<number>`COUNT(*)`.mapWith(Number) })
+      .from(messageAttachments)
+      .where(
+        sql`${messageAttachments.messageId} = ${messageId} AND ${messageAttachments.deletedAt} IS NULL AND ${allowed}`,
+      ),
+    db
+      .select({ ok: sql<number>`1` })
+      .from(sql`(SELECT 1) c`)
+      .where(allowed),
+  ]);
+  if (check.length === 0) return null;
+  const n = counted[0]?.n;
+  if (n === undefined || !Number.isInteger(n))
+    throw new Error("見える添付の件数を読めませんでした");
+  return n;
+}
+
+/**
+ * 本文と編集日時を更新し、更新した行数（1 か 0）を返す。
+ * 本文が目印（本文なし）のときは、見える添付があることも条件にする（#270。本文も添付もない投稿を作らない）
+ */
 export async function updateBodyIfModifiable(
   db: Database,
   input: {
@@ -52,7 +90,9 @@ export async function updateBodyIfModifiable(
     mentions?: readonly Mention[];
   },
 ): Promise<number> {
-  const allowed = modifiable(input.messageId, input.userId);
+  const allowed = isStoredEmptyBody(input.body)
+    ? sql`(${modifiable(input.messageId, input.userId)} AND ${hasVisibleAttachment(input.messageId)})`
+    : modifiable(input.messageId, input.userId);
   // 既存のRepository呼出しの互換経路。新しいAPIはroomIdを渡し、指名も同一batchで確定する。
   // 索引の組（#155）は同じ batch の末尾に置く。拒否で0件でも、いまの行と一致する写しは消さない
   const indexStatements = syncMessageIndexStatements(db, {

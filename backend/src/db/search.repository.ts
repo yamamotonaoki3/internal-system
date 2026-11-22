@@ -14,6 +14,7 @@ import { buildExcerpt, searchMethodOf, toFtsPhrase } from "../lib/search-query";
 import { isUlid } from "../lib/ulid";
 import { caseRoomListable } from "./case-room.sql";
 import { withDatabase, type Database } from "./database";
+import { fromStoredBody } from "./message-body";
 import { directRoomListable, roomViewableBy } from "./room-visibility.sql";
 
 export type SearchMessagesOptions = {
@@ -157,7 +158,10 @@ export function createSearchRepository(db: Database) {
           roomKind: row.room_kind,
           roomName: row.room_name,
           author: { id: row.sender_id, displayName: row.sender_display_name },
-          excerpt: buildExcerpt(toSearchText(row.body), options.term),
+          excerpt: buildExcerpt(
+            toSearchText(fromStoredBody(row.body)),
+            options.term,
+          ),
           createdAt: row.created_at,
           ...matchesOf(row),
         })),

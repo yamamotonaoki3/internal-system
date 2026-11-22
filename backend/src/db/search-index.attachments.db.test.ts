@@ -11,6 +11,11 @@
 // ファイル名は、ほかの行の文字列に含まれない、通し番号つきの語（例「索引添付甲001.txt」）。データは架空（testuser_casereq_・[UNIT_TEST]）。
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  STORED_EMPTY_BODY,
+  cleanupAttachmentOnlyLeftovers,
+  messageDocumentBodies,
+} from "../../test/attachment-only-fixtures";
 import { AUTH_TRACE_PREFIX } from "../../test/auth-fixtures";
 import { cleanupCaseTestData } from "../../test/case-fixtures";
 import {
@@ -35,9 +40,14 @@ import {
   buildSearchIndex,
   cleanupSearchIndex,
   ftsInstrAttachmentIds,
+  ftsInstrIds,
   ftsMatchAttachmentIds,
+  ftsMatchIds,
+  indexCountsOf,
+  insertAttachmentIndexRow,
   indexMismatches,
   runAttachmentIndexStatements,
+  runIndexStatements,
   totalAttachmentDocuments,
   type AttachmentIndexMismatches,
 } from "../../test/search-fixtures";
@@ -207,6 +217,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
+    await cleanupAttachmentOnlyLeftovers();
     await cleanupSearchIndex();
   } finally {
     await cleanupRelatedReadsRooms([ROOM, OTHER]);
@@ -901,5 +912,142 @@ describe("#155 AC-3 155-B I-4 既存の戻り値の契約（添付つきでも�
     );
     expect(await remove(parent.id, O)).toBe(0);
     expect(await remove(parent.id, V)).toBe(1);
+  });
+});
+
+// ---- #270（270-B）AC-9：本文のない投稿（本文が目印）の索引（計画 2.2 の 4・5、2.8）----
+// 根拠：計画 AC-9（本文のない投稿は、本文の検索のどの語でも目印で一致しない。添付のファイル名では一致する。reindexMessages の後も同じ。
+//   本文を空にする編集で前の本文の写しが消え、空から本文を足す編集で写しができる）・計画 2.2 の 4（message の写しを作らない。目印の写しがあれば古い写しとして消す。
+//   indexedMessage には条件を足さない＝本文のない投稿の添付の名前は索引に入る）。目印は test/attachment-only-fixtures.ts の値。
+// 注意：test/search-fixtures.ts の indexMismatches は「未削除のメッセージに写しがない」を missing に数えるため、本文のない投稿があると 0 にならない（ここでは使わない）。
+describe("#270 AC-9 本文のない投稿の索引", () => {
+  async function postRaw(
+    rawBody: string,
+    attachmentIds: string[],
+    parentMessageId?: string,
+  ) {
+    const { id, at } = nextId();
+    const changes = await withMessages(env, (repo) =>
+      parentMessageId === undefined
+        ? repo.insertIfOrdered({
+            id,
+            roomId: ROOM,
+            senderId: V,
+            senderDisplayName: "テスト太郎",
+            body: rawBody,
+            createdAt: at,
+            attachmentIds,
+          })
+        : repo.insertReplyIfOrdered({
+            id,
+            roomId: ROOM,
+            parentMessageId,
+            senderId: V,
+            senderDisplayName: "テスト太郎",
+            body: rawBody,
+            createdAt: at,
+            attachmentIds,
+          }),
+    );
+    expect(changes).toBe(1);
+    return { id, at };
+  }
+
+  const editTo = (messageId: string, rawBody: string) =>
+    withMessages(env, (repo) =>
+      repo.updateBodyIfModifiable({
+        messageId,
+        userId: V,
+        body: rawBody,
+        editedAt: new Date().toISOString(),
+        roomId: ROOM,
+        mentions: [],
+      }),
+    );
+
+  it("#270 AC-9: 本文のない投稿の後、message の写しは0件で、添付の写しは1件（名前の MATCH・instr で引ける）", async () => {
+    const attachment = await pending("索引本文なし子101.txt");
+    const message = await postRaw(STORED_EMPTY_BODY, [attachment]);
+    expect(await indexCountsOf(message.id)).toEqual({ documents: 0, fts: 0 });
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+    expect(await ftsMatchAttachmentIds("索引本文なし子101")).toEqual([
+      attachment,
+    ]);
+    // 本文の検索では、半角の空白（目印）でも一致しない
+    expect(await ftsInstrIds(" ")).not.toContain(message.id);
+  });
+
+  it("#270 AC-9: 本文のない返信の後も、message の写しは0件で、添付の写しは1件", async () => {
+    const parent = await post(V, "本文なしの返信の親");
+    const attachment = await pending("索引本文なし丑102.txt", {
+      threadParentId: parent.id,
+    });
+    const replied = await postRaw(STORED_EMPTY_BODY, [attachment], parent.id);
+    expect(await indexCountsOf(replied.id)).toEqual({ documents: 0, fts: 0 });
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
+  });
+
+  it("#270 AC-9: 目印の写しを手で入れてから、本文の組を目印で実行すると、古い写しとして消える", async () => {
+    const attachment = await pending("索引本文なし寅103.txt");
+    const message = await postRaw(STORED_EMPTY_BODY, [attachment]);
+    // 実装の前は投稿で写しができているため、手で入れる前に、そのメッセージの message の写しを空にしてから1件だけ入れる
+    await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM search_fts WHERE rowid IN (SELECT id FROM search_documents WHERE kind = 'message' AND ref_id = ?)",
+      ).bind(message.id),
+      env.DB.prepare(
+        "DELETE FROM search_documents WHERE kind = 'message' AND ref_id = ?",
+      ).bind(message.id),
+    ]);
+    await insertAttachmentIndexRow({
+      kind: "message",
+      attachmentId: message.id,
+      roomId: ROOM,
+      messageId: message.id,
+      createdAt: message.at,
+      sourceBody: STORED_EMPTY_BODY,
+    });
+    expect(await indexCountsOf(message.id)).toEqual({ documents: 1, fts: 1 });
+    await runIndexStatements(message.id, STORED_EMPTY_BODY);
+    expect(await indexCountsOf(message.id)).toEqual({ documents: 0, fts: 0 });
+  });
+
+  it("#270 AC-9: 本文を空にする編集で、前の本文の写しが消え、前の本文の語では一致しなくなる。添付の名前では引ける", async () => {
+    const attachment = await pending("索引本文なし卯104.txt");
+    const message = await postRaw(body("空にする前の語卯"), [attachment]);
+    expect(await ftsMatchIds("空にする前の語卯")).toEqual([message.id]);
+    expect(await editTo(message.id, STORED_EMPTY_BODY)).toBe(1);
+    expect(await ftsMatchIds("空にする前の語卯")).toEqual([]);
+    expect(await indexCountsOf(message.id)).toEqual({ documents: 0, fts: 0 });
+    expect(await ftsMatchAttachmentIds("索引本文なし卯104")).toEqual([
+      attachment,
+    ]);
+  });
+
+  it("#270 AC-9: 本文のない投稿に本文を足す編集で、新しい本文の写しができ、その語で一致する", async () => {
+    const attachment = await pending("索引本文なし辰105.txt");
+    const message = await postRaw(STORED_EMPTY_BODY, [attachment]);
+    expect(await editTo(message.id, body("足した本文の語辰"))).toBe(1);
+    expect(await ftsMatchIds("足した本文の語辰")).toEqual([message.id]);
+    expect(await messageDocumentBodies(message.id)).toEqual([
+      body("足した本文の語辰"),
+    ]);
+  });
+
+  it("#270 AC-9: reindexMessages で登録し直しても、本文のない投稿の message の写しは0件で、添付の写しは残る", async () => {
+    const attachment = await pending("索引本文なし巳106.txt");
+    const message = await postRaw(STORED_EMPTY_BODY, [attachment]);
+    await buildSearchIndex();
+    expect(await indexCountsOf(message.id)).toEqual({ documents: 0, fts: 0 });
+    expect(await attachmentIndexCountsOf(attachment)).toEqual({
+      documents: 1,
+      fts: 1,
+    });
   });
 });
