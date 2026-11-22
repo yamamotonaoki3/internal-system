@@ -678,9 +678,14 @@ describe("#338 AC-2・AC-3 予約の後に始まった操作も待つ（コー�
       ownerId: USER_A,
       reason: "lost",
     });
-    await advance(0);
+    // 予約（1つ後のタスク）が実行される前に、終わらない操作を始める（時計を進めると、予約が先に実行されてしまうため、進めずに始める）
     startPending(client);
-    await advance(LIMIT_MS - 1);
+    // 予約の実行の時点で、操作を見つけて待機に戻る：まだ読み込み直さず、waiting のまま
+    await advance(1);
+    expect(m.location.reloadPage).not.toHaveBeenCalled();
+    expect(m.entry.getAccessLossReloadState()).toBe("waiting");
+    // 上限は、最初の要求から5秒（予約と待機を行き来しても延びない）
+    await advance(LIMIT_MS - 2);
     expect(m.location.reloadPage).not.toHaveBeenCalled();
     await advance(1);
     await advance(1);
