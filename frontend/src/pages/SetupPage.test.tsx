@@ -448,10 +448,7 @@ describe("#119 AC-4 S-34 初回セットアップ：入力と送信", () => {
       "登録できませんでした。時間をおいて、もう一度お試しください",
     );
     expect(alert.textContent).not.toContain("別の値に直して再送信してください");
-    // 取り直しは失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
+    // 競合の確認の取り直しは、エラーの表示より前に終わる（onSubmit が待つ）。表示の後に、取り直しの回数が増えていないことを確かめる
     expect(counter.status).toBe(before);
     expect(screen.queryByText(/完了しています/)).toBeNull();
     expect((screen.getByLabelText(/会社名/) as HTMLInputElement).value).toBe(

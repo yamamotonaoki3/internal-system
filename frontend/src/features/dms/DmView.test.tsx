@@ -11,7 +11,6 @@
 //   投稿が 409：「相手のアカウントが無効になったため、送信できませんでした」を出し、詳細を取り直す（canPost が偽になれば入力欄を閉じる）。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  act,
   fireEvent,
   render,
   screen,
@@ -427,20 +426,19 @@ describe("#136 AC-3（C-168(2)）投稿の失敗と取り直し（生存した�
         ),
       ),
     );
-    renderViewWithSidebar();
+    const client = renderViewWithSidebar();
     await screen.findByRole("textbox", { name: "メッセージ" });
     await screen.findByRole("link", { name: partnerName(1) });
     const detailBefore = world.detailRequests.length;
     const listBefore = world.listRequests.length;
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     send("[E2E_TEST]別の利用者の投稿");
     // ふつうの失敗と同じく、サーバーの文を出す
     expect(
       await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
     ).toBeDefined();
-    // 取り直しは、失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、出されていないことを確かめる
+    expect(invalidate).not.toHaveBeenCalled();
     expect(screen.queryByText(NOTICE_409)).toBeNull();
     expect(world.detailRequests.length).toBe(detailBefore);
     expect(world.listRequests.length).toBe(listBefore);

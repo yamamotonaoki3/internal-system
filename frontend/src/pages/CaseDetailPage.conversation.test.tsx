@@ -13,7 +13,7 @@
 //   終了の帯の文言 CLOSED_BANNER、投稿できない案内 CANNOT_POST、0件の文言 EMPTY（計画 148-A「画面」）。
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authKeys } from "../features/auth";
 import { installDomStubs, type DomStubs } from "../test/app-shell-harness";
 import {
@@ -230,8 +230,9 @@ describe("#298 AC-5 投稿の 409 は、コードが CONFLICT のときだけ「
         ),
       ),
     );
-    const { user } = renderPage(41);
+    const { user, client } = renderPage(41);
     await conversation();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     // サーバーの状態を「終了」にしておく。競合として扱えば、取り直しで終了が返り、読み取り専用に切り替わってしまう
     summaries[0] = caseSummary(41, { status: "closed" });
     details[0] = caseDetail(41, { status: "closed" });
@@ -246,10 +247,12 @@ describe("#298 AC-5 投稿の 409 は、コードが CONFLICT のときだけ「
     expect(
       await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
     ).toBeTruthy();
-    // 取り直しは失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、この案件の取り直しが出されていないことを確かめる
+    expect(
+      invalidate.mock.calls.filter(([filters]) =>
+        JSON.stringify(filters?.queryKey ?? []).includes(caseId(41)),
+      ),
+    ).toEqual([]);
     expect(cases.summaryCalls.length).toBe(summaryBefore);
     expect(cases.detailCalls.length).toBe(detailBefore);
     expect(screen.queryByText(CLOSED_BANNER)).toBeNull();

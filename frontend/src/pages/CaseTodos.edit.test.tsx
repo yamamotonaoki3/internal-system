@@ -422,11 +422,8 @@ describe("#149 AC-1 149-B 編集の失敗（計画 10節 #39〜#42）", () => {
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toContain(CASE_TODO_TEXTS.todoChanged);
     expect(titleOf(dialog).value).toBe("[UNIT_TEST]298入力した題名");
-    // 取り直しは失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
-    expect(disabled(saveOf(dialog))).toBe(false);
+    // 競合として扱えば、onSettled が一覧の取り直しを待つ間、保存は押せない。有効に戻るまで待ってから確かめる
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
     expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestPrefix);
     await user.click(saveOf(dialog));
     await waitFor(() => expect(state.writes).toHaveLength(2));
@@ -448,10 +445,9 @@ describe("#149 AC-1 149-B 編集の失敗（計画 10節 #39〜#42）", () => {
       CASE_TODO_TEXTS.todoDeleted,
     );
     expect(titleOf(dialog).value).toBe("[UNIT_TEST]298残す");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
-    expect(disabled(saveOf(dialog))).toBe(false);
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+    // 有効に戻った後も、削除済みの扱い（保存を押せなくする）になっていない
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]298残す");
   });
 
   it("#149 AC-1 計画 6.2.5（重大4）10節 #40-2: 101件の案件で、T100 が 2ページ目に押し出された後に 409 todo_changed なら、削除とは言わず「閉じてから、一覧で確かめてください」を出し、保存を押せない。入力は残る", async () => {

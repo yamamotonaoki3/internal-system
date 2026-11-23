@@ -696,9 +696,10 @@ describe("#143 a-AC-2・a-AC-6 アーカイブのダイアログ", () => {
           { status: 409 },
         ),
     });
-    const { user } = renderDetail();
+    const { user, client } = renderDetail();
     const dialog = await openArchive(user);
     const before = world.detailRequests;
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     await user.click(
       within(dialog).getByRole("button", { name: "アーカイブ" }),
     );
@@ -706,8 +707,8 @@ describe("#143 a-AC-2・a-AC-6 アーカイブのダイアログ", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "[UNIT_TEST_298]別の利用者のセッションです",
     );
-    // 取り直しは失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、出されていないことを確かめる
+    expect(invalidate).not.toHaveBeenCalled();
     expect(world.detailRequests).toBe(before);
     expect(currentPath()).toBe(`/channels/${ID}`);
   });
