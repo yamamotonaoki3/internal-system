@@ -3361,7 +3361,7 @@
           },
           "409": {
             "$ref": "#/components/responses/CredentialConflict",
-            "description": "加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
+            "description": "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）。Cache-Control: no-store。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
           },
           "422": {
             "$ref": "#/components/responses/CredentialValidationError"
@@ -4544,7 +4544,7 @@
           },
           "409": {
             "$ref": "#/components/responses/CredentialConflict",
-            "description": "加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
+            "description": "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）。Cache-Control: no-store。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
           },
           "422": {
             "$ref": "#/components/responses/CredentialValidationError"

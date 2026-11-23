@@ -1708,18 +1708,18 @@ describe("#298 AC-9 API の仕様書：利用者の食い違い（SESSION_USER_M
       JSON.stringify(response).includes("SESSION_USER_MISMATCH"),
   );
   const commonRef = `#/components/responses/${common[0]?.[0] ?? ""}`;
-  /** 409 の応答の、自分の説明と参照先の説明をつないだ文 */
+  /**
+   * 409 の応答の、実際に有効になる説明（OpenAPI 3.1 の規則）。$ref と description を併記したときは、
+   * 併記した description が参照先の説明を上書きする（連結しない）。description が無い $ref は参照先の説明。
+   */
   const text409 = (name: string) => {
     const response = operations.find((entry) => entry.name === name)?.operation
       .responses["409"] as Response | undefined;
+    if (response?.description !== undefined) return response.description;
     const ref = response?.$ref?.replace("#/components/responses/", "");
-    return (
-      (response?.description ?? "") +
-      " " +
-      (ref === undefined
-        ? ""
-        : (doc.components.responses[ref]?.description ?? ""))
-    );
+    return ref === undefined
+      ? ""
+      : (doc.components.responses[ref]?.description ?? "");
   };
 
   it("#298 AC-9: SESSION_USER_MISMATCH の共通の応答が1つあり、no-store と共通のエラーの形・ヘッダーの名前を書いている", () => {
@@ -1766,11 +1766,25 @@ describe("#298 AC-9 API の仕様書：利用者の食い違い（SESSION_USER_M
       ).toBe(commonRef);
   });
 
+  // 従来の説明の文は、変更前の main（git show origin/main:docs/api/openapi.json）から独立に写したもの
   it.each([
-    ["POST /api/rooms/{roomId}/attachments", "終了した案件には添付できません"],
+    [
+      "POST /api/rooms/{roomId}/attachments",
+      "DM の相手のアカウントが無効になっている（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
+    ],
     ["POST /api/channel-requests/{requestId}/reject", "すでに処理されている"],
-    ["PATCH /api/channels/{channelId}", "版の不一致"],
-    ["PUT /api/me/password", "現在のパスワードまたはセッションが変わった"],
+    [
+      "PATCH /api/channels/{channelId}",
+      "名前の重複（アーカイブ済みを含む）、名前を変えられないチャンネル、案件専用、版の不一致",
+    ],
+    [
+      "PUT /api/me/password",
+      "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）",
+    ],
+    [
+      "POST /api/auth/reauthenticate",
+      "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）",
+    ],
   ])(
     "#298 AC-9: 既存の 409 の説明（%s の「%s」）が残っている",
     (name, fragment) => {
