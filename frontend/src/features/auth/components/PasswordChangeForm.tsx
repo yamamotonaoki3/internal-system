@@ -7,7 +7,7 @@ import {
 import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { SecretField } from "../../../components/SecretField";
-import type { ApiError } from "../../../services/api-client";
+import { isConflictError, type ApiError } from "../../../services/api-client";
 import { usePasswordChange } from "../hooks/usePasswordChange";
 import { useSession } from "../hooks/useSession";
 import {
@@ -86,7 +86,7 @@ function PasswordChangeFields({
         }
       } else if (error.status === 429) {
         setError("root.server", { message: "しばらくしてからお試しください" });
-      } else if (error.status === 409) {
+      } else if (isConflictError(error)) {
         setError("root.server", {
           message: "状態が変わりました。もう一度お試しください",
         });

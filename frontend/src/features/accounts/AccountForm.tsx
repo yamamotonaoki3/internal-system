@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { Alert } from "../../components/Alert";
 import { Button } from "../../components/Button";
 import { TextField } from "../../components/TextField";
-import type { ApiError } from "../../services/api-client";
+import { isConflictError, type ApiError } from "../../services/api-client";
 import {
   submitAccount,
   type AccountCreateRequest,
@@ -93,7 +93,7 @@ export function AccountForm({ departments, onRegistered }: AccountFormProps) {
         );
         if (fields.length === 0) setError("root.server", { message });
         for (const field of fields) setError(field, { message });
-      } else if (e.status === 409) {
+      } else if (isConflictError(e)) {
         // 重複したユーザーID・メール。入力を残して直してもらう
         setError("root.server", {
           message: `${e.message}　別の値に直して再送信してください`,

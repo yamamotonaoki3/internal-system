@@ -270,6 +270,26 @@ describe("#128 AC-9: 無効化", () => {
       );
     },
   );
+
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、サーバーの文ではなく、ふつうの失敗の文を出す（ダイアログは閉じない）", async () => {
+    respond({
+      deactivate: () =>
+        apiError(
+          409,
+          "SESSION_USER_MISMATCH",
+          "[UNIT_TEST_298]別の利用者のセッションです",
+        ),
+    });
+    const { user } = renderList();
+    await deactivateActive(user);
+    const dialog = screen.getByRole("dialog", { name: /無効化/ });
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain(
+      "操作できませんでした。時間をおいて、もう一度お試しください。",
+    );
+    expect(alert.textContent).not.toContain("別の利用者のセッションです");
+    expect(screen.getByRole("dialog", { name: /無効化/ })).toBeTruthy();
+  });
 });
 
 describe("#128 AC-14: 再有効化と一時パスワードの表示", () => {

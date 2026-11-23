@@ -7,7 +7,7 @@ import { Alert } from "../../../components/Alert";
 import { Button } from "../../../components/Button";
 import { SecretField } from "../../../components/SecretField";
 import { TextField } from "../../../components/TextField";
-import type { ApiError } from "../../../services/api-client";
+import { isConflictError, type ApiError } from "../../../services/api-client";
 import { submitSetup, type SetupRequest } from "../api/setup-api";
 import {
   setupFieldNames,
@@ -93,7 +93,7 @@ export function SetupForm({ onRegistered, onConflict }: SetupFormProps) {
           message:
             "トークンが正しくありません。運用者から受け取ったトークンを確かめてください",
         });
-      } else if (e.status === 409) {
+      } else if (isConflictError(e)) {
         // 登録済みになっていれば呼び出し側が「完了済み」を示す。
         // 未設定のまま（社員ID・メール・部署名などの重複）なら、入力を残して直してもらう
         if (await onConflict()) {

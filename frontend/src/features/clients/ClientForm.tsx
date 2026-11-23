@@ -8,7 +8,7 @@ import {
 import { Alert } from "../../components/Alert";
 import { Button } from "../../components/Button";
 import { TextField } from "../../components/TextField";
-import type { ApiError } from "../../services/api-client";
+import { isConflictError, type ApiError } from "../../services/api-client";
 import type { Client } from "./client-api";
 
 const formSchema = z.object({
@@ -59,13 +59,12 @@ export function ClientForm({ client, onSave, onCancel }: ClientFormProps) {
         return;
       }
       setError("root.server", {
-        message:
-          error.status === 409
-            ? error.message ||
-              "保存できませんでした。入力内容を確認してください。"
-            : error.status === 403
-              ? "取引先を管理する権限がありません。"
-              : "保存できませんでした。時間をおいて、もう一度お試しください。",
+        message: isConflictError(error)
+          ? error.message ||
+            "保存できませんでした。入力内容を確認してください。"
+          : error.status === 403
+            ? "取引先を管理する権限がありません。"
+            : "保存できませんでした。時間をおいて、もう一度お試しください。",
       });
     }
   };

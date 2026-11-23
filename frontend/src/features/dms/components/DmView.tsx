@@ -10,6 +10,7 @@ import { useMarkRoomRead } from "../../unread";
 import { dmKeys } from "../api/query-keys";
 import { describeError, isApiError } from "../describe-error";
 import { useDm } from "../hooks/useDm";
+import { isConflictError } from "../../../services/api-client";
 
 export function DmView({ roomId }: { roomId: string }) {
   const dm = useDm(roomId);
@@ -33,7 +34,7 @@ export function DmView({ roomId }: { roomId: string }) {
 
   // 開いている間に相手が無効になると、投稿が 409 になる。知らせて詳細を取り直し、入力欄を閉じる
   function handlePostError(error: unknown) {
-    if (!isApiError(error) || error.status !== 409) return;
+    if (!isApiError(error) || !isConflictError(error)) return;
     setPostNotice("相手のアカウントが無効になったため、送信できませんでした");
     // 詳細（入力欄を閉じる）と一覧（サイドバーの相手の表示）を取り直す
     void queryClient.invalidateQueries({ queryKey: dmKeys.all });

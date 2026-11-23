@@ -412,6 +412,39 @@ describe("#136 AC-3（C-168(2)）投稿の失敗と取り直し（生存した�
     expect(box()).not.toBeNull();
   });
 
+  it("#298 AC-5: 409 でも、コードが CONFLICT でない（SESSION_USER_MISMATCH）なら、「相手が無効になった」お知らせを出さず、詳細も一覧も取り直さない。入力欄は残る", async () => {
+    respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const client = renderViewWithSidebar();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    await screen.findByRole("link", { name: partnerName(1) });
+    const detailBefore = world.detailRequests.length;
+    const listBefore = world.listRequests.length;
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    send("[E2E_TEST]別の利用者の投稿");
+    // ふつうの失敗と同じく、サーバーの文を出す
+    expect(
+      await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
+    ).toBeDefined();
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、出されていないことを確かめる
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(screen.queryByText(NOTICE_409)).toBeNull();
+    expect(world.detailRequests.length).toBe(detailBefore);
+    expect(world.listRequests.length).toBe(listBefore);
+    expect(box()).not.toBeNull();
+  });
+
   it("#136 AC-3（C-168(2)）: 409 のあと、詳細（GET /api/dms/:roomId）と一覧（GET /api/dms）を取り直す。DM と関係のないデータは取り直し対象にしない", async () => {
     respondMessages([]);
     const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });

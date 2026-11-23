@@ -421,6 +421,41 @@ describe("#119 AC-4 S-34 初回セットアップ：入力と送信", () => {
     expect(screen.queryByRole("button", { name: "登録する" })).toBeNull();
   });
 
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、「完了済み」の確認のために状態を取り直さず、重複の案内にもせず、ふつうの失敗の文を出す。フォームと入力値は残る", async () => {
+    let setupRequired = true;
+    const counter: Counter = { status: 0, post: 0, lastBody: null };
+    registerStatusHandler(counter, () => setupRequired);
+    server.use(
+      http.post("/api/setup", () => {
+        // 競合として扱えば、状態の取り直しで「完了済み」になり、フォームが消える
+        setupRequired = false;
+        return HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await fillValidForm(user);
+    const before = counter.status;
+    await user.click(submitButton());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "登録できませんでした。時間をおいて、もう一度お試しください",
+    );
+    expect(alert.textContent).not.toContain("別の値に直して再送信してください");
+    // 競合の確認の取り直しは、エラーの表示より前に終わる（onSubmit が待つ）。表示の後に、取り直しの回数が増えていないことを確かめる
+    expect(counter.status).toBe(before);
+    expect(screen.queryByText(/完了しています/)).toBeNull();
+    expect((screen.getByLabelText(/会社名/) as HTMLInputElement).value).toBe(
+      VALID.companyName,
+    );
+  });
+
   it.each([
     ["社員ID", "この社員IDは既に使われています"],
     ["メールアドレス", "このメールアドレスは既に使われています"],

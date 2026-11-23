@@ -383,6 +383,73 @@ describe("#149 AC-1 149-B 編集の失敗（計画 10節 #39〜#42）", () => {
     await waitFor(() => expect(disabled(saveOf(dialog))).toBe(true));
   });
 
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、todo_changed と同じ文言でも「ほかの人の変更」の扱いにしない（最新の内容を出さず、保存は押せるまま、次の保存も元の版で送る）", async () => {
+    let attempts = 0;
+    const state = respondTodos([todoItem(1, { assignee: person(MEMBER) })], {
+      people: PEOPLE,
+      respond: (write) => {
+        attempts += 1;
+        if (attempts === 1) {
+          // 競合なら取り直しで届くはずの最新の内容（版 2）を用意しておく
+          state.items = [
+            todoItem(1, {
+              title: "[UNIT_TEST]298最新の題名",
+              assignee: person(PARTICIPANT_CREATOR),
+              version: 2,
+            }),
+          ];
+          return todoError(
+            409,
+            "SESSION_USER_MISMATCH",
+            CASE_TODO_TEXTS.todoChanged,
+          );
+        }
+        return HttpResponse.json({
+          ...todoItem(1, {
+            title: (write.body as { title: string }).title,
+            version: 3,
+          }),
+          progress: { done: 0, total: 1 },
+        });
+      },
+    });
+    const { user } = renderPage(61);
+    const region = await section();
+    const dialog = await openEdit(user, region, todoTitle(1));
+    await retitle(user, dialog, "[[UNIT_TEST]298入力した題名");
+    await user.click(saveOf(dialog));
+    // ふつうの失敗と同じく、サーバーの文言を欄の外に出し、入力は残す
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain(CASE_TODO_TEXTS.todoChanged);
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]298入力した題名");
+    // 競合として扱えば、onSettled が一覧の取り直しを待つ間、保存は押せない。有効に戻るまで待ってから確かめる
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+    expect(dialog.textContent).not.toContain(CASE_TODO_TEXTS.latestPrefix);
+    await user.click(saveOf(dialog));
+    await waitFor(() => expect(state.writes).toHaveLength(2));
+    expect(state.writes[1]?.body).toMatchObject({ version: 1 });
+  });
+
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、todo_deleted と同じ文言でも「削除されている」の扱いにしない（保存は押せるまま）", async () => {
+    respondTodos([todoItem(1)], {
+      people: PEOPLE,
+      respond: () =>
+        todoError(409, "SESSION_USER_MISMATCH", CASE_TODO_TEXTS.todoDeleted),
+    });
+    const { user } = renderPage(62);
+    const region = await section();
+    const dialog = await openEdit(user, region, todoTitle(1));
+    await retitle(user, dialog, "[[UNIT_TEST]298残す");
+    await user.click(saveOf(dialog));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      CASE_TODO_TEXTS.todoDeleted,
+    );
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]298残す");
+    await waitFor(() => expect(disabled(saveOf(dialog))).toBe(false));
+    // 有効に戻った後も、削除済みの扱い（保存を押せなくする）になっていない
+    expect(titleOf(dialog).value).toBe("[UNIT_TEST]298残す");
+  });
+
   it("#149 AC-1 計画 6.2.5（重大4）10節 #40-2: 101件の案件で、T100 が 2ページ目に押し出された後に 409 todo_changed なら、削除とは言わず「閉じてから、一覧で確かめてください」を出し、保存を押せない。入力は残る", async () => {
     const items = Array.from({ length: 101 }, (_, i) => todoItem(i + 1));
     const state = respondTodos(items, {

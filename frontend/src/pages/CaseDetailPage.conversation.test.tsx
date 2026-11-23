@@ -13,7 +13,7 @@
 //   終了の帯の文言 CLOSED_BANNER、投稿できない案内 CANNOT_POST、0件の文言 EMPTY（計画 148-A「画面」）。
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authKeys } from "../features/auth";
 import { installDomStubs, type DomStubs } from "../test/app-shell-harness";
 import {
@@ -212,6 +212,51 @@ describe("#148 5-1 AC-11 終了した案件の S-17（読み取り専用）", ()
     await waitFor(() =>
       expect(screen.queryByRole("textbox", { name: "メッセージ" })).toBeNull(),
     );
+  });
+});
+
+describe("#298 AC-5 投稿の 409 は、コードが CONFLICT のときだけ「終了した」の扱いにする", () => {
+  it("#298 AC-5: 投稿が 409 でも、コードが SESSION_USER_MISMATCH なら、概要・詳細を取り直さず、読み取り専用に切り替えない。入力欄は残る", async () => {
+    const summaries = [caseSummary(41)];
+    const details = [caseDetail(41)];
+    const cases = respondCases({ summaries, details });
+    respondRoom([]);
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        apiErrorResponse(
+          409,
+          "SESSION_USER_MISMATCH",
+          "[UNIT_TEST_298]別の利用者のセッションです",
+        ),
+      ),
+    );
+    const { user, client } = renderPage(41);
+    await conversation();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    // サーバーの状態を「終了」にしておく。競合として扱えば、取り直しで終了が返り、読み取り専用に切り替わってしまう
+    summaries[0] = caseSummary(41, { status: "closed" });
+    details[0] = caseDetail(41, { status: "closed" });
+    const summaryBefore = cases.summaryCalls.length;
+    const detailBefore = cases.detailCalls.length;
+    await user.type(
+      await screen.findByRole("textbox", { name: "メッセージ" }),
+      "298の投稿",
+    );
+    await user.click(screen.getByRole("button", { name: "送信" }));
+    // ふつうの失敗と同じく、入力欄がサーバーの文を出す
+    expect(
+      await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
+    ).toBeTruthy();
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、この案件の取り直しが出されていないことを確かめる
+    expect(
+      invalidate.mock.calls.filter(([filters]) =>
+        JSON.stringify(filters?.queryKey ?? []).includes(caseId(41)),
+      ),
+    ).toEqual([]);
+    expect(cases.summaryCalls.length).toBe(summaryBefore);
+    expect(cases.detailCalls.length).toBe(detailBefore);
+    expect(screen.queryByText(CLOSED_BANNER)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "メッセージ" })).toBeTruthy();
   });
 });
 

@@ -323,6 +323,33 @@ describe("#199 アカウント登録（S-23）", () => {
     await waitFor(() => expect(posts).toBe(2));
   });
 
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、重複の案内にせず、ふつうの失敗の文を出す。入力値は残る", async () => {
+    server.use(
+      http.post(BASE, () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await fillValidForm(user);
+    await user.click(submitButton());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "登録できませんでした。時間をおいて、もう一度お試しください",
+    );
+    expect(alert.textContent).not.toContain("別の利用者のセッションです");
+    expect(alert.textContent).not.toContain("別の値に直して再送信してください");
+    expect((screen.getByLabelText(/社員ID/) as HTMLInputElement).value).toBe(
+      VALID.loginId,
+    );
+  });
+
   it("#199 AC-2: 422 の fields は該当する欄のエラーにする", async () => {
     server.use(
       http.post(BASE, () =>

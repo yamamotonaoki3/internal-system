@@ -133,6 +133,28 @@ describe("#196 AC-1・AC-4 部署の改名", () => {
     },
   );
 
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、サーバーの文言ではなく、ふつうの失敗の文を表示する。一覧の名前は変わらない", async () => {
+    respondDepartments();
+    failWrite("patch", "/api/admin/departments/:id", 409, {
+      code: "SESSION_USER_MISMATCH",
+      message: "[UNIT_TEST_298]別の利用者のセッションです",
+    });
+    const { user } = renderManager();
+    const row = await rowOf(SALES.name);
+    await user.click(within(row).getByRole("button", { name: "名前を変更" }));
+    const input = screen.getByRole("textbox", { name: "部署名" });
+    await user.clear(input);
+    await user.type(input, "[[UNIT_TEST]開発298");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(
+      await screen.findByText(
+        "保存できませんでした。時間をおいて、もう一度お試しください。",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/別の利用者のセッションです/)).toBeNull();
+    expect(await rowOf(SALES.name)).toBeTruthy();
+  });
+
   it("#196 AC-3・AC-4（7-1 2026-11-08承認）: 名前の衝突（409）は案内の文言を表示し、一覧の名前は変わらない", async () => {
     respondDepartments();
     failWrite("patch", "/api/admin/departments/:id", 409, {

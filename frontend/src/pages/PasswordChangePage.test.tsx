@@ -234,6 +234,43 @@ describe("#123 S-03/S-04 本人のパスワード変更", () => {
     },
   );
 
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、「状態が変わりました」の案内にせず、ふつうの失敗の文を出して画面に留まる", async () => {
+    recordChanges(() =>
+      HttpResponse.json(
+        {
+          code: "SESSION_USER_MISMATCH",
+          message: "[UNIT_TEST_298]別の利用者のセッションです",
+        },
+        { status: 409 },
+      ),
+    );
+    const { user } = renderAt("/password");
+    await fillForm(user);
+    await user.click(screen.getByRole("button", { name: "パスワードを変更" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "変更できませんでした。時間をおいて、もう一度お試しください",
+    );
+    expect(alert.textContent).not.toContain("状態が変わりました");
+    expect(screen.getByTestId("path").textContent).toBe("/password");
+  });
+
+  it("#298 AC-5: 409 かつ CONFLICT のときは、今までどおり「状態が変わりました。もう一度お試しください」を出す", async () => {
+    recordChanges(() =>
+      HttpResponse.json(
+        { code: "CONFLICT", message: "[UNIT_TEST_298]競合" },
+        { status: 409 },
+      ),
+    );
+    const { user } = renderAt("/password");
+    await fillForm(user);
+    await user.click(screen.getByRole("button", { name: "パスワードを変更" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "状態が変わりました。もう一度お試しください",
+    );
+    expect(screen.getByTestId("path").textContent).toBe("/password");
+  });
+
   it("#123 0-3 AC-1: 通信失敗時も成功扱いせず画面に留まる", async () => {
     recordChanges(() => HttpResponse.error());
     const { user } = renderAt("/password");

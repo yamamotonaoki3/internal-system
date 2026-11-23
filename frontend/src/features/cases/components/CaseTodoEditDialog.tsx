@@ -33,6 +33,7 @@ import {
   retiredName,
 } from "../labels";
 import { CaseTodoAssigneeOptions } from "./CaseTodoAssigneeOptions";
+import { isConflictError } from "../../../services/api-client";
 
 type Props = {
   caseId: string;
@@ -136,7 +137,7 @@ export function CaseTodoEditDialog({
       return;
     }
     setError(describeError(cause));
-    if (!isApiError(cause) || cause.status !== 409) return;
+    if (!isApiError(cause) || !isConflictError(cause)) return;
     if (cause.message === CASE_TODO_EDIT_TEXTS.todoDeleted) setDeleted(true);
     else if (cause.message === CASE_TODO_EDIT_TEXTS.todoChanged)
       setSince(counts);

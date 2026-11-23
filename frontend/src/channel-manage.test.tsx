@@ -510,6 +510,61 @@ describe("#143 重大1（コードレビュー1回目）編集のダイアログ
     expect(world.patches).toHaveLength(1);
   });
 
+  it("#298 AC-5: 編集の保存が 409 でも、コードが SESSION_USER_MISMATCH なら、「最新の内容を読み込む」を出さず、そのままもう一度保存できる", async () => {
+    const world = respondWorld({
+      patch: () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+    });
+    const { user } = renderDetail();
+    const dialog = await openEdit(user);
+    await user.type(within(dialog).getByLabelText(/説明/), "追記");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    // ふつうの失敗と同じく、サーバーの文を欄の外に出し、入力は残す
+    expect(
+      await within(dialog).findByText(
+        "[UNIT_TEST_298]別の利用者のセッションです",
+      ),
+    ).toBeDefined();
+    expect(within(dialog).queryByText(STALE)).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: "最新の内容を読み込む" }),
+    ).toBeNull();
+    expect(
+      (within(dialog).getByLabelText(/説明/) as HTMLTextAreaElement).value,
+    ).toBe("[E2E_TEST]説明追記");
+    // 保存をやり直せる（競合の後のように、読み込み直すまで止められない）
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(world.patches).toHaveLength(2));
+  });
+
+  it("#298 AC-5: 名前の重複と同じ文言でも、コードが SESSION_USER_MISMATCH なら、名前の欄のエラーにせず、欄の外に出す", async () => {
+    respondWorld({
+      patch: () =>
+        HttpResponse.json(
+          { code: "SESSION_USER_MISMATCH", message: DUPLICATE },
+          { status: 409 },
+        ),
+    });
+    const { user } = renderDetail();
+    const dialog = await openEdit(user);
+    const name = within(dialog).getByLabelText(/名前/);
+    await user.clear(name);
+    await user.type(name, "E2E_TEST_重複298");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    // 欄の外（role=alert）にサーバーの文を出す
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      DUPLICATE,
+    );
+    expect(describedText(name)).not.toContain(DUPLICATE);
+    expect(name.getAttribute("aria-invalid")).not.toBe("true");
+  });
+
   it("#143 重大1: 「最新の内容を読み込む」で、欄が最新の名前・説明になり、その後の保存は新しい版で送る", async () => {
     // 1回目だけ 409。その間に、ほかの人が名前・説明・版を変えている
     const world: World = respondWorld({
@@ -627,6 +682,34 @@ describe("#143 a-AC-2・a-AC-6 アーカイブのダイアログ", () => {
     await reauthenticate(user);
     expect((await screen.findByRole("alert")).textContent).toContain(ALREADY);
     await waitFor(() => expect(world.detailRequests).toBeGreaterThan(before));
+    expect(currentPath()).toBe(`/channels/${ID}`);
+  });
+
+  it("#298 AC-5: アーカイブが 409 でも、コードが SESSION_USER_MISMATCH なら、チャンネルの詳細を取り直さない。サーバーの文は出す", async () => {
+    const world = respondWorld({
+      archive: () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+    });
+    const { user, client } = renderDetail();
+    const dialog = await openArchive(user);
+    const before = world.detailRequests;
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await user.click(
+      within(dialog).getByRole("button", { name: "アーカイブ" }),
+    );
+    await reauthenticate(user);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "[UNIT_TEST_298]別の利用者のセッションです",
+    );
+    // 取り直しの要求は、失敗の処理の中で同期的に出される。エラーの表示の後に、出されていないことを確かめる
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(world.detailRequests).toBe(before);
     expect(currentPath()).toBe(`/channels/${ID}`);
   });
 

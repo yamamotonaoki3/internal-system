@@ -19,6 +19,7 @@ import {
   CONVERSATION_EMPTY_TEXT,
   PARTICIPANTS_ONLY_TEXT,
 } from "../labels";
+import { isConflictError } from "../../../services/api-client";
 
 export function CaseConversation({
   caseId,
@@ -48,7 +49,7 @@ export function CaseConversation({
       : isApiError(cause)
         ? cause
         : null;
-    if (apiError === null || apiError.status !== 409) return;
+    if (apiError === null || !isConflictError(apiError)) return;
     setConflict(describeError(apiError));
     void queryClient.invalidateQueries({
       queryKey: caseKeys.summary(selfId, caseId),

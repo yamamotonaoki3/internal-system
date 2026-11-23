@@ -14,6 +14,7 @@ import {
   useArchiveChannel,
   useRefetchChannelDetail,
 } from "../hooks/useManageChannel";
+import { isConflictError } from "../../../services/api-client";
 
 export function ChannelArchiveDialog({
   channelId,
@@ -57,7 +58,7 @@ export function ChannelArchiveDialog({
     archive.mutate(input, {
       onSuccess: onArchived,
       onError: (error) => {
-        if (isApiError(error) && error.status === 409) void refetchDetail();
+        if (isApiError(error) && isConflictError(error)) void refetchDetail();
       },
     });
   }
