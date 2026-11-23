@@ -466,3 +466,131 @@ describe("#298 AC-6 取り直しの最中の手での書き換えと取り消し
     held.gate.release();
   });
 });
+
+// 【4回目】コードレビュー（cr298c-2）の重大1：409 より前に送られた、古いセッションの要求の答えを、取り直しの答えにしない。
+// query-core の Query.fetch は、データが未設定で取得中のとき、cancelRefetch: true でも、進行中の取得に合流する（prefetchQuery の経路も同じ）。
+// 期待は、決定「409 を受けたら、セッションを1回だけ取り直す」（409 の後の、その時点のセッションの事実）から決めた：
+//   409 の後に新しい要求がサーバーに送られ、結果は、その新しい要求の答えで決まる。古い答え（A）は same・switched の根拠にしない。
+// 2つの経路を作る：
+//   refetchQueries の経路：一度 500 で失敗した（取得済み・データ無し）後、古い取得が進行中
+//   prefetchQuery の経路：キャッシュを消した（一度も取得していない）後、古い取得が進行中
+describe("#298 AC-4・AC-6 409 より前から進行中の、データ未設定の取得に合流しない（コードレビュー cr298c-2 の重大1）", () => {
+  /**
+   * 模擬のサーバーを差し替える：1つ目の要求（409 より前の古い要求）は保留し、解かれたら A を返す。
+   * 2つ目からは served を返す。要求ごとに、食い違いの 409 の後に送られたかを記録する
+   */
+  function overlapWorld() {
+    const gate = deferred();
+    const world = {
+      served: "B" as Served,
+      mismatchSeen: false,
+      /** 要求ごとの「409 の後に送られたか」 */
+      sent: [] as boolean[],
+      gate,
+    };
+    server.use(
+      http.get("/api/auth/session", async () => {
+        const index = world.sent.length;
+        world.sent.push(world.mismatchSeen);
+        if (index === 0) {
+          await gate.promise;
+          return HttpResponse.json(sessionOf(USER_A));
+        }
+        const served = world.served;
+        if (served === "A") return HttpResponse.json(sessionOf(USER_A));
+        if (served === "B") return HttpResponse.json(sessionOf(USER_B));
+        if (served === 401)
+          return HttpResponse.json(
+            { code: "UNAUTHENTICATED", message: "ログインしてください" },
+            { status: 401 },
+          );
+        return HttpResponse.json(
+          { code: "INTERNAL_ERROR", message: "x" },
+          { status: 500 },
+        );
+      }),
+      http.get("/api/[UNIT_TEST]298-mismatch", () => {
+        world.mismatchSeen = true;
+        return HttpResponse.json(
+          { code: "SESSION_USER_MISMATCH", message: "x" },
+          { status: 409 },
+        );
+      }),
+    );
+    return world;
+  }
+
+  type Path = "refetchQueries" | "prefetchQuery";
+
+  /** データ未設定のセッションのクエリで、409 より前に古い取得を始め、要求がサーバーに届くまで待つ */
+  async function startStaleFetch(
+    t: Awaited<ReturnType<typeof setUp>>,
+    path: Path,
+  ) {
+    const authApi = await import("./api/auth-api");
+    t.client.clear();
+    if (path === "refetchQueries") {
+      // 一度 500 で失敗させる（取得済み・データ無し。refetchQueries の対象になる）
+      t.world.served = 500;
+      await t.client
+        .fetchQuery({
+          queryKey: SESSION_KEY,
+          queryFn: authApi.fetchSession,
+          retry: false,
+        })
+        .catch(() => undefined);
+    }
+    const world = overlapWorld();
+    void t.client.prefetchQuery({
+      queryKey: SESSION_KEY,
+      queryFn: authApi.fetchSession,
+      retry: false,
+    });
+    await vi.waitFor(() => expect(world.sent).toEqual([false]));
+    expect(t.client.getQueryData(SESSION_KEY)).toBeUndefined();
+    expect(t.client.getQueryState(SESSION_KEY)?.fetchStatus).toBe("fetching");
+    return world;
+  }
+
+  describe.each(["refetchQueries", "prefetchQuery"] as const)(
+    "%s の経路",
+    (path: Path) => {
+      it.each([
+        { served: "B" as const, expected: "switched" as const },
+        { served: 401 as const, expected: "unauthenticated" as const },
+        { served: 500 as const, expected: "unknown" as const },
+      ])(
+        "#298 AC-4・AC-6: 古い要求の答えが A、409 の後の新しい要求の答えが $served：新しい要求を1回送り、結果は $expected（古い A を same にしない）",
+        async ({ served, expected }) => {
+          const t = await setUp();
+          const world = await startStaleFetch(t, path);
+          world.served = served;
+          await t.mismatch();
+          const outcome = t.handler.confirmSessionUserAfterMismatch();
+          // 古い要求の答え（A）を届ける。合流していれば、これが答えになり same になる
+          world.gate.release();
+          expect(await outcome).toBe(expected);
+          // 409 の後に、新しい要求が1回だけ送られた
+          expect(world.sent).toEqual([false, true]);
+          expect(t.onOtherUser).toHaveBeenCalledTimes(
+            expected === "switched" ? 1 : 0,
+          );
+        },
+      );
+
+      it("#298 AC-6（決定2）: 古い要求の答えが A で、409 の後の答えも A なら same。古い答えを数えないので、same の回数は1つだけ増える（続けて same・unknown）", async () => {
+        const t = await setUp();
+        const world = await startStaleFetch(t, path);
+        world.served = "A";
+        await t.mismatch();
+        const outcome = t.handler.confirmSessionUserAfterMismatch();
+        world.gate.release();
+        expect(await outcome).toBe("same");
+        expect(world.sent).toEqual([false, true]);
+        // 1回目の same の後：2回目は same、3回目は unknown（古い答えを別に数えていれば、ずれる）
+        expect(await cycle(t)).toBe("same");
+        expect(await cycle(t)).toBe("unknown");
+      });
+    },
+  );
+});

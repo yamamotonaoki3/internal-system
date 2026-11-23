@@ -37,6 +37,9 @@ let options: Options | undefined;
 let inFlight: Promise<SessionUserOutcome> | null = null;
 let sameStreak = 0;
 let lastSameAt = 0;
+/** 登録の後に最初に分かったセッションの利用者。文書の利用者を登録していないとき（単体で使うとき）の、比べる相手 */
+let firstSeenUserId: string | undefined;
+let stopWatchingFirstUser: (() => void) | undefined;
 
 function readUserId(queryClient: QueryClient): string | undefined {
   return queryClient.getQueryData<SessionInfo>(authKeys.session)?.user.id;
@@ -56,6 +59,13 @@ async function refetchSession(
   queryClient: QueryClient,
   query: Query<SessionInfo, Error, SessionInfo, typeof authKeys.session>,
 ): Promise<void> {
+  // データが無いと、refetchQueries・prefetchQuery は進行中の取得に合流する（cancelRefetch はデータがあるときだけ働く）。
+  // 409 より前に送られた要求の答えを使わないよう、進行中なら先に取り消す（取り消された取得の答えは、後から届いても書かれない）
+  if (query.state.fetchStatus !== "idle")
+    await queryClient.cancelQueries({
+      queryKey: authKeys.session,
+      exact: true,
+    });
   // 一度も取得していない・ログアウトで消えた後は、refetchQueries の対象にならないので、新しく取る
   if (query.isDisabled()) {
     await queryClient.prefetchQuery({
@@ -73,7 +83,7 @@ async function refetchSession(
 
 async function judge(registered: Options): Promise<SessionUserOutcome> {
   const { queryClient, onOtherUser } = registered;
-  const expected = getDocumentUserId() ?? readUserId(queryClient);
+  const expected = getDocumentUserId() ?? firstSeenUserId;
   const query = queryClient
     .getQueryCache()
     .build<SessionInfo, Error, SessionInfo, typeof authKeys.session>(
@@ -152,6 +162,12 @@ export function createSessionUserMismatchHandler(
   // 前の登録の進行中の取り直し・続いた回数を、新しい登録に持ち越さない
   inFlight = null;
   sameStreak = 0;
+  stopWatchingFirstUser?.();
+  const { queryClient } = registered;
+  firstSeenUserId = readUserId(queryClient);
+  stopWatchingFirstUser = queryClient.getQueryCache().subscribe(() => {
+    firstSeenUserId ??= readUserId(queryClient);
+  });
   return () => {
     confirmSessionUserAfterMismatch().catch((error: unknown) =>
       reportError(error),
