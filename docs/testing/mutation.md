@@ -132,6 +132,26 @@ PR時の通常テスト・型・Lint・セキュリティ検査等の全体確�
   - 合わせて 12 件（`it`の宣言は 5 個。`it.each`の展開後の件数）
   - **再実行**：テストを足した後に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、frontend 284 ファイル・3,165 件のテストと、型・Lint・整形が成功している。後追いは Issue #374
   - 本番のコードの不具合は、見つかっていない
+- 対象（Issue #341。別のタブへの、資格の喪失の合図）：資格を失った人の端末に残る中身と、消すと戻らない下書きに関わるもので、マージの前に、変えた行に絞って診断した（マージは止めない方針に従う）。対象は、`frontend/src/features/access-loss/access-loss-broadcast.ts`（新規）・`frontend/src/features/cases/case-access-loss-relay.ts`（新規）・`frontend/src/features/cases/hooks/useCaseAccessLoss.ts`・`useCaseWrites.ts`・`frontend/src/main.tsx`。バックエンド・`shared/`は変えていないので、対象に含めない
+- `stryker.config.json`の`mutate`（Issue #341）：新しい2ファイルと`useCaseAccessLoss.ts`は、既存のグロブ（`features/access-loss`・`features/cases`の指定）に含まれていなかったので、**3ファイルを、ファイル名で足した**（既存の並び・書き方に合わせて、`leave-guard`の指定の後ろに。ほかは変えていない）。`useCaseWrites.ts`・`main.tsx`は、今回の絞った診断では指定したが、`mutate`には足していない（#340 のときも、これらは足していない）
+- 絞った診断の結果（Issue #341。2026-11-23。対象のコミットは`3c92913`。画面の側だけ。`--concurrency 2 --ignoreStatic`）：結果の JSON を数え直して確かめた（数は報告と一致した）。約17分
+  - 変異 128 個：検出 115・生き残り 8・未カバー 4・エラー 1。全体 90.55%（検出 ÷ 〔検出 + 生き残り + 未カバー〕。エラーは分母に入れない）。カバーした分だけでは 93.50%
+  - ファイルごと：`access-loss-broadcast.ts` 95.24%（検出 40・生き残り 2・エラー 1）・`case-access-loss-relay.ts` 92.31%（検出 48・生き残り 4）・`useCaseAccessLoss.ts` 92.86%（検出 26・生き残り 2）・`useCaseWrites.ts` 100%（検出 1）・`main.tsx` 0%（変異 4 個が、4 個とも未カバー）
+  - `main.tsx`の未カバー 4 個：起動のときの、中継の登録と、登録が失敗したときの`reportError`の配線で、既存のテストに起動を通すものがなかった。**テストを足して、埋めた**（下）
+  - 生き残りの中身：
+    - 同じ動きになる変異（同値）と判断したもの 2 個：`case-access-loss-relay.ts`の`judgeHintedSummary`の、`"participant"`と`"unknown"`の文字列（24・27 行目）。呼び出し側が、`"outsider"`かどうかだけを比べるので、この 2 つを別の文字列にしても、動きが変わらない。**同値であることの確かめは、コードを読んだだけ**（証明ではない）。ADR-0023 の例外としては記録していない
+    - 残りの 6 個（下の「見逃しを埋めたテスト」の対象と同じ場所。足した後の再実行はしていないので、これで検出できたかは、未確認）：`access-loss-broadcast.ts`の`isSecurityError`の`&&`と、その条件（2 個）／`case-access-loss-relay.ts`の、セッションのキャッシュがないときと、概要がキャッシュにないときの、静かな破棄（`?.`。2 個）／`useCaseAccessLoss.ts`の、`lossAnnounced`の初期値と、(a) の`notFound`の合図の呼び出し（2 個）
+    - エラー 1 個：`access-loss-broadcast.ts`の、検証を外すと、実行時エラーになる変異（検出として数えない。分母に入れない）
+- 条件の対照（Issue #341）：Stryker が変異を作りにくい、条件・呼ぶ順を、1つずつ外した版で、対応するテストが落ちるかを、手で確かめた。外した場所は 54 通りで、**43 通りで検出し、11 通りが見逃し**だった
+  - 見逃し 11：`lossAnnounced`の初期値／表示中の`notFound`の合図／画面を離れた後の`notFound`の合図／画面を離れた後の`unverified`で、合図を送らないこと／(b) の「入口 → 合図 → 下書きの消去」の順と、画面を離れた後の順（合わせて 4 通り）／`isSecurityError`の`&&`／セッションのキャッシュがないときの静かな破棄／概要がキャッシュにないときの静かな破棄
+- 見逃しを埋めたテスト（Issue #341。ミューテーションの後に追加。条件を一時的に変えて落ちること、戻して通ることを確かめた）：
+  - 最初から参加者として描いたタブの、経路ごとの合図と順序（`frontend/src/pages/CaseAccessLossReload.test.tsx`。表示中の`lost`・`notFound`・(b)・画面を離れた後の`lost`・`notFound`・`unverified`で送らないこと）
+  - 受ける側が、`reportError`を呼ばずに、静かに捨てること（`frontend/src/features/cases/case-access-loss-relay.test.ts`。既存の7つのテストに、期待を足した）
+  - `SecurityError`でない例外を、もみ消さないこと（`frontend/src/features/access-loss/access-loss-broadcast.test.ts`。`it.each`で 3 件）
+  - 起動のときの、中継の登録と、登録が失敗しても描画が続くこと（新規`frontend/src/main.test.tsx`。2 件）
+  - **足さなかったものは、ない**
+  - **再実行**：テストを足した後に、ミューテーションの再実行はしていない。上のスコアは、足す前の値で、足した後のスコアではない。足した後は、frontend 289 ファイル・3,244 件のテストと、型・Lint・整形が成功している。後追いは Issue #377
+  - 本番のコードの不具合は、見つかっていない
 
 ## 5. 後始末
 
