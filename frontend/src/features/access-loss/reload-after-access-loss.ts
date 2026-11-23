@@ -2,6 +2,8 @@
 // 状態は文書ごとに1つ：idle → waiting（持ち主・理由を持つ）→ reloading（以後 idle に戻らない）。時間による歯止めは持たない（AC-4）。
 // 待機の持ち主は、確定を始めた時点の利用者。いまのセッションが持ち主と別の利用者になったら取りやめる。セッションが無いだけ（401・ログアウトの後）では取りやめない（AC-3）。
 // 進行中の操作（MutationCache の pending と、API の直接の書き込み）は、最初の要求から最大5秒待つ。持ち主が押したログアウトだけは上限なしで、その後処理が終わるまで待つ（AC-2・AC-3）。
+// 利用者の切り替え（#298・ADR-0035）の読み込み直しは、別の入口 requestUserSwitchReload にする。状態・覆い・離脱の確認の抑止・5秒の待ち方は同じだが、
+// 持ち主・取りやめ・知らせを持たない（文書の利用者は変わらないので、戻っても読み込み直す）。動き出したら、#338 の要求は何もしない。
 import type { Mutation, QueryClient } from "@tanstack/react-query";
 import {
   getPendingWriteCount,
@@ -10,6 +12,7 @@ import {
 import { authKeys, type SessionInfo } from "../auth";
 import { restoreBeforeUnload, suppressBeforeUnload } from "../leave-guard";
 import {
+  clearAccessLossNotice,
   writeAccessLossNotice,
   type AccessLossNoticeKind,
 } from "./access-loss-notice";
@@ -38,11 +41,14 @@ type Waiting = {
   /** その案件の部屋の下書きを消せなかった（noteDraftsRemain。#340） */
   draftsRemain: boolean;
   cancel: () => void;
+  /** 切り替えの入口に引き継ぐ：抑止を外さず、idle に戻さず、知らせを書かずに止める */
+  handOver: () => void;
   done: Promise<void>;
 };
 
 let state: AccessLossReloadState = "idle";
 let waiting: Waiting | null = null;
+let userSwitchRequested = false;
 const listeners = new Set<() => void>();
 
 function setState(next: AccessLossReloadState): void {
@@ -63,6 +69,14 @@ export function subscribeAccessLossReloadState(
 
 function readUserId(queryClient: QueryClient): string | undefined {
   return queryClient.getQueryData<SessionInfo>(authKeys.session)?.user.id;
+}
+
+/** 進行中の操作（MutationCache の pending と、API の直接の書き込み）があるか */
+function hasPendingOperations(queryClient: QueryClient): boolean {
+  return (
+    queryClient.getMutationCache().findAll({ status: "pending" }).length > 0 ||
+    getPendingWriteCount() > 0
+  );
 }
 
 function isOtherUser(queryClient: QueryClient, ownerId: string): boolean {
@@ -126,6 +140,11 @@ function startWaiting(
       setState("idle");
       resolveDone();
     },
+    handOver: () => {
+      stopAll();
+      waiting = null;
+      resolveDone();
+    },
   };
 
   // 待つべき操作が残っているか。上限の内は、すべての進行中の操作（MutationCache の pending と、API の直接の書き込み）を、
@@ -137,7 +156,7 @@ function startWaiting(
     if (pending.some((mutation) => isOwnersLogout(mutation, entry.ownerId)))
       return true;
     if (limitReached) return false;
-    return pending.length > 0 || getPendingWriteCount() > 0;
+    return hasPendingOperations(queryClient);
   };
 
   const finish = () => {
@@ -194,6 +213,8 @@ export function requestAccessLossReload(
   queryClient: QueryClient,
   request: AccessLossReloadRequest,
 ): Promise<void> {
+  // 切り替えの入口が動き出した後は、持ち主に関わらず何もしない（抑止を外さず、読み込み直しを2回にしない）
+  if (userSwitchRequested) return Promise.resolve();
   if (isOtherUser(queryClient, request.ownerId)) return Promise.resolve();
   if (state === "reloading") return Promise.resolve();
   if (waiting !== null) {
@@ -216,4 +237,59 @@ export function requestAccessLossReload(
 export function noteDraftsRemain(ownerId: string): void {
   if (waiting === null || waiting.ownerId !== ownerId) return;
   waiting.draftsRemain = true;
+}
+
+function startUserSwitchWaiting(queryClient: QueryClient): void {
+  let limitReached = false;
+  let nextTask: ReturnType<typeof setTimeout> | undefined;
+  const stops: (() => void)[] = [];
+
+  // 待つのは、Cookie が替わる前に送られ、受理されうる操作の後処理（投稿の後の下書きの消去など）。上限の後は待たない
+  const mustWait = () => !limitReached && hasPendingOperations(queryClient);
+
+  const finish = () => {
+    nextTask = undefined;
+    if (mustWait()) return;
+    clearTimeout(limitTimer);
+    stops.splice(0).forEach((stop) => stop());
+    // 前の文書で保存済みの喪失の知らせは、新しい文書で次の利用者に出てしまうので消す（Q7：切り替えの知らせは出さない）
+    clearAccessLossNotice();
+    setState("reloading");
+    reloadPage();
+  };
+
+  const check = () => {
+    if (nextTask !== undefined || mustWait()) return;
+    nextTask = setTimeout(finish, 0);
+  };
+
+  const limitTimer = setTimeout(() => {
+    limitReached = true;
+    check();
+  }, WAIT_LIMIT_MS);
+
+  suppressBeforeUnload();
+  setState("waiting");
+  stops.push(
+    queryClient.getMutationCache().subscribe(check),
+    subscribePendingWrites(check),
+  );
+  check();
+}
+
+/**
+ * セッションの利用者が、文書の利用者と別の利用者に替わったときに呼ぶ（#298。main.tsx が、見張りと 409 の後の取り直しに渡す）。
+ * 何回呼ばれても1回だけ働く。#338 の待機中なら、抑止を途切れさせずに引き継ぐ。読み込み直しは1つ後のタスクの後、受理済みの操作を最大5秒待ってから
+ */
+export function requestUserSwitchReload(queryClient: QueryClient): void {
+  if (userSwitchRequested) return;
+  userSwitchRequested = true;
+  if (state === "reloading") return;
+  waiting?.handOver();
+  startUserSwitchWaiting(queryClient);
+}
+
+/** 切り替えの入口が呼ばれたか（呼ばれた後、この文書の間ずっと真。資格の確かめが、食い違いを喪失と取り違えないために読む） */
+export function isUserSwitchReloadRequested(): boolean {
+  return userSwitchRequested;
 }

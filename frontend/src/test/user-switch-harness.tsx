@@ -4,8 +4,9 @@
 // 描画の確定ごとの見張り（render-watch）で App 全体を包む。既存の renderApp（app-shell-harness.tsx）は変えない。
 // 終わりに disposeUserSwitchApps で見張りの登録を解除する（afterEach で呼ぶ）。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { App } from "../App";
 import {
@@ -28,10 +29,23 @@ import {
 import { createRenderWatch, type RenderWatch } from "./render-watch";
 
 const disposers: (() => void)[] = [];
+const clients: QueryClient[] = [];
+
+/**
+ * 描画した App の通信が、すべて終わるのを待つ（afterEach で、disposeUserSwitchApps の前に呼ぶ）。
+ * 終わる前にテストを閉じると、通信の続きが模擬のサーバーの後始末の後に届き、
+ * 401 の共通の処理（全体で1つ）を通して、次のテストの画面を /login へ移してしまうため。
+ */
+export async function settleUserSwitchApps(): Promise<void> {
+  await waitFor(() => {
+    for (const client of clients) expect(client.isFetching()).toBe(0);
+  });
+}
 
 /** renderUserSwitchApp で登録した見張りを解除する（afterEach で呼ぶ） */
 export function disposeUserSwitchApps(): void {
   for (const dispose of disposers.splice(0)) dispose();
+  clients.splice(0);
 }
 
 export function renderUserSwitchApp(
@@ -51,6 +65,7 @@ export function renderUserSwitchApp(
         mutations: { retry: false },
       },
     });
+  clients.push(client);
   const router = createMemoryRouter(
     [
       {

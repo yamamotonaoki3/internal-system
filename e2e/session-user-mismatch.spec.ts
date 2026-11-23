@@ -22,7 +22,10 @@ import { expect, test } from "./console-guard";
 const ORIGIN = "http://localhost:5173";
 const PASSWORD = "TestPass123!";
 const HEADER = "x-expected-user-id";
-const USER_A = { id: "01JTE2E00000000000M0005298", login: "e2euser_mismatch_001" };
+const USER_A = {
+  id: "01JTE2E00000000000M0005298",
+  login: "e2euser_mismatch_001",
+};
 const USER_B = {
   id: "01JTE2E00000000000M0006298",
   login: "e2euser_mismatch_002",

@@ -23,6 +23,7 @@ import {
 import {
   disposeUserSwitchApps,
   renderUserSwitchApp,
+  settleUserSwitchApps,
 } from "./test/user-switch-harness";
 
 /** 文書の利用者 A の ID（ヘッダーの期待の値。本番の定義から取らない） */
@@ -32,10 +33,7 @@ const NEW_PASSWORD = "Qz7!kLm2#Rv9wX";
 type App = ReturnType<typeof renderUserSwitchApp>;
 
 async function logIn(app: App, user: MismatchUser) {
-  await app.user.type(
-    await screen.findByLabelText("ユーザーID"),
-    user.loginId,
-  );
+  await app.user.type(await screen.findByLabelText("ユーザーID"), user.loginId);
   await app.user.type(screen.getByLabelText("パスワード"), TEST_PASSWORD);
   await app.user.click(screen.getByRole("button", { name: "ログイン" }));
 }
@@ -45,7 +43,9 @@ async function sessionSettled(app: App) {
     expect(
       app.client.getQueryState(authKeys.session)?.fetchStatus ?? "idle",
     ).toBe("idle"),
-  );
+  ); // ログイン後の枠が出て、その画面の通信が始まってから、afterEach の settleUserSwitchApps で終わりを待つ
+  // （始まる前に閉じると、通信が後始末の後に届き、次のテストの画面を /login へ移す）
+  await screen.findByRole("button", { name: "ログアウト" });
 }
 
 let stubs: DomStubs;
@@ -53,7 +53,9 @@ beforeEach(() => {
   stubs = installDomStubs();
   vi.mocked(requestUserSwitchReload).mockClear();
 });
-afterEach(() => {
+afterEach(async () => {
+  // 前のテストの通信の続きが、次のテストの画面を /login へ移さないよう、終わるのを待つ
+  await settleUserSwitchApps();
   disposeUserSwitchApps();
   stubs.restore();
 });
@@ -62,8 +64,10 @@ describe("#298 AC-4 新しい文書の初期化と、切り替えの読み込み
   it("#298 AC-4 (i): A が通常のログアウト → /login → B でログイン：読み込み直しを1回求める（ログインの後の移動・続く取り直しと重なっても1回）。ログアウトは A のヘッダーで送られる", async () => {
     const world = respondMismatchWorld(MISMATCH_USER_A);
     const app = renderUserSwitchApp("/", { needles: [] });
-    await screen.findByRole("main");
-    await app.user.click(screen.getByRole("button", { name: "ログアウト" }));
+    // 「ログイン状態の確認中」の main ではなく、ログイン後の画面が出るのを待つ
+    await app.user.click(
+      await screen.findByRole("button", { name: "ログアウト" }),
+    );
     await waitFor(() =>
       expect(app.router.state.location.pathname).toBe("/login"),
     );
@@ -91,8 +95,10 @@ describe("#298 AC-4 新しい文書の初期化と、切り替えの読み込み
   it("#298 AC-4 (i)（対照）: A が通常のログアウト → A で再ログイン：読み込み直しは求めない（0回）", async () => {
     respondMismatchWorld(MISMATCH_USER_A);
     const app = renderUserSwitchApp("/", { needles: [] });
-    await screen.findByRole("main");
-    await app.user.click(screen.getByRole("button", { name: "ログアウト" }));
+    // 「ログイン状態の確認中」の main ではなく、ログイン後の画面が出るのを待つ
+    await app.user.click(
+      await screen.findByRole("button", { name: "ログアウト" }),
+    );
     await waitFor(() =>
       expect(app.router.state.location.pathname).toBe("/login"),
     );
@@ -165,9 +171,9 @@ describe("#298 AC-4 新しい文書の初期化と、切り替えの読み込み
       screen.getByRole("button", { name: "パスワードを変更" }),
     );
     await waitFor(() =>
-      expect(
-        requestsTo(world, "PUT", /\/api\/me\/password$/)[0]?.status,
-      ).toBe(200),
+      expect(requestsTo(world, "PUT", /\/api\/me\/password$/)[0]?.status).toBe(
+        200,
+      ),
     );
     expect(requestsTo(world, "PUT", /\/api\/me\/password$/)[0]?.header).toBe(
       A_ID,

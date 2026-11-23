@@ -52,6 +52,15 @@ export type MismatchWorld = {
   setupDone: boolean;
 };
 
+type GuardedResult = {
+  status: number;
+  body: unknown;
+  holdAfterArrival?: Promise<void> | null;
+};
+
+/** MSW のハンドラーが受け取る要求の型（グローバルの Request は Workers の型で食い違うため） */
+type MswRequest = Parameters<HttpResponseResolver>[0]["request"];
+
 const json = (body: unknown, status = 200) =>
   HttpResponse.json(body as Record<string, unknown>, { status });
 
@@ -78,7 +87,7 @@ export function respondMismatchWorld(
   };
   respondPublicStatus();
 
-  const record = (request: Request, status: number) => {
+  const record = (request: MswRequest, status: number) => {
     world.requests.push({
       method: request.method,
       path: new URL(request.url).pathname,
@@ -93,7 +102,7 @@ export function respondMismatchWorld(
       make: (
         user: MismatchUser,
         info: Parameters<HttpResponseResolver>[0],
-      ) => Promise<{ status: number; body: unknown }> | { status: number; body: unknown },
+      ) => Promise<GuardedResult> | GuardedResult,
     ): HttpResponseResolver =>
     async (info) => {
       const { request } = info;
@@ -116,8 +125,10 @@ export function respondMismatchWorld(
           409,
         );
       }
-      const { status, body } = await make(user, info);
+      const { status, body, holdAfterArrival } = await make(user, info);
+      // 届いた時点で記録し、そのあとで応答を保留する（保留中も、届いたヘッダーを確かめられるように）
       record(request, status);
+      if (holdAfterArrival) await holdAfterArrival;
       if (status === 204) return new HttpResponse(null, { status: 204 });
       return json(body, status);
     };
@@ -237,9 +248,8 @@ export function respondMismatchWorld(
           request.headers.get("X-File-Name") ?? "",
         );
         const size = (await request.arrayBuffer()).byteLength;
-        const hold = world.uploadHold;
-        if (hold !== null) await hold;
         return {
+          holdAfterArrival: world.uploadHold,
           status: 201,
           body: {
             id: "01JTESTATT298WORLD00000001",

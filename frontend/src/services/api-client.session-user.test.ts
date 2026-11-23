@@ -10,7 +10,7 @@
 //   features/auth（index）の installDocumentUser(queryClient): () => void と expectedUserIdFor（provider の形）
 // データはすべて架空（testuser_298_・[UNIT_TEST]）。
 import { QueryClient } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
 
@@ -39,7 +39,7 @@ async function freshDocument() {
 /** 受けた要求のヘッダーを記録する（どの要求にも 200 を返す） */
 function recordHeaders() {
   const seen: { method: string; path: string; header: string | null }[] = [];
-  const record = ({ request }: { request: Request }) => {
+  const record: HttpResponseResolver = ({ request }) => {
     seen.push({
       method: request.method,
       path: new URL(request.url).pathname,
@@ -73,12 +73,13 @@ describe("#298 AC-3 api-client のヘッダーの提供元", () => {
   it("#298 AC-3: 登録した提供元の値をヘッダーに付ける。提供元は、要求の method と url を受け取る", async () => {
     const { api } = await freshDocument();
     const rec = recordHeaders();
-    const provider = vi.fn(() => USER_A);
+    const provider = vi.fn<
+      (request: { method: string; url: string }) => string
+    >(() => USER_A);
     api.setExpectedUserIdProvider(provider);
     await api.apiClient.post("/[UNIT_TEST]298-write", { value: 1 });
     expect(rec.last()?.header).toBe(USER_A);
-    const request = provider.mock.calls[0]?.[0] as
-      { method: string; url: string } | undefined;
+    const request = provider.mock.calls[0]?.[0];
     expect(request?.method.toLowerCase()).toBe("post");
     expect(request?.url).toBe("/[UNIT_TEST]298-write");
   });

@@ -3,6 +3,8 @@
 // 403・404 は参加者のままでも起こりうる（perm.case.view がない等）ので、それだけで決めず、概要を取り直した結果で決める。
 // 401 は共通の処理（セッション切れ）に、5xx・通信の失敗は既存の表示とポーリングの続きに任せる（AC-3）。
 // 部屋・TODO のポーリングは 403・404 で止まるため、概要の取り直しが失敗したときは次の契機がない。中身を隠して再試行を出す（安全な側）。
+// 概要の取り直しが 409 SESSION_USER_MISMATCH（画面の利用者とセッションの利用者の食い違い。#298・#376）なら、409 の後のセッションの取り直しを待ち、
+// 切り替えの入口が動いたと確かめられたときだけ何もしない（文書ごと替わる）。それ以外は確かめられない（unverified）に倒す（Q14）。
 import {
   matchQuery,
   useQueryClient,
@@ -11,8 +13,11 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   announceCaseAccessLoss,
+  isUserSwitchReloadRequested,
   requestAccessLossReload,
 } from "../../access-loss";
+import { confirmSessionUserAfterMismatch } from "../../auth";
+import { isSessionUserMismatchError } from "../../../services/api-client";
 import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
@@ -32,26 +37,48 @@ export function isCaseNotFound(error: unknown): boolean {
   return isApiError(error) && error.status === 404;
 }
 
-type Verdict = "participant" | "lost" | "notFound" | "unverified";
+/** switched：利用者の切り替えで文書ごと読み込み直す（喪失ではないので、何もしない） */
+type Verdict = "participant" | "lost" | "notFound" | "unverified" | "switched";
 
+/** 答えが無い（取り消し等）・切り替えの後の確かめ：切り替えの入口が動いていれば switched、そうでなければ確かめられない */
+function switchedOrUnverified(): Verdict {
+  return isUserSwitchReloadRequested() ? "switched" : "unverified";
+}
+
+async function verdictAfterMismatch(): Promise<Verdict> {
+  const outcome = await confirmSessionUserAfterMismatch();
+  return outcome === "switched" ? switchedOrUnverified() : "unverified";
+}
+
+/**
+ * 概要を取り直し、この取り直しの答えで決める。答えは、控えた Query の更新の回数（成功・失敗）が1つだけ増えたかで見分ける：
+ * 取り消しの revert は保存済みのデータを成功として返し、取り直しの後にキャッシュが捨てられることもあるため、キャッシュを後から読まない。
+ * 失敗の表示は呼び出し側（確かめられない表示・概要の失敗の表示）が出す
+ */
 async function verifyParticipant(
   queryClient: QueryClient,
   summaryKey: ReturnType<typeof caseKeys.summary>,
 ): Promise<Verdict> {
-  try {
-    await queryClient.refetchQueries(
-      { queryKey: summaryKey, exact: true },
-      { throwOnError: true },
-    );
-  } catch (cause) {
-    // 失敗の結果は判定に使い、表示は呼び出し側（確かめられない表示・概要の失敗の表示）が出す
-    if (isCaseNotFound(cause)) return "notFound";
+  const query = queryClient
+    .getQueryCache()
+    .find<CaseSummary>({ queryKey: summaryKey, exact: true });
+  if (query === undefined) return switchedOrUnverified();
+  const dataBefore = query.state.dataUpdateCount;
+  const errorBefore = query.state.errorUpdateCount;
+  await queryClient.refetchQueries({ queryKey: summaryKey, exact: true });
+  const dataGrew = query.state.dataUpdateCount - dataBefore;
+  const errorGrew = query.state.errorUpdateCount - errorBefore;
+  if (dataGrew === 1 && errorGrew === 0)
+    return query.state.data?.isParticipant === true ? "participant" : "lost";
+  if (dataGrew === 0 && errorGrew === 1) {
+    const { error } = query.state;
+    if (isCaseNotFound(error)) return "notFound";
+    if (isSessionUserMismatchError(error)) return verdictAfterMismatch();
     return "unverified";
   }
-  return queryClient.getQueryData<CaseSummary>(summaryKey)?.isParticipant ===
-    true
-    ? "participant"
-    : "lost";
+  if (dataGrew === 0 && errorGrew === 0) return switchedOrUnverified();
+  // ほかからの書き換えと重なり、どれがこの取り直しの答えか見分けられない
+  return "unverified";
 }
 
 /**
@@ -191,6 +218,8 @@ export function useCaseAccessLoss({
   );
   useEffect(() => {
     settle.current = (verdict, retried) => {
+      // 文書ごと読み込み直すので、片付け・読み込み直しの予約・合図・下書きの消去・表示の切り替えをしない
+      if (verdict === "switched") return;
       if (!mounted.current) {
         // 非参加・404・確かめられないときは、元の案件の中身を取り除く（戻ったときに古い内容を出さない。AC-2）。部屋の分も、ほかの機能のキャッシュに残りうる（#323）。
         // スレッドは、移動先のものを巻き込まないよう、この部屋のものだけ（"room"）

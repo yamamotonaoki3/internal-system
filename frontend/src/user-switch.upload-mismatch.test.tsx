@@ -52,10 +52,9 @@ describe("#298 AC-3（重大1） アップロードの保留中の切り替え",
     const app = renderUserSwitchApp(`/channels/${MISMATCH_CHANNEL_ID}`, {
       needles: [],
     });
-    const main = await screen.findByRole("main");
-    const box = await within(main).findByRole("textbox", {
-      name: "メッセージ",
-    });
+    // 「ログイン状態の確認中」の main が先に見つかるため、目的の入力欄が出るのを待ってから main を取る
+    const box = await screen.findByRole("textbox", { name: "メッセージ" });
+    const main = screen.getByRole("main");
     await app.user.type(box, BODY);
     await app.user.upload(
       within(main).getByLabelText("ファイルを添付"),
@@ -71,8 +70,7 @@ describe("#298 AC-3（重大1） アップロードの保留中の切り替え",
       ).toHaveLength(1),
     );
     expect(
-      requestsTo(world, "POST", /\/api\/rooms\/[^/]+\/attachments$/)[0]
-        ?.header,
+      requestsTo(world, "POST", /\/api\/rooms\/[^/]+\/attachments$/)[0]?.header,
     ).toBe(A_ID);
 
     // 別のタブで B がログインした（Cookie が B に替わった）。この文書のセッションの取り直しが B を返す
@@ -106,10 +104,9 @@ describe("#298 AC-3（重大1） アップロードの保留中の切り替え",
     const app = renderUserSwitchApp(`/channels/${MISMATCH_CHANNEL_ID}`, {
       needles: [],
     });
-    const main = await screen.findByRole("main");
-    const box = await within(main).findByRole("textbox", {
-      name: "メッセージ",
-    });
+    // 「ログイン状態の確認中」の main が先に見つかるため、目的の入力欄が出るのを待ってから main を取る
+    const box = await screen.findByRole("textbox", { name: "メッセージ" });
+    const main = screen.getByRole("main");
     await app.user.type(box, BODY);
     await app.user.upload(
       within(main).getByLabelText("ファイルを添付"),

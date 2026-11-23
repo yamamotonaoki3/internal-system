@@ -7,7 +7,7 @@
 // 本物の入口は文書ごとに1つの状態（以後 idle に戻らない）を持つため、このファイルは1件だけにする（CaseAccessLossCrossTab.limit.test.tsx と同じ）。
 // jsdom は inert を実装しないため、クリックで届かないことは「包みに hidden と inert が付く」で確かめ、実際のクリック・Tab は E2E（e2e/session-user-mismatch.spec.ts）で確かめる。
 // データはすべて架空（testuser_298_・[UNIT_TEST]）。
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reloadPage } from "./features/access-loss/browser-location";
 import { authKeys } from "./features/auth";
@@ -54,10 +54,8 @@ describe("#298 AC-4 切り替えの読み込み直しの画面", () => {
       needles: [],
       boundary: true,
     });
-    const main = await screen.findByRole("main");
-    const box = await within(main).findByRole("textbox", {
-      name: "メッセージ",
-    });
+    // 「ログイン状態の確認中」の main が先に見つかるため、目的の入力欄が出るのを待ってから main を取る
+    const box = await screen.findByRole("textbox", { name: "メッセージ" });
     await app.user.type(box, "298書きかけ");
     // 対照：切り替えの前は、変更ありの見張りが beforeunload を止める
     expect(beforeUnloadPrevented()).toBe(true);
@@ -73,9 +71,7 @@ describe("#298 AC-4 切り替えの読み込み直しの画面", () => {
     });
 
     // 覆いが出る（包みの外の dialog）
-    expect(
-      await screen.findByRole("dialog", { name: OVERLAY }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: OVERLAY })).toBeTruthy();
     expect(beforeUnloadPrevented()).toBe(false);
     // ルーターの下は、hidden と inert の付いた包みの中（覆いは包みの外）。
     // A の入力欄は、二重の守り（ADR-0030 の作り直し）で外れていることもあるので、包みそのものと、読み上げの対象にならないことで確かめる

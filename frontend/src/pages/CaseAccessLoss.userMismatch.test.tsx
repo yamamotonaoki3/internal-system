@@ -13,7 +13,7 @@
 //   isUserSwitchReloadRequested は、前提にした口（切り替えの入口が呼ばれた後、文書の間ずっと真）どおりに、vi.fn の入口の呼び出しに合わせて真にする。
 // 偽の時計で 2 秒の自動の更新を進める。API は MSW。データはすべて架空（testuser_298_・[UNIT_TEST]）。
 import { act, screen, waitFor } from "@testing-library/react";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   requestAccessLossReload,
@@ -119,7 +119,7 @@ function respondMismatchCaseWorld() {
       { status: 409 },
     );
   /** ヘッダーで断るか（断るなら応答を返す）。通すなら null */
-  const gate = (request: Request) => {
+  const gate = (request: Parameters<HttpResponseResolver>[0]["request"]) => {
     const header = request.headers.get(HEADER);
     if (header !== null && header !== world.cookie.id) return mismatched();
     return null;
@@ -207,14 +207,18 @@ beforeEach(async () => {
   stubs = installDomStubs();
   vi.mocked(requestAccessLossReload).mockClear();
   vi.mocked(requestUserSwitchReload).mockClear();
-  const mocked = (await import(
-    "../features/access-loss/reload-after-access-loss"
-  )) as unknown as { __resetUserSwitchRequested: () => void };
+  const mocked =
+    (await import("../features/access-loss/reload-after-access-loss")) as unknown as {
+      __resetUserSwitchRequested: () => void;
+    };
   mocked.__resetUserSwitchRequested();
   FakeBroadcastChannel.clearSent();
   window.localStorage.setItem(
     ROOM_DRAFT,
-    JSON.stringify({ body: "[UNIT_TEST]298A の書きかけ", updatedAt: Date.now() }),
+    JSON.stringify({
+      body: "[UNIT_TEST]298A の書きかけ",
+      updatedAt: Date.now(),
+    }),
   );
 });
 afterEach(() => {
@@ -236,7 +240,9 @@ describe("#298・#376 AC-6 S-17 を A で開いたまま、Cookie が B にな�
     const { world } = await openAsA();
     world.cookie = USER_B;
     await advance(POLL_MS);
-    await waitFor(() => expect(requestUserSwitchReload).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
+    );
     await advance(POLL_MS);
     expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
     expectNotTakenAsLoss();
@@ -252,7 +258,9 @@ describe("#298・#376 AC-6 S-17 を A で開いたまま、Cookie が B にな�
     );
     // 確かめの取り直しは A のヘッダーで送られる（だから 409 になる）
     expect(world.summaryRequests.slice(before)).toContain(USER_A.id);
-    await waitFor(() => expect(requestUserSwitchReload).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
+    );
     await advance(POLL_MS);
     expectNotTakenAsLoss();
   });
@@ -272,7 +280,9 @@ describe("#298・#376 AC-6 S-17 を A で開いたまま、Cookie が B にな�
     });
     world.summaryHold = null;
     summaryGate.release();
-    await waitFor(() => expect(requestUserSwitchReload).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
+    );
     await advance(POLL_MS);
     expectNotTakenAsLoss();
   });
@@ -286,7 +296,9 @@ describe("#298・#376 AC-6 S-17 を A で開いたまま、Cookie が B にな�
           query.queryKey[0] === "cases" && query.queryKey[1] === "summary",
       });
     });
-    await waitFor(() => expect(requestUserSwitchReload).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
+    );
     expect(
       app.client.getQueryData(["cases", "summary", USER_A.id, caseId(N)]),
     ).not.toMatchObject({ isParticipant: false });
@@ -306,7 +318,9 @@ describe("#298・#376 AC-6 S-17 を A で開いたまま、Cookie が B にな�
     expectNotTakenAsLoss();
     world.sessionHold = null;
     sessionGate.release();
-    await waitFor(() => expect(requestUserSwitchReload).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
+    );
     expectNotTakenAsLoss();
   });
 

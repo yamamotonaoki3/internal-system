@@ -182,7 +182,7 @@ async function expectUnverified(t: Started, mounted: boolean) {
 }
 
 /** 喪失（lost・notFound）の確かめ：読み込み直し・合図・下書きの消去 */
-async function expectLost(t: Started) {
+async function expectLost() {
   await waitFor(() => expect(reloadCalls()).toHaveLength(1));
   await waitFor(() => expect(announced()).toHaveLength(1));
   expect(draftKept()).toBe(false);
@@ -256,7 +256,7 @@ describe("#298 AC-8 取り直しの答えの見分け（更新の回数。計画
     const t = await startVerifying({ leave: false, inFlightBefore: true });
     expect(t.answers).toHaveLength(2);
     t.answer({ data: summary(false) });
-    await expectLost(t);
+    await expectLost();
     expect(t.client.getQueryData([...SUMMARY])).toMatchObject({
       isParticipant: false,
     });
@@ -266,7 +266,7 @@ describe("#298 AC-8 取り直しの答えの見分け（更新の回数。計画
     const t = await startVerifying({ leave: false });
     removeSummaryRightAfterSuccess(t.client);
     t.answer({ data: summary(false) });
-    await expectLost(t);
+    await expectLost();
   });
 
   it("#298 AC-8 (ii): 確かめの成功（参加者のまま）の直後に、概要のキャッシュが捨てられても、喪失として扱わない（キャッシュの不在を喪失の証拠にしない）", async () => {
@@ -313,7 +313,7 @@ describe("#298 AC-8 取り直しの答えの見分け（更新の回数。計画
   it("#298 AC-8 (iv): 確かめの新しい答えが 404：notFound（読み込み直し・合図・下書きの消去）で、キャッシュにも 404 が残る", async () => {
     const t = await startVerifying({ leave: false });
     t.answer({ error: notFound });
-    await expectLost(t);
+    await expectLost();
     expect(t.client.getQueryState([...SUMMARY])?.error).toMatchObject({
       status: 404,
     });
@@ -326,18 +326,21 @@ describe("#298 AC-8 取り直しの答えの見分け（更新の回数。計画
 describe.each([
   { where: "表示中", leave: false },
   { where: "画面を離れた後", leave: true },
-])("#298・#376 AC-6 switched が返ったが、切り替えの入口が動いていない（決定5。$where）", ({ leave }) => {
-  it("#376 AC-6（決定5）: 409 の後の取り直しが switched でも、切り替えの入口が動いていなければ unverified（中身を取り除き、読み込み直しを求め、下書きは残し、合図は送らない）", async () => {
-    vi.mocked(confirmSessionUserAfterMismatch).mockResolvedValue("switched");
-    vi.mocked(isUserSwitchReloadRequested).mockReturnValue(false);
-    const t = await startVerifying({ leave });
-    t.answer({ error: mismatch });
-    await waitFor(() =>
-      expect(confirmSessionUserAfterMismatch).toHaveBeenCalled(),
-    );
-    await expectUnverified(t, !leave);
-  });
-});
+])(
+  "#298・#376 AC-6 switched が返ったが、切り替えの入口が動いていない（決定5。$where）",
+  ({ leave }) => {
+    it("#376 AC-6（決定5）: 409 の後の取り直しが switched でも、切り替えの入口が動いていなければ unverified（中身を取り除き、読み込み直しを求め、下書きは残し、合図は送らない）", async () => {
+      vi.mocked(confirmSessionUserAfterMismatch).mockResolvedValue("switched");
+      vi.mocked(isUserSwitchReloadRequested).mockReturnValue(false);
+      const t = await startVerifying({ leave });
+      t.answer({ error: mismatch });
+      await waitFor(() =>
+        expect(confirmSessionUserAfterMismatch).toHaveBeenCalled(),
+      );
+      await expectUnverified(t, !leave);
+    });
+  },
+);
 
 describe("#298 AC-8 取り直しの最中のほかからの書き換え（決定4）", () => {
   it("#298 AC-8（決定4）: 確かめの最中に、ほかから参加者の概要が書かれ、確かめの答えが 404：成功と失敗の両方の回数が増えたので見分けられず、notFound にせず unverified（下書きは残り、合図は送らない）", async () => {
