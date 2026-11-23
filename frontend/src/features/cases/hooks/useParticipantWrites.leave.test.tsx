@@ -11,13 +11,23 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   noteDraftsRemain,
   requestAccessLossReload,
 } from "../../access-loss/reload-after-access-loss";
 import { authKeys } from "../../auth";
 import { TEST_USER } from "../../../test/auth-handlers";
+import { FakeBroadcastChannel } from "../../../test/fake-broadcast-channel";
 import { server } from "../../../test/server";
 import type { CaseParticipant } from "../api/case-api";
 import { useCaseAccessLoss } from "./useCaseAccessLoss";
@@ -33,6 +43,18 @@ vi.mock(
     noteDraftsRemain: vi.fn(),
   }),
 );
+
+// #341：合図のチャンネルは、テスト専用の差し替え（モジュールの中で遅れて1つ作られるため、ファイルの最初に差し替える）。
+// reportError は jsdom に無いため、差し替える
+beforeAll(() => {
+  vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+});
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+beforeEach(() => {
+  vi.stubGlobal("reportError", vi.fn());
+});
 
 const USER = TEST_USER.id;
 const OTHER_USER = "01JTESTUSER323000000000LV2";
@@ -426,5 +448,146 @@ describe("#340 AC-5 退出で部屋の ID が分からないとき", () => {
     getter.mockRestore();
     expect(requestAccessLossReload).toHaveBeenCalled();
     expect(noteDraftsRemain).not.toHaveBeenCalled();
+  });
+});
+
+// #341 AC-1・AC-6（計画 plan-341 の 7・7-1 の (c) と 13 の T-W2）：本人の退出の成功で、ほかのタブへ合図を送る（受けたタブの知らせは lost。Q2）。
+// 順序は「入口 → 合図 → 下書きの消去」（軽微4）。退出の失敗・ほかの人を外したときは送らない。合図の中身はリテラルで独立に書く。
+// 前提にした口（実装の担当へ）：useRemoveCaseParticipant の onSuccess（self のとき）で、announceCaseAccessLoss({ userId: actorId, caseId })。
+describe("#341 本人の退出の成功で、ほかのタブへ合図を送る", () => {
+  const CHANNEL = "internal-system:access-loss:v1";
+  const ROOM_DRAFT = `internal-system:draft:v1:${USER}:room:${ROOM}`;
+  const sent = () => FakeBroadcastChannel.sent(CHANNEL);
+
+  function leaveSetup(response: () => Response) {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    client.setQueryData(authKeys.session, {
+      user: TEST_USER,
+      mustChangePassword: false,
+      reauthenticatedAt: null,
+      permissions: [],
+    });
+    client.setQueryData([...SUMMARY], summary(true));
+    server.use(
+      http.delete("/api/cases/:caseId/participants/:userId", response),
+    );
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return renderHook(() => useRemoveCaseParticipant(CASE), { wrapper });
+  }
+
+  beforeEach(() => {
+    FakeBroadcastChannel.clearSent();
+    vi.mocked(requestAccessLossReload).mockClear();
+    window.localStorage.setItem(
+      ROOM_DRAFT,
+      JSON.stringify({
+        body: "[UNIT_TEST]341退出の前の書きかけ",
+        updatedAt: Date.now(),
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("#341 AC-1・AC-6 T-W2: 退出に成功すると、合図を1回送る（中身は版・操作した利用者・案件だけ）。順序は 入口 → 合図 → 下書きの消去", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    const { result } = leaveSetup(
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: USER,
+        self: true,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    });
+    expect(sent()).toEqual([{ v: 1, userId: USER, caseId: CASE }]);
+    const entryOrder =
+      vi.mocked(requestAccessLossReload).mock.invocationCallOrder[0] ?? 0;
+    const postOrder =
+      FakeBroadcastChannel.onPost.mock.invocationCallOrder[0] ?? 0;
+    const removeIndex = removeItem.mock.calls.findIndex(
+      ([key]) => key === ROOM_DRAFT,
+    );
+    const removeOrder = removeItem.mock.invocationCallOrder[removeIndex] ?? 0;
+    expect(entryOrder).toBeGreaterThan(0);
+    expect(entryOrder).toBeLessThan(postOrder);
+    expect(postOrder).toBeLessThan(removeOrder);
+    expect(window.localStorage.getItem(ROOM_DRAFT)).toBeNull();
+  });
+
+  it.each([
+    ["409", 409],
+    ["500", 500],
+  ] as const)(
+    "#341 AC-1 T-W2: 退出が %s で失敗したら、合図を送らない",
+    async (_name, status) => {
+      const { result } = leaveSetup(() =>
+        HttpResponse.json(
+          { code: "ERROR", message: "[UNIT_TEST]341失敗" },
+          { status },
+        ),
+      );
+      await act(async () => {
+        await result.current
+          .mutateAsync({
+            userId: USER,
+            self: true,
+            actorId: USER,
+            roomId: ROOM,
+          })
+          .catch(() => undefined);
+      });
+      expect(sent()).toEqual([]);
+    },
+  );
+
+  it("#341 AC-1 T-W2: ほかの人を外した（self が偽）ときは、合図を送らない", async () => {
+    const { result } = leaveSetup(
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: OTHER_USER,
+        self: false,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    });
+    expect(sent()).toEqual([]);
+  });
+
+  it("#341 計画 7（軽微4）T-B4: 合図の送信が想定外の例外でも、退出は成功のまま、reportError に渡し、下書きの消去は走る", async () => {
+    const failure = new Error("[UNIT_TEST]341送れない");
+    const reportError = vi.fn();
+    vi.stubGlobal("reportError", reportError);
+    vi.spyOn(FakeBroadcastChannel.prototype, "postMessage").mockImplementation(
+      () => {
+        throw failure;
+      },
+    );
+    const { result } = leaveSetup(
+      () => new HttpResponse(null, { status: 204 }),
+    );
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: USER,
+        self: true,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    });
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(failure);
+    expect(window.localStorage.getItem(ROOM_DRAFT)).toBeNull();
   });
 });

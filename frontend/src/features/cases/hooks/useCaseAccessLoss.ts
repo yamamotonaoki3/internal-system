@@ -9,7 +9,10 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { requestAccessLossReload } from "../../access-loss";
+import {
+  announceCaseAccessLoss,
+  requestAccessLossReload,
+} from "../../access-loss";
 import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
 import { caseKeys } from "../api/query-keys";
@@ -68,6 +71,20 @@ function requestReloadOnce(
   });
 }
 
+/**
+ * 確定した喪失を、ほかのタブへ1回だけ知らせる（#341）。読み込み直しの予約の印（reloadRequested）とは分ける：
+ * 確かめられない（unverified）で予約した後に確定した場合も、送るため。入口の後・下書きの消去の前に呼ぶ（送る処理は投げない）
+ */
+function announceLossOnce(
+  announced: { current: boolean },
+  userId: string,
+  caseId: string,
+): void {
+  if (announced.current) return;
+  announced.current = true;
+  announceCaseAccessLoss({ userId, caseId });
+}
+
 export function useCaseAccessLoss({
   caseId,
   userId,
@@ -106,6 +123,8 @@ export function useCaseAccessLoss({
   const previousOutsider = useRef(false);
   // 同じ参加の期間の中で、読み込み直しを1回だけ求める印（(a) の確かめと (b) の効果の両方が喪失を見るため。#338）
   const reloadRequested = useRef(false);
+  // 同じ参加の期間の中で、確定した喪失をほかのタブへ1回だけ知らせた印（#341）。確定のときだけ立て、参加者に戻ったときだけ外す
+  const lossAnnounced = useRef(false);
   // 最後に分かった、この案件の部屋の ID（#340）。喪失の片付けで詳細が消え、非参加の概要には部屋の ID がないため、消す前に覚えておく
   const knownRoomId = useRef<string | null>(null);
 
@@ -122,6 +141,7 @@ export function useCaseAccessLoss({
     if (isParticipant && !previousParticipant.current) {
       handling.current = false;
       reloadRequested.current = false;
+      lossAnnounced.current = false;
     }
     if (isParticipant) participantSeen.current = true;
     const wasParticipant = participantSeen.current;
@@ -142,6 +162,7 @@ export function useCaseAccessLoss({
     previousParticipant.current = isParticipant;
     if (lostHere) {
       requestReloadOnce(reloadRequested, queryClient, userId);
+      announceLossOnce(lossAnnounced, userId, caseId);
       // この画面で参加者だったと見た後の喪失に限る（見ていない非参加は、古い概要かもしれず、消すと戻らない）。想定外の例外は境界まで伝える
       forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
     }
@@ -188,8 +209,10 @@ export function useCaseAccessLoss({
         if (verdict !== "participant")
           requestReloadOnce(reloadRequested, queryClient, userId);
         // 確かめられない（unverified）ときは、参加者のままかもしれないので消さない（利用者の決定 2026-11-22 の Q2）
-        if (verdict === "lost" || verdict === "notFound")
+        if (verdict === "lost" || verdict === "notFound") {
+          announceLossOnce(lossAnnounced, userId, caseId);
           forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
+        }
         return;
       }
       if (verdict === "participant") {
@@ -203,6 +226,7 @@ export function useCaseAccessLoss({
         setUnverified(false);
         void forgetCaseAfterLeave(queryClient, userId, caseId, roomId);
         requestReloadOnce(reloadRequested, queryClient, userId);
+        announceLossOnce(lossAnnounced, userId, caseId);
         forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
         return;
       }
@@ -210,8 +234,10 @@ export function useCaseAccessLoss({
       setUnverified(verdict === "unverified");
       void forgetCaseContent(queryClient, userId, caseId, roomId);
       requestReloadOnce(reloadRequested, queryClient, userId);
-      if (verdict === "notFound")
+      if (verdict === "notFound") {
+        announceLossOnce(lossAnnounced, userId, caseId);
         forgetCaseRoomDraftsAfterLoss(userId, knownRoomId.current);
+      }
     };
   }, [queryClient, userId, caseId, roomId, onLost]);
 
