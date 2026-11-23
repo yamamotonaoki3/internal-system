@@ -1,5 +1,5 @@
 // アカウントの無効化・再有効化・部署異動の送信と失敗の文。再認証が完了せず、要求を送っていない場合は別の型で区別する。
-import type { ApiError } from "../../services/api-client";
+import { isConflictError, type ApiError } from "../../services/api-client";
 
 /** 再認証が中止・失敗し、要求は送っていない */
 export class NotSentError extends Error {
@@ -46,7 +46,7 @@ export function describeLifecycleError(error: unknown): string | null {
       : "アカウントを管理する権限がありません。";
   if (error.status === 404)
     return "対象が見つかりません。一覧を読み込み直してください。";
-  if (error.status === 409 || error.status === 422)
+  if (isConflictError(error) || error.status === 422)
     return error.message || "入力内容を確かめてください。";
   return "操作できませんでした。時間をおいて、もう一度お試しください。";
 }

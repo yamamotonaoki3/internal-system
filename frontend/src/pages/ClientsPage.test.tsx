@@ -336,6 +336,35 @@ describe("#192 AC-2・AC-7: 重複登録時の修正案内", () => {
   });
 });
 
+describe("#298 AC-5: 無効化の 409 は、コードが CONFLICT のときだけ「ほかの操作で更新された」の案内にする", () => {
+  it("#298 AC-5: 無効化が 409 でも、コードが SESSION_USER_MISMATCH なら、「ほかの操作で情報が更新されました」ではなく、ふつうの失敗の文を出す。有効表示と版は保つ", async () => {
+    list([alpha]);
+    server.use(
+      http.patch("/api/admin/clients/client_alpha/status", () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderPage();
+    const row = await screen.findByRole("row", { name: /ABC/ });
+    fireEvent.click(within(row).getByRole("button", { name: "無効にする" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "無効にできませんでした。時間をおいて、もう一度お試しください。",
+    );
+    expect(alert.textContent).not.toContain("ほかの操作で情報が更新されました");
+    expect(alert.textContent).not.toContain("別の利用者のセッションです");
+    expect(
+      within(screen.getByRole("row", { name: /ABC/ })).getByText("有効"),
+    ).toBeTruthy();
+  });
+});
+
 describe("#192 AC-7（5-7 AC-2・AC-6）: 失敗時の入力と一覧", () => {
   it("#192 AC-7（5-7 AC-2・AC-6）: APIの422 name項目エラーを名前欄に示し入力を保つ", async () => {
     list([internal]);

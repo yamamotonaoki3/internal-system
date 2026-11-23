@@ -110,4 +110,30 @@ describe("#207 AC-1: ClientForm の保存失敗の示し方", () => {
     await submitValidValues(onSave);
     expect((await screen.findByRole("alert")).textContent).toMatch(/\S/);
   });
+
+  it("#298 AC-5: 409 かつ CONFLICT は、サーバーの文言を全体の失敗として示す", async () => {
+    const onSave = renderForm({
+      status: 409,
+      code: "CONFLICT",
+      message: "[UNIT_TEST_298]重複しています",
+    });
+    await submitValidValues(onSave);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "[UNIT_TEST_298]重複しています",
+    );
+  });
+
+  it("#298 AC-5: 409 でも、コードが SESSION_USER_MISMATCH なら、サーバーの文言ではなく、ふつうの失敗の文を示す", async () => {
+    const onSave = renderForm({
+      status: 409,
+      code: "SESSION_USER_MISMATCH",
+      message: "[UNIT_TEST_298]別の利用者のセッションです",
+    });
+    await submitValidValues(onSave);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "保存できませんでした。時間をおいて、もう一度お試しください。",
+    );
+    expect(alert.textContent).not.toContain("別の利用者のセッションです");
+  });
 });

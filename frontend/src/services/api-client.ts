@@ -85,3 +85,15 @@ apiClient.interceptors.response.use(
     return Promise.reject(apiError);
   },
 );
+
+// 競合（版の衝突・重複）の判定。ステータスだけでなくコードでも見る（409 には、競合ではないコードのものもあるため）
+export function isConflictError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 409 &&
+    "code" in error &&
+    error.code === "CONFLICT"
+  );
+}

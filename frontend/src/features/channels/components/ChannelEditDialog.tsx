@@ -26,6 +26,7 @@ import {
   useLoadLatestChannel,
   useUpdateChannel,
 } from "../hooks/useManageChannel";
+import { isConflictError } from "../../../services/api-client";
 
 const NAME_ERROR =
   "名前は1〜50文字の、ひらがな・カタカナ・漢字・英数字・「-」「_」で入力してください";
@@ -65,7 +66,7 @@ function applyServerError(
   setError: UseFormSetError<EditInput>,
 ): void {
   if (!isApiError(error)) throw error;
-  if (error.status === 409 && error.message === CHANNEL_NAME_TAKEN_MESSAGE) {
+  if (isConflictError(error) && error.message === CHANNEL_NAME_TAKEN_MESSAGE) {
     setError("name", { type: "server", message: error.message });
     return;
   }
@@ -178,7 +179,7 @@ export function ChannelEditDialog({
       // 名前の重複以外の 409 は、ほかの人の変更と重なった：入力を保ったまま、最新の内容の読み込みを求める
       if (
         isApiError(error) &&
-        error.status === 409 &&
+        isConflictError(error) &&
         error.message !== CHANNEL_NAME_TAKEN_MESSAGE
       ) {
         setStale(true);

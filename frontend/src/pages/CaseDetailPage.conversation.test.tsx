@@ -215,6 +215,48 @@ describe("#148 5-1 AC-11 終了した案件の S-17（読み取り専用）", ()
   });
 });
 
+describe("#298 AC-5 投稿の 409 は、コードが CONFLICT のときだけ「終了した」の扱いにする", () => {
+  it("#298 AC-5: 投稿が 409 でも、コードが SESSION_USER_MISMATCH なら、概要・詳細を取り直さず、読み取り専用に切り替えない。入力欄は残る", async () => {
+    const summaries = [caseSummary(41)];
+    const details = [caseDetail(41)];
+    const cases = respondCases({ summaries, details });
+    respondRoom([]);
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        apiErrorResponse(
+          409,
+          "SESSION_USER_MISMATCH",
+          "[UNIT_TEST_298]別の利用者のセッションです",
+        ),
+      ),
+    );
+    const { user } = renderPage(41);
+    await conversation();
+    // サーバーの状態を「終了」にしておく。競合として扱えば、取り直しで終了が返り、読み取り専用に切り替わってしまう
+    summaries[0] = caseSummary(41, { status: "closed" });
+    details[0] = caseDetail(41, { status: "closed" });
+    const summaryBefore = cases.summaryCalls.length;
+    const detailBefore = cases.detailCalls.length;
+    await user.type(
+      await screen.findByRole("textbox", { name: "メッセージ" }),
+      "298の投稿",
+    );
+    await user.click(screen.getByRole("button", { name: "送信" }));
+    // ふつうの失敗と同じく、入力欄がサーバーの文を出す
+    expect(
+      await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
+    ).toBeTruthy();
+    // 取り直しは失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(cases.summaryCalls.length).toBe(summaryBefore);
+    expect(cases.detailCalls.length).toBe(detailBefore);
+    expect(screen.queryByText(CLOSED_BANNER)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "メッセージ" })).toBeTruthy();
+  });
+});
+
 describe("#148 コードレビュー1回目の軽微2 添付つきの送信で、アップロードが 409（終了）", () => {
   it("#148 5-1 AC-11・C-184: 添付つきの送信で、アップロードが 409「終了した案件には添付できません」なら、理由を出し、概要・詳細を取り直して読み取り専用に切り替わる", async () => {
     const summaries = [caseSummary(10)];

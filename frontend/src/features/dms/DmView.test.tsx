@@ -11,6 +11,7 @@
 //   投稿が 409：「相手のアカウントが無効になったため、送信できませんでした」を出し、詳細を取り直す（canPost が偽になれば入力欄を閉じる）。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -406,6 +407,40 @@ describe("#136 AC-3（C-168(2)）投稿の失敗と取り直し（生存した�
     expect(
       await screen.findByText("一時的なエラーが発生しました"),
     ).toBeDefined();
+    expect(screen.queryByText(NOTICE_409)).toBeNull();
+    expect(world.detailRequests.length).toBe(detailBefore);
+    expect(world.listRequests.length).toBe(listBefore);
+    expect(box()).not.toBeNull();
+  });
+
+  it("#298 AC-5: 409 でも、コードが CONFLICT でない（SESSION_USER_MISMATCH）なら、「相手が無効になった」お知らせを出さず、詳細も一覧も取り直さない。入力欄は残る", async () => {
+    respondMessages([]);
+    const world = respondDms({ items: [dmItem(1)], details: [dmDetail(1)] });
+    server.use(
+      http.post("/api/rooms/:roomId/messages", () =>
+        HttpResponse.json(
+          {
+            code: "SESSION_USER_MISMATCH",
+            message: "[UNIT_TEST_298]別の利用者のセッションです",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderViewWithSidebar();
+    await screen.findByRole("textbox", { name: "メッセージ" });
+    await screen.findByRole("link", { name: partnerName(1) });
+    const detailBefore = world.detailRequests.length;
+    const listBefore = world.listRequests.length;
+    send("[E2E_TEST]別の利用者の投稿");
+    // ふつうの失敗と同じく、サーバーの文を出す
+    expect(
+      await screen.findByText("[UNIT_TEST_298]別の利用者のセッションです"),
+    ).toBeDefined();
+    // 取り直しは、失敗の直後に始まる。始まっていないことを確かめるため、少し待つ
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
     expect(screen.queryByText(NOTICE_409)).toBeNull();
     expect(world.detailRequests.length).toBe(detailBefore);
     expect(world.listRequests.length).toBe(listBefore);

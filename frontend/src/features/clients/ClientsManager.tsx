@@ -4,7 +4,7 @@ import { clientSearchSchema } from "../../../../shared/client-rules";
 import { Alert } from "../../components/Alert";
 import { Button } from "../../components/Button";
 import { TextField } from "../../components/TextField";
-import type { ApiError } from "../../services/api-client";
+import { isConflictError, type ApiError } from "../../services/api-client";
 import {
   createClient,
   deactivateClient,
@@ -76,7 +76,7 @@ export function ClientsManager() {
     } catch (error) {
       const apiError = error as ApiError;
       setActionError(
-        apiError.status === 409
+        isConflictError(apiError)
           ? "ほかの操作で情報が更新されました。一覧を確認してください。"
           : apiError.status === 403
             ? "取引先を管理する権限がありません。"
