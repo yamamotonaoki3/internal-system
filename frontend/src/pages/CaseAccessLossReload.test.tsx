@@ -1043,3 +1043,164 @@ describe("#341 AC-1 送る側：確定したときだけ、合図を1回送る",
     expect(sent()).toHaveLength(2);
   });
 });
+
+// #341 ミューテーションの見逃しの補い（計画 plan-341 の 7・7-1 の表・AC-1・C-208）：
+// - 最初の描画で、すでに参加者のタブ（概要のキャッシュが参加者のまま描く、ふつうの場合）も、確定の経路ごとに合図を1回送る（7-1：(a) lost・(a) notFound・(b) lostHere・離れた後）
+// - 離れた後の notFound は送る、離れた後の unverified は送らない（7-1 の表）
+// - 順序は、どの経路も「入口 → 合図 → 下書きの消去」（計画 7・軽微4）。表示中の notFound は (b) の効果も同じ合図を送りうるため、
+//   回数ではなく順序（合図が、その部屋の下書きの消去より前）で、確かめの側が送っていることを見る
+describe("#341 AC-1 送る側：最初から参加者として描いたタブの、経路ごとの合図と順序", () => {
+  const CHANNEL = "internal-system:access-loss:v1";
+  const ROOM_DRAFT_KEY = `internal-system:draft:v1:${TEST_USER.id}:room:${caseRoomId(N)}`;
+  const HINT = { v: 1, userId: TEST_USER.id, caseId: caseId(N) };
+  const sent = () => FakeBroadcastChannel.sent(CHANNEL);
+  /** 最初の描画の時点で、概要のキャッシュが参加者 */
+  const primeParticipant = (client: QueryClient) =>
+    client.setQueryData(SUMMARY_KEY, caseSummary(N));
+
+  function writeRoomDraft() {
+    window.localStorage.setItem(
+      ROOM_DRAFT_KEY,
+      JSON.stringify({
+        body: "[UNIT_TEST]341最初から参加者の書きかけ",
+        updatedAt: Date.now(),
+      }),
+    );
+  }
+
+  /** 入口 → 合図 → その部屋の下書きの消去、の順であること（呼び出しの通し番号で比べる） */
+  function expectEntryThenHintThenErase(
+    removeItem: ReturnType<typeof vi.spyOn<Storage, "removeItem">>,
+  ) {
+    const entryOrder =
+      vi.mocked(requestAccessLossReload).mock.invocationCallOrder[0] ?? 0;
+    const postOrder =
+      FakeBroadcastChannel.onPost.mock.invocationCallOrder[0] ?? 0;
+    const removeIndex = removeItem.mock.calls.findIndex(
+      ([key]) => key === ROOM_DRAFT_KEY,
+    );
+    expect(removeIndex).toBeGreaterThanOrEqual(0);
+    const removeOrder = removeItem.mock.invocationCallOrder[removeIndex] ?? 0;
+    expect(entryOrder).toBeGreaterThan(0);
+    expect(entryOrder).toBeLessThan(postOrder);
+    expect(postOrder).toBeLessThan(removeOrder);
+  }
+
+  async function leaveDuringVerification(
+    w: World,
+    user: ReturnType<typeof userEvent.setup>,
+  ) {
+    const gate = deferred();
+    w.summaryGate = gate.promise;
+    const before = w.calls.summary;
+    w.participant = false;
+    denyTodos(w);
+    await advance(POLL_MS);
+    await waitFor(() => expect(w.calls.summary).toBeGreaterThan(before));
+    await user.click(screen.getByRole("link", { name: "一覧へ移る" }));
+    await screen.findByRole("link", { name: "案件に戻る" });
+    return gate;
+  }
+
+  beforeEach(() => {
+    FakeBroadcastChannel.clearSent();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("#341 AC-1 7-1 (a): 最初から参加者で描き、表示中に lost が確定：合図を1回、順序は 入口 → 合図 → 下書きの消去", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    writeRoomDraft();
+    const w = world();
+    renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    w.participant = false;
+    denyTodos(w);
+    await advance(POLL_MS);
+    await waitForSwitched();
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toStrictEqual(HINT);
+    expectEntryThenHintThenErase(removeItem);
+    await advance(POLL_MS * 3);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("#341 AC-1 7-1 (a): 最初から参加者で描き、表示中に notFound（部屋の 404 → 概要が 404）が確定：合図を1回、確かめの側が 入口 → 合図 → 下書きの消去 の順で送る", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    writeRoomDraft();
+    const w = world();
+    renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    w.participant = false;
+    w.roomFail = { status: 404 };
+    w.summaryFail = { status: 404 };
+    await advance(POLL_MS);
+    await screen.findByText(CASE_TEXTS.notFound);
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toStrictEqual(HINT);
+    expectEntryThenHintThenErase(removeItem);
+    await advance(POLL_MS * 3);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("#341 AC-1 7-1 (b): 最初から参加者で描き、概要が先に非参加になる（lostHere）：合図を1回、順序は 入口 → 合図 → 下書きの消去", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    writeRoomDraft();
+    const w = world();
+    const { client } = renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    w.participant = false;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: SUMMARY_KEY });
+    });
+    await waitForSwitched();
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toStrictEqual(HINT);
+    expectEntryThenHintThenErase(removeItem);
+    await advance(POLL_MS * 3);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("#341 AC-1 7-1 (a) 離れた後: 最初から参加者で描き、確かめの途中に S-17 を離れた後に lost：合図を1回、順序は 入口 → 合図 → 下書きの消去", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    writeRoomDraft();
+    const w = world();
+    const { user } = renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    const gate = await leaveDuringVerification(w, user);
+    w.summaryGate = null;
+    gate.release();
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toStrictEqual(HINT);
+    expectEntryThenHintThenErase(removeItem);
+  });
+
+  it("#341 AC-1 7-1 (a) 離れた後: 確かめの途中に S-17 を離れた後に notFound（概要が 404）：合図を1回、順序は 入口 → 合図 → 下書きの消去", async () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+    writeRoomDraft();
+    const w = world();
+    const { user } = renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    const gate = await leaveDuringVerification(w, user);
+    w.summaryFail = { status: 404 };
+    w.summaryGate = null;
+    gate.release();
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toStrictEqual(HINT);
+    expectEntryThenHintThenErase(removeItem);
+  });
+
+  it("#341 AC-3 7-1 (a) 離れた後: 確かめの途中に S-17 を離れた後に unverified（概要が 500）：入口は呼ぶが、合図は送らない", async () => {
+    const w = world();
+    const { user } = renderPage({ prime: primeParticipant });
+    await waitForFullView();
+    const gate = await leaveDuringVerification(w, user);
+    w.summaryFail = { status: 500 };
+    w.summaryGate = null;
+    gate.release();
+    await waitFor(() => expect(calls("lost")).toHaveLength(1));
+    await advance(POLL_MS * 3);
+    expect(sent()).toEqual([]);
+  });
+});

@@ -246,6 +246,8 @@ describe("#341 AC-2 T-R1 利用者が違う・分からない：通信しない"
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("#341 AC-2 T-R1: セッションのキャッシュが無い（ログアウトの後・401 の後）：GET は0回、入口なし", async () => {
@@ -256,6 +258,8 @@ describe("#341 AC-2 T-R1 利用者が違う・分からない：通信しない"
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("#341 AC-2 T-R1: B のセッションのタブに、B の概要のキャッシュが参加者であっても、A の知らせでは GET は0回", async () => {
@@ -266,6 +270,8 @@ describe("#341 AC-2 T-R1 利用者が違う・分からない：通信しない"
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 });
 
@@ -277,6 +283,8 @@ describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", (
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("#341 AC-4 T-R2: その案件の概要のキャッシュが非参加：GET は0回、入口なし", async () => {
@@ -287,6 +295,8 @@ describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", (
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("#341 AC-4 T-R2: 別の案件の参加者の概要だけを持つ：知らせの案件では GET は0回", async () => {
@@ -296,6 +306,8 @@ describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", (
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("#341 AC-6 T-B2: 版の違う合図・形の違う合図は、捨てる（GET は0回）", async () => {
@@ -306,6 +318,8 @@ describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", (
     await flushTasks();
     expect(summary.calls).toBe(0);
     expect(entryCalls()).toHaveLength(0);
+    // 静かに捨てる（例外にせず、reportError にも渡さない。計画 6 の 2・3）
+    expect(reportError).not.toHaveBeenCalled();
     expect(reportError).not.toHaveBeenCalled();
   });
 });

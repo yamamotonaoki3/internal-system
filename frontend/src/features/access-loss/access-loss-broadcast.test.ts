@@ -217,3 +217,50 @@ describe("#341 計画 7（軽微4）T-B4 送る処理の想定外の例外", () 
     expect(reportError).toHaveBeenCalledWith(failure);
   });
 });
+
+// #341 AC-8（計画 plan-341 の 9）：受け止めてチャンネルなしにするのは、作るときの SecurityError（DOMException）だけ。
+// ブラウザが作るときに投げる SecurityError は DOMException なので、名前だけが SecurityError の、DOMException でないエラーは、想定外として扱う
+describe("#341 AC-8 T-B3 SecurityError でない例外は、もみ消さない", () => {
+  function failOnConstruct(failure: unknown) {
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        constructor() {
+          throw failure;
+        }
+      },
+    );
+  }
+
+  it.each([
+    [
+      "InvalidStateError の DOMException",
+      () => new DOMException("x", "InvalidStateError"),
+    ],
+    [
+      "DataCloneError の DOMException",
+      () => new DOMException("x", "DataCloneError"),
+    ],
+    [
+      "名前だけが SecurityError の Error（DOMException でない）",
+      () =>
+        Object.assign(new Error("[UNIT_TEST]341"), { name: "SecurityError" }),
+    ],
+  ])(
+    "#341 AC-8 T-B3: 作るときに %s：受ける側は投げ、送る側は reportError に1回渡す",
+    async (_name, make) => {
+      const failure = make();
+      failOnConstruct(failure);
+      const receiving = await load();
+      expect(() => receiving.subscribeCaseAccessLoss(() => undefined)).toThrow(
+        failure as Error,
+      );
+      const sending = await load();
+      expect(() =>
+        sending.announceCaseAccessLoss({ userId: USER_A, caseId: CASE_1 }),
+      ).not.toThrow();
+      expect(reportError).toHaveBeenCalledTimes(1);
+      expect(reportError).toHaveBeenCalledWith(failure);
+    },
+  );
+});
