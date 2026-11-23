@@ -59,8 +59,16 @@
 
 - API の共通の決まりが1つ増える（要件 API 草案の共通仕様 X-14）。エラーコードは `SESSION_USER_MISMATCH`（409）
 - 実装は、`backend/src/lib/session-middleware.ts`（`loadSession`）、`backend/src/services/session.service.ts`（`resolveSession`。戻り値に「食い違い」が加わる）、`backend/src/lib/app-error.ts`、`shared/session-user-header.ts`。`session.repository.ts` は変えない（読み取りと更新が別の関数のため）
-- 認証のミドルウェアと `shared/` を変えるので、ADR-0020 の (c) に従い、マージの前に、重要処理全体のミューテーションと E2E 全件を行う
+- 認証のミドルウェアと `shared/` を変えるので、ADR-0020 の (c) に当たる。扱いは、下の「検証の扱い」に従う（重要処理全体のミューテーションは PR-2b のマージの前に1回、E2E 全件は PR-1 でも行う）
 - 画面がヘッダーを付ける前は、動きは変わらない（付かないので、すべて通る）
+
+## 検証の扱い（利用者の決定。2026-11-24）
+
+ADR-0020 の (c) は変えない。#298 は、PR を3本に分けており、PR-1（サーバー）と PR-2b（画面）の両方が (c) に当たる。この分け方に限り、次のとおり扱う。
+
+- PR-1：E2E 全件は行う（実施済み）。ミューテーションは、変えた2ファイル（`backend/src/services/session.service.ts`・`backend/src/lib/session-middleware.ts`）の全体に絞って行う（実施済み）
+- 重要処理全体のミューテーションは、PR-2b のマージの前に、1回だけ行う。PR-1 の変更も、その実行に含まれる
+- 理由：全体の実行は、約 17,500 件・約5時間かかる（同時実行 2）。PR-1 だけでは、画面がヘッダーを付けないので、新しい分岐は、利用者の操作では通らず、動きは変わらない。PR-1 と PR-2b は、1つの Issue の続きの変更で、PR-2b のマージの前の全体の実行が、両方を覆う
 
 ## 残る隙間（この決定では解消しない）
 
