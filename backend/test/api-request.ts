@@ -19,12 +19,19 @@ const throttleKey = newThrottleKey();
 export async function apiRequest(
   method: string,
   path: string,
-  options: { token?: string | null; origin?: string; body?: unknown } = {},
+  options: {
+    token?: string | null;
+    origin?: string;
+    body?: unknown;
+    /** 追加の要求ヘッダー（#298：X-Expected-User-Id など） */
+    headers?: Record<string, string>;
+  } = {},
 ) {
   const headers: Record<string, string> = {
     Origin: options.origin ?? API_ORIGIN,
     "CF-Connecting-IP": TEST_IP,
     "X-Request-Id": `${AUTH_TRACE_PREFIX}${crypto.randomUUID()}`,
+    ...options.headers,
   };
   if (options.token) headers.Cookie = `${SESSION_COOKIE}=${options.token}`;
   if (options.body !== undefined) headers["Content-Type"] = "application/json";

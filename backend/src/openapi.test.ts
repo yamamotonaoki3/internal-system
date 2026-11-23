@@ -1689,3 +1689,106 @@ describe("#149 149-D 軽微1: 担当者が外れる操作の 503", () => {
     },
   );
 });
+
+// #298 AC-9（PR-1）：画面の想定する利用者（X-Expected-User-Id）とセッションの利用者が食い違うときの 409 SESSION_USER_MISMATCH。
+// 比べる処理は loadSession（公開の経路を含む /api/* の全体）で動くため、全操作に 409 を書く。食い違いの説明は共通の応答（components.responses）に1つ置き、
+// 既存の 409（CONFLICT などの競合）の説明は消さない。共通の応答の名前は決めていないため、中身（SESSION_USER_MISMATCH を含む）で探す。
+describe("#298 AC-9 API の仕様書：利用者の食い違い（SESSION_USER_MISMATCH）", () => {
+  type Response = {
+    $ref?: string;
+    description?: string;
+    headers?: Record<string, { schema?: { const?: string } }>;
+    content?: Record<string, { schema?: { $ref?: string } }>;
+  };
+  const doc = spec as unknown as {
+    components: { responses: Record<string, Response> };
+  };
+  const common = Object.entries(doc.components.responses).filter(
+    ([, response]) =>
+      JSON.stringify(response).includes("SESSION_USER_MISMATCH"),
+  );
+  const commonRef = `#/components/responses/${common[0]?.[0] ?? ""}`;
+  /**
+   * 409 の応答の、実際に有効になる説明（OpenAPI 3.1 の規則）。$ref と description を併記したときは、
+   * 併記した description が参照先の説明を上書きする（連結しない）。description が無い $ref は参照先の説明。
+   */
+  const text409 = (name: string) => {
+    const response = operations.find((entry) => entry.name === name)?.operation
+      .responses["409"] as Response | undefined;
+    if (response?.description !== undefined) return response.description;
+    const ref = response?.$ref?.replace("#/components/responses/", "");
+    return ref === undefined
+      ? ""
+      : (doc.components.responses[ref]?.description ?? "");
+  };
+
+  it("#298 AC-9: SESSION_USER_MISMATCH の共通の応答が1つあり、no-store と共通のエラーの形・ヘッダーの名前を書いている", () => {
+    expect(common).toHaveLength(1);
+    const response = common[0]?.[1];
+    expect(response?.headers?.["Cache-Control"]?.schema?.const).toBe(
+      "no-store",
+    );
+    expect(response?.content?.["application/json"]?.schema?.$ref).toBe(
+      "#/components/schemas/Error",
+    );
+    expect(JSON.stringify(response)).toContain("X-Expected-User-Id");
+  });
+
+  it("#298 AC-9: ヘッダー X-Expected-User-Id の説明が components にある", () => {
+    expect(
+      JSON.stringify((spec as unknown as { components: object }).components),
+    ).toContain("X-Expected-User-Id");
+  });
+
+  it("#298 AC-9: 全108操作に 409 があり、SESSION_USER_MISMATCH を説明している", () => {
+    expect(operations).toHaveLength(108);
+    const missing = operations
+      .filter(({ name }) => !text409(name).includes("SESSION_USER_MISMATCH"))
+      .map(({ name }) => name);
+    expect(missing).toEqual([]);
+  });
+
+  it("#298 AC-9: もともと 409 が無かった操作（55件以上）は、共通の応答をそのまま参照する", () => {
+    const referencing = operations.filter(
+      ({ operation }) =>
+        (operation.responses["409"] as Response | undefined)?.$ref ===
+        commonRef,
+    );
+    expect(referencing.length).toBeGreaterThanOrEqual(108 - 53);
+    for (const name of ["GET /api/health", "POST /api/auth/logout"])
+      expect(
+        (
+          operations.find((entry) => entry.name === name)?.operation.responses[
+            "409"
+          ] as Response | undefined
+        )?.$ref,
+        name,
+      ).toBe(commonRef);
+  });
+
+  // 従来の説明の文は、変更前の main（git show origin/main:docs/api/openapi.json）から独立に写したもの
+  it.each([
+    [
+      "POST /api/rooms/{roomId}/attachments",
+      "DM の相手のアカウントが無効になっている（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
+    ],
+    ["POST /api/channel-requests/{requestId}/reject", "すでに処理されている"],
+    [
+      "PATCH /api/channels/{channelId}",
+      "名前の重複（アーカイブ済みを含む）、名前を変えられないチャンネル、案件専用、版の不一致",
+    ],
+    [
+      "PUT /api/me/password",
+      "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）",
+    ],
+    [
+      "POST /api/auth/reauthenticate",
+      "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）",
+    ],
+  ])(
+    "#298 AC-9: 既存の 409 の説明（%s の「%s」）が残っている",
+    (name, fragment) => {
+      expect(text409(name)).toContain(fragment);
+    },
+  );
+});

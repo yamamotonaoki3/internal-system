@@ -9,6 +9,7 @@ import {
   type SessionPrincipal,
   type WithSessions,
 } from "../services/session.service";
+import { EXPECTED_USER_ID_HEADER } from "../../../shared/session-user-header";
 import { AppError } from "./app-error";
 import { createLogger } from "./logger/logger";
 import { SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES } from "./session-policy";
@@ -40,7 +41,11 @@ const PASSWORD_CHANGE_ALLOWLIST: ReadonlySet<string> = new Set([
 const isPublic = (method: string, path: string) =>
   PUBLIC_ENDPOINTS.has(`${method} ${path}`);
 
-/** Cookie のセッションから、ログイン中の利用者を c.var.principal に入れる（いなければ null）。Cookie があるのに使えないときは、Cookie を消す */
+/**
+ * Cookie のセッションから、ログイン中の利用者を c.var.principal に入れる（いなければ null）。Cookie があるのに使えないときは、Cookie を消す。
+ * 画面の想定する利用者（X-Expected-User-Id）があり、有効なセッションの利用者と食い違うときは、公開の経路も含めて 409 で断る（#298）。
+ * ヘッダーは断る向きにだけ使い、認可・利用者の特定には使わない。値はログにも応答にも出さない。
+ */
 export function loadSession(
   withSessions: WithSessions,
 ): MiddlewareHandler<{ Bindings: Env }> {
@@ -52,8 +57,21 @@ export function loadSession(
     }
     const logger = createLogger({ traceId: c.req.header("X-Request-Id") });
     const principal = await withSessions(c.env, (repository) =>
-      resolveSession(repository, token, { now: () => new Date(), logger }),
+      resolveSession(
+        repository,
+        token,
+        { now: () => new Date(), logger },
+        c.req.header(EXPECTED_USER_ID_HEADER),
+      ),
     );
+    if (principal !== null && "mismatch" in principal) {
+      // Cookie を消さない・セッションを失効させない（別の利用者のセッションは有効なまま）。ログアウトの経路でも、ルートの前に断る
+      c.header("Cache-Control", "no-store");
+      throw new AppError(
+        "SESSION_USER_MISMATCH",
+        "別の利用者でログインし直されています。ページを読み込み直してください",
+      );
+    }
     // ログアウトの Cookie 削除は、失効が確定した後にハンドラが行う（DB の失敗で 500 のときは消さない）
     const isLogout =
       c.req.method === "POST" && c.req.path === "/api/auth/logout";

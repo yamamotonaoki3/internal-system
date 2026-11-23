@@ -30,18 +30,19 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `backend/src/db/credential.repository.ts` | `createCredentialRepository`・`withCredentials`。現在の認証情報取得、試行失敗記録、パスワード変更と再認証時刻の条件付き更新を提供する。変更ごとの監査・社員ID失敗数リセット・他セッション失効を同じD1 `batch`にまとめる |
 | `backend/src/lib/password-policy.ts`・`password-denylist.ts` | `isPasswordAllowed`が共通の構成判定と禁止判定を組み合わせてサーバー側で最終検証する。`password-denylist.ts`は既存の公開入口を保つ再exportで、判定定義は`shared/password-rules.ts`に置く |
 | `backend/src/lib/session-policy.ts` | セッション期限判定とCookieの共通属性を定義する。`SESSION_COOKIE_ATTRIBUTES`は`Path=/`・`Secure`だけを共有し、`HttpOnly`・`SameSite`・`Max-Age`はCookieを設定する呼出元が個別に指定する |
-| `backend/src/services/session.service.ts` | `resolveSession`。トークンからログイン中の利用者を求める（期限は読み取り時に判定。最終操作の時刻は1分に間引いて更新） |
+| `backend/src/services/session.service.ts` | `resolveSession`。トークンからログイン中の利用者を求める（期限は読み取り時に判定。最終操作の時刻は1分に間引いて更新）。任意の第4引数`expectedUserId`（画面の想定する利用者）が渡され、有効なセッションの利用者の ID と一致しないときは、最終操作の時刻を更新せずに、`SessionUserMismatch`（`{ mismatch: true }`）を返す（Issue #298。下の「画面の利用者とセッションの利用者の食い違い」） |
 | `backend/src/db/auth.repository.ts` | `createAuthRepository`・`withAuth`。受付枠の確保（`acquireSourceSlot`）、社員IDの失敗数（`readAccountThrottle`・`recordLoginFailure`）、利用者の検索（`findLoginUser`）、セッションの作成（`createSession`）、再ハッシュの置き換え（`updatePasswordHashIfUnchanged`）、ログアウト（`revokeSession`）、掃除（`deleteExpiredSessions`・`deleteExpiredLoginAttempts`）、ロックの監査（`recordRateLimited`） |
 | `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない）。後者は`credential.repository.ts`がパスワード変更batchで実行する |
 | `backend/src/db/audit-log.repository.ts` | 既存の`auditLogInsert`に加えて、`auditLogInsertForSession`（セッションがあるときだけ書く条件付きの監査。ログインの成功・ログアウトで使う） |
-| `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ |
+| `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ。`loadSession`は、`X-Expected-User-Id`を読んで`resolveSession`に渡し、食い違いなら`no-store`を付けて409`SESSION_USER_MISMATCH`を投げる（Issue #298） |
+| `shared/session-user-header.ts` | 画面が想定する利用者を伝える要求ヘッダーの名前`EXPECTED_USER_ID_HEADER`（`X-Expected-User-Id`）の定義元。バックエンドが参照する（画面の側は、後の PR で参照する）（Issue #298） |
 | `backend/src/lib/session-policy.ts` | Cookie名`SESSION_COOKIE`（`__Host-session`）、無操作30分・ログインから24時間・最終操作の更新間隔1分の定数、`isSessionExpired` |
 | `backend/src/lib/session-token.ts` | `generateSessionToken`（32バイトの乱数のbase64url）・`hashSessionToken`（SHA-256の16進。DBの`sessions.id`） |
 | `backend/src/lib/throttle-policy.ts` | 試行制限の値（`SOURCE_WINDOW_MS`・`SOURCE_LIMIT`・`SOURCE_LOCK_MS`・`ACCOUNT_RESET_MS`）、`accountDelayMs`・`retryAfterSeconds` |
 | `backend/src/lib/source-key.ts` | `normalizeSourceIp`（IPの正規化）・`hmacKey`・`accountBucketKey`・`sourceBucketKey`（接続元不明時の扱い） |
 | `backend/src/lib/trace-id.ts` | `traceIdOf`。`X-Request-Id`を使うが、`[A-Za-z0-9._-]`の1〜64文字だけを受け付け、それ以外は新しいULIDにする |
 | `backend/src/lib/password.ts` | 既存の`hashPassword`・`verifyPassword`に加えて、`needsRehash`・`verifyPasswordConstantCost`（ログイン用の検証）。scryptの`maxmem`指定を含む（ADR-0007） |
-| `backend/src/lib/app-error.ts`・`backend/src/lib/error-handler.ts` | エラーコード`INVALID_CREDENTIALS`（401）・`PASSWORD_CHANGE_REQUIRED`（403）を追加。`RATE_LIMITED`の`details.retryAfterSeconds`は、本文に出さず`Retry-After`ヘッダーにだけ出す |
+| `backend/src/lib/app-error.ts`・`backend/src/lib/error-handler.ts` | エラーコード`INVALID_CREDENTIALS`（401）・`PASSWORD_CHANGE_REQUIRED`（403）を追加（Issue #298で`SESSION_USER_MISMATCH`（409）も追加）。`RATE_LIMITED`の`details.retryAfterSeconds`は、本文に出さず`Retry-After`ヘッダーにだけ出す |
 | `backend/src/lib/audit-actions.ts` | 操作の種類に`auth.login`・`auth.logout`・`auth.rate_limited`・`setup.rate_limited`を追加 |
 | `backend/src/lib/logger/logger.ts` | DBのエラー（SQLとパラメータを含む）を、固定の文言にして出力する（下の「ログ」） |
 | `backend/src/app.ts`・`backend/src/index.ts` | `/api/*`の既定拒否の組み立て、`/api/auth`・`/api/me`・`/api/setup`の組み込み、Cron（`authCleanupJob`）の登録 |
@@ -143,12 +144,30 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 ### 範囲外
 
 - 操作の途中で別の人に替わった場合の、前の利用者の操作の応答の書き戻し・途中から始まる通信・ログアウトの後処理：Issue #300
-- 同じブラウザの別のタブで別の人がログインした場合：Issue #298
+- 同じブラウザの別のタブで別の人がログインした場合：Issue #298。**サーバーの側（食い違う要求を409で断る）は実装済み**（下の「画面の利用者とセッションの利用者の食い違い」）。**画面の側（ヘッダーを付ける・読み込み直す）は後の PR で実装する**ため、この節の範囲は、画面の側が入るまで変わらない
 - 401の共通処理（`unauthenticated-handler.ts`）、`useLogout`、`usePostMessage`は変えていない
+
+## 画面の利用者とセッションの利用者の食い違い（Issue #298。サーバーの側）
+
+Cookie はブラウザ全体で1つのため、別のタブで別の利用者がログインすると、古い画面の通信が別の利用者として扱われる。画面が想定する利用者を要求ヘッダー`X-Expected-User-Id`で伝え、サーバーが食い違いを断る。判断は[ADR-0035](../adr/0035-session-user-mismatch-header.md)、決定記録はC-209。**この節は、サーバーの側だけを書く。画面はまだヘッダーを付けないので、画面の動きは変わらない（画面の側は後の PR）**。
+
+### 処理の流れ
+
+1. `loadSession`が、Cookieのトークンから`resolveSession`を呼ぶとき、ヘッダー`X-Expected-User-Id`の値（名前は`shared/session-user-header.ts`の`EXPECTED_USER_ID_HEADER`）を渡す。Cookieが無いときは、ヘッダーを見ない（これまでどおり、未ログインとして次へ進む）
+2. `resolveSession`は、セッションを読み、失効・期限切れ・無効化された利用者なら、これまでどおり`null`を返す。**その後**に、ヘッダーの値が渡されていて、セッションの利用者の ID と文字列として完全に一致しなければ、**最終操作の時刻の更新（`touchSession`）より前に**、`SessionUserMismatch`（`{ mismatch: true }`）を返す。一致する・ヘッダーが無いときは、これまでどおり利用者の情報（`SessionPrincipal`）を返す。空の値・形の崩れた値は、一致しないので食い違いになる（500にしない）
+3. `loadSession`は、`SessionUserMismatch`を受けたら、`Cache-Control: no-store`を付けて、`AppError`の`SESSION_USER_MISMATCH`（409）を投げる。Cookieを消さず、セッションを失効させない（別の利用者のセッションは有効なまま）。ログアウトの経路でも、ルートの前に断る（ログアウトの失効・Cookieの削除は行われない）
+4. 公開の許可リストの経路にも同じに働く（`loadSession`は`/api/*`の全経路で動くため）。`requireAuth`・初回パスワードのゲート・認可・業務・監査・DBの書き込みは、断られた要求では動かない
+
+### 決まり
+
+- ヘッダーは、**断る向きにだけ**使う。認可・利用者の特定には使わない（利用者はCookieのセッションだけで決まる）。値はログにも応答にも出さない
+- ヘッダーが無い要求は通す。セッションが無い・使えないときは、ヘッダーがあっても、これまでの結果（401など）のまま
+- 食い違いの応答は、ほかの409（`CONFLICT`）と、エラーコードで区別する。形は全体で統一したエラー応答（`code`・`message`）。API仕様書は、全操作に409の共通の応答`SessionUserMismatch`を足してある
+- 残る隙間：添付の配信（ヘッダーを付けられない）・古い版の画面・利用者が決まる前の通信（[ADR-0035](../adr/0035-session-user-mismatch-header.md)）
 
 ## 既定拒否とゲート
 
-`backend/src/app.ts`の`createApp`は、`options.sessions`が渡されたとき、`/api/*`に次の順で適用する：セキュリティヘッダー（全体）→ `originCheck`（送信元の確認）→ `noStoreForProtected` → `loadSession` → `requireAuth` → `requirePasswordChanged`。入口の`backend/src/index.ts`は必ず`sessions`を渡す（渡さないアプリは、ルートの組み立てだけを確かめるテスト用）。
+`backend/src/app.ts`の`createApp`は、`options.sessions`が渡されたとき、`/api/*`に次の順で適用する：セキュリティヘッダー（全体）→ `originCheck`（送信元の確認）→ `noStoreForProtected` → `loadSession`（画面の想定する利用者との食い違いは、ここで409`SESSION_USER_MISMATCH`にする。Issue #298）→ `requireAuth` → `requirePasswordChanged`。入口の`backend/src/index.ts`は必ず`sessions`を渡す（渡さないアプリは、ルートの組み立てだけを確かめるテスト用）。
 
 ### 公開の許可リスト（6件）
 
@@ -253,6 +272,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | Issue #123の規則・本人変更Service/Repository | `backend/src/lib/password-policy.test.ts`・`password-boundary.test.ts`、`backend/src/services/credentials.service.test.ts`、`backend/src/db/credential.repository.db.test.ts` |
 | 本人変更・再認証route/API契約 | `backend/src/routes/me.test.ts`・`backend/src/routes/auth.test.ts`・`backend/src/openapi.test.ts` |
 | 再認証と業務処理の接続 | `backend/src/reauth-business.test.ts`（テスト専用業務更新と監査。同Issueでは実業務APIを追加しない） |
+| 画面の利用者とセッションの利用者の食い違い（Issue #298） | `backend/src/services/session.service.test.ts`（`resolveSession`の判定の位置・最終操作の時刻を更新しないこと）、`backend/src/lib/session-middleware.mismatch.test.ts`（ミドルウェア。空・長い・任意の値で500にならないこと、公開の経路）、`backend/src/routes/session-user-mismatch.test.ts`（結合。副作用が増えないこと・ログアウト）、`backend/src/openapi.test.ts`（全操作に409と共通の応答） |
 | セッションのトークン・期限 | `backend/src/lib/session-token.test.ts`、期限の境界・1分の間引きは`backend/src/routes/auth.test.ts`、`backend/src/db/session.repository.db.test.ts`・`session.repository.read.db.test.ts` |
 | 試行制限の値・接続元のキー | `backend/src/lib/throttle-policy.test.ts`、`source-key.test.ts`・`source-key-boundary.test.ts`、`backend/src/config.throttle.test.ts` |
 | ログインのService・Repository | `backend/src/services/auth.service.test.ts`・`auth.service.mutation.test.ts`、`backend/src/db/auth.repository.db.test.ts` |
@@ -278,8 +298,9 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 ## 関係するIssueとADR
 
 - Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
-- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）
-- Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）、#298（別のタブ）
-- 決定記録：C-187、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
+- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）
+- Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）
+- Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側は実装済み、画面の側は後の PR）
+- 決定記録：C-187、C-209、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`
 - 関連する設計書：[roles-and-setup.md](roles-and-setup.md)（`/api/setup`、`password.ts`の元の部分）

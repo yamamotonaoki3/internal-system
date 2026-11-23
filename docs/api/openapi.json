@@ -3,7 +3,7 @@
   "info": {
     "title": "internal-system API",
     "version": "0.1.0",
-    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。 /api/* は既定で拒否する：公開の許可リスト（GET /api/health・GET /api/setup/status・POST /api/setup・POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session）以外は、ログイン（Cookie __Host-session）が必要で、未ログインは 401（UNAUTHENTICATED）になる。初回パスワードのままの利用者は、許可リスト以外が 403（PASSWORD_CHANGE_REQUIRED）になる。パスワード変更と再認証はログイン中のセッションが必要な状態変更APIである。"
+    "description": "API の仕様書（OpenAPI 3.1）。API を足す・変えるときは、同じ変更の中でこの仕様書も直す（backend/src/openapi.test.ts が、実際のルートと食い違うと失敗にする）。Schemathesis（docs/testing/schemathesis.md）が、この仕様書から異常な入力を作って確かめる。 /api/* は既定で拒否する：公開の許可リスト（GET /api/health・GET /api/setup/status・POST /api/setup・POST /api/auth/login・POST /api/auth/logout・GET /api/auth/session）以外は、ログイン（Cookie __Host-session）が必要で、未ログインは 401（UNAUTHENTICATED）になる。初回パスワードのままの利用者は、許可リスト以外が 403（PASSWORD_CHANGE_REQUIRED）になる。パスワード変更と再認証はログイン中のセッションが必要な状態変更APIである。 画面は、要求ヘッダー X-Expected-User-Id に、画面が見ている利用者の ID を付けられる。ヘッダーがあり、Cookie のセッションが有効で、利用者が一致しないときは、すべての操作が 409（SESSION_USER_MISMATCH）で断られる。ヘッダーが無ければ従来どおり。"
   },
   "servers": [
     {
@@ -104,7 +104,7 @@
             }
           },
           "409": {
-            "description": "DM の相手のアカウントが無効になっている（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -211,7 +211,7 @@
             }
           },
           "409": {
-            "description": "親が削除済み、部署が無効、または DM の相手のアカウントが無効（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）",
+            "description": "親が削除済み、部署が無効、または DM の相手のアカウントが無効（CONFLICT）。案件専用チャンネルで案件が終了している（「終了した案件には添付できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -377,6 +377,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -450,7 +453,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT「終了した案件の添付の公開範囲は変更できません」）、または判定の後に状態が変わった（CONFLICT「状態が変わったため、変更できませんでした。読み込み直してからお試しください」）",
+            "description": "終了した案件（CONFLICT「終了した案件の添付の公開範囲は変更できません」）、または判定の後に状態が変わった（CONFLICT「状態が変わったため、変更できませんでした。読み込み直してからお試しください」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -507,7 +510,7 @@
             }
           },
           "409": {
-            "description": "未投稿の自分の添付（CONFLICT「送信前の添付は、送信前の一覧で取り消してください」）、部署が無効・DM の相手が無効・案件専用チャンネルで案件が終了している、本文のない投稿（添付だけの投稿）の最後の見える添付（CONFLICT「本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。」。再認証より前に断る）、または判定の後に状態が変わった（CONFLICT）",
+            "description": "未投稿の自分の添付（CONFLICT「送信前の添付は、送信前の一覧で取り消してください」）、部署が無効・DM の相手が無効・案件専用チャンネルで案件が終了している、本文のない投稿（添付だけの投稿）の最後の見える添付（CONFLICT「本文のない投稿の、最後の添付は削除できません。投稿ごと削除してください。」。再認証より前に断る）、または判定の後に状態が変わった（CONFLICT）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -572,6 +575,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -624,7 +630,7 @@
             }
           },
           "409": {
-            "description": "ユーザーIDまたはメールアドレスが重複した（入力値は返さない）",
+            "description": "ユーザーIDまたはメールアドレスが重複した（入力値は返さない）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -670,6 +676,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -718,7 +727,7 @@
             }
           },
           "409": {
-            "description": "対象が既に無効・全体管理者・部署のオーナー・進行中の案件の唯一の有効な参加者（reason: already_inactive・global_admin・department_owner・case_handover_required）",
+            "description": "対象が既に無効・全体管理者・部署のオーナー・進行中の案件の唯一の有効な参加者（reason: already_inactive・global_admin・department_owner・case_handover_required）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -805,7 +814,7 @@
             }
           },
           "409": {
-            "description": "対象が既に有効（reason: already_active）",
+            "description": "対象が既に有効（reason: already_active）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -874,7 +883,7 @@
             }
           },
           "409": {
-            "description": "対象が無効・今の部署のオーナー（reason: inactive・department_owner）",
+            "description": "対象が無効・今の部署のオーナー（reason: inactive・department_owner）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -961,6 +970,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
@@ -1011,7 +1023,7 @@
             }
           },
           "409": {
-            "description": "名前またはコードが重複した",
+            "description": "名前またはコードが重複した。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1093,7 +1105,7 @@
             }
           },
           "409": {
-            "description": "名前重複、無効状態、または版の競合",
+            "description": "名前重複、無効状態、または版の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1175,7 +1187,7 @@
             }
           },
           "409": {
-            "description": "INT、無効状態、または版の競合",
+            "description": "INT、無効状態、または版の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1255,6 +1267,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
@@ -1326,6 +1341,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
@@ -1386,6 +1404,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -1450,6 +1471,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -1517,7 +1541,7 @@
             }
           },
           "409": {
-            "description": "部署名・チャンネル名の重複、無効な部署、または版の競合",
+            "description": "部署名・チャンネル名の重複、無効な部署、または版の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1581,7 +1605,7 @@
             }
           },
           "409": {
-            "description": "部署名・チャンネル名の重複、または状態の競合",
+            "description": "部署名・チャンネル名の重複、または状態の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1656,7 +1680,7 @@
             }
           },
           "409": {
-            "description": "すでにオーナー、無効な部署、または版の競合",
+            "description": "すでにオーナー、無効な部署、または版の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1742,6 +1766,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -1787,6 +1814,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -1853,7 +1883,7 @@
             }
           },
           "409": {
-            "description": "名前の重複（アーカイブ済みを含む）、名前を変えられないチャンネル、案件専用、版の不一致",
+            "description": "名前の重複（アーカイブ済みを含む）、名前を変えられないチャンネル、案件専用、版の不一致。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1910,6 +1940,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -1988,7 +2021,7 @@
             }
           },
           "409": {
-            "description": "案件専用のチャンネル、部署が無効（読み取り専用）、または相手が参加済み（自分自身を含む）",
+            "description": "案件専用のチャンネル、部署が無効（読み取り専用）、または相手が参加済み（自分自身を含む）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2051,7 +2084,7 @@
             }
           },
           "409": {
-            "description": "同じ名前のチャンネルまたは承認待ちの申請がある",
+            "description": "同じ名前のチャンネルまたは承認待ちの申請がある。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2146,6 +2179,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -2200,6 +2236,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -2266,7 +2305,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている、同じ名前のチャンネルがある、または部署が無効",
+            "description": "すでに処理されている、同じ名前のチャンネルがある、または部署が無効。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2350,7 +2389,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている",
+            "description": "すでに処理されている。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2424,7 +2463,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている",
+            "description": "すでに処理されている。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2521,7 +2560,7 @@
             }
           },
           "409": {
-            "description": "DMの相手が無効",
+            "description": "DMの相手が無効。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2622,6 +2661,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -2688,7 +2730,7 @@
             }
           },
           "409": {
-            "description": "DM の相手のアカウントが無効になっている（CONFLICT）、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）",
+            "description": "DM の相手のアカウントが無効になっている（CONFLICT）、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -2770,6 +2812,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -2831,6 +2876,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -2896,6 +2944,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -2916,6 +2967,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -2952,6 +3006,9 @@
           },
           "403": {
             "$ref": "#/components/responses/PasswordChangeRequired"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       },
@@ -2993,7 +3050,7 @@
             }
           },
           "409": {
-            "description": "同じユーザー名がすでにある（CONFLICT）",
+            "description": "同じユーザー名がすでにある（CONFLICT）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3038,6 +3095,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -3087,7 +3147,7 @@
             }
           },
           "409": {
-            "description": "すでに完了している、または社員ID・メールアドレス・部署名が重複している（CONFLICT）",
+            "description": "すでに完了している、または社員ID・メールアドレス・部署名が重複している（CONFLICT）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3168,6 +3228,9 @@
           "403": {
             "$ref": "#/components/responses/ForbiddenOrigin"
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
@@ -3216,6 +3279,9 @@
           },
           "403": {
             "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -3246,6 +3312,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -3291,7 +3360,8 @@
             "$ref": "#/components/responses/CredentialForbidden"
           },
           "409": {
-            "$ref": "#/components/responses/CredentialConflict"
+            "$ref": "#/components/responses/CredentialConflict",
+            "description": "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）。Cache-Control: no-store。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
           },
           "422": {
             "$ref": "#/components/responses/CredentialValidationError"
@@ -3353,6 +3423,9 @@
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -3385,6 +3458,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -3411,6 +3487,9 @@
           },
           "403": {
             "$ref": "#/components/responses/ForbiddenOrigin"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -3468,6 +3547,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -3537,7 +3619,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）",
+            "description": "削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3595,7 +3677,7 @@
             }
           },
           "409": {
-            "description": "すでに削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）",
+            "description": "すでに削除済み・部署が無効・DM の相手が無効（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件のメッセージは変更できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3665,6 +3747,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -3731,6 +3816,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -3800,7 +3888,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効・20種類の上限（リアクションは20種類までです）・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）",
+            "description": "削除済み・部署が無効・DM の相手が無効・20種類の上限（リアクションは20種類までです）・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3890,7 +3978,7 @@
             }
           },
           "409": {
-            "description": "削除済み・部署が無効・DM の相手が無効・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）",
+            "description": "削除済み・部署が無効・DM の相手が無効・状態の変化（別の操作と重なり、やり直しても決まらない競合。もう一度お試しください）（CONFLICT）。メッセージで区別する。案件専用チャンネルで案件が終了している（「終了した案件にはリアクションできません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -3991,6 +4079,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -4057,7 +4148,7 @@
             }
           },
           "409": {
-            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）",
+            "description": "親が削除済み・部署が無効・DM の相手のアカウントが無効（CONFLICT）。メッセージで区別する、または添付がすでに使われている。案件専用チャンネルで案件が終了している（「終了した案件には投稿できません」。#148）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -4144,7 +4235,7 @@
             }
           },
           "409": {
-            "description": "状態が変わったため既読にできなかった（CONFLICT）。読み込み直してやり直す",
+            "description": "状態が変わったため既読にできなかった（CONFLICT）。読み込み直してやり直す。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -4216,6 +4307,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -4320,6 +4414,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -4396,6 +4493,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -4443,7 +4543,8 @@
             "$ref": "#/components/responses/ForbiddenOriginNoStore"
           },
           "409": {
-            "$ref": "#/components/responses/CredentialConflict"
+            "$ref": "#/components/responses/CredentialConflict",
+            "description": "確定前に現在のパスワードまたはセッションが変わった（CONFLICT）。Cache-Control: no-store。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる"
           },
           "422": {
             "$ref": "#/components/responses/CredentialValidationError"
@@ -4493,6 +4594,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
@@ -4547,6 +4651,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -4631,6 +4738,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -4673,6 +4783,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           }
         }
       }
@@ -4734,6 +4847,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -4811,6 +4927,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -4892,6 +5011,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -4944,7 +5066,7 @@
             }
           },
           "409": {
-            "description": "審査する人が変わった（もう一度申請する）",
+            "description": "審査する人が変わった（もう一度申請する）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5007,6 +5129,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -5081,6 +5206,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -5145,7 +5273,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている",
+            "description": "すでに処理されている。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5215,7 +5343,7 @@
             }
           },
           "409": {
-            "description": "対象が部署のオーナー（申請者自身を含む）・全体管理者、または申請中の申請がある（reason: department_owner・global_admin・duplicate_pending）",
+            "description": "対象が部署のオーナー（申請者自身を含む）・全体管理者、または申請中の申請がある（reason: department_owner・global_admin・duplicate_pending）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5278,6 +5406,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthenticated"
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -5343,7 +5474,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている（reason: not_pending）",
+            "description": "すでに処理されている（reason: not_pending）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5428,6 +5559,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -5502,7 +5636,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている（reason: not_pending）",
+            "description": "すでに処理されている（reason: not_pending）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5585,7 +5719,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている・担当部署／取引先／候補が無効・案件番号が上限・採番の競合",
+            "description": "すでに処理されている・担当部署／取引先／候補が無効・案件番号が上限・採番の競合。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5668,7 +5802,7 @@
             }
           },
           "409": {
-            "description": "すでに処理されている",
+            "description": "すでに処理されている。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5768,6 +5902,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -5831,6 +5968,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -5905,7 +6045,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed）、ほかの人が先に変更した（reason: stale）、自動参加させる人が続けて変わった（reason: retry）",
+            "description": "終了した案件（CONFLICT。reason: closed）、ほかの人が先に変更した（reason: stale）、自動参加させる人が続けて変わった（reason: retry）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -5978,6 +6118,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -6030,6 +6173,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -6098,7 +6244,7 @@
             }
           },
           "409": {
-            "description": "アーカイブできない種類、すでにアーカイブ済み、版の不一致、同時の操作と重なった",
+            "description": "アーカイブできない種類、すでにアーカイブ済み、版の不一致、同時の操作と重なった。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6174,7 +6320,7 @@
             }
           },
           "409": {
-            "description": "復元できない種類、アーカイブされていない、版の不一致、同時の操作と重なった",
+            "description": "復元できない種類、アーカイブされていない、版の不一致、同時の操作と重なった。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6272,6 +6418,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -6335,6 +6484,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -6412,6 +6564,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -6487,7 +6642,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed）、またはすでに参加者（reason: already_participant）",
+            "description": "終了した案件（CONFLICT。reason: closed）、またはすでに参加者（reason: already_participant）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6555,7 +6710,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed）、自動参加の人（reason: auto_participant「担当部署のオーナー・全体管理者は外せません」）、または最後の有効な参加者（reason: last_active_participant）",
+            "description": "終了した案件（CONFLICT。reason: closed）、自動参加の人（reason: auto_participant「担当部署のオーナー・全体管理者は外せません」）、または最後の有効な参加者（reason: last_active_participant）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6642,7 +6797,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed）",
+            "description": "終了した案件（CONFLICT。reason: closed）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6716,7 +6871,7 @@
             }
           },
           "409": {
-            "description": "すでに終了している（CONFLICT。reason: already_closed）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
+            "description": "すでに終了している（CONFLICT。reason: already_closed）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6800,7 +6955,7 @@
             }
           },
           "409": {
-            "description": "すでに進行中（CONFLICT。reason: already_active）、参加者がほかの操作で変わった（reason: participants_changed）、自動参加の人（全体管理者・担当部署のオーナー）を外そうとした（reason: auto_participant）、追加の社員がすでに参加者（reason: already_participant）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）",
+            "description": "すでに進行中（CONFLICT。reason: already_active）、参加者がほかの操作で変わった（reason: participants_changed）、自動参加の人（全体管理者・担当部署のオーナー）を外そうとした（reason: auto_participant）、追加の社員がすでに参加者（reason: already_participant）、判定の後にほかの人が案件を変更した（reason: stale）、または宛先の変更が重なった（reason: retry）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -6893,6 +7048,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -6966,7 +7124,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7062,7 +7220,7 @@
             }
           },
           "409": {
-            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、完了した TODO の担当の変更（reason: todo_completed）、終了した案件（reason: closed「終了した案件は変更できません」）、または版が違う（reason: todo_changed「ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください」）",
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、完了した TODO の担当の変更（reason: todo_completed）、終了した案件（reason: closed「終了した案件は変更できません」）、または版が違う（reason: todo_changed「ほかの人が変更しました。最新の内容を確かめてから、もう一度操作してください」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7131,7 +7289,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7217,7 +7375,7 @@
             }
           },
           "409": {
-            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）",
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7303,7 +7461,7 @@
             }
           },
           "409": {
-            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）",
+            "description": "削除された TODO（CONFLICT。reason: todo_deleted「このTODOは削除されています」）、または終了した案件（reason: closed「終了した案件は変更できません」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7408,6 +7566,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -7492,6 +7653,9 @@
               }
             }
           },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
+          },
           "422": {
             "$ref": "#/components/responses/ValidationError"
           }
@@ -7566,7 +7730,7 @@
             }
           },
           "409": {
-            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）",
+            "description": "終了した案件（CONFLICT。reason: closed「終了した案件は変更できません」）。加えて、画面の想定する利用者と Cookie のセッションの利用者が食い違うとき（要求ヘッダー X-Expected-User-Id。SESSION_USER_MISMATCH。共通の応答 SessionUserMismatch と同じ形で、Cache-Control: no-store）も 409 になる",
             "content": {
               "application/json": {
                 "schema": {
@@ -7661,6 +7825,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "$ref": "#/components/responses/SessionUserMismatch"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -14167,6 +14334,24 @@
       },
       "ServiceUnavailable": {
         "description": "認証・試行制限を安全に実行できない（SERVICE_UNAVAILABLE）。本番で接続元を特定できない場合を含む。Cache-Control: no-store",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "SessionUserMismatch": {
+        "description": "画面の想定する利用者（要求ヘッダー X-Expected-User-Id）と、Cookie のセッションの利用者が食い違う（SESSION_USER_MISMATCH）。ヘッダーがあり、セッションが有効で、値が利用者の ID と文字列として完全に一致しない（空・長すぎる値を含む）ときに、最終操作の時刻の更新・認可・業務の処理・監査より前に断る。ヘッダーが無い・一致する・セッションが使えないときは起きない。セッションは失効させず、Cookie も消さない。ヘッダーは断る向きにだけ使い、認可には使わない。公開の経路（ログアウトを含む）でも起きる。Cache-Control: no-store",
         "headers": {
           "Cache-Control": {
             "schema": {
