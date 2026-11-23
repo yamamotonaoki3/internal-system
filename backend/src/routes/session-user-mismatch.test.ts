@@ -105,6 +105,10 @@ describe("#298 AC-1 投稿（認証の要る API）", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ code: "SESSION_USER_MISMATCH" });
     expect(typeof body.message).toBe("string");
+    // 利用者向けの文は、決定済みの文を独立に書く（空文字や別の文への変更を検出する）
+    expect(body.message).toBe(
+      "別の利用者でログインし直されています。ページを読み込み直してください",
+    );
     expect(await messageCount(dept.dedicatedChannelId)).toBe(0);
     expect(await authAuditRows()).toEqual([]);
     expect(auditLogLines()).toEqual([]);
@@ -170,7 +174,11 @@ describe("#298 AC-2 ログアウト（公開の経路）", () => {
     const res = await postLogout(userB.token, userA.userId);
     expect(res.status).toBe(409);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toMatchObject({ code: "SESSION_USER_MISMATCH" });
+    expect(await res.json()).toMatchObject({
+      code: "SESSION_USER_MISMATCH",
+      message:
+        "別の利用者でログインし直されています。ページを読み込み直してください",
+    });
     const cookie = parseSetCookie(res.headers.get("Set-Cookie"));
     expect(cookie?.name === "__Host-session").toBe(false);
     expect((await sessionRow(userB.sessionId))?.revoked_at).toBeNull();
