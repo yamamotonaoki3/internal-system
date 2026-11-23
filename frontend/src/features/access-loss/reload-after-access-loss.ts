@@ -284,7 +284,11 @@ function startUserSwitchWaiting(queryClient: QueryClient): void {
 export function requestUserSwitchReload(queryClient: QueryClient): void {
   if (userSwitchRequested) return;
   userSwitchRequested = true;
-  if (state === "reloading") return;
+  if (state === "reloading") {
+    // #338 の読み込み直しが、知らせを保存した後でも、文書が替わる前なら、次の利用者に出さないよう消す（読み込み直しは足さない）
+    clearAccessLossNotice();
+    return;
+  }
   waiting?.handOver();
   startUserSwitchWaiting(queryClient);
 }

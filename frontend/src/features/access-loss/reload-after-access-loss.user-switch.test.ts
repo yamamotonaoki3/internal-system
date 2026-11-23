@@ -407,3 +407,34 @@ describe("#298 AC-4 切り替えの入口が動いている間の #338 の要求
     expect(window.sessionStorage.getItem(NOTICE_KEY)).toBeNull();
   });
 });
+
+// 【3回目】コードレビュー（cr298c-1）の重大2：#338 の喪失の読み込み直しが、知らせを保存して reloading になった後
+// （文書が置き換わる前）に、切り替えの入口が呼ばれたら、保存済みの知らせを消す（Q7）。読み込み直しは追加で起きない（全体で1回）。
+describe("#298 AC-4（Q7） #338 の reloading の後の切り替え（コードレビューの重大2）", () => {
+  it("#298 AC-4（Q7）: #338 が知らせ（lost）を保存して reloading になった後に、切り替えの入口が呼ばれると、保存済みの知らせを消す。読み込み直しは全体で1回", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    void m.entry.requestAccessLossReload(client, {
+      ownerId: USER_A,
+      reason: "lost",
+    });
+    await advance(1);
+    // 前提：#338 の読み込み直しが動き、知らせが保存された
+    expect(m.entry.getAccessLossReloadState()).toBe("reloading");
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem(NOTICE_KEY)).toBe("lost");
+    client.setQueryData(authKeys.session, sessionOf(USER_B));
+    m.entry.requestUserSwitchReload(client);
+    expect(window.sessionStorage.getItem(NOTICE_KEY)).toBeNull();
+    await advance(LIMIT_MS * 2);
+    expect(window.sessionStorage.getItem(NOTICE_KEY)).toBeNull();
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+    expect(m.location.replacePage).not.toHaveBeenCalled();
+    expect(m.entry.getAccessLossReloadState()).toBe("reloading");
+    // 新しい文書で B に前の利用者の知らせが出ない
+    const next = await freshDocument();
+    expect(
+      next.notice.takeAccessLossNotice(clientSignedInAs(USER_B)),
+    ).toBeNull();
+  });
+});

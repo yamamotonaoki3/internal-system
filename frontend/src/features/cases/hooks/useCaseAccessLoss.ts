@@ -17,6 +17,7 @@ import {
   requestAccessLossReload,
 } from "../../access-loss";
 import { confirmSessionUserAfterMismatch } from "../../auth";
+import { refetchAnswerOf } from "../../../lib/refetch-answer";
 import { isSessionUserMismatchError } from "../../../services/api-client";
 import { messageKeys } from "../../messages";
 import type { CaseSummary } from "../api/case-api";
@@ -63,22 +64,18 @@ async function verifyParticipant(
     .getQueryCache()
     .find<CaseSummary>({ queryKey: summaryKey, exact: true });
   if (query === undefined) return switchedOrUnverified();
-  const dataBefore = query.state.dataUpdateCount;
-  const errorBefore = query.state.errorUpdateCount;
-  await queryClient.refetchQueries({ queryKey: summaryKey, exact: true });
-  const dataGrew = query.state.dataUpdateCount - dataBefore;
-  const errorGrew = query.state.errorUpdateCount - errorBefore;
-  if (dataGrew === 1 && errorGrew === 0)
-    return query.state.data?.isParticipant === true ? "participant" : "lost";
-  if (dataGrew === 0 && errorGrew === 1) {
-    const { error } = query.state;
-    if (isCaseNotFound(error)) return "notFound";
-    if (isSessionUserMismatchError(error)) return verdictAfterMismatch();
+  const answer = await refetchAnswerOf<CaseSummary>(queryClient, query, () =>
+    queryClient.refetchQueries({ queryKey: summaryKey, exact: true }),
+  );
+  if (answer.kind === "data")
+    return answer.data?.isParticipant === true ? "participant" : "lost";
+  if (answer.kind === "error") {
+    if (isCaseNotFound(answer.error)) return "notFound";
+    if (isSessionUserMismatchError(answer.error)) return verdictAfterMismatch();
     return "unverified";
   }
-  if (dataGrew === 0 && errorGrew === 0) return switchedOrUnverified();
-  // ほかからの書き換えと重なり、どれがこの取り直しの答えか見分けられない
-  return "unverified";
+  // 答えが無い（取り消し・手での書き換えとの重なり等）。どれがこの取り直しの答えか見分けられない
+  return switchedOrUnverified();
 }
 
 /**

@@ -427,3 +427,42 @@ describe("#298 AC-6 ログアウトの直後の 409（統括の決定 decision-2
     expect(t.onOtherUser).not.toHaveBeenCalled();
   });
 });
+
+// 【3回目】コードレビュー（cr298c-1）の重大1：手での書き換え（setQueryData）と取り消しが重なったとき、取り直しの成功と見誤らない。
+// setQueryData は成功の更新の回数を増やし、取り消しの revert はその書き換えを残す（query-core の #revertState）。
+// 新しい応答が無いのに増分が「成功1・失敗0」になるが、これはこの取り直しの答えではない（決定3・4）。
+describe("#298 AC-6 取り直しの最中の手での書き換えと取り消しの重なり（決定3・4。コードレビューの重大1）", () => {
+  async function startHeldRefetch(t: Awaited<ReturnType<typeof setUp>>) {
+    const gate = deferred();
+    t.world.hold = gate.promise;
+    await t.mismatch();
+    await vi.waitFor(() => expect(t.world.sessionFetches).toBe(1));
+    const outcome = t.handler.confirmSessionUserAfterMismatch();
+    return { gate, outcome };
+  }
+
+  it("#298 AC-6（決定3・4）: 取り直しの最中に、セッションが手で A のまま書き換えられ、取り直しが取り消された：same にせず unknown。same の回数も増えない（続けて same・same）", async () => {
+    const t = await setUp();
+    const held = await startHeldRefetch(t);
+    t.client.setQueryData(SESSION_KEY, sessionOf(USER_A));
+    await t.client.cancelQueries({ queryKey: SESSION_KEY, exact: true });
+    expect(await held.outcome).toBe("unknown");
+    expect(t.onOtherUser).not.toHaveBeenCalled();
+    held.gate.release();
+    t.world.hold = null;
+    t.world.served = "A";
+    // 手での書き換えを same と数えていれば、ここで3回目になり unknown が返る
+    expect(await cycle(t)).toBe("same");
+    expect(await cycle(t)).toBe("same");
+  });
+
+  it("#298 AC-6（決定3）: 取り直しの最中に、セッションが手で別の利用者 B に書き換えられ、取り直しが取り消された：switched。入口を1回呼ぶ", async () => {
+    const t = await setUp();
+    const held = await startHeldRefetch(t);
+    t.client.setQueryData(SESSION_KEY, sessionOf(USER_B));
+    await t.client.cancelQueries({ queryKey: SESSION_KEY, exact: true });
+    expect(await held.outcome).toBe("switched");
+    expect(t.onOtherUser).toHaveBeenCalledTimes(1);
+    held.gate.release();
+  });
+});

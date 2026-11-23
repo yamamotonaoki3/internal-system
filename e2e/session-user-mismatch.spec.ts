@@ -10,6 +10,7 @@
 //     フォーカス等の取り直しで、意図より先に B を見ないようにする
 //   - B のログインは、同じコンテキストの API（context.request）で、許可した Origin を付けて行う（Cookie を共有する）。ログインは A・B で1回ずつ、計2回
 //   - ページ1の投稿（POST /api/rooms/:roomId/messages）は page.route で保留し、要求のヘッダーを記録する（読み込み直しの入口が、受理済みの書き込みを待つ間を作る）
+//   - 各ページの文書の読み込み（主の枠の document の要求）を、保留を解く前から数え、B の画面が確定した時点で1回と照らす
 // 時計（page.clock）は使わない。固定の待ち・toPass・条件つきの分岐は使わない。
 // 前提：e2e/seeds/session-user-mismatch.sql（[E2E_TEST]部署298・e2euser_mismatch_001・002・取引先 QMM・案件1件。A・B とも参加者）。
 //   後始末は e2e/seeds/session-user-mismatch-cleanup.sql（識別子だけ。残数 0 を確かめる）。
@@ -121,6 +122,19 @@ async function holdSessions(page: Page) {
   };
 }
 
+/** 呼んだ後の、主の枠の文書の読み込み（document の要求）の回数を返す関数を作る */
+function countDocumentLoads(page: Page): () => number {
+  let count = 0;
+  page.on("request", (request) => {
+    if (
+      request.resourceType() === "document" &&
+      request.frame() === page.mainFrame()
+    )
+      count += 1;
+  });
+  return () => count;
+}
+
 let context: BrowserContext;
 const errors: string[] = [];
 
@@ -211,6 +225,9 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
   await main1.getByRole("button", { name: "送信", exact: true }).click();
   expect((await postRequest).headers()[HEADER]).toBe(USER_A.id);
 
+  // 各ページの文書の読み込み（主の枠の document の要求）を、ここから数える。切り替えの後の表示が確定した時点で、1回と照らす
+  const documentLoads1 = countDocumentLoads(page1);
+  const documentLoads3 = countDocumentLoads(page3);
   const page1Reloaded = page1.waitForEvent("load", {
     timeout: RELOAD_TIMEOUT_MS,
   });
@@ -260,6 +277,9 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
   await expect(
     page1.getByRole("main").getByText(CASE.description, { exact: true }),
   ).toBeVisible();
+  // 表示が確定した時点で、各ページの読み込み直しは1回ずつ（2回以上起きていない）
+  expect(documentLoads1()).toBe(1);
+  expect(documentLoads3()).toBe(1);
   await expect(page1.getByText(LOST_TEXT, { exact: true })).toHaveCount(0);
   await expect(page3.getByText(LOST_TEXT, { exact: true })).toHaveCount(0);
   // A の部屋の下書きは、端末に残っている（消さない）

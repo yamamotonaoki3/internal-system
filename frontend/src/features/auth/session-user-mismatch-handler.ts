@@ -7,6 +7,7 @@
 // 取り直しの答えは、この取り直しで Query の更新の回数が増えたかで見分ける（取り消しの revert は、保存済みのデータを成功として返すため）。
 // 下書き（端末の保存）には触れない。features/access-loss には依存しない（入口は main.tsx が関数で渡す）。
 import type { Query, QueryClient } from "@tanstack/react-query";
+import { refetchAnswerOf } from "../../lib/refetch-answer";
 import type { ApiError } from "../../services/api-client";
 import { fetchSession, type SessionInfo } from "./api/auth-api";
 import { authKeys } from "./api/query-keys";
@@ -79,29 +80,22 @@ async function judge(registered: Options): Promise<SessionUserOutcome> {
       queryClient,
       { queryKey: authKeys.session, queryFn: fetchSession, retry: false },
     );
-  const dataBefore = query.state.dataUpdateCount;
-  const errorBefore = query.state.errorUpdateCount;
-  await refetchSession(queryClient, query);
-  const dataGrew = query.state.dataUpdateCount - dataBefore;
-  const errorGrew = query.state.errorUpdateCount - errorBefore;
+  const answer = await refetchAnswerOf<SessionInfo>(queryClient, query, () =>
+    refetchSession(queryClient, query),
+  );
   // 待つ間に登録し直された（テストの枠は、テストごとに登録する）：前の登録の結果で、入口を呼ばない
   if (options !== registered) return "unknown";
-
-  let current: string | undefined;
-  if (dataGrew === 1 && errorGrew === 0) current = query.state.data?.user.id;
-  else if (dataGrew === 0 && errorGrew === 1)
-    return isUnauthenticated(query.state.error) ? "unauthenticated" : "unknown";
-  else if (dataGrew === 0 && errorGrew === 0)
-    // 答えが無い（ほかの処理に取り消された等）：その時点のセッションが別の利用者と分かるときだけ切り替え。取り消しで失敗の状態にはしない
-    current = readUserId(queryClient);
-  else return "unknown";
-
+  if (answer.kind === "error")
+    return isUnauthenticated(answer.error) ? "unauthenticated" : "unknown";
+  // 答えが無い（取り消し・手での書き換えとの重なり等）：その時点のセッションが別の利用者と分かるときだけ切り替え。取り消しで失敗の状態にはしない
+  const current =
+    answer.kind === "data" ? answer.data?.user.id : readUserId(queryClient);
   if (current === undefined) return "unknown";
   if (expected !== undefined && current !== expected) {
     reportOtherUser(onOtherUser);
     return "switched";
   }
-  return dataGrew === 1 ? "same" : "unknown";
+  return answer.kind === "data" ? "same" : "unknown";
 }
 
 function countSame(

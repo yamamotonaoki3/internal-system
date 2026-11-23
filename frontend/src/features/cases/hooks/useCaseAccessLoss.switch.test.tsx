@@ -375,3 +375,28 @@ function removeSummaryRightAfterSuccess(client: QueryClient): () => boolean {
   });
   return () => removed;
 }
+
+// 【3回目】コードレビュー（cr298c-1）の重大1：手での書き換え（setQueryData）と取り消しが重なったとき、取り直しの成功と見誤らない。
+// setQueryData は成功の更新の回数を増やし、取り消しの revert はその書き換えを残す（query-core の #revertState）。
+// 新しい応答が無いのに増分が「成功1・失敗0」になる。これは確かめの答えではないので、lost・participant にせず unverified（決定3・4、AC-8）。
+// 表示中は、フックの isParticipant を固定で渡しているので、書き換えた概要を (b) の効果が見ることはない（この経路だけを確かめる）。
+describe.each([
+  { where: "表示中", leave: false },
+  { where: "画面を離れた後", leave: true },
+])(
+  "#298 AC-8 確かめの最中の手での書き換えと取り消しの重なり（決定3・4。コードレビューの重大1。$where）",
+  ({ leave }) => {
+    it.each([
+      { content: "参加者でない内容", participant: false },
+      { content: "参加者の内容", participant: true },
+    ])(
+      "#298 AC-8（決定3・4）: 概要の取り直しの最中に、$content が手で書かれ、取り直しが取り消された：lost にせず unverified（下書きを消さない・合図を送らない・読み込み直しは確かめられないとして1回）",
+      async ({ participant }) => {
+        const t = await startVerifying({ leave });
+        t.client.setQueryData([...SUMMARY], summary(participant));
+        await t.client.cancelQueries({ queryKey: [...SUMMARY], exact: true });
+        await expectUnverified(t, !leave);
+      },
+    );
+  },
+);
