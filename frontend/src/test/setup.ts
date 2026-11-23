@@ -24,6 +24,8 @@ vi.mock(
   async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     requestAccessLossReload: vi.fn(() => Promise.resolve()),
+    // #298（計画 2-8・10章）：利用者の切り替えの読み込み直しの入口も、同じ理由で差し替える。本物は reload-after-access-loss.user-switch.test.ts で確かめる
+    requestUserSwitchReload: vi.fn(),
   }),
 );
 
