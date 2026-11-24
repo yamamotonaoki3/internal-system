@@ -6,8 +6,9 @@
 // 判定の網羅（取り直しの結果ごと・回数・交錯）は、単体と画面のテスト（frontend/src/features/auth/session-user-mismatch-handler.test.ts・
 // frontend/src/features/access-loss/reload-after-access-loss.user-switch.test.ts・frontend/src/pages/CaseAccessLoss.userMismatch.test.tsx ほか）に任せ、重ねない。
 // 観測の仕組み：
-//   - A のページ1（S-17）・ページ3（観測のページ /）を、B のログインの前に開く。両ページのセッションの取得（GET /api/auth/session）を page.route で保留し、
-//     フォーカス等の取り直しで、意図より先に B を見ないようにする
+//   - A のページ1（S-17）・ページ3（観測のページ /）を、B のログインの前に開く。両ページの API の要求（セッションの取得を含む）を page.route で保留し、
+//     フォーカス等の取り直しで、意図より先に B を見ないようにする。あわせて、B のログインの処理中に A の Cookie のままの要求が
+//     サーバーへ届いて 401 と Cookie の削除（Max-Age=0）を受け、B の Cookie が消える競合も防ぐ（保留は、Cookie が B に替わったことを確かめた後に解く）
 //   - B のログインは、同じコンテキストの API（context.request）で、許可した Origin を付けて行う（Cookie を共有する）。ログインは A・B で1回ずつ、計2回
 //   - ページ1の投稿（POST /api/rooms/:roomId/messages）は page.route で保留し、要求のヘッダーを記録する（読み込み直しの入口が、受理済みの書き込みを待つ間を作る）
 //   - 各ページの文書の読み込み（主の枠の document の要求）を、保留を解く前から数え、B の画面が確定した時点で1回と照らす
@@ -103,10 +104,14 @@ function recordDialogs(page: Page): string[] {
   return dialogs;
 }
 
-/** セッションの取得を、hold() の後に届いたものだけ保留する。release() で通す */
-async function holdSessions(page: Page) {
+/**
+ * API の要求（セッションの取得を含む）を、hold() の後に届いたものだけ保留する。release() で通す。
+ * B のログインの処理中に、A の Cookie のままの要求が届くと、サーバーは A のセッションの失効後の 401 と Cookie の削除（Max-Age=0）を返し、
+ * ブラウザの B の Cookie を消してしまう（テストの準備が壊れる）。Cookie が B に替わるまで、A の画面の要求をサーバーへ出さない
+ */
+async function holdRequests(page: Page) {
   let gate: ReturnType<typeof signal> | null = null;
-  await page.route("**/api/auth/session", async (route: Route) => {
+  await page.route("**/api/**", async (route: Route) => {
     const current = gate;
     if (current !== null) await current.fired;
     await route.fallback();
@@ -137,6 +142,12 @@ function countDocumentLoads(page: Page): () => number {
 
 let context: BrowserContext;
 const errors: string[] = [];
+
+/** セッションの Cookie の値（比べるためだけに使う。出力しない） */
+async function sessionCookieValue(): Promise<string | null> {
+  const cookies = await context.cookies(ORIGIN);
+  return cookies.find((c) => c.name === "__Host-session")?.value ?? null;
+}
 
 async function loginA(browser: Browser) {
   context = await browser.newContext({
@@ -191,9 +202,11 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
   await page3.goto("/");
   await expect(page3.getByRole("main")).toBeVisible();
 
-  // 両ページのセッションの取得を保留する（B を見るのは、保留を解いた後）
-  const sessions1 = await holdSessions(page1);
-  const sessions3 = await holdSessions(page3);
+  // 両ページの API の要求（セッションの取得を含む）を保留する（B を見るのは、Cookie が B に替わり、保留を解いた後）
+  const cookieBefore = await sessionCookieValue();
+  expect(cookieBefore).not.toBeNull();
+  const sessions1 = await holdRequests(page1);
+  const sessions3 = await holdRequests(page3);
   sessions1.hold();
   sessions3.hold();
   // ページ1の投稿を保留し、要求のヘッダーと応答を記録する
@@ -212,6 +225,10 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
     data: { loginId: USER_B.login, password: PASSWORD },
   });
   expect(loggedIn.status()).toBe(200);
+  // ブラウザのコンテキストの Cookie が B のものに替わった（値は比べるだけで、出力しない）
+  const cookieAfter = await sessionCookieValue();
+  expect(cookieAfter).not.toBeNull();
+  expect(cookieAfter).not.toBe(cookieBefore);
 
   // ページ1で送信する：要求は A のヘッダーで送られる（保留中）
   const isPost = (url: string, method: string) =>
@@ -219,9 +236,19 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
   const postRequest = page1.waitForRequest((request) =>
     isPost(request.url(), request.method()),
   );
-  const postResponse = page1.waitForResponse((response) =>
-    isPost(response.url(), response.request().method()),
-  );
+  // 応答の本文は、受け取った時点で読む（409 の直後にページが読み込み直されると、後からは読めない）
+  const posted: {
+    value: { status: number; cacheControl: string; body: unknown } | null;
+  } = { value: null };
+  const postResponse = page1.waitForResponse(async (response) => {
+    if (!isPost(response.url(), response.request().method())) return false;
+    posted.value = {
+      status: response.status(),
+      cacheControl: response.headers()["cache-control"] ?? "",
+      body: await response.json(),
+    };
+    return true;
+  });
   await main1.getByRole("button", { name: "送信", exact: true }).click();
   expect((await postRequest).headers()[HEADER]).toBe(USER_A.id);
 
@@ -253,12 +280,12 @@ test("#298 AC-1〜AC-4・#376 AC-6: 別のタブで B がログインし直す�
 
   // 投稿の保留を解く：サーバーが 409 SESSION_USER_MISMATCH で断る
   postGate.fire();
-  const response = await postResponse;
-  expect(response.status()).toBe(409);
-  expect(await response.json()).toMatchObject({
+  await postResponse;
+  expect(posted.value?.status).toBe(409);
+  expect(posted.value?.body).toMatchObject({
     code: "SESSION_USER_MISMATCH",
   });
-  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(posted.value?.cacheControl).toContain("no-store");
   expect(posts).toEqual([{ header: USER_A.id }]);
 
   await page1Reloaded;
