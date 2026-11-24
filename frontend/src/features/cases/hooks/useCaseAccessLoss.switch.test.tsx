@@ -400,3 +400,28 @@ describe.each([
     );
   },
 );
+
+// 【ミューテーションの生き残りへの対応】期待は docs/design/cases.md の useCaseAccessLoss の行（C-209）と Q14 から決めた：
+// switched にするのは「409 の後の取り直しが別の利用者（switched）を返し、かつ切り替えの入口が動いている」ときだけ。
+// 入口が（見張りなど、ほかの経路で）動いていても、取り直しの結果が same・unauthenticated・unknown なら unverified。
+describe.each([
+  { where: "表示中", leave: false },
+  { where: "画面を離れた後", leave: true },
+])(
+  "#298・#376 AC-6 切り替えの入口が動いているが、409 の後の取り直しが switched でない（$where）",
+  ({ leave }) => {
+    it.each(["same", "unauthenticated", "unknown"] as const)(
+      "#376 AC-6（Q14）: 取り直しが %s なら、入口が動いていても unverified（中身を取り除き、読み込み直しを求め、下書きは残し、合図は送らない）",
+      async (outcome: Outcome) => {
+        vi.mocked(confirmSessionUserAfterMismatch).mockResolvedValue(outcome);
+        vi.mocked(isUserSwitchReloadRequested).mockReturnValue(true);
+        const t = await startVerifying({ leave });
+        t.answer({ error: mismatch });
+        await waitFor(() =>
+          expect(confirmSessionUserAfterMismatch).toHaveBeenCalled(),
+        );
+        await expectUnverified(t, !leave);
+      },
+    );
+  },
+);

@@ -438,3 +438,27 @@ describe("#298 AC-4（Q7） #338 の reloading の後の切り替え（コード
     ).toBeNull();
   });
 });
+
+// 【ミューテーションの生き残りへの対応】docs/design/access-loss.md の requestAccessLossReload の行：返り値は「読み込み直したか取りやめたときに解決」。
+// 切り替えの入口が #338 の待機を引き継いだ後は、その読み込み直しで文書が替わるので、#338 の要求の Promise も解決する（待ち続けにしない）。
+describe("#298 AC-4 引き継いだ #338 の要求の返り値", () => {
+  it("#298 AC-4: #338 の待機中に切り替えの入口を呼ぶと、#338 の要求の Promise は解決する。読み込み直しは1回", async () => {
+    const m = await freshDocument();
+    const client = clientSignedInAs(USER_A);
+    const post = startPending(client);
+    await advance(0);
+    let resolved = false;
+    void m.entry
+      .requestAccessLossReload(client, { ownerId: USER_A, reason: "lost" })
+      .then(() => {
+        resolved = true;
+      });
+    m.entry.requestUserSwitchReload(client);
+    post.gate.resolve();
+    await advance(1);
+    await advance(1);
+    await advance(LIMIT_MS * 2);
+    expect(m.location.reloadPage).toHaveBeenCalledTimes(1);
+    expect(resolved).toBe(true);
+  });
+});

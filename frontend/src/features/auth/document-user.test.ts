@@ -56,6 +56,31 @@ describe("#298 AC-3 文書の利用者", () => {
     dispose();
   });
 
+  // ADR-0035「画面の側の決定」：付けないのは、セッションの取得（GET /auth/session）とログイン（POST /auth/login）だけ。
+  // 同じ URL でも、ほかの method の要求には付ける（URL だけ・method だけで外さない）
+  it("#298 AC-3: 外すのは GET /auth/session と POST /auth/login の組だけ。同じ URL のほかの method（POST・DELETE /auth/session、GET /auth/login）には付ける", async () => {
+    const auth = await freshDocument();
+    const client = new QueryClient();
+    client.setQueryData(SESSION_KEY, sessionOf(USER_A));
+    const dispose = auth.installDocumentUser(client);
+    expect(
+      auth.expectedUserIdFor({ method: "get", url: "/auth/session" }),
+    ).toBeUndefined();
+    expect(
+      auth.expectedUserIdFor({ method: "post", url: "/auth/login" }),
+    ).toBeUndefined();
+    expect(
+      auth.expectedUserIdFor({ method: "post", url: "/auth/session" }),
+    ).toBe(USER_A);
+    expect(
+      auth.expectedUserIdFor({ method: "delete", url: "/auth/session" }),
+    ).toBe(USER_A);
+    expect(auth.expectedUserIdFor({ method: "get", url: "/auth/login" })).toBe(
+      USER_A,
+    );
+    dispose();
+  });
+
   it("#298 AC-3: 解除すると覚えた利用者を忘れ、次の登録は新しく最初の利用者を覚える（テストの枠のための口）", async () => {
     const auth = await freshDocument();
     const first = new QueryClient();

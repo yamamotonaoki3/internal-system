@@ -594,3 +594,59 @@ describe("#298 AC-4・AC-6 409 より前から進行中の、データ未設定�
     },
   );
 });
+
+// 【ミューテーションの生き残りへの対応】期待は ADR-0035「画面の側の決定」と、Skill・AGENTS.md の「エラーをもみ消さない」から決めた。
+describe("#298 AC-4 文書の利用者が決まる前の取り直し（ADR-0035：最初に確定した利用者では、読み込み直さない）", () => {
+  it("#298 AC-4: 登録の時点でセッションが一度も確定していない文書で、取り直しが A を返しても switched にせず、切り替えの入口を呼ばない", async () => {
+    vi.resetModules();
+    const api = await import("../../services/api-client");
+    const handler = await import("./session-user-mismatch-handler");
+    const world = respondWorld();
+    world.served = "A";
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const onOtherUser = vi.fn();
+    api.setSessionUserMismatchHandler(
+      handler.createSessionUserMismatchHandler({
+        queryClient: client,
+        onOtherUser,
+      }),
+    );
+    const outcome = await handler.confirmSessionUserAfterMismatch();
+    expect(outcome).not.toBe("switched");
+    expect(onOtherUser).not.toHaveBeenCalled();
+    expect(world.sessionFetches).toBe(1);
+    expect(sessionUserId(client)).toBe(USER_A);
+  });
+});
+
+describe("#298 AC-4 409 を受けたときの処理の失敗をもみ消さない", () => {
+  let reported: unknown[] = [];
+  const onError = (event: ErrorEvent) => {
+    reported.push(event.error);
+    event.preventDefault();
+  };
+  beforeEach(() => {
+    reported = [];
+    window.addEventListener("error", onError);
+  });
+  afterEach(() => {
+    window.removeEventListener("error", onError);
+  });
+
+  it("#298 AC-4: 409 だけを受け（確かめを誰も求めない）、取り直しが B で、切り替えの入口が例外を投げたら、その例外を reportError に渡す（未処理にも、無視にもしない）", async () => {
+    const t = await setUp();
+    t.world.served = "B";
+    const failure = new Error("[UNIT_TEST]298入口の失敗");
+    t.onOtherUser.mockImplementation(() => {
+      throw failure;
+    });
+    await t.mismatch();
+    await vi.waitFor(() => expect(reported).toEqual([failure]));
+    expect(t.world.sessionFetches).toBe(1);
+  });
+});
