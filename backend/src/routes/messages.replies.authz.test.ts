@@ -331,7 +331,7 @@ describe("#137 AC-1（1-4 AC-1・コードレビュー）EP-1-07 の応答の jo
   // 契約：応答に joined: boolean を足す（チャンネルは今参加しているか、DM は当事者なら true）。after あり・なしの両方。replyBlockedReason の優先順は変えない
   const QUERIES = ["", `?after=${ZERO}`];
 
-  it("#137 AC-1: 参加中のチャンネルでは joined: true。応答のキーは parent・replyBlockedReason・joined・roomWritable・items と、最新は nextCursor／after は hasMore", async () => {
+  it("#137 AC-1・#339 AC-1: 参加中のチャンネルでは joined: true。応答のキーは parent・replyBlockedReason・joined・roomWritable・caseRoom・caseId・items と、最新は nextCursor／after は hasMore", async () => {
     const parentId = await seedParent(world.channel, world.alice.userId, 1);
     await seedReply(world.channel, parentId, world.bob.userId, 2);
     for (const query of QUERIES) {
@@ -340,6 +340,8 @@ describe("#137 AC-1（1-4 AC-1・コードレビュー）EP-1-07 の応答の jo
       expect(Object.keys(page).sort(), query).toEqual(
         query === ""
           ? [
+              // #339 AC-1：caseId を足した
+              "caseId",
               // #148（148-B-2）caseRoom を足した
               "caseRoom",
               "items",
@@ -350,6 +352,7 @@ describe("#137 AC-1（1-4 AC-1・コードレビュー）EP-1-07 の応答の jo
               "roomWritable",
             ]
           : [
+              "caseId",
               "caseRoom",
               "hasMore",
               "items",

@@ -69,7 +69,7 @@ describe("#137 AC-1（1-4 AC-4）一覧に含む・含まない", () => {
     expect(ids).not.toContain(unrelated);
   });
 
-  it("#137 AC-4: 項目は { parent, room, lastReplyAt, unreadCount } で、チャンネルの room は { kind, id, name }。parent は親の1件と replyCount", async () => {
+  it("#137 AC-4・#339 AC-1: 項目は { parent, room, lastReplyAt, unreadCount, caseId } で、チャンネルの room は { kind, id, name }。parent は親の1件と replyCount。通常のチャンネルの caseId は null", async () => {
     const parent = await seedParent(world.channel, world.alice.userId, 1);
     await seedReply(world.channel, parent, world.bob.userId, 2);
     await seedReply(world.channel, parent, world.dave.userId, 3);
@@ -78,11 +78,14 @@ describe("#137 AC-1（1-4 AC-4）一覧に含む・含まない", () => {
     expect(page.items).toHaveLength(1);
     const [item] = page.items;
     expect(Object.keys(item ?? {}).sort()).toEqual([
+      // #339 AC-1：案件との対応（caseId）を足した
+      "caseId",
       "lastReplyAt",
       "parent",
       "room",
       "unreadCount",
     ]);
+    expect(item?.caseId).toBeNull();
     expect(item?.room).toEqual({
       kind: "channel",
       id: world.channel,

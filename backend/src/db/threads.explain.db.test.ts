@@ -2,12 +2,22 @@
 // 隔離 D1 の EXPLAIN QUERY PLAN で確かめる（Skill「backend」）。実際のアプリ入口（index.ts の app）に、実行した SQL を記録する D1 を渡して呼び、記録した SELECT を EXPLAIN する。
 // Repository・DAO の関数名に依存しない（API の呼び出しだけで確かめる）。
 // 期待：messages の読み取りは、索引（messages_parent_message_id_id_idx・messages_room_id_id_idx・主キー）で引く。thread_read_positions は主キーで引く。
-// データは架空（testuser_thrplan_、[UNIT_TEST]）。
+// #339 AC-3：スレッド一覧に caseId を足すため、一覧本体の SQL（WITH mine …）が cases に結び付くときは、一意索引 cases_channel_id_unique で引き、
+//   cases を頭から読まず、SQL の数もスレッドの数に比例させない。
+// データは架空（testuser_thrplan_・testuser_casereq_、[UNIT_TEST]）。
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newThrottleKey } from "../../test/auth-fixtures";
 import { API_ORIGIN } from "../../test/api-request";
 import { SESSION_COOKIE, TEST_IP } from "../../test/auth-fixtures";
+import {
+  cleanupCaseRoomWorld,
+  insertCaseWorldDm,
+  seedRoomMessage,
+  seedRoomReply,
+  setupCaseRoomWorld,
+  type CaseRoomWorld,
+} from "../../test/case-room-fixtures";
 import { insertReplies } from "../../test/message-fixtures";
 import { newPiiKey, newSetupToken } from "../../test/random-secrets";
 import {
@@ -292,5 +302,93 @@ describe("#137 AC-4（EXPLAIN）スレッドの既読", () => {
     expect(response.status).toBe(204);
     const plan = await plansOf(statements);
     expect(fullScans(plan), plan.join("\n")).toEqual([]);
+  });
+});
+
+describe("#339 AC-3（EXPLAIN）スレッド一覧と案件の結び付き", () => {
+  let cw: CaseRoomWorld;
+
+  beforeEach(async () => {
+    cw = await setupCaseRoomWorld(1660);
+  });
+  afterEach(async () => {
+    await cleanupCaseRoomWorld();
+  });
+
+  /** memberS1 から見て、案件の部屋・通常のチャンネル・DM が混ざるスレッドを count 組（1 組 3 スレッド）入れる。base は idAt の番号の始まり */
+  async function seedMixedThreads(count: number, base: number, dm: string) {
+    const s1 = cw.w.memberS1.id;
+    const d1 = cw.w.memberD1.id;
+    let n = base;
+    for (let i = 0; i < count; i += 1)
+      for (const room of [cw.open.roomId, cw.normal, dm]) {
+        const parent = await seedRoomMessage(room, s1, n);
+        await seedRoomReply(room, parent, d1, n + 1);
+        n += 2;
+      }
+  }
+
+  /** 一覧本体の SQL（自分のスレッドを集める WITH mine で始まる文）だけを取り出す */
+  const listBody = (statements: Recorded[]) =>
+    statements.filter((statement) => /\bWITH\s+mine\b/i.test(statement.sql));
+
+  it("#339 AC-3: 案件との結合は一意索引を使い、SQL数が件数に比例しない：一覧本体の SQL は cases を cases_channel_id_unique で引き、cases・messages・thread_read_positions を頭から読まない", async () => {
+    const dm = await insertCaseWorldDm(cw.w.memberS1.id, cw.w.memberD1.id);
+    await seedMixedThreads(2, 1, dm);
+    for (const query of ["?limit=20", "?limit=2"]) {
+      const { response, statements } = await recordedRequest(
+        "GET",
+        `${THREADS_PATH}${query}`,
+        cw.w.memberS1.token,
+      );
+      expect(response.status).toBe(200);
+      const body = listBody(statements);
+      expect(body, query).toHaveLength(1);
+      const plan = await plansOf(body);
+      const text = `${query}\n${plan.join("\n")}`;
+      // 別名を付けた表は、EXPLAIN に別名で出る（SEARCH k USING INDEX …）。索引の名前で判定する
+      expect(
+        plan.some((d) =>
+          /^SEARCH \S+ USING (?:COVERING )?INDEX cases_channel_id_unique\b/.test(
+            d,
+          ),
+        ),
+        text,
+      ).toBe(true);
+      // cases を索引なしで読む行がない
+      expect(
+        plan.filter((d) => /^SCAN /.test(d) && /\bcases\b/.test(d)),
+        text,
+      ).toEqual([]);
+      // 一覧の全体（未読数など、ほかの文を含む）も、これまでどおり messages・thread_read_positions を頭から読まない
+      expect(fullScans(await plansOf(statements)), text).toEqual([]);
+    }
+  });
+
+  it("#339 AC-3: 案件との結合は一意索引を使い、SQL数が件数に比例しない：案件の部屋が混ざっても、スレッドの数を増やして SQL の数が変わらない", async () => {
+    const dm = await insertCaseWorldDm(cw.w.memberS1.id, cw.w.memberD1.id);
+    await seedMixedThreads(1, 1, dm);
+    const small = await recordedRequest(
+      "GET",
+      `${THREADS_PATH}?limit=100`,
+      cw.w.memberS1.token,
+    );
+    await seedMixedThreads(4, 100, dm);
+    const large = await recordedRequest(
+      "GET",
+      `${THREADS_PATH}?limit=100`,
+      cw.w.memberS1.token,
+    );
+    expect(small.response.status).toBe(200);
+    expect(large.response.status).toBe(200);
+    const page = (await large.response.json()) as {
+      items: { caseId?: unknown }[];
+    };
+    expect(page.items).toHaveLength(15);
+    expect(
+      page.items.filter((item) => item.caseId === cw.open.id),
+    ).toHaveLength(5);
+    expect(large.statements.length).toBe(small.statements.length);
+    expect(listBody(large.statements)).toHaveLength(1);
   });
 });
