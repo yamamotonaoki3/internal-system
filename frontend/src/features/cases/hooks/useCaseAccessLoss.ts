@@ -8,6 +8,7 @@
 // 拒否のきっかけは、全体の見張り（case-access-loss-monitor.ts）が1つの購読で受け、この画面の担当として登録した処理へ渡す（#339）。
 // 概要を一度も取得していない画面の初回の概要が非参加・404 でも、その案件の部屋・スレッドの取得の実績があれば、喪失として確定する（#339。C-210）。
 import {
+  hashKey,
   isCancelledError,
   useQueryClient,
   type QueryClient,
@@ -159,38 +160,63 @@ function verdictOfSummaryState(
 }
 
 /**
- * 概要の新しい答えを受け取る。取得の途中なら、その取得の答え（手での書き換え・取り消しでない成功か失敗）を待つ
- * （古い非参加のキャッシュだけで確定しないため。計画 3 節の補足）。取得の途中でなければ、いまの答えを使う。
- * Query が捨てられたら、答えなしとして何もしない
+ * この部品が開いてから、取得で届いた概要の答え（手での書き換え・取り消しでない成功か失敗）を受け取る仕組み
+ * （初回の確定に使ってよいのは、取得して届いた答えだけ。開いた時点でキャッシュにあっただけの状態・手で書いたデータは使わない。計画 3 節の補足）
  */
+type FreshSummary = {
+  /** 最後に届いた答え（手での書き換え・Query の削除で捨てる） */
+  answer: Verdict | null;
+  /** 答えを待っている確定（届いたら1回だけ呼んで外す） */
+  waiter: ((verdict: Verdict) => void) | null;
+};
+
+/** 届いた答えを受け取る。届いていなければ、届いたときに受け取る（待ち） */
 function whenFreshSummary(
-  queryClient: QueryClient,
-  summaryKey: ReturnType<typeof caseKeys.summary>,
+  fresh: FreshSummary,
   onAnswer: (verdict: Verdict) => void,
 ): void {
-  const cache = queryClient.getQueryCache();
-  const query = cache.find<CaseSummary>({ queryKey: summaryKey, exact: true });
-  if (query === undefined) return;
-  if (query.state.fetchStatus !== "fetching") {
-    onAnswer(verdictOfSummaryState(query.state.data, query.state.error));
+  if (fresh.answer !== null) {
+    onAnswer(fresh.answer);
     return;
   }
-  const stop = cache.subscribe((event) => {
-    if (event.query !== query) return;
+  fresh.waiter = onAnswer;
+}
+
+/** 概要の Query の出来事から、取得で届いた答えを控える。返り値は購読の解除（待ちも外す） */
+function watchFreshSummary(
+  queryClient: QueryClient,
+  summaryKey: ReturnType<typeof caseKeys.summary>,
+  fresh: FreshSummary,
+): () => void {
+  const summaryHash = hashKey(summaryKey);
+  const stop = queryClient.getQueryCache().subscribe((event) => {
+    if (event.query.queryHash !== summaryHash) return;
     if (event.type === "removed") {
-      stop();
+      fresh.answer = null;
       return;
     }
     if (event.type !== "updated") return;
     const { action } = event;
-    if (action.type === "success" && action.manual !== true) {
-      stop();
-      onAnswer(verdictOfSummaryState(action.data as CaseSummary, null));
-    } else if (action.type === "error" && !isCancelledError(action.error)) {
-      stop();
-      onAnswer(verdictOfSummaryState(undefined, action.error));
-    }
+    let answer: Verdict;
+    if (action.type === "success") {
+      if (action.manual === true) {
+        fresh.answer = null;
+        return;
+      }
+      answer = verdictOfSummaryState(action.data as CaseSummary, null);
+    } else if (action.type === "error" && !isCancelledError(action.error))
+      answer = verdictOfSummaryState(undefined, action.error);
+    else return;
+    fresh.answer = answer;
+    const waiter = fresh.waiter;
+    fresh.waiter = null;
+    waiter?.(answer);
   });
+  return () => {
+    stop();
+    fresh.answer = null;
+    fresh.waiter = null;
+  };
 }
 
 /**
@@ -203,9 +229,10 @@ function confirmFirstOutsider(
   caseId: string,
   roomOfCase: string | null,
   reloadRequested: { current: boolean },
+  fresh: FreshSummary,
 ): void {
   const period = currentLossPeriod(queryClient, userId, caseId);
-  whenFreshSummary(queryClient, caseKeys.summary(userId, caseId), (verdict) => {
+  whenFreshSummary(fresh, (verdict) => {
     if (verdict !== "lost" && verdict !== "notFound") return;
     // 待つ間に、別の利用者に替わった・参加者に戻った：古い答えで確定しない
     if (
@@ -261,6 +288,18 @@ export function useCaseAccessLoss({
   // （画面の外の確定・作り直した画面と1回にまとめるため。#339）。この部品では、参加者に戻ったときだけ、参加の期間を進めて外す
   // 最後に分かった、この案件の部屋の ID（#340）。喪失の片付けで詳細が消え、非参加の概要には部屋の ID がないため、消す前に覚えておく
   const knownRoomId = useRef<string | null>(null);
+  // この部品が開いてから取得で届いた概要の答えと、その答えを待つ初回の確定（#339）
+  const freshSummary = useRef<FreshSummary>({ answer: null, waiter: null });
+  // 答えを控える購読は、下の効果より先に設ける。画面を外したとき・案件や利用者が替わったときに外し、待ちも捨てる
+  useEffect(
+    () =>
+      watchFreshSummary(
+        queryClient,
+        caseKeys.summary(userId, caseId),
+        freshSummary.current,
+      ),
+    [queryClient, userId, caseId],
+  );
 
   // 印を外すのは、参加者に戻ったと分かったときだけ（詳細の取得の成功では外さない：参加者のままの 403 で循環するため）
   // 概要で参加者でないことが確かめられたら（成功して非参加・404）、この画面で参加者だったかに関わらず、参加者だけの中身
@@ -303,6 +342,7 @@ export function useCaseAccessLoss({
         caseId,
         knownRoomId.current,
         reloadRequested,
+        freshSummary.current,
       );
     }
     previousOutsider.current = outsider;
