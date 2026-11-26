@@ -653,7 +653,9 @@ describe("#339 AC-1 決定3：概要がなく、部屋・スレッドの取得�
       await fetchedCaseReplies();
       postFromOtherTab(CHANNEL, hint());
       await vi.waitFor(() => expect(summary.calls).toBe(1));
-      await flushTasks(10);
+      // 1回目の確かめが終わったこと（同じ案件の確かめ中の印が外れたこと）を、次の合図で2回目の GET が出ることで待つ
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(summary.calls).toBe(2));
       expect(entryCalls()).toHaveLength(0);
       expect(reportError).not.toHaveBeenCalled();
     },
@@ -765,5 +767,72 @@ describe("#339 AC-1 利用者の切り替えの後の合図は、前の利用者
     } finally {
       stopGuard();
     }
+  });
+});
+
+describe("#339 AC-1 チャンネルの詳細で分かる対応（コードレビュー1回目の指摘4。計画 2 節）", () => {
+  function channelDetail339(caseIdValue: string | null) {
+    return {
+      id: ROOM_339,
+      roomId: ROOM_339,
+      name: "[UNIT_TEST]339チャンネル",
+      description: "",
+      visibility: "private",
+      departmentId: null,
+      joined: true,
+      isCaseChannel: caseIdValue !== null,
+      caseId: caseIdValue,
+      canPost: true,
+      readOnly: false,
+      version: 1,
+      manage: {
+        canRename: false,
+        canEditDescription: false,
+        canArchive: false,
+      },
+    };
+  }
+
+  it.each([
+    ["成功して非参加", { kind: "outsider" }],
+    ["404", { kind: "status", status: 404 }],
+  ] as const)(
+    "#339 AC-1: チャンネルの詳細（caseId つき）と、正常に取得した空の部屋のメッセージだけがあるタブは、合図から確かめて入口だけを呼ぶ（確かめが%s）",
+    async (_name, answer) => {
+      const summary = respondSummary(answer as Answer);
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      await client.fetchQuery({
+        queryKey: ["channels", "detail", ROOM_339],
+        queryFn: () => Promise.resolve(channelDetail339(caseId)),
+      });
+      await client.fetchQuery({
+        queryKey: ["messages", "room", ROOM_339],
+        queryFn: () => Promise.resolve([]),
+      });
+      writeDrafts();
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+      expect(summary.calls).toBe(1);
+      expect(entryCalls()[0]?.[1]).toStrictEqual({
+        ownerId: USER_A,
+        reason: "lost",
+      });
+      expect(client.getQueryData(["messages", "room", ROOM_339])).toEqual([]);
+      expect(window.localStorage.getItem(ROOM_DRAFT())).not.toBeNull();
+      expect(relaySent()).toEqual([]);
+    },
+  );
+
+  it("#339 AC-1: チャンネルの詳細だけ（部屋のメッセージの取得が無い）のタブは、合図を受けても通信しない", async () => {
+    const summary = respondSummary({ kind: "outsider" });
+    client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+    await client.fetchQuery({
+      queryKey: ["channels", "detail", ROOM_339],
+      queryFn: () => Promise.resolve(channelDetail339(caseId)),
+    });
+    postFromOtherTab(CHANNEL, hint());
+    await flushTasks(10);
+    expect(summary.calls).toBe(0);
+    expect(entryCalls()).toHaveLength(0);
   });
 });

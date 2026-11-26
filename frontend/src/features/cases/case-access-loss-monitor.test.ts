@@ -160,12 +160,20 @@ type SummaryAnswer =
 
 type SummaryServer = {
   calls: string[];
+  answered: number;
   answer: SummaryAnswer;
   gate: Promise<void> | null;
 };
 
 function respondSummary(answer: SummaryAnswer): SummaryServer {
-  const state: SummaryServer = { calls: [], answer, gate: null };
+  const state: SummaryServer = { calls: [], answer, gate: null, answered: 0 };
+  // 確かめの応答が、実際に画面の側へ届いた回数（否定の確かめを、応答が届いた後に行うため）
+  server.events.on("request:end", ({ request }) => {
+    const path = new URL(request.url).pathname.split("/");
+    // ["", "api", "cases", ":caseId"]（概要だけ。詳細・一覧は数えない）
+    if (path.length === 4 && path[1] === "api" && path[2] === "cases")
+      state.answered += 1;
+  });
   server.use(
     http.get("/api/cases/:caseId", async ({ params }) => {
       state.calls.push(String(params.caseId));
@@ -451,6 +459,7 @@ beforeEach(() => {
   uninstall = installCaseAccessLossMonitor(client);
 });
 afterEach(() => {
+  server.events.removeAllListeners("request:end");
   uninstall?.();
   uninstall = undefined;
   stopListObserver?.();
@@ -516,13 +525,24 @@ async function waitForExpected(
   expected: Expected,
 ): Promise<void> {
   await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+  await settledAfterAnswer(summary);
   if (expected.entry)
     await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
   if (expected.announce)
     await vi.waitFor(() => expect(announced()).toHaveLength(1));
   if (expected.drafts === "erased")
     await vi.waitFor(() => expect(draftsErased()).toBe(true));
-  await flushTasks(10);
+}
+
+/**
+ * 確かめの応答が届いたことを待ち、その応答の処理（検証・判定・副作用）が走り終える分だけタスクを進める。
+ * 副作用が起きない分岐では、外から見える「終わった」印が無いため、届いたことを起点にする（固定の回数だけの待ちにしない）
+ */
+async function settledAfterAnswer(summary: SummaryServer, count = 1) {
+  await vi.waitFor(() =>
+    expect(summary.answered).toBeGreaterThanOrEqual(count),
+  );
+  await flushTasks(3);
 }
 
 /** 片付けの関数・スレッドの範囲 */
@@ -1341,4 +1361,176 @@ describe("#339 AC-1 利用者の世代（計画 2 節「進行中の印も、そ
       stopGuard();
     }
   });
+});
+
+// ---- コードレビュー1回目の指摘2・4 ----
+
+describe("#339 AC-1 一覧からの確かめの途中に届いた、中身の拒否を失わない（指摘2。計画 3 節の「取得済み返信・部屋の 403・404」の行）", () => {
+  it.each([
+    ["返信の 404", "replies"],
+    ["部屋の 403", "room"],
+  ] as const)(
+    '#339 AC-1: 一覧の行の消失の確かめを保留している間に、取得済みの%sが届き、確かめが 500（unverified）で終わる：中身の片付け（"room"）と入口が起きる。合図なし・下書きは残る',
+    async (_label, trigger) => {
+      await primeCaseCaches();
+      list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+      await openThreadList(1);
+      await fetchedReplies(CASE_PARENT, ROOM, CASE);
+      if (trigger === "room") await fetchedRoom(ROOM);
+      const summary = arrangeVerdict("unverified");
+      const gate = deferred();
+      summary.gate = gate.promise;
+      list.pages = [[CHANNEL_ROW]];
+      await refetchList();
+      await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+      if (trigger === "replies")
+        await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+      else await failRoom(ROOM, 403, "FORBIDDEN");
+      summary.gate = null;
+      gate.release();
+      await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(client.getQueryData(threadKey(CASE_PARENT))).toBeUndefined(),
+      );
+      await settledAfterAnswer(summary, summary.calls.length);
+      expect(observeCleanup()).toEqual({
+        cleanup: "content",
+        otherRoomThreadKept: true,
+      });
+      expect(entryCalls()).toHaveLength(1);
+      expect(entryCalls()[0]?.[1]).toEqual({ ownerId: USER, reason: "lost" });
+      expect(announced()).toEqual([]);
+      expect(draftsKept()).toBe(true);
+    },
+  );
+
+  it.each([
+    ["返信の 404", "replies"],
+    ["部屋の 403", "room"],
+  ] as const)(
+    "#339 AC-1: 一覧の行の消失の確かめを保留している間に、取得済みの%sが届き、確かめが非参加で終わる：後片付け・入口・合図・下書きの消去が1回ずつ",
+    async (_label, trigger) => {
+      await primeCaseCaches();
+      list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+      await openThreadList(1);
+      await fetchedReplies(CASE_PARENT, ROOM, CASE);
+      if (trigger === "room") await fetchedRoom(ROOM);
+      const summary = arrangeVerdict("lost");
+      const gate = deferred();
+      summary.gate = gate.promise;
+      list.pages = [[CHANNEL_ROW]];
+      await refetchList();
+      await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+      if (trigger === "replies")
+        await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+      else await failRoom(ROOM, 403, "FORBIDDEN");
+      summary.gate = null;
+      gate.release();
+      await vi.waitFor(() => expect(draftsErased()).toBe(true));
+      await settledAfterAnswer(summary, summary.calls.length);
+      expect(observeCleanup().cleanup).toBe("afterLeave");
+      expect(client.getQueryData(threadKey(CASE_PARENT))).toBeUndefined();
+      expect(entryCalls()).toHaveLength(1);
+      expect(announced()).toEqual([{ v: 1, userId: USER, caseId: CASE }]);
+    },
+  );
+});
+
+/** チャンネルの詳細（features/channels の channelKeys.detail(roomId) と同じキー・channelDetailSchema と同じ形）。案件の部屋なら caseId を持つ */
+function channelDetail(roomId: string, caseIdValue: string | null) {
+  return {
+    id: roomId,
+    roomId,
+    name: "[UNIT_TEST]339チャンネル",
+    description: "",
+    visibility: "private",
+    departmentId: null,
+    joined: true,
+    isCaseChannel: caseIdValue !== null,
+    caseId: caseIdValue,
+    canPost: true,
+    readOnly: false,
+    version: 1,
+    manage: {
+      canRename: false,
+      canEditDescription: false,
+      canArchive: false,
+    },
+  };
+}
+
+async function fetchedChannelDetail(
+  roomId: string,
+  caseIdValue: string | null,
+) {
+  await client.fetchQuery({
+    queryKey: ["channels", "detail", roomId],
+    queryFn: () => Promise.resolve(channelDetail(roomId, caseIdValue)),
+  });
+}
+
+/** 部屋のメッセージを正常に取得した（空の配列） */
+async function fetchedEmptyRoom(roomId: string) {
+  await client.fetchQuery({
+    queryKey: roomKey(roomId),
+    queryFn: () => Promise.resolve([]),
+  });
+}
+
+describe("#339 AC-1 チャンネルの詳細で分かる、案件と部屋の対応（指摘4。計画 2 節）", () => {
+  const CHANNEL_ROUTE: [Verdict, Omit<Expected, "cleanup">][] = [
+    ["lost", { entry: true, announce: true, drafts: "erased" }],
+    ["notFound", { entry: true, announce: true, drafts: "erased" }],
+    ["unverified", { entry: true, announce: false, drafts: "kept" }],
+    ["participant", { entry: false, announce: false, drafts: "kept" }],
+    ["switched", { entry: false, announce: false, drafts: "kept" }],
+  ];
+
+  it.each(CHANNEL_ROUTE)(
+    "#339 AC-1: チャンネルの詳細（caseId つき）と、正常に取得した空の部屋のメッセージだけがある部屋の 403 → 確かめが %s",
+    async (verdict, expected) => {
+      await fetchedChannelDetail(ROOM, CASE);
+      await fetchedEmptyRoom(ROOM);
+      const summary = arrangeVerdict(verdict);
+      await failRoom(ROOM, 403, "FORBIDDEN");
+      await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+      await settledAfterAnswer(summary);
+      if (expected.entry)
+        await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+      if (expected.drafts === "erased")
+        await vi.waitFor(() => expect(draftsErased()).toBe(true));
+      expect(entryCalls()).toHaveLength(expected.entry ? 1 : 0);
+      expect(announced()).toEqual(
+        expected.announce ? [{ v: 1, userId: USER, caseId: CASE }] : [],
+      );
+      expect(draftsKept()).toBe(expected.drafts === "kept");
+    },
+  );
+
+  it.each([
+    [
+      "チャンネルの詳細だけ（部屋のメッセージの取得が無い。対応の情報だけ）",
+      "detailOnly",
+    ],
+    ["通常のチャンネル（caseId が null）の、取得済みの部屋", "plain"],
+  ] as const)(
+    "#339 AC-1: チャンネルの詳細で分かる対応でも、%sの 403 では、確かめを始めない",
+    async (_label, kind) => {
+      const summary = arrangeVerdict("lost");
+      if (kind === "detailOnly") {
+        await fetchedChannelDetail(ROOM, CASE);
+        await failRoom(ROOM, 403, "FORBIDDEN");
+      } else {
+        await fetchedChannelDetail(OTHER_ROOM, null);
+        await fetchedEmptyRoom(OTHER_ROOM);
+        await failRoom(OTHER_ROOM, 403, "FORBIDDEN");
+      }
+      // 対照の拒否（確かめが始まる）を後に起こし、その確かめの案件だけが現れることで、前の拒否が確かめを始めなかったことを見る
+      await fetchedReplies(message(9).id, OTHER_ROOM, OTHER_CASE);
+      await failReplies(message(9).id, 404, "NOT_FOUND");
+      await vi.waitFor(() => expect(summary.calls).toContain(OTHER_CASE));
+      await settledAfterAnswer(summary, summary.calls.length);
+      expect(summary.calls).toEqual([OTHER_CASE]);
+    },
+  );
 });

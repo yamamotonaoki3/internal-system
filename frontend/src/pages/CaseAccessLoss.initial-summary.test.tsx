@@ -23,6 +23,7 @@ import { caseKeys, installCaseAccessLossMonitor } from "../features/cases";
 import { TEST_USER } from "../test/auth-handlers";
 import {
   CASE_TEXTS,
+  caseDetail,
   caseId,
   caseRoomId,
   caseSummary,
@@ -135,7 +136,10 @@ const announced = () => FakeBroadcastChannel.sent(CHANNEL);
 const entryCalls = () => vi.mocked(requestAccessLossReload).mock.calls;
 
 /** 概要を一度も取得していない QueryClient。prime で、開く前のキャッシュ（実績など）を作る。見張りは main.tsx と同じく登録する */
-async function openCase(prime: (client: QueryClient) => Promise<void>) {
+async function openCase(
+  prime: (client: QueryClient) => Promise<void>,
+  options: { cachedSummary?: boolean } = {},
+) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, refetchOnWindowFocus: false },
@@ -145,7 +149,9 @@ async function openCase(prime: (client: QueryClient) => Promise<void>) {
   client.setQueryData(authKeys.session, SESSION);
   uninstall = installCaseAccessLossMonitor(client);
   await prime(client);
-  expect(client.getQueryData(SUMMARY_KEY)).toBeUndefined();
+  // 既定：概要を一度も取得していない（画面が取る概要は、新しい答え）
+  if (options.cachedSummary !== true)
+    expect(client.getQueryData(SUMMARY_KEY)).toBeUndefined();
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[CASE_PATH]}>
@@ -313,6 +319,141 @@ describe("#339 AC-2 決定2：部屋・スレッドの取得の実績がない�
       expect(announced()).toEqual([]);
       expect(caseDraftsPresent()).toBe(CASE_DRAFTS.length);
       expect(window.localStorage.getItem(OTHER_DRAFT)).not.toBeNull();
+    },
+  );
+});
+
+// ---- コードレビュー1回目の指摘1：古い非参加の概要のキャッシュでは、確定しない（計画 3 節の補足・C-207(6)） ----
+type FreshAnswer = "participant" | "outsider" | 404 | 500 | "network";
+
+/** 新しい概要の答え（gate の間は保留する）。参加者なら、詳細と部屋も参加者として返す */
+function respondFreshSummary(state: {
+  answer: FreshAnswer;
+  gate: Promise<void> | null;
+  calls: number;
+}) {
+  server.use(
+    http.get("/api/cases/:caseId", async () => {
+      state.calls += 1;
+      if (state.gate !== null) await state.gate;
+      switch (state.answer) {
+        case "participant":
+          return HttpResponse.json(caseSummary(N));
+        case "outsider":
+          return HttpResponse.json(outsiderSummary(N));
+        case "network":
+          return HttpResponse.error();
+        default:
+          return apiErrorResponse(
+            state.answer,
+            state.answer === 404 ? "NOT_FOUND" : "INTERNAL_ERROR",
+            state.answer === 404 ? CASE_TEXTS.notFound : "[UNIT_TEST]339失敗",
+          );
+      }
+    }),
+    http.get("/api/cases/:caseId/detail", () =>
+      state.answer === "participant"
+        ? HttpResponse.json(caseDetail(N))
+        : apiErrorResponse(403, "FORBIDDEN", PRIVATE_TEXT),
+    ),
+    http.get("/api/rooms/:roomId/messages", () =>
+      state.answer === "participant"
+        ? HttpResponse.json({ items: [], nextCursor: null, hasMore: false })
+        : apiErrorResponse(403, "FORBIDDEN", PRIVATE_TEXT),
+    ),
+    http.put(
+      "/api/rooms/:roomId/read-position",
+      () => new HttpResponse(null, { status: 204 }),
+    ),
+  );
+}
+
+describe("#339 AC-2 古い非参加の概要のキャッシュと、部屋・スレッドの実績がある状態で開く（指摘1）", () => {
+  async function openWithStaleOutsider(answer: FreshAnswer) {
+    respondCase("outsider");
+    let release!: () => void;
+    const state = {
+      answer,
+      gate: new Promise<void>((resolve) => {
+        release = resolve;
+      }) as Promise<void> | null,
+      calls: 0,
+    };
+    respondFreshSummary(state);
+    const client = await openCase(
+      async (primed) => {
+        await fetchedReplies(primed, CASE_PARENT, ROOM, CASE);
+        primed.setQueryData(SUMMARY_KEY, outsiderSummary(N));
+      },
+      { cachedSummary: true },
+    );
+    // 新しい概要の答えを保留している間：入口・合図・下書きの消去は起きていない
+    await waitFor(() => expect(state.calls).toBeGreaterThan(0));
+    await flushTasks(3);
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(caseDraftsPresent()).toBe(CASE_DRAFTS.length);
+    state.gate = null;
+    release();
+    return client;
+  }
+
+  it("#339 AC-2: 古い非参加の概要のキャッシュだけでは確定しない：新しい答えが参加者なら、入口0・合図0・下書きは残る", async () => {
+    const client = await openWithStaleOutsider("participant");
+    await waitFor(() =>
+      expect(
+        client.getQueryData<{ isParticipant: boolean }>(SUMMARY_KEY)
+          ?.isParticipant,
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(client.isFetching({ queryKey: SUMMARY_KEY })).toBe(0),
+    );
+    await flushTasks(3);
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(caseDraftsPresent()).toBe(CASE_DRAFTS.length);
+  });
+
+  it.each([
+    ["非参加", "outsider"],
+    ["404", 404],
+  ] as const)(
+    "#339 AC-2: 古い非参加の概要のキャッシュで開き、新しい答えが%sなら、実績ありの初回の行のとおり、入口・合図・下書きの消去が順に1回ずつ",
+    async (_label, answer) => {
+      await openWithStaleOutsider(answer);
+      await waitFor(() => expect(announced()).toHaveLength(1));
+      await waitFor(() => expect(caseDraftsPresent()).toBe(0));
+      await flushTasks(5);
+      expect(entryCalls()).toHaveLength(1);
+      expect(atEntry[0]?.request).toEqual({
+        ownerId: TEST_USER.id,
+        reason: "lost",
+      });
+      expect(atEntry[0]?.caseThreadCached).toBe(false);
+      expect(atEntry[0]?.announced).toBe(0);
+      expect(atEntry[0]?.caseDrafts).toBe(CASE_DRAFTS.length);
+      expect(draftsAtAnnounce).toEqual([CASE_DRAFTS.length]);
+    },
+  );
+
+  it.each([
+    ["500", 500],
+    ["通信の失敗", "network"],
+  ] as const)(
+    "#339 AC-2: 古い非参加の概要のキャッシュで開き、新しい答えが%sなら、この契機からは確定しない：入口0・合図0・下書きは残る",
+    async (_label, answer) => {
+      const client = await openWithStaleOutsider(answer);
+      await waitFor(() =>
+        expect(client.getQueryState(SUMMARY_KEY)?.status).toBe("error"),
+      );
+      await waitFor(() =>
+        expect(client.isFetching({ queryKey: SUMMARY_KEY })).toBe(0),
+      );
+      await flushTasks(3);
+      expect(entryCalls()).toHaveLength(0);
+      expect(announced()).toEqual([]);
+      expect(caseDraftsPresent()).toBe(CASE_DRAFTS.length);
     },
   );
 });

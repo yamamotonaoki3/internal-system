@@ -105,7 +105,7 @@ function repliesData(parentId: string, roomId: string, caseId: string | null) {
   };
 }
 
-type Answer = "participant" | "lost";
+type Answer = "participant" | "lost" | "notFound" | "error500" | "network";
 
 let client: QueryClient;
 let answer: Answer;
@@ -222,6 +222,15 @@ beforeEach(() => {
     queryFn: async () => {
       hookChecks += 1;
       if (gate !== null) await gate;
+      if (answer === "notFound")
+        throw { status: 404, code: "NOT_FOUND", message: "[UNIT_TEST]339" };
+      if (answer === "error500")
+        throw {
+          status: 500,
+          code: "INTERNAL_ERROR",
+          message: "[UNIT_TEST]339",
+        };
+      if (answer === "network") throw new TypeError("[UNIT_TEST]339通信の失敗");
       return summary(answer === "participant");
     },
   });
@@ -229,6 +238,17 @@ beforeEach(() => {
     http.get("/api/cases/:caseId", async () => {
       directChecks += 1;
       if (gate !== null) await gate;
+      if (answer === "notFound")
+        return HttpResponse.json(
+          { code: "NOT_FOUND", message: "[UNIT_TEST]339" },
+          { status: 404 },
+        );
+      if (answer === "error500")
+        return HttpResponse.json(
+          { code: "INTERNAL_ERROR", message: "[UNIT_TEST]339" },
+          { status: 500 },
+        );
+      if (answer === "network") return HttpResponse.error();
       return HttpResponse.json(summary(answer === "participant"));
     }),
   );
@@ -467,4 +487,126 @@ describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2
       expect(draftsPresent()).toBe(0);
     },
   );
+});
+
+// ---- コードレビュー1回目の指摘3：S-17 に委譲しても、経路（スレッド一覧の行の消失）の区別が保たれる（計画 3 節の表） ----
+describe("#339 AC-3 S-17 の表示中の、スレッド一覧の行の消失（指摘3）", () => {
+  const LIST_KEY = ["threads", "list"];
+  let rows: unknown[];
+  const caseRow = () => ({
+    parent: repliesData(PARENT, ROOM, CASE).parent,
+    room: { kind: "channel", id: ROOM, name: "[UNIT_TEST]339案件の部屋" },
+    lastReplyAt: "2026-11-25T00:00:00.000Z",
+    unreadCount: 0,
+    caseId: CASE,
+  });
+  const otherRow = () => ({
+    parent: repliesData(OTHER_PARENT, OTHER_ROOM, null).parent,
+    room: { kind: "channel", id: OTHER_ROOM, name: "[UNIT_TEST]339通常の部屋" },
+    lastReplyAt: "2026-11-25T00:00:00.000Z",
+    unreadCount: 0,
+    caseId: null,
+  });
+
+  async function openList() {
+    rows = [caseRow(), otherRow()];
+    await client.fetchInfiniteQuery({
+      queryKey: LIST_KEY,
+      queryFn: () => Promise.resolve({ items: [...rows], nextCursor: null }),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: () => undefined,
+    });
+  }
+  async function refetchList(next: unknown[]) {
+    rows = next;
+    await client.refetchQueries({ queryKey: LIST_KEY });
+  }
+  /** 確かめ（フックの概要の取り直し・見張りの直接の取得）が n 回始まり、概要の取り直しが終わるまで待つ */
+  async function verificationsSettled(count: number) {
+    await waitFor(() => expect(verifications()).toBe(count));
+    await waitFor(() =>
+      expect(client.isFetching({ queryKey: SUMMARY })).toBe(0),
+    );
+    await act(async () => {
+      await flushTasks(3);
+    });
+  }
+
+  async function arrange() {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(SUMMARY, summary(true));
+    client.setQueryData(DETAIL, { sentinel: "[UNIT_TEST]339詳細" });
+    await fetched(ROOM_KEY, [{ id: "m1" }]);
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    await openList();
+    return mountS17(PARTICIPANT_PROPS);
+  }
+
+  it.each([
+    ["500", "error500"],
+    ["通信の失敗", "network"],
+  ] as const)(
+    "#339 AC-3: S-17 の表示中に一覧の行が消え、確かめが%s（unverified）：片付けなし・入口なし・合図なし・下書きは残る。確かめられないの表示にもならない",
+    async (_label, failure) => {
+      const view = await arrange();
+      answer = failure;
+      await refetchList([otherRow()]);
+      await verificationsSettled(1);
+      expect(client.getQueryData(DETAIL)).toBeDefined();
+      expect(client.getQueryData(threadKey(PARENT))).toBeDefined();
+      expect(entryCalls()).toHaveLength(0);
+      expect(announced()).toEqual([]);
+      expect(draftsPresent()).toBe(DRAFTS.length);
+      expect(view.result.current.unverified).toBe(false);
+      expect(view.onLost).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#339 AC-3: S-17 の表示中に一覧の行が消え、確かめが参加者なら何も起きず、その後の本当の拒否（部屋の 403）から確かめが始まり、確定まで進む", async () => {
+    await arrange();
+    answer = "participant";
+    await refetchList([otherRow()]);
+    await verificationsSettled(1);
+    expect(entryCalls()).toHaveLength(0);
+    answer = "lost";
+    await fail(ROOM_KEY, 403);
+    await waitFor(() => expect(announced()).toHaveLength(1));
+    expect(verifications()).toBe(2);
+    expect(entryCalls()).toHaveLength(1);
+    await waitFor(() => expect(draftsPresent()).toBe(0));
+  });
+
+  it.each([
+    ["非参加", "lost"],
+    ["404", "notFound"],
+  ] as const)(
+    '#339 AC-3: S-17 の表示中に一覧の行が消え、確かめが%sなら、委譲した確定の既存の動き（表示中は "all"）：入口・合図・下書きの消去が1回ずつ',
+    async (_label, verdict) => {
+      await fetched(
+        threadKey(OTHER_PARENT),
+        repliesData(OTHER_PARENT, OTHER_ROOM, null),
+      );
+      await arrange();
+      answer = verdict;
+      await refetchList([otherRow()]);
+      await waitFor(() => expect(announced()).toHaveLength(1));
+      await waitFor(() => expect(draftsPresent()).toBe(0));
+      await verificationsSettled(1);
+      expect(entryCalls()).toHaveLength(1);
+      expect(client.getQueryData(DETAIL)).toBeUndefined();
+      expect(client.getQueryData(threadKey(OTHER_PARENT))).toBeUndefined();
+    },
+  );
+
+  it("#339 AC-3: S-17 の表示中、一覧の経路の unverified の後も、次のきっかけ（行が戻って、また消える）を受けて確かめる", async () => {
+    await arrange();
+    answer = "error500";
+    await refetchList([otherRow()]);
+    await verificationsSettled(1);
+    answer = "lost";
+    await refetchList([caseRow(), otherRow()]);
+    await refetchList([otherRow()]);
+    await waitFor(() => expect(announced()).toHaveLength(1));
+    expect(verifications()).toBe(2);
+  });
 });
