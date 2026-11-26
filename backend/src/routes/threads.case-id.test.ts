@@ -5,9 +5,8 @@
 //  - 見える範囲（U-4・#148 の perm.case.view）・並び・件数・nextCursor は変えない（caseId を足すために行を後から除かない）。
 //  - エラー応答（401・403・422）には caseId を足さない。
 // 期待は、受け入れ条件と、このファイルで入れた固定のデータから決める（本番の定義から作らない）。
-// perm.case.view だけを外す確かめは、API では作れないため（case-room.permissions.test.ts の注記）、Service の層で偽の authorizer を渡す。
+// perm.case.view だけを外す確かめは、API では作れないため（case-room.permissions.test.ts の注記）、Service の層のテスト（services/case-id.permissions.test.ts）に置く。
 // データは架空（testuser_casereq_・[UNIT_TEST]・@example.com）。
-import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeCaseMember } from "../../test/case-fixtures";
 import {
@@ -18,16 +17,13 @@ import {
   setupCaseRoomWorld,
   type CaseRoomWorld,
 } from "../../test/case-room-fixtures";
-import { fakeAuthorizer } from "../../test/dm-fixtures";
 import {
   getThreads,
   idAt,
   threadsOk,
   type ThreadListItem,
 } from "../../test/thread-fixtures";
-import { withThreads } from "../db/thread.repository";
 import { decodeCursor } from "../lib/cursor";
-import { createThreadService } from "../services/thread.service";
 
 let cw: CaseRoomWorld;
 
@@ -116,34 +112,6 @@ describe("#339 AC-1 スレッド一覧の caseId と、閲覧の制限の維持�
       expect(text, who).not.toContain(cw.open.id);
       expect(text, who).not.toContain(cw.open.roomId);
     }
-  });
-
-  it("#339 AC-1: 案件の対応情報を返しても閲覧制限を維持する：perm.case.view がなければ、案件のスレッドも案件の ID も出ず、ほかの項目の caseId は null", async () => {
-    const t = await seedMixed();
-    const outcome = await withThreads(env, (repository) =>
-      createThreadService(repository, {
-        authorizer: fakeAuthorizer(["perm.case.view"]),
-      }).list(
-        { userId: cw.w.memberS1.id, traceId: "unit-339-case-id" },
-        { limit: 100 },
-      ),
-    );
-    expect(JSON.stringify(outcome)).not.toContain(cw.open.id);
-    expect(outcome.items.map((item) => item.parent.id)).toEqual([
-      t.e,
-      t.c,
-      t.b,
-    ]);
-    expect(
-      outcome.items.map((item) => ({
-        parent: item.parent.id,
-        caseId: (item as { caseId?: unknown }).caseId,
-      })),
-    ).toEqual([
-      { parent: t.e, caseId: null },
-      { parent: t.c, caseId: null },
-      { parent: t.b, caseId: null },
-    ]);
   });
 
   it("#339 AC-1: エラー応答（401・422）に caseId を足さない", async () => {

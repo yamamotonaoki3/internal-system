@@ -3,9 +3,8 @@
 // 最新（after なし）・after の両方で、案件のスレッドは true、通常のチャンネル・DM は false。終了した案件でも true。
 // #339 AC-1（決定1）：同じ応答の成功時に caseId（案件の部屋は案件の ID、通常のチャンネル・DM は null）を足す。最新・after の両方。
 //   403・404 のエラー応答には caseId を足さない。閲覧の制限（非参加者・perm.case.view なし）は、これまでどおり。
-//   perm.case.view だけを外す確かめは、API では作れないため（case-room.permissions.test.ts の注記）、Service の層で偽の authorizer を渡す。
+//   perm.case.view だけを外す確かめは、API では作れないため（case-room.permissions.test.ts の注記）、Service の層のテスト（services/case-id.permissions.test.ts）に置く。
 // データは架空（testuser_casereq_・[UNIT_TEST]・@example.com）。
-import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeCaseMember } from "../../test/case-fixtures";
 import {
@@ -16,10 +15,7 @@ import {
   setupCaseRoomWorld,
   type CaseRoomWorld,
 } from "../../test/case-room-fixtures";
-import { fakeAuthorizer } from "../../test/dm-fixtures";
 import { ZERO, getReplies } from "../../test/thread-fixtures";
-import { withMessages } from "../db/message.repository";
-import { createMessageService } from "../services/message.service";
 
 let cw: CaseRoomWorld;
 
@@ -148,36 +144,6 @@ describe("#339 AC-1 返信の取得の成功応答の caseId と、閲覧の制�
       expect(await caseIdOf(parent, query, cw.w.memberS1.token)).toBe(
         cw.open.id,
       );
-    },
-  );
-
-  it.each([
-    ["最新", { limit: 50 }],
-    ["after", { after: ZERO, limit: 50 }],
-  ] as const)(
-    "#339 AC-1: 案件の対応情報を返しても閲覧制限を維持する：perm.case.view がなければ 403 で、エラーに caseId も案件の ID も含めない（%s）",
-    async (_l, query) => {
-      const parent = await seedRoomMessage(cw.open.roomId, cw.w.memberS1.id, 9);
-      await seedRoomReply(cw.open.roomId, parent, cw.w.memberD1.id, 10);
-      const me = {
-        userId: cw.w.memberS1.id,
-        traceId: "unit-339-case-id",
-        reauthenticatedAt: new Date().toISOString(),
-      };
-      const outcome = await withMessages(env, (repository) =>
-        createMessageService(repository, {
-          authorizer: fakeAuthorizer(["perm.case.view"]),
-        })
-          .listReplies(me, parent, query)
-          .then(
-            (value) => ({ value, error: null as unknown }),
-            (error: unknown) => ({ value: null, error }),
-          ),
-      );
-      expect(outcome.value).toBeNull();
-      expect(outcome.error).toMatchObject({ code: "FORBIDDEN", status: 403 });
-      expect(Object.hasOwn(outcome.error as object, "caseId")).toBe(false);
-      expect(JSON.stringify(outcome.error)).not.toContain(cw.open.id);
     },
   );
 });
