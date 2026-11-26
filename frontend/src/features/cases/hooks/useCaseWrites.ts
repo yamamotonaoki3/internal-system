@@ -43,7 +43,6 @@ import {
   caseKeys,
   caseMutationKeys,
 } from "../api/query-keys";
-import { writeAsCleanup } from "../case-access-evidence";
 
 export function useAddCaseParticipant(caseId: string) {
   const queryClient = useQueryClient();
@@ -65,23 +64,18 @@ function todoHistoryFilters(userId: string, caseId: string): QueryFilters[] {
 /** 自分のスレッドの一覧の行（親の本文を含む）。ここでは部屋の ID だけを見る */
 type ThreadListData = InfiniteData<{ items: { room: { id: string } }[] }>;
 
-/**
- * 自分のスレッドの一覧から、その部屋の行だけを除く（別の部屋の行は残す）。片付けの書き込みとして行う：
- * 資格の喪失の見張りが、行の比較の元を捨てずに、その後のサーバーの答えと比べられるようにする（#339）
- */
+/** 自分のスレッドの一覧から、その部屋の行だけを除く（別の部屋の行は残す） */
 function stripThreadRows(queryClient: QueryClient, roomId: string): void {
-  writeAsCleanup(queryClient, () =>
-    queryClient.setQueryData<ThreadListData>(threadKeys.list, (previous) =>
-      previous === undefined
-        ? undefined
-        : {
-            ...previous,
-            pages: previous.pages.map((page) => ({
-              ...page,
-              items: page.items.filter((item) => item.room.id !== roomId),
-            })),
-          },
-    ),
+  queryClient.setQueryData<ThreadListData>(threadKeys.list, (previous) =>
+    previous === undefined
+      ? undefined
+      : {
+          ...previous,
+          pages: previous.pages.map((page) => ({
+            ...page,
+            items: page.items.filter((item) => item.room.id !== roomId),
+          })),
+        },
   );
 }
 

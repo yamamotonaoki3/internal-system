@@ -16,7 +16,6 @@ import {
 import { threadKeys } from "../threads";
 import {
   caseIdOfRoom,
-  isCleanupWrite,
   repliesCaseRoom,
   sessionUserId,
   threadListRows,
@@ -57,17 +56,28 @@ type Candidate = {
   caseId: string;
   roomId: string | null;
   route: "content" | "list";
+  /** 始めた時点の利用者の世代と、参加の期間（終わったときと副作用の直前に照らす） */
+  generation: number;
+  period: number;
 };
+
+/** 利用者・案件ごとの、確定の副作用の印。参加の期間（period）は、参加者に戻ったと分かるたびに進める */
+type LossMarks = { period: number; announced: boolean; draftsHandled: boolean };
 
 type MonitorState = {
   handlers: Set<CaseAccessLossHandler>;
   /** 進行中の確かめ（利用者・案件ごと。持ち主は始めた側〔S-17 か、この見張り〕で、終わるまで外さない） */
   verifying: Set<string>;
-  /** 確定した喪失を、ほかのタブへ知らせた印（利用者・案件ごと。参加者に戻ったと分かったときだけ外す） */
-  announced: Set<string>;
+  /** 合図・下書きの処理の印（読み込み直しの印とは別。参加者に戻ったと分かったときだけ外す） */
+  marks: Map<string, LossMarks>;
+  /** 利用者の世代：セッションの利用者が、別の利用者に替わるたびに進める（A → B → A でも、古い確かめを捨てるため） */
+  generation: number;
+  knownUserId: string | undefined;
   installs: number;
   stop: (() => void) | null;
 };
+
+type ListAction = Extract<QueryCacheNotifyEvent, { type: "updated" }>["action"];
 
 const states = new WeakMap<QueryClient, MonitorState>();
 
@@ -77,7 +87,9 @@ function stateOf(queryClient: QueryClient): MonitorState {
     state = {
       handlers: new Set(),
       verifying: new Set(),
-      announced: new Set(),
+      marks: new Map(),
+      generation: 0,
+      knownUserId: undefined,
       installs: 0,
       stop: null,
     };
@@ -116,26 +128,73 @@ export function claimCaseVerification(
   };
 }
 
-/** 確定した喪失を、ほかのタブへ1回だけ知らせる（読み込み直しの印とは別。入口の後・下書きの消去の前に呼ぶ。送る処理は投げない） */
+function marksOf(state: MonitorState, mark: string): LossMarks {
+  let marks = state.marks.get(mark);
+  if (marks === undefined) {
+    marks = { period: 0, announced: false, draftsHandled: false };
+    state.marks.set(mark, marks);
+  }
+  return marks;
+}
+
+/** いまの参加の期間。確かめを始めるときに控え、確定の副作用に渡す */
+export function currentLossPeriod(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+): number {
+  return marksOf(stateOf(queryClient), markOf(userId, caseId)).period;
+}
+
+/** いまの利用者の世代。確かめを始めるときに控え、終わったときに照らす */
+export function currentUserGeneration(queryClient: QueryClient): number {
+  return stateOf(queryClient).generation;
+}
+
+/**
+ * 確定した喪失を、ほかのタブへ1回だけ知らせる（読み込み直しの印とは別。入口の後・下書きの消去の前に呼ぶ。送る処理は投げない）。
+ * 古い参加の期間の確定では送らない
+ */
 export function announceCaseAccessLossOnce(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
+  period: number,
 ): void {
-  const { announced } = stateOf(queryClient);
-  const mark = markOf(userId, caseId);
-  if (announced.has(mark)) return;
-  announced.add(mark);
+  const marks = marksOf(stateOf(queryClient), markOf(userId, caseId));
+  if (marks.period !== period || marks.announced) return;
+  marks.announced = true;
   announceCaseAccessLoss({ userId, caseId });
 }
 
-/** 参加者に戻ったと分かったとき：次の喪失を、また知らせられるようにする */
-export function resetCaseAccessLossAnnouncement(
+/**
+ * 確定した喪失の、その部屋の下書きを、同じ参加の期間で1回だけ消す（C-207(5)〜(9)）。消去は呼んだ時点の保存の内容を消すため、
+ * 1回目の後に同じ持ち主が書いた新しい下書きを、同じ喪失の2回目の確定・遅れて届いた古い確定で消さない。
+ * 部屋が分からないときは何もしない（処理済みにもしない）
+ */
+export function forgetCaseRoomDraftsOnce(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+  roomId: string | null,
+  period: number,
+): void {
+  const marks = marksOf(stateOf(queryClient), markOf(userId, caseId));
+  if (roomId === null || marks.period !== period || marks.draftsHandled) return;
+  marks.draftsHandled = true;
+  forgetCaseRoomDraftsAfterLoss(userId, roomId);
+}
+
+/** 参加者に戻ったと分かったとき：参加の期間を進め、次の喪失で、また知らせ・下書きを消せるようにする */
+export function startCaseParticipationPeriod(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
 ): void {
-  stateOf(queryClient).announced.delete(markOf(userId, caseId));
+  const marks = marksOf(stateOf(queryClient), markOf(userId, caseId));
+  marks.period += 1;
+  marks.announced = false;
+  marks.draftsHandled = false;
 }
 
 /** 拒否のきっかけを受ける S-17 の担当（中身のキー・部屋・その案件の返信） */
@@ -180,13 +239,13 @@ function outsideTarget(
  */
 function settleOutside(
   queryClient: QueryClient,
-  { userId, caseId, roomId, route }: Candidate,
+  { userId, caseId, roomId, route, period }: Candidate,
   verdict: CaseAccessVerdict,
 ): void {
   // 利用者の切り替えは、切り替えの入口に任せる
   if (verdict === "switched") return;
   if (verdict === "participant") {
-    resetCaseAccessLossAnnouncement(queryClient, userId, caseId);
+    startCaseParticipationPeriod(queryClient, userId, caseId);
     return;
   }
   // 行の消失から確かめられないときは、何もしない（次のきっかけを受けられる状態に戻る）
@@ -207,8 +266,18 @@ function settleOutside(
   // 404 は、概要・案件一覧を非参加に書き換えない
   else void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
   reload();
-  announceCaseAccessLossOnce(queryClient, userId, caseId);
-  forgetCaseRoomDraftsAfterLoss(userId, roomId);
+  announceCaseAccessLossOnce(queryClient, userId, caseId, period);
+  forgetCaseRoomDraftsOnce(queryClient, userId, caseId, roomId, period);
+}
+
+/** 確かめを始めたときの利用者の世代・参加の期間のままか（古い答えを、新しい世代・期間に作用させない。切り替えは verdict の switched で扱う） */
+function stillCurrent(queryClient: QueryClient, candidate: Candidate): boolean {
+  return (
+    sessionUserId(queryClient) === candidate.userId &&
+    currentUserGeneration(queryClient) === candidate.generation &&
+    currentLossPeriod(queryClient, candidate.userId, candidate.caseId) ===
+      candidate.period
+  );
 }
 
 async function verifyOutside(
@@ -227,8 +296,8 @@ async function verifyOutside(
   } finally {
     release();
   }
-  // 確かめの間に利用者が替わった・ログアウトした：古い答えを、いまの利用者のキャッシュ・下書きに作用させない
-  if (sessionUserId(queryClient) !== candidate.userId) return;
+  // 確かめの間に利用者が替わった（戻った場合も）・ログアウトした・参加者に戻った：古い答えを作用させない
+  if (!stillCurrent(queryClient, candidate)) return;
   settleOutside(queryClient, candidate, verdict);
 }
 
@@ -282,33 +351,62 @@ export function installCaseAccessLossMonitor(
 
 function subscribe(queryClient: QueryClient, state: MonitorState): () => void {
   const cache = queryClient.getQueryCache();
-  // 行の比較の元：スレッド一覧の Query ごとの、最後にサーバーから正常に取得した行と、そのときの利用者。購読を外すと一緒に捨てる
-  const baselines = new WeakMap<
+  // 行の比較の元：スレッド一覧の Query ごとの、その取得を始めた時点の一覧の行（ID だけ）と、そのときの利用者の世代。
+  // 取得の成功で比べて捨てる。手での書き換え（片付けを含む）・取得の失敗・Query の削除・利用者の切り替え・購読の解除でも捨てる
+  const snapshots = new WeakMap<
     Query,
-    { userId: string | undefined; rows: ThreadListRow[] }
+    { generation: number; rows: ThreadListRow[] }
   >();
 
-  const onListUpdate = (query: Query, manual: boolean) => {
-    if (manual) {
-      // 手での書き換えの後は、元を捨てる（書き換えた後の一覧とサーバーの答えを比べても、消失とは言えない）。
-      // 片付けが行を外す書き込みは、元を残す（片付けの後のサーバーの答えから、その案件を確かめるため）
-      if (!isCleanupWrite(queryClient)) baselines.delete(query);
-      return;
-    }
+  const onListFetched = (query: Query) => {
+    const snapshot = snapshots.get(query);
+    snapshots.delete(query);
     const userId = sessionUserId(queryClient);
-    const rows = threadListRows(query.state.data);
-    const previous = baselines.get(query);
-    baselines.set(query, { userId, rows });
-    if (userId === undefined || previous?.userId !== userId) return;
-    for (const [caseId, roomId] of rowsLost(previous.rows, rows))
+    if (
+      snapshot === undefined ||
+      userId === undefined ||
+      snapshot.generation !== state.generation
+    )
+      return;
+    for (const [caseId, roomId] of rowsLost(
+      snapshot.rows,
+      threadListRows(query.state.data),
+    ))
       dispatchCandidate(
         queryClient,
         state,
-        { userId, caseId, roomId, route: "list" },
+        {
+          userId,
+          caseId,
+          roomId,
+          route: "list",
+          generation: state.generation,
+          period: currentLossPeriod(queryClient, userId, caseId),
+        },
         [...state.handlers].filter(
           (h) => h.userId === userId && h.caseId === caseId,
         ),
       );
+  };
+
+  const onListAction = (query: Query, action: ListAction) => {
+    if (action.type === "fetch")
+      snapshots.set(query, {
+        generation: state.generation,
+        rows: threadListRows(query.state.data),
+      });
+    else if (action.type === "success" && action.manual !== true)
+      onListFetched(query);
+    else if (action.type === "success" || action.type === "error")
+      snapshots.delete(query);
+  };
+
+  /** 別の利用者に替わったら、世代を進める（切り替えの見張りがキャッシュを捨てるのと同じ区切り。比較の元は世代で無効になる） */
+  const followUser = () => {
+    const next = sessionUserId(queryClient);
+    if (next === undefined || next === state.knownUserId) return;
+    if (state.knownUserId !== undefined) state.generation += 1;
+    state.knownUserId = next;
   };
 
   const onDenied = (query: Query) => {
@@ -329,14 +427,22 @@ function subscribe(queryClient: QueryClient, state: MonitorState): () => void {
     dispatchCandidate(
       queryClient,
       state,
-      { userId, ...target, route: "content" },
+      {
+        userId,
+        ...target,
+        route: "content",
+        generation: state.generation,
+        period: currentLossPeriod(queryClient, userId, target.caseId),
+      },
       [],
     );
   };
 
+  followUser();
   return cache.subscribe((event: QueryCacheNotifyEvent) => {
+    followUser();
     if (event.type === "removed") {
-      baselines.delete(event.query);
+      snapshots.delete(event.query);
       return;
     }
     if (event.type !== "updated") return;
@@ -347,8 +453,7 @@ function subscribe(queryClient: QueryClient, state: MonitorState): () => void {
       query.queryKey.length === threadKeys.list.length &&
       threadKeys.list.every((part, index) => query.queryKey[index] === part);
     if (isList) {
-      if (action.type === "success")
-        onListUpdate(query, action.manual === true);
+      onListAction(query, action);
       return;
     }
     if (action.type !== "error") return;

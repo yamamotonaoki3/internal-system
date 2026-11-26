@@ -122,21 +122,3 @@ export function hasCaseRoomEvidence(
       queryClient.getQueryData(messageKeys.room(roomId)) !== undefined,
   );
 }
-
-// 片付けがスレッド一覧の行を外す書き込みの最中か（QueryClient ごと）。行の消失の比較の元を、片付けの書き込みでは捨てないため
-// （片付けで行を外した後も、サーバーの答えと比べて、その案件を確かめられるようにする）
-const cleanupWriting = new WeakMap<QueryClient, number>();
-
-/** 片付けの書き込みとして、write を同期で実行する */
-export function writeAsCleanup(queryClient: QueryClient, write: () => void) {
-  cleanupWriting.set(queryClient, (cleanupWriting.get(queryClient) ?? 0) + 1);
-  try {
-    write();
-  } finally {
-    cleanupWriting.set(queryClient, (cleanupWriting.get(queryClient) ?? 1) - 1);
-  }
-}
-
-export function isCleanupWrite(queryClient: QueryClient): boolean {
-  return (cleanupWriting.get(queryClient) ?? 0) > 0;
-}
