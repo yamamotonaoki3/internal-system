@@ -14,7 +14,13 @@
 //   409 SESSION_USER_MISMATCH の後は features/auth の confirmSessionUserAfterMismatch、切り替えの入口は features/access-loss の isUserSwitchReloadRequested（このファイルで差し替える）。
 //   想定外の例外（下書きの消去の TypeError など）は、もみ消さず reportError に渡す（中継と同じ。C-208(12)）。
 // 入口は vi.fn（noteDraftsRemain も）。チャンネルはテスト専用の差し替え。待ち時間に頼らず、応答の保留を手で解く。データはすべて架空（testuser_・[UNIT_TEST]）。
-import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+import {
+  InfiniteQueryObserver,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { act, renderHook } from "@testing-library/react";
+import { createElement } from "react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isUserSwitchReloadRequested } from "../access-loss";
@@ -22,7 +28,10 @@ import {
   noteDraftsRemain,
   requestAccessLossReload,
 } from "../access-loss/reload-after-access-loss";
-import { confirmSessionUserAfterMismatch } from "../auth";
+import {
+  confirmSessionUserAfterMismatch,
+  installUserSwitchGuard,
+} from "../auth";
 import {
   fetchLatestMessages,
   fetchLatestReplies,
@@ -45,6 +54,7 @@ import { server } from "../../test/server";
 import { threadItem, type TestThread } from "../../test/thread-handlers";
 import { fetchCases } from "./api/case-api";
 import { installCaseAccessLossMonitor } from "./case-access-loss-monitor";
+import { useRemoveCaseParticipant } from "./hooks/useCaseWrites";
 
 vi.mock("../access-loss/reload-after-access-loss", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -847,9 +857,32 @@ describe("#339 AC-1 下書きは、持ち主の当該部屋だけを消す（C-2
 });
 
 describe("#339 AC-1 合図の印と読み込み直しの印は別（C-208(9)）", () => {
-  it("#339 AC-1: unverifiedの後に確定しても合図と下書き処理を行う：返信の 404 → 500（入口だけ）→ 一覧の行の消失 → 非参加で、合図1回・下書きの消去", async () => {
+  it("#339 AC-1: unverifiedの後に確定しても合図と下書き処理を行う：一覧の行の消失 → 確かめが 500（この経路は何も片付けない）→ 残っている取得済みの返信の 404 → 非参加で、合図1回・下書きの消去", async () => {
     list = respondList([[CASE_ROW, CHANNEL_ROW]]);
     await openThreadList(1);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("unverified");
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+    await flushTasks(10);
+    // 一覧の経路の unverified：片付け・入口・合図・下書きの消去なし（計画 3 節）
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(draftsKept()).toBe(true);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+
+    summary.answer = { kind: "outsider" };
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(announced()).toHaveLength(1));
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+    expect(summary.calls).toEqual([CASE, CASE]);
+    expect(announced()).toEqual([{ v: 1, userId: USER, caseId: CASE }]);
+    expect(entryCalls()).toHaveLength(1);
+    expect(entryCalls()[0]?.[1]).toEqual({ ownerId: USER, reason: "lost" });
+  });
+
+  it("#339 AC-1: unverifiedの後に確定しても合図と下書き処理を行う：返信の 404 → 500（入口だけ）→ 新しい正常な取得で実績を得る → 404 → 非参加で、合図1回・下書きの消去（読み込み直しの印とは別）", async () => {
     await fetchedReplies(CASE_PARENT, ROOM, CASE);
     const summary = arrangeVerdict("unverified");
     await failReplies(CASE_PARENT, 404, "NOT_FOUND");
@@ -859,12 +892,11 @@ describe("#339 AC-1 合図の印と読み込み直しの印は別（C-208(9)）"
     expect(draftsKept()).toBe(true);
 
     summary.answer = { kind: "outsider" };
-    list.pages = [[CHANNEL_ROW]];
-    await refetchList();
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
     await vi.waitFor(() => expect(announced()).toHaveLength(1));
     await vi.waitFor(() => expect(draftsErased()).toBe(true));
     expect(summary.calls).toEqual([CASE, CASE]);
-    expect(announced()).toEqual([{ v: 1, userId: USER, caseId: CASE }]);
     // 読み込み直しは入口が同じ持ち主の待機に合流する（呼び直しても、呼ばなくてもよい）。呼んだなら持ち主・理由は同じ
     for (const [, request] of entryCalls())
       expect(request).toEqual({ ownerId: USER, reason: "lost" });
@@ -1162,5 +1194,151 @@ describe("#339 AC-1 別の利用者のキャッシュに作用させない", () 
     await flushTasks(10);
     expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
     expect(draftsKept()).toBe(true);
+  });
+});
+
+// ---- 統括の依頼（調査 inv339 の点2・点3・6）で足したもの ----
+
+/** 確定の後に、同じ持ち主が、その部屋に新しく置いた下書き */
+const NEW_DRAFT = draftKey(USER, `room:${ROOM}`);
+function writeNewDraft() {
+  window.localStorage.setItem(
+    NEW_DRAFT,
+    JSON.stringify({
+      body: "[UNIT_TEST]339新しい書きかけ",
+      updatedAt: Date.now(),
+    }),
+  );
+}
+const newDraftKept = () => window.localStorage.getItem(NEW_DRAFT) !== null;
+
+describe("#339 AC-3 片付けの後の、新しい一覧の取得（計画 2 節「片付けでは比較用情報を破棄する」）", () => {
+  it("#339 AC-3: 画面の外の確定（返信の 404 → 非参加）の後に、新しく一覧の取得を始めても、古い行から概要の確かめ・入口・合図・下書きの消去が増えない", async () => {
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+    await flushTasks(5);
+    writeNewDraft();
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await flushTasks(10);
+    expect(summary.calls).toEqual([CASE]);
+    expect(entryCalls()).toHaveLength(1);
+    expect(announced()).toHaveLength(1);
+    expect(newDraftKept()).toBe(true);
+  });
+
+  it("#339 AC-3: 本人が自分で退出した後（S-17 の担当が無い）に、新しく一覧の取得を始めても、概要の確かめ・lost の入口・合図・下書きの消去が増えない", async () => {
+    server.use(
+      http.delete(
+        "/api/cases/:caseId/participants/:userId",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    const { result, unmount } = renderHook(
+      () => useRemoveCaseParticipant(CASE),
+      {
+        wrapper: ({ children }) =>
+          createElement(QueryClientProvider, { client }, children),
+      },
+    );
+    await act(async () => {
+      await result.current.mutateAsync({
+        userId: USER,
+        self: true,
+        actorId: USER,
+        roomId: ROOM,
+      });
+    });
+    unmount();
+    await flushTasks(5);
+    const announcedAfterLeave = announced().length;
+    expect(entryCalls().map(([, request]) => request)).toEqual([
+      { ownerId: USER, reason: "left", leftCasePath: `/cases/${CASE}` },
+    ]);
+    writeNewDraft();
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await flushTasks(10);
+    expect(summary.calls).toEqual([]);
+    expect(entryCalls()).toHaveLength(1);
+    expect(announced()).toHaveLength(announcedAfterLeave);
+    expect(newDraftKept()).toBe(true);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
+describe("#339 AC-1 下書きの処理の印（計画 2 節「読み込み直し・合図・下書き処理の印は分ける」・3 節の 5、C-207(5)〜(9)）", () => {
+  it("#339 AC-1: 下書きの処理は同じ喪失で1回：確定の後に同じ持ち主がその部屋へ新しい下書きを置き、同じ喪失がもう一度確定しても（参加者に戻っていない）、新しい下書きは残る", async () => {
+    const summary = arrangeVerdict("lost");
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+    await flushTasks(5);
+    writeNewDraft();
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(2));
+    await flushTasks(10);
+    expect(newDraftKept()).toBe(true);
+    expect(announced()).toHaveLength(1);
+  });
+
+  it("#339 AC-1: 下書きの処理は同じ喪失で1回：対照として、参加者に戻ったと確かめられた後の、本当の再びの喪失では、新しい下書きも消える", async () => {
+    const summary = arrangeVerdict("lost");
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+    summary.answer = { kind: "participant" };
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(2));
+    await flushTasks(10);
+    writeNewDraft();
+    summary.answer = { kind: "outsider" };
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(newDraftKept()).toBe(false));
+  });
+});
+
+describe("#339 AC-1 利用者の世代（計画 2 節「進行中の印も、その利用者の世代が終わった時点で無効にする」「完了時と副作用の直前に照合する」）", () => {
+  it("#339 AC-1: A の確かめの途中に、切り替えの見張りがキャッシュを捨て（B）、その後セッションがまた A になっても、遅れて届いた古い非参加で、片付け・入口・合図・下書きの消去をしない", async () => {
+    const stopGuard = installUserSwitchGuard(client);
+    try {
+      await fetchedReplies(CASE_PARENT, ROOM, CASE);
+      const summary = arrangeVerdict("lost");
+      const gate = deferred();
+      summary.gate = gate.promise;
+      await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+      await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+      client.setQueryData(["auth", "session"], {
+        ...SESSION,
+        user: {
+          id: OTHER_USER,
+          displayName: "testuser_339_b",
+          loginId: "testuser_339_b",
+        },
+      });
+      client.setQueryData(["auth", "session"], SESSION);
+      // A の新しい世代のキャッシュ（古い確かめの片付けの対象にしない）
+      await fetchedReplies(CASE_PARENT, ROOM, CASE);
+      summary.gate = null;
+      gate.release();
+      await flushTasks(10);
+      expect(entryCalls()).toHaveLength(0);
+      expect(announced()).toEqual([]);
+      expect(draftsKept()).toBe(true);
+      expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+    } finally {
+      stopGuard();
+    }
   });
 });

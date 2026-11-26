@@ -303,14 +303,17 @@ describe("#339 AC-1 返信の caseId の保持と、その後の 404", () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
-    return renderHook(() => useThreadReplies(parentId), { wrapper });
+    const view = renderHook(() => useThreadReplies(parentId), { wrapper });
+    return { ...view, client };
   }
 
-  function respondSummary() {
+  /** 概要の確かめの応答（非参加）。gate を渡すと、その間は応答を保留する */
+  function respondSummary(gate: Promise<void> | null = null) {
     const summaryCalls: string[] = [];
     server.use(
-      http.get("/api/cases/:caseId", ({ params }) => {
+      http.get("/api/cases/:caseId", async ({ params }) => {
         summaryCalls.push(String(params.caseId));
+        if (gate !== null) await gate;
         return HttpResponse.json({
           id: String(params.caseId),
           caseNumber: "QZA-261125-0339",
@@ -338,24 +341,37 @@ describe("#339 AC-1 返信の caseId の保持と、その後の 404", () => {
 
   it("#339 AC-1: 追加返信が0件でもcaseIdを保持し、その後の404から確認できる（最新の取得 → 0件の追加の取得 → 404 の順）", async () => {
     vi.mocked(requestAccessLossReload).mockClear();
-    const summaryCalls = respondSummary();
+    let releaseSummary!: () => void;
+    const summaryGate = new Promise<void>((resolve) => {
+      releaseSummary = resolve;
+    });
+    const summaryCalls = respondSummary(summaryGate);
     const state = respondReplies({
       parent: CASE_PARENT,
       replies: [reply(CASE_PARENT, 1)],
       caseRoom: true,
       caseId: CASE_ID,
     });
-    const { result } = await setupWithMonitor(CASE_PARENT.id);
+    const { result, client } = await setupWithMonitor(CASE_PARENT.id);
+    const threadKey = ["messages", "thread", CASE_PARENT.id];
     await waitFor(() => expect(result.current.data?.caseId).toBe(CASE_ID));
     expect(state.requests[0]?.searchParams.has("after")).toBe(false);
 
     // 追加の取得（after あり）が0件
     const before = state.requests.length;
+    const updatedBefore = client.getQueryState(threadKey)?.dataUpdatedAt ?? 0;
     await advance(2500);
     await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
     expect(state.requests.at(-1)?.searchParams.get("after")).toBe(
       reply(CASE_PARENT, 1).id,
     );
+    // 0件の応答が Query に反映された後で確かめる
+    await waitFor(() =>
+      expect(
+        client.getQueryState(threadKey)?.dataUpdatedAt ?? 0,
+      ).toBeGreaterThan(updatedBefore),
+    );
+    expect(client.getQueryState(threadKey)?.fetchStatus).toBe("idle");
     expect(result.current.data?.caseId).toBe(CASE_ID);
     expect(replyIdsOf(result.current.data)).toEqual([reply(CASE_PARENT, 1).id]);
     expect(summaryCalls).toEqual([]);
@@ -368,8 +384,14 @@ describe("#339 AC-1 返信の caseId の保持と、その後の 404", () => {
     );
     await advance(2500);
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.data?.caseId).toBe(CASE_ID);
+    // 概要の応答を保留している間：正しい案件の確かめが1回出ていて、返信のデータ（caseId）はまだ残っている
     await waitFor(() => expect(summaryCalls).toEqual([CASE_ID]));
+    expect(result.current.data?.caseId).toBe(CASE_ID);
+    expect(replyIdsOf(result.current.data)).toEqual([reply(CASE_PARENT, 1).id]);
+    expect(vi.mocked(requestAccessLossReload)).not.toHaveBeenCalled();
+
+    // 非参加の概要が届く：入口が持ち主で1回呼ばれ、後片付け（"room"）でその返信の Query が消える（計画 3 節）
+    releaseSummary();
     await waitFor(() =>
       expect(vi.mocked(requestAccessLossReload).mock.calls).toHaveLength(1),
     );
@@ -377,6 +399,13 @@ describe("#339 AC-1 返信の caseId の保持と、その後の 404", () => {
       ownerId: SESSION.user.id,
       reason: "lost",
     });
+    await waitFor(() =>
+      expect(
+        client.getQueryCache().find({ queryKey: threadKey, exact: true })?.state
+          .data,
+      ).toBeUndefined(),
+    );
+    expect(summaryCalls).toEqual([CASE_ID]);
   });
 
   it("#339 AC-1: 通常のチャンネル・DM のスレッド（caseId が null）は、0件の追加の取得の後の 404 でも、概要を確かめない", async () => {

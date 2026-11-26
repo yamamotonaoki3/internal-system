@@ -419,6 +419,40 @@ describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2
   );
 
   it.each([false, true])(
+    "#339 AC-2: 初回概要と確認結果が重なっても下書きの処理は1回：初回の概要で確定 → 同じ持ち主が新しい下書きを保存 → 保留していた画面の外の確かめが完了しても、新しい下書きは残る（StrictMode=%s。C-207(6)(8)）",
+    async (strict) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      const pending = deferred();
+      gate = pending.promise;
+      await fail(threadKey(PARENT), 404);
+      await waitFor(() => expect(directChecks).toBe(1));
+      client.setQueryData(SUMMARY, summary(false));
+      mountS17(INITIAL_OUTSIDER_PROPS, { strict });
+      // 初回の概要で確定し、下書きが消える
+      await waitFor(() => expect(draftsPresent()).toBe(0));
+      await flushTasks(5);
+      const NEW_DRAFT = draftKey(`room:${ROOM}`);
+      window.localStorage.setItem(
+        NEW_DRAFT,
+        JSON.stringify({
+          body: "[UNIT_TEST]339新しい書きかけ",
+          updatedAt: Date.now(),
+        }),
+      );
+      await act(async () => {
+        gate = null;
+        pending.release();
+        await flushTasks(10);
+      });
+      await flushTasks(10);
+      expect(directChecks).toBe(1);
+      expect(announced()).toHaveLength(1);
+      expect(window.localStorage.getItem(NEW_DRAFT)).not.toBeNull();
+    },
+  );
+
+  it.each([false, true])(
     "#339 AC-2: 初回概要と確認結果が重なっても確定の副作用は1回：S-17 を描いてから見張りを登録する順序（StrictMode=%s）でも、初回の非参加の確定は1回",
     async (strict) => {
       client.setQueryData(SUMMARY, summary(false));
