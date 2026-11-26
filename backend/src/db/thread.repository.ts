@@ -26,6 +26,8 @@ export type ThreadItem = {
   /** 最後の返信（削除済みを含む）の日時 */
   lastReplyAt: string;
   unreadCount: number;
+  /** 案件の部屋なら案件の ID、通常のチャンネル・DM は null（画面が資格の確認の対象を特定するための情報で、認可には使わない） */
+  caseId: string | null;
 };
 
 function toRoom(row: {
@@ -119,6 +121,7 @@ export function createThreadRepository(db: Database) {
           room: toRoom(row),
           lastReplyAt: row.last_reply_at,
           unreadCount,
+          caseId: row.case_id,
         };
       });
       return { items, nextCursor: page.nextCursor };

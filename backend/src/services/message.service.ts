@@ -803,13 +803,14 @@ export function createMessageService(
               query.cursor,
               actor.userId,
             );
-      // joined・roomWritable・caseRoom は表示の制御用（認可は postReply・アップロードが改めて行う）
+      // joined・roomWritable・caseRoom は表示の制御用（認可は postReply・アップロードが改めて行う）。caseId は、画面が資格の確認の対象を特定するための情報（#339）
       return {
         parent: parentItem,
         replyBlockedReason,
         joined: state.joined,
         roomWritable: state.roomWritable,
         caseRoom: room.kind === "channel" && room.channel.caseId !== null,
+        caseId: room.kind === "channel" ? room.channel.caseId : null,
         ...page,
       };
     },
