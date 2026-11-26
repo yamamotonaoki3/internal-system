@@ -11,7 +11,11 @@
 // 前提にした口（実装の担当へ）：features/cases/case-access-loss-monitor.ts の installCaseAccessLossMonitor(queryClient): () => void（同じ QueryClient に冪等）。
 //   useCaseAccessLoss の引数は変えない。返信の Query のデータは ThreadRepliesData に caseId を足した形。
 // キーは本番の関数を使わず、リテラルで独立に書く。データはすべて架空（testuser_339_・[UNIT_TEST]）。
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { StrictMode, type ReactNode } from "react";
@@ -110,6 +114,8 @@ type Answer = "participant" | "lost" | "notFound" | "error500" | "network";
 let client: QueryClient;
 let answer: Answer;
 let gate: Promise<void> | null;
+// 初回の概要の取得（画面が取る概要）だけを保留する。見張りの確かめの保留（gate）とは別
+let summaryGate: Promise<void> | null = null;
 let hookChecks: number;
 let directChecks: number;
 let uninstall: (() => void) | undefined;
@@ -201,6 +207,7 @@ beforeEach(() => {
   FakeBroadcastChannel.clearSent();
   answer = "lost";
   gate = null;
+  summaryGate = null;
   hookChecks = 0;
   directChecks = 0;
   atEntry = [];
@@ -221,7 +228,8 @@ beforeEach(() => {
   client.setQueryDefaults(SUMMARY, {
     queryFn: async () => {
       hookChecks += 1;
-      if (gate !== null) await gate;
+      if (summaryGate !== null) await summaryGate;
+      else if (gate !== null) await gate;
       if (answer === "notFound")
         throw { status: 404, code: "NOT_FOUND", message: "[UNIT_TEST]339" };
       if (answer === "error500")
@@ -384,15 +392,52 @@ describe("#339 AC-1 確かめの途中の離脱・同じ案件の再表示", () 
   });
 });
 
+/**
+ * 初回の概要を、取得で届ける（キャッシュが無い所からの取得。統括の決定：初回の確定に使ってよいのは、取得して届いた概要の答えだけ）。
+ * 取得を保留して始め、deliver で答えを返す。答えは answer（既定 lost）
+ */
+function startFreshSummary() {
+  const pending = deferred();
+  summaryGate = pending.promise;
+  const done = client
+    .fetchQuery({ queryKey: SUMMARY, staleTime: 0 })
+    .catch((error: unknown) => error);
+  return {
+    async deliver() {
+      summaryGate = null;
+      pending.release();
+      await act(async () => {
+        await done;
+        await flushTasks(3);
+      });
+    },
+  };
+}
+
+/** 初回の概要の答えが届く前：入口・合図・下書きの消去は起きていない */
+async function expectNotConfirmedYet() {
+  await waitFor(() =>
+    expect(client.getQueryState(SUMMARY)?.fetchStatus).toBe("fetching"),
+  );
+  await act(async () => {
+    await flushTasks(3);
+  });
+  expect(entryCalls()).toHaveLength(0);
+  expect(announced()).toEqual([]);
+  expect(draftsPresent()).toBe(DRAFTS.length);
+}
+
 describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2・N-3）", () => {
   it.each([false, true])(
     "#339 AC-2 N-2・N-3: 初回の概要は S-17 のフックが扱う：部屋・スレッドの実績がある初回の非参加（StrictMode=%s）で、片付け → 入口 → 合図 → 下書きの消去が1回ずつ。見張りは概要を直接確かめない",
     async (strict) => {
       uninstall = installCaseAccessLossMonitor(client);
-      client.setQueryData(SUMMARY, summary(false));
       // 実績：その案件の部屋のスレッドの返信を取得した（部屋の ID はここだけから分かる）
       await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      const fresh = startFreshSummary();
       mountS17(INITIAL_OUTSIDER_PROPS, { strict });
+      await expectNotConfirmedYet();
+      await fresh.deliver();
       await waitFor(() => expect(announced()).toHaveLength(1));
       await waitFor(() => expect(draftsPresent()).toBe(0));
       await flushTasks(10);
@@ -420,8 +465,10 @@ describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2
       gate = pending.promise;
       await fail(threadKey(PARENT), 404);
       await waitFor(() => expect(directChecks).toBe(1));
-      client.setQueryData(SUMMARY, summary(false));
+      const fresh = startFreshSummary();
       mountS17(INITIAL_OUTSIDER_PROPS, { strict });
+      await expectNotConfirmedYet();
+      await fresh.deliver();
       await act(async () => {
         gate = null;
         pending.release();
@@ -447,8 +494,10 @@ describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2
       gate = pending.promise;
       await fail(threadKey(PARENT), 404);
       await waitFor(() => expect(directChecks).toBe(1));
-      client.setQueryData(SUMMARY, summary(false));
+      const fresh = startFreshSummary();
       mountS17(INITIAL_OUTSIDER_PROPS, { strict });
+      await expectNotConfirmedYet();
+      await fresh.deliver();
       // 初回の概要で確定し、下書きが消える
       await waitFor(() => expect(draftsPresent()).toBe(0));
       await flushTasks(5);
@@ -475,10 +524,12 @@ describe("#339 AC-2 初回の概要と、見張りの確かめの重なり（N-2
   it.each([false, true])(
     "#339 AC-2: 初回概要と確認結果が重なっても確定の副作用は1回：S-17 を描いてから見張りを登録する順序（StrictMode=%s）でも、初回の非参加の確定は1回",
     async (strict) => {
-      client.setQueryData(SUMMARY, summary(false));
       await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      const fresh = startFreshSummary();
       mountS17(INITIAL_OUTSIDER_PROPS, { strict });
       uninstall = installCaseAccessLossMonitor(client);
+      await expectNotConfirmedYet();
+      await fresh.deliver();
       await waitFor(() => expect(announced()).toHaveLength(1));
       await flushTasks(10);
       expect(announced()).toHaveLength(1);
@@ -608,5 +659,109 @@ describe("#339 AC-3 S-17 の表示中の、スレッド一覧の行の消失（�
     await refetchList([otherRow()]);
     await waitFor(() => expect(announced()).toHaveLength(1));
     expect(verifications()).toBe(2);
+  });
+});
+
+// ---- 統括の決定（初回の確定は、取得して届いた概要の答えだけで行う。計画 3 節の補足） ----
+describe("#339 AC-2 古い非参加の概要のキャッシュだけでは確定しない（取り直しが始まらない・終わらない）", () => {
+  async function arrangeStale() {
+    uninstall = installCaseAccessLossMonitor(client);
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    // 開いた時点でキャッシュにあっただけの、古い非参加（手で書いたもの）
+    client.setQueryData(SUMMARY, summary(false));
+  }
+  async function expectNothingConfirmed() {
+    await act(async () => {
+      await flushTasks(5);
+    });
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(draftsPresent()).toBe(DRAFTS.length);
+  }
+
+  afterEach(() => {
+    onlineManager.setOnline(true);
+  });
+
+  it("#339 AC-2: 古い非参加の概要のキャッシュで開き、概要の取り直しが始まらない：入口0・合図0・下書きは残る", async () => {
+    await arrangeStale();
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    expect(client.getQueryState(SUMMARY)?.fetchStatus).toBe("idle");
+    await expectNothingConfirmed();
+  });
+
+  it("#339 AC-2: 古い非参加の概要のキャッシュで開き、通信が止まっていて取り直しが保留（paused）のまま：入口0・合図0・下書きは残る。通信が戻って非参加が届くと、順に1回ずつ", async () => {
+    await arrangeStale();
+    onlineManager.setOnline(false);
+    const refetching = client
+      .refetchQueries({ queryKey: SUMMARY })
+      .catch((error: unknown) => error);
+    await waitFor(() =>
+      expect(client.getQueryState(SUMMARY)?.fetchStatus).toBe("paused"),
+    );
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    await expectNothingConfirmed();
+    expect(hookChecks).toBe(0);
+    act(() => onlineManager.setOnline(true));
+    await act(async () => {
+      await refetching;
+    });
+    await waitFor(() => expect(announced()).toHaveLength(1));
+    await waitFor(() => expect(draftsPresent()).toBe(0));
+    expect(entryCalls()).toHaveLength(1);
+    expect(atEntry[0]).toEqual({
+      caseThreadCached: false,
+      drafts: DRAFTS.length,
+      announced: 0,
+    });
+  });
+
+  it("#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが参加者なら、何も起きない", async () => {
+    await arrangeStale();
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    answer = "participant";
+    await act(async () => {
+      await client.fetchQuery({ queryKey: SUMMARY, staleTime: 0 });
+    });
+    await expectNothingConfirmed();
+  });
+
+  it.each([
+    ["非参加", "lost"],
+    ["404", "notFound"],
+  ] as const)(
+    "#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが%sなら、入口・合図・下書きの消去が順に1回ずつ",
+    async (_label, verdict) => {
+      await arrangeStale();
+      mountS17(INITIAL_OUTSIDER_PROPS);
+      await expectNothingConfirmed();
+      answer = verdict;
+      await act(async () => {
+        await client
+          .fetchQuery({ queryKey: SUMMARY, staleTime: 0 })
+          .catch((error: unknown) => error);
+      });
+      await waitFor(() => expect(announced()).toHaveLength(1));
+      await waitFor(() => expect(draftsPresent()).toBe(0));
+      expect(entryCalls()).toHaveLength(1);
+      expect(atEntry[0]).toEqual({
+        caseThreadCached: false,
+        drafts: DRAFTS.length,
+        announced: 0,
+      });
+      expect(draftsAtAnnounce).toEqual([DRAFTS.length]);
+    },
+  );
+
+  it("#339 AC-2: 手で書いたデータ（setQueryData で非参加に書き換える）だけでは、確定しない", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    client.setQueryData(SUMMARY, summary(true));
+    const view = mountS17(PARTICIPANT_PROPS);
+    await expectNothingConfirmed();
+    view.unmount();
+    client.setQueryData(SUMMARY, summary(false));
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    await expectNothingConfirmed();
   });
 });
