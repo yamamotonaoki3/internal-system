@@ -12,3 +12,4 @@ export { ThreadReplies } from "./components/ThreadReplies";
 export { formatAttachmentSize } from "./format-size";
 export { formatMessageTime } from "./format-time";
 export { MESSAGE_POLL_INTERVAL_MS } from "./polling";
+export type { ThreadRepliesData } from "./hooks/useThreadReplies";

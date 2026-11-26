@@ -16,7 +16,10 @@ import {
   installDocumentUser,
   installUserSwitchGuard,
 } from "./features/auth";
-import { installCaseAccessLossRelay } from "./features/cases";
+import {
+  installCaseAccessLossMonitor,
+  installCaseAccessLossRelay,
+} from "./features/cases";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
   openDraftStorage,
@@ -75,6 +78,9 @@ try {
 } catch (error) {
   reportError(error);
 }
+// 案件の画面の外での、資格の喪失の見張り（#339。アプリの間ずっと有効なので解除しない）。利用者の切り替えの見張りより後に置く
+// （別の利用者に替わったときは、切り替えの見張りが先にキャッシュを捨て、見張りは捨てられた Query の応答を使わない）
+installCaseAccessLossMonitor(queryClient);
 
 const root = document.getElementById("root");
 if (root === null)

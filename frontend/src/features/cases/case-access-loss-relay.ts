@@ -1,5 +1,6 @@
 // ほかのタブで確定した資格の喪失の合図を受けたタブの処理（#341・利用者の決定 Q1〜Q5）。合図は「確かめのきっかけ」にだけ使う。
-// 合図の利用者とセッションのキャッシュの利用者が同じで、その案件の参加者の概要をキャッシュに持つときだけ、概要をキャッシュの外で1回取り、
+// 合図の利用者とセッションのキャッシュの利用者が同じで、その案件の参加者の概要、または同じ案件の部屋・スレッドの取得の実績（#339。C-210）を
+// キャッシュに持つときだけ、概要をキャッシュの外で1回取り、
 // 非参加・404 なら、入口で画面を隠して読み込み直す（知らせは lost）。片付け・下書きの消去・合図の送り返しはしない：
 // 同じ Cookie を共有するタブでは、答えを返した利用者が画面の利用者と同じとは限らず（#298）、消すと戻らないため。読み込み直しで文書ごと消える。
 // 概要をキャッシュに書かないのは、表示中の画面の判定（useCaseAccessLoss）を、この答えで動かさないため。
@@ -10,9 +11,9 @@ import {
   subscribeCaseAccessLoss,
   type CaseAccessLossHint,
 } from "../access-loss";
-import { authKeys, type SessionInfo } from "../auth";
 import { fetchCaseSummary, type CaseSummary } from "./api/case-api";
 import { caseKeys } from "./api/query-keys";
+import { hasCaseRoomEvidence, sessionUserId } from "./case-access-evidence";
 import { isApiError } from "./describe-error";
 
 type HintedVerdict = "outsider" | "participant" | "unknown";
@@ -26,10 +27,6 @@ async function judgeHintedSummary(caseId: string): Promise<HintedVerdict> {
     if (!isApiError(error)) throw error;
     return error.status === 404 ? "outsider" : "unknown";
   }
-}
-
-function sessionUserId(queryClient: QueryClient): string | undefined {
-  return queryClient.getQueryData<SessionInfo>(authKeys.session)?.user.id;
 }
 
 /** 合図を受けてよい状態か（入口が待機・読み込み直しの最中でなく、セッションの利用者が合図の利用者と同じ） */
@@ -52,7 +49,11 @@ export function installCaseAccessLossRelay(
     const cached = queryClient.getQueryData<CaseSummary>(
       caseKeys.summary(userId, caseId),
     );
-    if (cached?.isParticipant !== true) return;
+    if (
+      cached?.isParticipant !== true &&
+      !hasCaseRoomEvidence(queryClient, userId, caseId)
+    )
+      return;
     if (verifying.has(caseId)) return;
     verifying.add(caseId);
     try {

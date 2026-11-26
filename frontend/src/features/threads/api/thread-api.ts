@@ -28,6 +28,8 @@ const threadItemSchema = z.object({
   room: roomSchema,
   lastReplyAt: z.string(),
   unreadCount: z.number().int().min(0).max(UNREAD_COUNT_LIMIT),
+  /** スレッドの部屋の案件の ID（通常のチャンネル・DM は null）。資格の確かめの対象を決めるだけで、認可には使わない（#339） */
+  caseId: z.string().min(1).nullable(),
 });
 
 const threadPageSchema = z.object({

@@ -25,6 +25,8 @@ export type ThreadRepliesData = {
   roomWritable: boolean;
   /** スレッドの部屋が案件専用チャンネルか（添付の公開範囲の選択を出すかに使う） */
   caseRoom: boolean;
+  /** スレッドの部屋の案件の ID（通常のチャンネル・DM は null）。返信の 403・404 の後の資格の確かめに使う（#339） */
+  caseId: string | null;
 };
 
 export function useThreadReplies(parentMessageId: string) {
@@ -47,6 +49,7 @@ export function useThreadReplies(parentMessageId: string) {
           joined: latest.joined,
           roomWritable: latest.roomWritable,
           caseRoom: latest.caseRoom,
+          caseId: latest.caseId,
         };
       }
       const { messages, lastPage } = await catchUpMessages(
@@ -65,6 +68,7 @@ export function useThreadReplies(parentMessageId: string) {
         roomWritable:
           lastPage === undefined ? current.roomWritable : lastPage.roomWritable,
         caseRoom: lastPage === undefined ? current.caseRoom : lastPage.caseRoom,
+        caseId: lastPage === undefined ? current.caseId : lastPage.caseId,
       };
     },
     ...messagePollingOptions,
