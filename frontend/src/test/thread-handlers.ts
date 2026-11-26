@@ -5,6 +5,7 @@
 //       room は { kind: "channel", id, name } か { kind: "direct", id, partner: { id, displayName, isActive } }。
 //       unreadCount は 0〜100。limit を付けないときの既定は 20。
 //   PUT /api/messages/:parentMessageId/thread-read-position { lastReadMessageId } → 204（そのスレッドの未読を 0 にする）
+// #339 で足した契約（計画 plan-339 の 2 節）：一覧の項目に caseId（案件の部屋なら案件の ID、通常のチャンネル・DM は null）
 // 名前を use〜 にしない（React Hooks の規則の誤検知を避ける）。
 import { http, HttpResponse } from "msw";
 import { message, type TestMessage } from "./message-handlers";
@@ -23,6 +24,8 @@ export type TestThread = {
   room: TestThreadRoom;
   lastReplyAt: string;
   unreadCount: number;
+  /** #339：スレッドの部屋の案件の ID。案件の部屋なら案件の ID、通常のチャンネル・DM は null */
+  caseId: string | null;
 };
 
 export const THREAD_ROOM_ID = "01JTESTROOM00000000000T001";
@@ -35,6 +38,7 @@ export function threadItem(
     room?: TestThreadRoom;
     lastReplyAt?: string;
     unreadCount?: number;
+    caseId?: string | null;
   } = {},
 ): TestThread {
   const room: TestThreadRoom = overrides.room ?? {
@@ -52,6 +56,7 @@ export function threadItem(
     room,
     lastReplyAt: overrides.lastReplyAt ?? "2026-11-13T00:00:00.000Z",
     unreadCount: overrides.unreadCount ?? 0,
+    caseId: overrides.caseId ?? null,
   };
 }
 

@@ -130,6 +130,7 @@ describe("#138 AC-1 cancelQueries は、その投稿の部屋・スレッドの�
     replies: [REPLY],
     replyBlockedReason: null,
     caseRoom: false,
+    caseId: null,
     joined: true,
     roomWritable: true,
   });

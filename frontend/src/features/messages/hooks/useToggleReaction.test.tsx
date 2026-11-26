@@ -197,6 +197,7 @@ describe("#138 AC-2（1-4 AC-6）スレッド", () => {
     replies: [REPLY],
     replyBlockedReason: null,
     caseRoom: false,
+    caseId: null,
     joined: true,
     roomWritable: true,
   });

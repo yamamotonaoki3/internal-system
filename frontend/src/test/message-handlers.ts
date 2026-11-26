@@ -13,6 +13,7 @@
 //   GET  /api/messages/:parentId/replies?after=ID  → { items: IDより後を昇順, nextCursor: null, hasMore, parent, replyBlockedReason, joined, roomWritable }
 //        parent は親の1件（一覧の項目と同じ形。削除済みは body: null）。replyBlockedReason は返信できない理由（できれば null）
 //   POST /api/messages/:parentId/replies { body }  → 201 { id, parentMessageId, createdAt }
+// #339 で足した契約（計画 plan-339 の 2 節）：返信の取得の成功応答（最新・after とも）に caseId（案件の部屋なら案件の ID、通常のチャンネル・DM は null）
 //   PUT  /api/messages/:parentId/thread-read-position { lastReadMessageId } → 204（test/thread-handlers.ts）
 // 名前を use〜 にしない（React Hooks の規則の誤検知を避ける）。
 import { http, HttpResponse } from "msw";
@@ -275,6 +276,8 @@ export function respondReplies(
     roomWritable?: boolean;
     /** #148（148-B-2）スレッドの部屋が案件専用チャンネルか（既定 false） */
     caseRoom?: boolean;
+    /** #339 AC-1：スレッドの部屋の案件の ID。案件の部屋なら案件の ID、通常のチャンネル・DM は null（既定 null） */
+    caseId?: string | null;
   },
   options: { afterPageSize?: number } = {},
 ): ReplyServer {
@@ -307,6 +310,7 @@ export function respondReplies(
         joined: state.joined,
         roomWritable: state.roomWritable,
         caseRoom: initial.caseRoom ?? false,
+        caseId: initial.caseId ?? null,
       };
       if (after === null)
         return HttpResponse.json({

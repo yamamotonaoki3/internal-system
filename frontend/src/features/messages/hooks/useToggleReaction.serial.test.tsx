@@ -52,6 +52,7 @@ function setup() {
     replies: [],
     replyBlockedReason: null,
     caseRoom: false,
+    caseId: null,
     joined: true,
     roomWritable: true,
   };

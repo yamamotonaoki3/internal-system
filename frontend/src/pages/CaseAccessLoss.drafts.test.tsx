@@ -221,6 +221,7 @@ function world(): World {
         parent: parentMessage,
         replyBlockedReason: null,
         caseRoom: true,
+        caseId: caseId(N),
         joined: true,
         roomWritable: true,
       });

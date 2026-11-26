@@ -158,6 +158,7 @@ function respondOtherCase() {
         parent: otherParent,
         replyBlockedReason: null,
         caseRoom: true,
+        caseId: caseId(OTHER_N),
         joined: true,
         roomWritable: true,
       });
@@ -292,6 +293,7 @@ function world(
         parent: parentMessage,
         replyBlockedReason: closed() ? "case_closed" : null,
         caseRoom: true,
+        caseId: caseId(N),
         joined: true,
         roomWritable: !closed(),
       });

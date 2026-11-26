@@ -17,6 +17,8 @@ import {
   respondReplies,
 } from "../../../test/message-handlers";
 import { server } from "../../../test/server";
+import { requestAccessLossReload } from "../../access-loss";
+import { installCaseAccessLossMonitor } from "../../cases";
 import { useThreadReplies } from "./useThreadReplies";
 
 const PARENT = message(1, { replyCount: 2 });
@@ -114,6 +116,7 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
       parent: PARENT,
       replyBlockedReason: null,
       caseRoom: false,
+      caseId: null,
       joined: true,
       roomWritable: true,
     };
@@ -263,3 +266,143 @@ describe("#137 AC-4（1-4 AC-4・C-172 統括(8)）参加・書き込みの状�
     expect(replyIds(result.current.data)).toEqual(ids(1));
   });
 });
+
+// #339 AC-1（計画 plan-339 の 2 節「返信の403・404では、直前に成功した Query データの caseId と parent.roomId を使う」・5 節）：
+// useThreadReplies は、最新の取得・追加の取得とも、応答の caseId を data に保持する。追加の取得が0件でも、案件の ID を消さない。
+// その後の 404（エラー応答に caseId は無い）で、全体の見張り（installCaseAccessLossMonitor）が、保持した caseId の概要を確かめる。
+// 前提にした口（実装の担当へ）：ThreadRepliesData に caseId: string | null。
+//   features/cases（index）の installCaseAccessLossMonitor(queryClient): () => void（解除の関数を返す）。
+//   概要の確かめは GET /api/cases/:caseId（fetchCaseSummary）を直接呼ぶ。入口は test/setup.ts の vi.fn。
+describe("#339 AC-1 返信の caseId の保持と、その後の 404", () => {
+  const CASE_ID = "01JTESTCASE339000000000HR1";
+  const CASE_ROOM = "01JTESTROOM339000000000HR1";
+  const CASE_PARENT = message(1, { roomId: CASE_ROOM, replyCount: 1 });
+  const SESSION = {
+    user: {
+      id: "01JTESTUSER000000000000001",
+      displayName: "testuser_001",
+      loginId: "testuser_001",
+    },
+    mustChangePassword: false,
+    reauthenticatedAt: null,
+    permissions: [],
+  };
+  let uninstall: (() => void) | undefined;
+
+  afterEach(() => {
+    uninstall?.();
+    uninstall = undefined;
+  });
+
+  async function setupWithMonitor(parentId: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["auth", "session"], SESSION);
+    uninstall = installCaseAccessLossMonitor(client);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return renderHook(() => useThreadReplies(parentId), { wrapper });
+  }
+
+  function respondSummary() {
+    const summaryCalls: string[] = [];
+    server.use(
+      http.get("/api/cases/:caseId", ({ params }) => {
+        summaryCalls.push(String(params.caseId));
+        return HttpResponse.json({
+          id: String(params.caseId),
+          caseNumber: "QZA-261125-0339",
+          title: "[UNIT_TEST]339案件",
+          status: "active",
+          client: {
+            id: "01JTESTCLIENT339000000HR1",
+            name: "[UNIT_TEST]339取引先",
+            isActive: true,
+          },
+          departments: [],
+          dueDate: null,
+          isParticipant: false,
+          canManage: false,
+          participantCount: null,
+          canEditDueDate: false,
+          progress: null,
+          lastActivityAt: null,
+          channelId: null,
+        });
+      }),
+    );
+    return summaryCalls;
+  }
+
+  it("#339 AC-1: 追加返信が0件でもcaseIdを保持し、その後の404から確認できる（最新の取得 → 0件の追加の取得 → 404 の順）", async () => {
+    vi.mocked(requestAccessLossReload).mockClear();
+    const summaryCalls = respondSummary();
+    const state = respondReplies({
+      parent: CASE_PARENT,
+      replies: [reply(CASE_PARENT, 1)],
+      caseRoom: true,
+      caseId: CASE_ID,
+    });
+    const { result } = await setupWithMonitor(CASE_PARENT.id);
+    await waitFor(() => expect(result.current.data?.caseId).toBe(CASE_ID));
+    expect(state.requests[0]?.searchParams.has("after")).toBe(false);
+
+    // 追加の取得（after あり）が0件
+    const before = state.requests.length;
+    await advance(2500);
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
+    expect(state.requests.at(-1)?.searchParams.get("after")).toBe(
+      reply(CASE_PARENT, 1).id,
+    );
+    expect(result.current.data?.caseId).toBe(CASE_ID);
+    expect(replyIdsOf(result.current.data)).toEqual([reply(CASE_PARENT, 1).id]);
+    expect(summaryCalls).toEqual([]);
+
+    // 404（エラー応答には caseId が無い）
+    server.use(
+      http.get("/api/messages/:messageId/replies", () =>
+        apiErrorResponse(404, "NOT_FOUND", "[UNIT_TEST]339見つかりません"),
+      ),
+    );
+    await advance(2500);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data?.caseId).toBe(CASE_ID);
+    await waitFor(() => expect(summaryCalls).toEqual([CASE_ID]));
+    await waitFor(() =>
+      expect(vi.mocked(requestAccessLossReload).mock.calls).toHaveLength(1),
+    );
+    expect(vi.mocked(requestAccessLossReload).mock.calls[0]?.[1]).toEqual({
+      ownerId: SESSION.user.id,
+      reason: "lost",
+    });
+  });
+
+  it("#339 AC-1: 通常のチャンネル・DM のスレッド（caseId が null）は、0件の追加の取得の後の 404 でも、概要を確かめない", async () => {
+    vi.mocked(requestAccessLossReload).mockClear();
+    const summaryCalls = respondSummary();
+    const state = respondReplies({ parent: PARENT, replies: [rep(1)] });
+    const { result } = await setupWithMonitor(PARENT.id);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.caseId).toBeNull();
+    const before = state.requests.length;
+    await advance(2500);
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(before));
+    expect(result.current.data?.caseId).toBeNull();
+    server.use(
+      http.get("/api/messages/:messageId/replies", () =>
+        apiErrorResponse(404, "NOT_FOUND"),
+      ),
+    );
+    await advance(2500);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    await advance(4000);
+    expect(summaryCalls).toEqual([]);
+    expect(vi.mocked(requestAccessLossReload)).not.toHaveBeenCalled();
+  });
+});
+
+function replyIdsOf(data: { replies: { id: string }[] } | undefined): string[] {
+  return (data?.replies ?? []).map((m) => m.id);
+}
