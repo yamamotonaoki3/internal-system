@@ -22,6 +22,7 @@ import {
   takeAccessLossNotice,
   writeAccessLossNotice,
 } from ".";
+import { clearAccessLossNotice } from "./access-loss-notice";
 
 const USER_A = "01JTESTUSER338A00000000001";
 const USER_B = "01JTESTUSER338B00000000001";
@@ -312,5 +313,46 @@ describe("#341 T-N1 取り違えで読み込み直した後の知らせ（既知
       client.setQueryData(authKeys.session, sessionOf(USER_C));
     });
     expect(screen.queryByText(LOST_TEXT)).toBeNull();
+  });
+});
+
+/** 知らせの保存先（sessionStorage）のキー（#338。本番の定義から取り込まず、リテラルで書く） */
+const NOTICE_KEY_FOR_CLEAR = "internal-system:access-loss-notice:v1";
+
+// 【ミューテーションの生き残りへの対応】#298 AC-4（Q7・ADR-0035）：利用者の切り替えで読み込み直す前に、保存済みの知らせを読まずに消す（clearAccessLossNotice）。
+// 保存先を使えない（SecurityError）ときは、新しい文書でも読めないので、消せなくてよい（例外を出さない）。それ以外の例外は伝える（#338 AC-5 U-14 と同じ考え方）。
+describe("#298 AC-4（Q7） 保存済みの知らせを消す（保存先を使えない端末）", () => {
+  it("#298 AC-4（Q7）: 保存済みの知らせを、読まずに消す", () => {
+    writeAccessLossNotice("lost");
+    clearAccessLossNotice();
+    expect(window.sessionStorage.getItem(NOTICE_KEY_FOR_CLEAR)).toBeNull();
+    expect(takeAccessLossNotice(newClient())).toBeNull();
+  });
+
+  it("#298 AC-4（Q7）: 保存先の参照が SecurityError なら、消さずに例外を出さない", () => {
+    vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    expect(() => clearAccessLossNotice()).not.toThrow();
+  });
+
+  it("#298 AC-4（Q7）: 消しが SecurityError なら例外を出さない。SecurityError 以外は伝える（もみ消さない）", () => {
+    writeAccessLossNotice("lost");
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new DOMException("denied", "SecurityError");
+      });
+    expect(() => clearAccessLossNotice()).not.toThrow();
+    removeItem.mockImplementation(() => {
+      throw new DOMException("[UNIT_TEST]想定外の失敗", "NotSupportedError");
+    });
+    expect(() => clearAccessLossNotice()).toThrow(DOMException);
+    removeItem.mockImplementation(() => {
+      throw new TypeError("[UNIT_TEST]想定外の失敗");
+    });
+    expect(() => clearAccessLossNotice()).toThrow(TypeError);
+    removeItem.mockRestore();
+    window.sessionStorage.removeItem(NOTICE_KEY_FOR_CLEAR);
   });
 });

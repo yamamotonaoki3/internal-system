@@ -1,5 +1,6 @@
 // API通信の共通部分（C-46）。Axiosのインスタンスはここで1つだけ作り、全体で使う。
 import axios, { type AxiosError } from "axios";
+import { EXPECTED_USER_ID_HEADER } from "../../../shared/session-user-header";
 
 export type ApiError = {
   status: number;
@@ -15,6 +16,30 @@ export function setUnauthenticatedHandler(handler: (error: ApiError) => void) {
   onUnauthenticated = handler;
 }
 
+/** 画面の利用者と、セッションの利用者が食い違ったときに、サーバーが返すエラーのコード（#298・ADR-0035） */
+const SESSION_USER_MISMATCH = "SESSION_USER_MISMATCH";
+
+/** 要求ヘッダーに付ける、想定の利用者を決める関数が受け取る、要求の情報 */
+export type ExpectedUserIdRequest = { method: string; url: string };
+
+let expectedUserIdProvider:
+  ((request: ExpectedUserIdRequest) => string | undefined) | undefined;
+let onSessionUserMismatch: ((error: ApiError) => void) | undefined;
+
+// どの利用者として送るかは認証の機能が決める（ここは機能を知らない）。main.tsx が1回だけ登録する（#298）
+export function setExpectedUserIdProvider(
+  provider: (request: ExpectedUserIdRequest) => string | undefined,
+) {
+  expectedUserIdProvider = provider;
+}
+
+// 409 SESSION_USER_MISMATCH を受けたときの処理（セッションの取り直し）を登録する（#298）
+export function setSessionUserMismatchHandler(
+  handler: (error: ApiError) => void,
+) {
+  onSessionUserMismatch = handler;
+}
+
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api",
   timeout: 10_000,
@@ -24,6 +49,16 @@ export const apiClient = axios.create({
 // 要求：リクエストIDを付ける（C-30）
 apiClient.interceptors.request.use((config) => {
   config.headers.set("X-Request-Id", crypto.randomUUID());
+  return config;
+});
+
+// 要求：想定の利用者を付ける（#298）。サーバーは、セッションの利用者と違えば断る（認可には使わない）
+apiClient.interceptors.request.use((config) => {
+  const userId = expectedUserIdProvider?.({
+    method: config.method ?? "get",
+    url: config.url ?? "",
+  });
+  if (userId !== undefined) config.headers.set(EXPECTED_USER_ID_HEADER, userId);
   return config;
 });
 
@@ -82,6 +117,7 @@ apiClient.interceptors.response.use(
       fields: body.fields,
     };
     if (status === 401) onUnauthenticated?.(apiError);
+    if (isSessionUserMismatchError(apiError)) onSessionUserMismatch?.(apiError);
     return Promise.reject(apiError);
   },
 );
@@ -95,5 +131,17 @@ export function isConflictError(error: unknown): boolean {
     error.status === 409 &&
     "code" in error &&
     error.code === "CONFLICT"
+  );
+}
+
+// 画面の利用者と、セッションの利用者の食い違い（#298）。競合（CONFLICT）とは別のものとして扱う
+export function isSessionUserMismatchError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 409 &&
+    "code" in error &&
+    error.code === SESSION_USER_MISMATCH
   );
 }

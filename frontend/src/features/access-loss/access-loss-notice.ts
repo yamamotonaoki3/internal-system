@@ -67,6 +67,21 @@ function readAndRemove(): AccessLossNoticeKind | null {
   }
 }
 
+/**
+ * 保存済みの知らせを、読まずに消す（利用者の切り替えで読み込み直す前。前の利用者の知らせを、次の利用者に出さないため。#298）。
+ * 保存先が使えない（SecurityError）ときは、新しい文書でも読めないので、消せなくてよい
+ */
+export function clearAccessLossNotice(): void {
+  const storage = openNoticeStorage();
+  if (storage === null) return;
+  try {
+    storage.removeItem(NOTICE_KEY);
+  } catch (error) {
+    if (isDomError(error, ["SecurityError"])) return;
+    throw error;
+  }
+}
+
 type Pending = {
   kind: AccessLossNoticeKind;
   /** この文書で最初に確定した利用者 */

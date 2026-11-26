@@ -7,9 +7,15 @@ import "./lib/zod-config";
 import { App } from "./App";
 import {
   AccessLossBoundary,
+  requestUserSwitchReload,
   takeAccessLossNotice,
 } from "./features/access-loss";
-import { installUserSwitchGuard } from "./features/auth";
+import {
+  createSessionUserMismatchHandler,
+  expectedUserIdFor,
+  installDocumentUser,
+  installUserSwitchGuard,
+} from "./features/auth";
 import { installCaseAccessLossRelay } from "./features/cases";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
@@ -17,7 +23,11 @@ import {
   purgeExpiredDraftsOnStartup,
 } from "./features/drafts";
 import { LeaveGuardProvider } from "./features/leave-guard";
-import { setUnauthenticatedHandler } from "./services/api-client";
+import {
+  setExpectedUserIdProvider,
+  setSessionUserMismatchHandler,
+  setUnauthenticatedHandler,
+} from "./services/api-client";
 import "./styles/index.css";
 
 const queryClient = new QueryClient();
@@ -46,8 +56,16 @@ setUnauthenticatedHandler(
     currentPath: () => window.location.pathname,
   }),
 );
-// 利用者が替わったら、前の利用者のキャッシュを捨てる（アプリの間ずっと有効なので解除しない）
-installUserSwitchGuard(queryClient);
+// 文書の利用者を覚え、要求に付ける（#298）。見張りより前に登録する（見張りが別の利用者と判断する前に、最初の利用者を覚えるため）
+installDocumentUser(queryClient);
+setExpectedUserIdProvider(expectedUserIdFor);
+// 別の利用者に替わったら、ページごと読み込み直す（#298・ADR-0035）。auth は access-loss に依存しないので、ここで入口を渡す
+const onOtherUser = () => requestUserSwitchReload(queryClient);
+setSessionUserMismatchHandler(
+  createSessionUserMismatchHandler({ queryClient, onOtherUser }),
+);
+// 利用者が替わったら、前の利用者のキャッシュを捨てる（読み込み直すまでの二重の守り。アプリの間ずっと有効なので解除しない）
+installUserSwitchGuard(queryClient, onOtherUser);
 // 資格を失って読み込み直した前の文書の知らせを、描画の前に読んで消す（#338）
 takeAccessLossNotice(queryClient);
 // ほかのタブで確定した資格の喪失の合図を受ける（#341。アプリの間ずっと有効なので解除しない）。

@@ -16,16 +16,17 @@
 | ファイル | 役割 |
 | --- | --- |
 | `reload-after-access-loss.ts` | 入口`requestAccessLossReload`と、状態（`idle`／`waiting`／`reloading`）の購読（`getAccessLossReloadState`・`subscribeAccessLossReloadState`）。待機の持ち主・合流・待ち方・取りやめ・読み込み先の決め方を持つ。状態は文書ごとに1つ。【#340】`noteDraftsRemain(ownerId)`：下書きを消せなかったことを、同じ持ち主の待機に印として付ける。入口の引数の理由（`AccessLossReloadRequest.reason`）は`lost`・`left`の2つに絞った（下書きの印を付けた種類は、読み込み直す直前に入口が決める） |
+| `reload-after-access-loss.ts`（【Issue #298。C-209】追加分） | 別の入口`requestUserSwitchReload(queryClient)`と、`isUserSwitchReloadRequested()`。別の利用者に替わったと分かったときの読み込み直し。#338 の状態・覆い・離脱の確認の抑止・5秒の待ち方を使い回し、持ち主・取りやめ・知らせ・読み込み先の決め方は使わない。#338 の待機は、`Waiting`の`handOver`で引き継ぐ。下の「利用者の切り替えでの読み込み直し」 |
 | `browser-location.ts` | `reloadPage`・`replacePage`。`window.location`を触るのは**ここだけ**（テストで差し替える点を1か所にするため） |
-| `access-loss-notice.ts` | 読み込み直した後の知らせ。保存先（`sessionStorage`）の読み書き、出す・捨てる判定、購読。知らせの種類は`lost`・`left`・`lostDraftsRemain`・`leftDraftsRemain`の4つ（#340で後の2つを足した） |
+| `access-loss-notice.ts` | 読み込み直した後の知らせ。保存先（`sessionStorage`）の読み書き、出す・捨てる判定、購読。知らせの種類は`lost`・`left`・`lostDraftsRemain`・`leftDraftsRemain`の4つ（#340で後の2つを足した）。【#298】`clearAccessLossNotice()`：保存済みの知らせを、読まずに消す（利用者の切り替えで読み込み直す前。保存先が使えない`SecurityError`は、消せなくてよい） |
 | `components/AccessLossBoundary.tsx` | 境界。子（ルーター全体）を`hidden`と`inert`の包みで包み、`idle`以外で全画面の覆いを出す |
 | `components/AccessLossNotice.tsx` | 知らせの表示（`Alert`と「閉じる」）。表示の判定は持たない |
 | `access-loss-broadcast.ts` | 【#341。C-208】別のタブへの合図。チャンネルの名前・合図の形（Zod）・送る`announceCaseAccessLoss`・受ける`subscribeCaseAccessLoss`・チャンネルを遅れて作る処理・使えない環境の扱いを持つ。合図を**送るのはここだけ**（`BroadcastChannel`を触るのもここだけ）。保存先には何も書かない |
 | `index.ts` | 公開部分。ほかの機能はここだけを通して使う。【#341】`announceCaseAccessLoss`・`subscribeCaseAccessLoss`・型`CaseAccessLossHint`を足した |
 | `frontend/src/features/cases/case-access-loss-relay.ts` | 【#341】合図を受けたタブの処理`installCaseAccessLossRelay`。`features/cases/`にあり、`features/cases/index.ts`が公開する。入口・合図の受信は`access-loss`の公開部分を通して使う |
-| `frontend/src/features/leave-guard/before-unload-suppression.ts` | 離脱の確認（`beforeunload`）を止めない印（`suppressBeforeUnload`・`restoreBeforeUnload`・`isBeforeUnloadSuppressed`）。`leave-guard/index.ts`から前の2つを公開し、`hooks/useLeaveGuard.ts`の`beforeunload`の処理が印を読む。立てる・外すのは入口だけ |
+| `frontend/src/features/leave-guard/before-unload-suppression.ts` | 離脱の確認（`beforeunload`）を止めない印（`suppressBeforeUnload`・`restoreBeforeUnload`・`isBeforeUnloadSuppressed`）。`leave-guard/index.ts`から公開し（【#298】`isBeforeUnloadSuppressed`も公開した）、`hooks/useLeaveGuard.ts`の`beforeunload`の処理が印を読む。立てる・外すのは入口だけ |
 | `frontend/src/services/api-client.ts` | 進行中の**書き込みの要求**（GET・HEAD・OPTIONS 以外）の数を数える口（`getPendingWriteCount`・`subscribePendingWrites`）。リクエストのインターセプターで、実際の送信（アダプター）を包み、増減は`try`/`finally`で必ず戻す。持つのは**数だけ**（本文・URL・応答を覚えない）。`useMutation`を使わない送信（パスワードの変更・ログイン・再認証・アカウントの作成・初期設定など。`MutationCache`に載らない）も、入口の待つ対象になる。入口だけが使う口で、通常の機能は直接使わない |
-| `frontend/src/main.tsx` | `QueryClientProvider`の中で、`RouterProvider`を`AccessLossBoundary`で包む（`LeaveGuardProvider`は、ルーターの要素として`App`を包んでいるので、境界はその外側になり、離脱の確認も隠れる）。描画の前に`takeAccessLossNotice`を1回呼ぶ。【#341】`takeAccessLossNotice`の後に、`installCaseAccessLossRelay(queryClient)`を1回だけ呼ぶ（解除しない）。登録の想定外の失敗は、`main.tsx`で受け止めて`reportError`に渡し、アプリの描画は止めない |
+| `frontend/src/main.tsx` | `QueryClientProvider`の中で、`RouterProvider`を`AccessLossBoundary`で包む（`LeaveGuardProvider`は、ルーターの要素として`App`を包んでいるので、境界はその外側になり、離脱の確認も隠れる）。描画の前に`takeAccessLossNotice`を1回呼ぶ。【#341】`takeAccessLossNotice`の後に、`installCaseAccessLossRelay(queryClient)`を1回だけ呼ぶ（解除しない）。登録の想定外の失敗は、`main.tsx`で受け止めて`reportError`に渡し、アプリの描画は止めない。【#298】文書の利用者・ヘッダー・409 の処理・見張りに、切り替えの入口`requestUserSwitchReload`を、関数として渡す（`features/auth`は`features/access-loss`を取り込まない。[auth-session.md](auth-session.md)） |
 | `frontend/src/features/app-shell/AppShell.tsx` | `LogoutFailureNotice`の直後に`AccessLossNotice`を置く |
 
 ## 呼ぶ場所と条件
@@ -143,13 +144,40 @@
 - **別のタブの下書きの書き戻し**（#340 の限界）：受けたタブは下書きを消さない。受けたタブが、非参加・404 で入口に進んだ場合だけ、入口が待機に入ると入力欄が隠れ、書き戻しの隙間が縮む。入口に進む処理がなく、入力欄が操作できる状態（確かめが 5xx・通信の失敗・参加者のまま、合図を捨てた、`BroadcastChannel`が使えない）では、書き戻しが続く。残った下書きは、保存から7日・ログアウトで消える（[drafts.md](drafts.md)）
 - **後から確定した場合**：画面を離れた後に、確かめられないまま終わり、作り直した画面で、後から確定した場合は、合図を送らない（参加者だったことを見ていないため。ADR-0033 の「作り直しの経路」と同じ）
 - **`BroadcastChannel`が使えない環境**・別の保存の区画（別のブラウザ・プロファイル・プライベートウィンドウ）：これまでどおり
-- **取り違え（画面の利用者と通信の利用者が食い違うタブ。#376 と同じ条件）で読み込み直した場合**：読み込み直した後の文書が、セッションの確認で別の利用者を受けると、種類だけの知らせ（`lost`。案件の中身は含まない）が、その別の利用者に、1回出る（`access-loss-notice.ts`は、最初に確定した利用者が誰かを問わないため。「閉じる」で消える）。その動きを、`access-loss-notice.test.tsx`で、既知の動きとして固定している
-- **この Issue の範囲の外**：画面の利用者と通信の利用者が食い違うタブでの取り違え（#376。#341 の次に、優先して直す）、書き込みの取り違え（#298）
+- **取り違え（画面の利用者と通信の利用者が食い違うタブ。#376 と同じ条件）で読み込み直した場合**：読み込み直した後の文書が、セッションの確認で別の利用者を受けると、種類だけの知らせ（`lost`。案件の中身は含まない）が、その別の利用者に、1回出る（`access-loss-notice.ts`は、最初に確定した利用者が誰かを問わないため。「閉じる」で消える）。その動きを、`access-loss-notice.test.tsx`で、既知の動きとして固定している。【#298（C-209）：別の利用者に替わったと分かって読み込み直す経路では、切り替えの入口が、読み込み直す前に保存済みの知らせを消すので、出ない。受けたタブの確かめも、想定の利用者のヘッダーを付けて送るので、食い違うタブでは 409 になり、入口を呼ばない。元の記述は残す】
+- **この Issue の範囲の外**：画面の利用者と通信の利用者が食い違うタブでの取り違え（#376。#341 の次に、優先して直す）、書き込みの取り違え（#298）【この2つは、C-209（#298・#376）で扱った。上の「利用者の切り替えでの読み込み直し」。元の記述は残す】
 - bfcache（#342）
+
+## 利用者の切り替えでの読み込み直し（Issue #298・#376。C-209。[ADR-0035](../adr/0035-session-user-mismatch-header.md)）
+
+別の利用者に替わったと分かったら、ページの文書ごと1回だけ読み込み直す。画面は、想定の利用者を要求ヘッダーで伝え、サーバーが食い違いを断る（[auth-session.md](auth-session.md)）。入口は、資格の喪失の入口`requestAccessLossReload`とは**別の入口**で、同じ文書の状態（`idle`・`waiting`・`reloading`）と覆い・離脱の確認の抑止・待ち方を使い回す。持ち主・合流・知らせの種類・退出の読み込み先は使わない（文書の利用者は変わらず、戻っても読み込み直すため。共通化しすぎない）。
+
+### 入口の流れ（`requestUserSwitchReload(queryClient)`）
+
+呼ぶのは、`main.tsx`が渡した関数を通して、文書の間に1回だけ（`document-user.ts`の`reportOtherUser`）。最初に確定した利用者・同じ利用者の再ログインでは呼ばれない。
+
+1. 呼ばれた印（`userSwitchRequested`）が立っていれば何もしない（1回だけ）。立てる
+2. 状態が`reloading`（#338 が読み込み直しを始めた後）なら、保存済みの知らせを消して戻る（新しい文書の最初の利用者に、前の利用者の知らせを出さないため。読み込み直しは足さない）
+3. #338 の待機があれば**引き継ぐ**（`handOver`：購読とタイマーを外し、抑止を外さず、`idle`に戻さず、知らせを書かずに止める。遅れて呼ばれても何もしない）
+4. 抑止を立て、状態を`waiting`にする（覆いが出て、操作が止まり、離脱の確認が出ない）
+5. 受理済みの操作を待つ（`MutationCache`の`pending`と、`api-client.ts`が数える進行中の書き込みの要求。最初から最大5秒。ログアウトの持ち主の上限なしの待ちは使わない）。理由：Cookie が替わる前に送られた書き込みは、サーバーで元の利用者として受理されうるので、その成功の後処理（投稿の後の下書きの消去など）を走らせる。Cookie が替わった後に送られる要求は 409 になるので、待ちは長くならない
+6. 1つ後のタスクの後、もう一度待つものがないか確かめ、保存済みの知らせを消して（`clearAccessLossNotice`）、`reloading`にし、`reloadPage`でいまの場所を読み込み直す。**知らせは出さない**（利用者の決定の Q7）
+
+取りやめはしない。失うもの：保存していない入力（端末に保存した下書きは残る）、5秒を超えた受理済みの操作の後処理、アップロードの後の投稿のように、続きの要求が 409 になった操作（アップロード済みの添付は、どこにも結び付かないまま残る）。
+
+### 入口どうしの交錯
+
+- 切り替えの入口が動き出した後に、#338 の`requestAccessLossReload`が来たら、持ち主に関わらず**何もしない**（抑止を外さず、`idle`に戻さず、読み込み直しを2回にしない）
+- #338 の待機中に切り替えを検知したら、引き継ぐ（上の3）。引き継いだ待機の古い取りやめが遅れて走っても、何もしない
+- `reloading`になった後は、どの要求も何もしない（これまでどおり）
+
+### 資格の確かめとの関係（#376）
+
+案件の資格の確かめ（`features/cases/hooks/useCaseAccessLoss.ts`の`verifyParticipant`）は、概要を取り直した答えが 409 `SESSION_USER_MISMATCH`のとき、別の利用者に替わったことを、資格の喪失と取り違えない。`confirmSessionUserAfterMismatch`の結果が`switched`で、`isUserSwitchReloadRequested()`が真のときだけ、喪失として扱わず、何もしない（片付け・読み込み直しの予約・合図・下書きの消去・表示の切り替えをしない。文書ごと替わるため）。それ以外は`unverified`（中身を隠し、再試行と読み込み直しを促す。下書きは消さない）。詳細は[cases.md](cases.md)。
 
 ## 関連する既存の機能との関係
 
-- 利用者の切り替え（[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)）：`installUserSwitchGuard`は変えない。待機は、別の利用者に替わったら取りやめる。片付け（キャッシュと完了した操作の記録の消去）は読み込み直しの前に済んでいる
+- 利用者の切り替え（[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)）：`installUserSwitchGuard`は、キャッシュを捨てる動きを変えない。待機は、別の利用者に替わったら取りやめる。片付け（キャッシュと完了した操作の記録の消去）は読み込み直しの前に済んでいる。【#298（C-209）：見張りは、別の利用者を見つけたとき、キャッシュを捨てる前に、切り替えの読み込み直しの入口（`onOtherUser`）も呼ぶ。この入口が動き出した後は、#338 の待機を引き継ぎ、#338 の入口は何もしない。元の記述は残す】
 - 401・ログアウト：`useLogout`・未認証の処理（`unauthenticated-handler.ts`）は変えない。セッションが消えるだけでは待機を取りやめない
 - 画面のテストでは、入口を`frontend/src/test/setup.ts`で`vi.fn`に差し替えている（待機の状態・購読・タイマーがテストの間に残らないように）。本物を確かめるテストは`vi.unmock`する
 - 【#341】画面のテストでは、`BroadcastChannel`も`frontend/src/test/setup.ts`で、テスト専用の`frontend/src/test/fake-broadcast-channel.ts`の`FakeBroadcastChannel`に差し替え、jsdom にない`reportError`を補っている（`window`の`error`イベントにする）。送る関数そのものは差し替えず、送った値を、差し替えのチャンネルの記録で数える。本物の`BroadcastChannel`は、閉じないとテストの間で値が混ざりうるため。実ブラウザでの配信は E2E で確かめる
@@ -160,6 +188,9 @@
 | --- | --- | --- |
 | `requestAccessLossReload` | `QueryClient`・`{ ownerId, reason, leftCasePath? }` | `Promise<void>`（読み込み直したか取りやめたときに解決）。呼んだその場では読み込み直さない |
 | `getAccessLossReloadState`・`subscribeAccessLossReloadState` | なし／リスナー | 状態`idle`・`waiting`・`reloading`と、購読の解除関数 |
+| `requestUserSwitchReload`（#298） | `QueryClient` | なし。文書の間に何回呼ばれても1回だけ働く。呼んだその場では読み込み直さない（上の「入口の流れ」） |
+| `isUserSwitchReloadRequested`（#298） | なし | 呼ばれたか（`boolean`。呼ばれた後、この文書の間ずっと真） |
+| `clearAccessLossNotice`（#298） | なし | なし。保存済みの知らせを、読まずに消す |
 | `noteDraftsRemain`（#340） | 持ち主の利用者ID | なし。同じ持ち主の待機があれば、下書きの印を付ける。それ以外は何もしない |
 | `announceCaseAccessLoss`（#341） | `{ userId, caseId }` | なし。投げない（想定外の例外は`reportError`）。使えない環境では何もしない |
 | `subscribeCaseAccessLoss`（#341） | リスナー（検証を通った`{ userId, caseId }`を受ける） | 解除の関数。使えない環境では何もしない関数 |
@@ -178,6 +209,7 @@
 - 進行中の書き込みの数：`frontend/src/services/api-client.pending-writes.test.ts`（書き込みのメソッドだけ数える・読み取りは数えない・失敗・取り消しでも必ず減る）
 - 画面：`frontend/src/pages/CaseAccessLossReload.test.tsx`（P-10d を含む。きっかけごとに、片付けの後に入口が呼ばれる・呼ばれない。退出の理由と場所・持ち主）、`CaseAccessLossReload.directWrite.test.tsx`（`MutationCache`に載らない直接の送信を保留している間は読み込み直さない）、`CaseAccessLossReload.waiting.test.tsx`（実際の入力欄で投稿を保留したまま外される・保存先の知らせの表示）、`CaseAccessLossReload.drafts.test.tsx`（#340。保留を403で失敗させても、読み込み直す時点で下書きが無い。消せなかったとき、読み込み直す時点の知らせの種類が`lostDraftsRemain`になる）
 - E2E：`e2e/case-access-loss-reload.spec.ts`（実際の読み込み直し・最上位の層が隠れる・Tab・Esc・「戻る」・`beforeunload`。[e2e.md](../testing/e2e.md)）
+- 【#298。C-209】利用者の切り替えでの読み込み直し：入口の単体は`frontend/src/features/access-loss/reload-after-access-loss.user-switch.test.ts`（1回だけ・#338 の待機の引き継ぎ・入口どうしの交錯・5秒の上限・1つ後のタスク・知らせの消去・`reloading`の後）。見張りが入口を呼ぶ条件は`frontend/src/features/auth/user-switch-guard.reload.test.ts`。覆いと`beforeunload`・読み込み直しの流れ・アップロードの保留中の切り替えは、`frontend/src/user-switch.reload-overlay.test.tsx`・`user-switch.reload-flows.test.tsx`・`user-switch.upload-mismatch.test.tsx`（App 全体）。案件の画面の資格の確かめは`frontend/src/pages/CaseAccessLoss.userMismatch.test.tsx`・`frontend/src/features/cases/hooks/useCaseAccessLoss.switch.test.tsx`。受けたタブの確かめが 409 のとき入口を呼ばないことは`frontend/src/features/cases/case-access-loss-relay.test.ts`の末尾。既存の`CaseAccessLoss.userSwitch.test.tsx`には、読み込み直しが1回求められることを足した（期待は変えていない）。E2E：`e2e/session-user-mismatch.spec.ts`（[e2e.md](../testing/e2e.md)）
 - 【#341。C-208】別のタブへの伝え方
   - 合図の単体：`frontend/src/features/access-loss/access-loss-broadcast.test.ts`（送る値のキーが`v`・`userId`・`caseId`だけ・保存先に書かない・遅れて作る・形の違う値と知らない版とほかの名前を捨てる・使えない環境〔機能なし・`SecurityError`〕・想定外の例外〔送る側は`reportError`、受ける側は投げる〕）
   - 受けたタブの単体：`frontend/src/features/cases/case-access-loss-relay.test.ts`（利用者が違う・セッションなし・参加者の概要がない・非参加の概要では通信しない／参加者のまま・500・403・通信の失敗では入口を呼ばない・概要のキャッシュを書き換えない・中身と下書きを消さない／非参加・404 で入口を`{ ownerId, reason: "lost" }`で1回呼ぶ／確かめの間の切り替え・ログアウト・入口の状態変化／重なり・解除／応答の検証の失敗は`reportError`）
@@ -191,7 +223,8 @@
 
 - Issue #338（親 #323）。依存：#363（(b) の判定）。後続：#339（S-17 の外での検出）・#340（下書き。済み）・#341（別のタブ。済み。ただし限界あり）・#342（bfcache）
 - Issue #340（親 #323）：消せなかった下書きの知らせ。画面の側のログの仕組みは#372
-- Issue #341（親 #323）：別のタブへの合図。関連：#298（別のタブでの利用者の切り替え。未決定）・#376（画面の利用者と通信の利用者が食い違うタブでの取り違え。#341 の次に優先して直す）
-- 決定：C-206・C-207・C-208（[decision-register.md](../requirements/decision-register.md)）、C-190
-- [ADR-0033](../adr/0033-reload-page-after-access-loss.md)、[ADR-0034](../adr/0034-cross-tab-access-loss-hint.md)、[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)
+- Issue #341（親 #323）：別のタブへの合図。関連：#298（別のタブでの利用者の切り替え。C-209・ADR-0035 で実装済み）・#376（画面の利用者と通信の利用者が食い違うタブでの取り違え。#298 とまとめて直した）
+- Issue #298（#376 を含む）：利用者の切り替えでの読み込み直し。後追い：#380・#382・#383
+- 決定：C-206・C-207・C-208・C-209（[decision-register.md](../requirements/decision-register.md)）、C-190
+- [ADR-0033](../adr/0033-reload-page-after-access-loss.md)、[ADR-0034](../adr/0034-cross-tab-access-loss-hint.md)、[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)、[ADR-0035](../adr/0035-session-user-mismatch-header.md)
 - 設計書：[cases.md](cases.md)・[app-shell.md](app-shell.md)・[drafts.md](drafts.md)・[auth-session.md](auth-session.md)

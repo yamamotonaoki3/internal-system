@@ -7,3 +7,13 @@ export { useSession } from "./hooks/useSession";
 export { useReauth } from "./hooks/useReauth";
 export { useSignedInUserId } from "./hooks/useSignedInUserId";
 export { installUserSwitchGuard, publishSession } from "./user-switch-guard";
+export {
+  expectedUserIdFor,
+  getDocumentUserId,
+  installDocumentUser,
+} from "./document-user";
+export {
+  confirmSessionUserAfterMismatch,
+  createSessionUserMismatchHandler,
+  type SessionUserOutcome,
+} from "./session-user-mismatch-handler";

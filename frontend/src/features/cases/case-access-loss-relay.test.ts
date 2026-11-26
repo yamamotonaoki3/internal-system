@@ -488,3 +488,31 @@ describe("#341 Q5 T-R7 想定外の例外", () => {
     expect(summary.calls).toBe(2);
   });
 });
+
+describe("#298 AC-7（#376） 合図を受けたタブの確かめが 409 SESSION_USER_MISMATCH", () => {
+  it("#298 AC-7: 概要の直接の取得が 409 SESSION_USER_MISMATCH（画面の利用者と通信の利用者の食い違い）：入口を呼ばず、概要のキャッシュ・中身・下書きは残り、合図を送り返さない", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/cases/:caseId", () => {
+        calls += 1;
+        return HttpResponse.json(
+          { code: "SESSION_USER_MISMATCH", message: "[UNIT_TEST]298食い違い" },
+          { status: 409 },
+        );
+      }),
+    );
+    primeParticipantTab();
+    writeDrafts();
+    postFromOtherTab(CHANNEL, hint());
+    await vi.waitFor(() => expect(calls).toBe(1));
+    await flushTasks(10);
+    expect(entryCalls()).toHaveLength(0);
+    expect(client.getQueryData(summaryKey(USER_A))).toEqual(caseSummary(N));
+    expect(client.getQueryData(detailKey(USER_A))).toBeDefined();
+    expect(client.getQueryData(todosKey(USER_A))).toBeDefined();
+    expect(window.localStorage.getItem(ROOM_DRAFT())).not.toBeNull();
+    expect(window.localStorage.getItem(THREAD_DRAFT())).not.toBeNull();
+    expect(relaySent()).toEqual([]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+});

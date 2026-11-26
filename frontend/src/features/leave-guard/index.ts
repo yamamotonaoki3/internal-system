@@ -3,6 +3,7 @@ export { LeaveGuardProvider } from "./LeaveGuardProvider";
 export { useLeaveConfirmation } from "./hooks/useLeaveConfirmation";
 export { useLeaveGuard } from "./hooks/useLeaveGuard";
 export {
+  isBeforeUnloadSuppressed,
   restoreBeforeUnload,
   suppressBeforeUnload,
 } from "./before-unload-suppression";

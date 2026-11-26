@@ -35,7 +35,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない）。後者は`credential.repository.ts`がパスワード変更batchで実行する |
 | `backend/src/db/audit-log.repository.ts` | 既存の`auditLogInsert`に加えて、`auditLogInsertForSession`（セッションがあるときだけ書く条件付きの監査。ログインの成功・ログアウトで使う） |
 | `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ。`loadSession`は、`X-Expected-User-Id`を読んで`resolveSession`に渡し、食い違いなら`no-store`を付けて409`SESSION_USER_MISMATCH`を投げる（Issue #298） |
-| `shared/session-user-header.ts` | 画面が想定する利用者を伝える要求ヘッダーの名前`EXPECTED_USER_ID_HEADER`（`X-Expected-User-Id`）の定義元。バックエンドが参照する（画面の側は、後の PR で参照する）（Issue #298） |
+| `shared/session-user-header.ts` | 画面が想定する利用者を伝える要求ヘッダーの名前`EXPECTED_USER_ID_HEADER`（`X-Expected-User-Id`）の定義元。バックエンドと画面（`frontend/src/services/api-client.ts`）が、同じ名前を参照する（Issue #298） |
 | `backend/src/lib/session-policy.ts` | Cookie名`SESSION_COOKIE`（`__Host-session`）、無操作30分・ログインから24時間・最終操作の更新間隔1分の定数、`isSessionExpired` |
 | `backend/src/lib/session-token.ts` | `generateSessionToken`（32バイトの乱数のbase64url）・`hashSessionToken`（SHA-256の16進。DBの`sessions.id`） |
 | `backend/src/lib/throttle-policy.ts` | 試行制限の値（`SOURCE_WINDOW_MS`・`SOURCE_LIMIT`・`SOURCE_LOCK_MS`・`ACCOUNT_RESET_MS`）、`accountDelayMs`・`retryAfterSeconds` |
@@ -58,7 +58,11 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `frontend/src/pages/HomePage.tsx` | ログイン後のホーム（`h1`「ホーム」と`WelcomeMessage`）。枠（`main`）と、ログイン済みの確認は、`App.tsx`のレイアウトルート（`RequireAuth`→`AppShell`）が持つ（#121。[app-shell.md](app-shell.md)） |
 | `frontend/src/features/auth/components/LoginForm.tsx` | 入力フォームと送信。401（`INVALID_CREDENTIALS`）・429・422・通信エラー・その他で文言を分ける。どちらが違うかは示さない |
 | `frontend/src/features/auth/components/RequireAuth.tsx` | `AppShell`を包む外側のガード。ログイン済みのときだけ中身を出す。`UNAUTHENTICATED`なら`/login`へ。確認中・確認できない・`mustChangePassword`は枠なしで`PageLayout`に包み、後者は`PasswordChangePending`からS-03のフォームを出す。成功の後の出力（初回のパスワード変更の分岐と子）は、同期で読んだ利用者のID（`useSignedInUserId`）をkeyにして作り直し、そのIDがセッションの内容と一致しない間は中身を出さず「確認中です」だけを出す（Issue #284。下の「利用者の切り替え」） |
-| `frontend/src/features/auth/user-switch-guard.ts` | 利用者の切り替えの見張り`installUserSwitchGuard`（`main.tsx`で1回だけ登録。解除の関数を返す）と、セッションの公開`publishSession`（古いセッションの取得を取り消してから書く。`useLogin`が使う）。`features/auth/index.ts`から公開する（Issue #284） |
+| `frontend/src/features/auth/user-switch-guard.ts` | 利用者の切り替えの見張り`installUserSwitchGuard`（`main.tsx`で1回だけ登録。解除の関数を返す）と、セッションの公開`publishSession`（古いセッションの取得を取り消してから書く。`useLogin`が使う）。`features/auth/index.ts`から公開する（Issue #284）。【Issue #298】`installUserSwitchGuard`は、第2引数`onOtherUser`（別の利用者に替わったときに呼ぶ関数。`main.tsx`が切り替えの読み込み直しの入口を渡す）を受け取り、別の利用者を見つけたとき、キャッシュを捨てる前に`reportOtherUser`を通して呼ぶ |
+| `frontend/src/services/api-client.ts` | 【Issue #298】要求のインターセプターで、`setExpectedUserIdProvider`に登録された関数が返す利用者の ID を、`X-Expected-User-Id`（名前は`shared/session-user-header.ts`）に付ける（`api-client`は機能を知らない）。応答のインターセプターで、409 `SESSION_USER_MISMATCH`を、`setSessionUserMismatchHandler`に登録された処理へ渡し、エラーはそのまま呼び出し元へ返す（もみ消さない）。判定の関数`isSessionUserMismatchError`を公開する（競合の`isConflictError`とは、コードで区別する） |
+| `frontend/src/features/auth/document-user.ts` | 【Issue #298。ADR-0035】文書（ページ）の利用者。`installDocumentUser`（`main.tsx`が、見張りより前に1回呼ぶ。解除の関数は覚えた利用者を忘れる）、`getDocumentUserId`、要求に付ける想定の利用者を決める`expectedUserIdFor`（GET `/auth/session`・POST `/auth/login`には付けない）、別の利用者に替わったと分かったときに入口を呼ぶ`reportOtherUser`（文書の間に1回だけ）。最初に確定した利用者を、401・ログアウト・切り替えでも変えない |
+| `frontend/src/features/auth/session-user-mismatch-handler.ts` | 【Issue #298】409 `SESSION_USER_MISMATCH`を受けたときの処理。`createSessionUserMismatchHandler`（`main.tsx`が`setSessionUserMismatchHandler`に渡す）・`confirmSessionUserAfterMismatch`（進行中の取り直しに合流する。資格の確かめ（`useCaseAccessLoss.ts`）も使う）。結果は`switched`・`same`・`unauthenticated`・`unknown`（型`SessionUserOutcome`）。`same`が続けて3回目で`unknown`、30 秒で数え直す。`features/access-loss`は取り込まず、入口は関数で渡される |
+| `frontend/src/lib/refetch-answer.ts` | 【Issue #298】取り直しの答えの見分け`refetchAnswerOf`。取り直しの間にその Query に届いた更新の種類（取得の成功・失敗・手での書き換え）から、`data`・`error`・`none`を返す。手での書き換えと取り消しの重なりを答えと見誤らない。`auth`と`cases`が共通で使う |
 | `frontend/src/features/auth/components/LogoutButton.tsx`・`PasswordChangePending.tsx`・`WelcomeMessage.tsx` | ログアウトのボタン（共通レイアウトではアバターメニュー内に置く）、初回変更フォームと成功後ホームへの移動、ようこそ表示と案内文 |【Issue #239：`LogoutButton`は、入力中の変更があるとき、ログアウトのAPIの前に確認を出す。失敗の案内は`LogoutFailureNotice`（共通レイアウト）、ログイン画面の案内は`DraftCleanupNotice`。詳細は[drafts.md](drafts.md)。元の記述は残す】
 | `frontend/src/features/auth/hooks/useSession.ts`・`useLogin.ts`・`useLogout.ts` | セッションの取得、ログイン、ログアウト（成功したら`queryClient.clear()`して`/login`へ） |【Issue #239：`useLogout`に`mutationKey`（`authKeys.logout`）を付け、成功時にその利用者の端末の下書きを消す。`useSignedInUserId`（キャッシュの`user.id`を購読して返す）を足した。元の記述は残す】
 | `frontend/src/features/auth/api/auth-api.ts`・`query-keys.ts` | `SessionInfo`型と`fetchSession`・`login`・`logout`・`changePassword`・`reauthenticate`。共通の`apiClient`を使い、ログイン時の`reauthenticatedAt`は`null` |
@@ -144,26 +148,46 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 ### 範囲外
 
 - 操作の途中で別の人に替わった場合の、前の利用者の操作の応答の書き戻し・途中から始まる通信・ログアウトの後処理：Issue #300
-- 同じブラウザの別のタブで別の人がログインした場合：Issue #298。**サーバーの側（食い違う要求を409で断る）は実装済み**（下の「画面の利用者とセッションの利用者の食い違い」）。**画面の側（ヘッダーを付ける・読み込み直す）は後の PR で実装する**ため、この節の範囲は、画面の側が入るまで変わらない
+- 同じブラウザの別のタブで別の人がログインした場合：Issue #298。**実装済み**（下の「画面の利用者とセッションの利用者の食い違い」。サーバーが食い違う要求を409で断り、画面が想定の利用者を付けて、別の利用者に替わったらページごと読み込み直す）。【Issue #298（C-209・ADR-0035）による置き換え：この節の「処理の流れ」のうち、別の利用者に替わったときの扱いは、その場の作り直しから、読み込み直しに変わった。見張りのキャッシュの破棄と`RequireAuth`の作り直しは、読み込み直すまでの二重の守りとして残る。元の記述は残す】
 - 401の共通処理（`unauthenticated-handler.ts`）、`useLogout`、`usePostMessage`は変えていない
 
-## 画面の利用者とセッションの利用者の食い違い（Issue #298。サーバーの側）
+## 画面の利用者とセッションの利用者の食い違い（Issue #298）
 
-Cookie はブラウザ全体で1つのため、別のタブで別の利用者がログインすると、古い画面の通信が別の利用者として扱われる。画面が想定する利用者を要求ヘッダー`X-Expected-User-Id`で伝え、サーバーが食い違いを断る。判断は[ADR-0035](../adr/0035-session-user-mismatch-header.md)、決定記録はC-209。**この節は、サーバーの側だけを書く。画面はまだヘッダーを付けないので、画面の動きは変わらない（画面の側は後の PR）**。
+Cookie はブラウザ全体で1つのため、別のタブで別の利用者がログインすると、古い画面の通信が別の利用者として扱われる。画面が想定する利用者を要求ヘッダー`X-Expected-User-Id`で伝え、サーバーが食い違いを断る。判断は[ADR-0035](../adr/0035-session-user-mismatch-header.md)、決定記録はC-209。**サーバーの側（PR-1）と画面の側（PR-2b）の両方を、この節に書く**。
 
-### 処理の流れ
+### サーバーの側：処理の流れ
 
 1. `loadSession`が、Cookieのトークンから`resolveSession`を呼ぶとき、ヘッダー`X-Expected-User-Id`の値（名前は`shared/session-user-header.ts`の`EXPECTED_USER_ID_HEADER`）を渡す。Cookieが無いときは、ヘッダーを見ない（これまでどおり、未ログインとして次へ進む）
 2. `resolveSession`は、セッションを読み、失効・期限切れ・無効化された利用者なら、これまでどおり`null`を返す。**その後**に、ヘッダーの値が渡されていて、セッションの利用者の ID と文字列として完全に一致しなければ、**最終操作の時刻の更新（`touchSession`）より前に**、`SessionUserMismatch`（`{ mismatch: true }`）を返す。一致する・ヘッダーが無いときは、これまでどおり利用者の情報（`SessionPrincipal`）を返す。空の値・形の崩れた値は、一致しないので食い違いになる（500にしない）
 3. `loadSession`は、`SessionUserMismatch`を受けたら、`Cache-Control: no-store`を付けて、`AppError`の`SESSION_USER_MISMATCH`（409）を投げる。Cookieを消さず、セッションを失効させない（別の利用者のセッションは有効なまま）。ログアウトの経路でも、ルートの前に断る（ログアウトの失効・Cookieの削除は行われない）
 4. 公開の許可リストの経路にも同じに働く（`loadSession`は`/api/*`の全経路で動くため）。`requireAuth`・初回パスワードのゲート・認可・業務・監査・DBの書き込みは、断られた要求では動かない
 
-### 決まり
+### サーバーの側：決まり
 
 - ヘッダーは、**断る向きにだけ**使う。認可・利用者の特定には使わない（利用者はCookieのセッションだけで決まる）。値はログにも応答にも出さない
 - ヘッダーが無い要求は通す。セッションが無い・使えないときは、ヘッダーがあっても、これまでの結果（401など）のまま
 - 食い違いの応答は、ほかの409（`CONFLICT`）と、エラーコードで区別する。形は全体で統一したエラー応答（`code`・`message`）。API仕様書は、全操作に409の共通の応答`SessionUserMismatch`を足してある
 - 残る隙間：添付の配信（ヘッダーを付けられない）・古い版の画面・利用者が決まる前の通信（[ADR-0035](../adr/0035-session-user-mismatch-header.md)）
+
+### 画面の側：処理の流れ（PR-2b。コードは書き写さず、ファイル名・関数名で指す）
+
+1. **文書の利用者を覚える**：`main.tsx`が、見張り（`installUserSwitchGuard`）より前に、`installDocumentUser(queryClient)`を呼ぶ。セッションのキャッシュに最初に入った利用者を、その文書（ページ）の利用者として覚え、読み込み直すまで変えない（401・ログアウトでキャッシュが消えても、別の利用者に替わっても）。見張りより前に登録するのは、見張りが別の利用者と判断する前に、最初の利用者を覚えるため
+2. **要求にヘッダーを付ける**：`main.tsx`が`setExpectedUserIdProvider(expectedUserIdFor)`を登録する。`api-client.ts`の要求のインターセプターが、要求ごとに`expectedUserIdFor`を呼ぶ。`expectedUserIdFor`は、GET `/auth/session`とPOST `/auth/login`には何も付けず（いまの利用者を知るため・利用者を替えるための要求のため）、ほかの要求には文書の利用者を返す（文書の利用者がまだ無いときは付けない）
+3. **別の利用者に替わったと分かったら読み込み直す**：見つける道は2つある。(a) セッションのキャッシュの利用者が、前に分かっていた利用者と別の値になったとき（`installUserSwitchGuard`。キャッシュを捨てる前に`onOtherUser`を呼ぶ）。(b) 409 の後のセッションの取り直しで、文書の利用者と別の利用者が返ったとき（`session-user-mismatch-handler.ts`の`switched`）。どちらも`reportOtherUser`を通るので、文書の間に1回だけ`onOtherUser`が呼ばれる。`main.tsx`は、`onOtherUser`に`requestUserSwitchReload(queryClient)`（`features/access-loss/reload-after-access-loss.ts`）を渡す。最初のログイン（文書の利用者がまだ無い）と、同じ利用者の再ログインでは呼ばれない。`features/auth`は`features/access-loss`を取り込まず、入口は`main.tsx`が関数として渡す（`npm run deps:check`）
+4. **入口（`requestUserSwitchReload`）の動き**：詳細は[access-loss.md](access-loss.md)の「利用者の切り替えでの読み込み直し」。#338 の覆い・離脱の確認の抑止・受理済みの操作を最大5秒待つ仕組みを使い、知らせは出さず、保存済みの喪失の知らせを消して、ページごと読み込み直す
+5. **409 を受けたとき**：`api-client.ts`の応答のインターセプターが、`isSessionUserMismatchError`（409 かつコードが`SESSION_USER_MISMATCH`）なら、登録された処理（`createSessionUserMismatchHandler`が返す関数）を呼び、エラーはそのまま呼び出し元へ返す。処理は、`confirmSessionUserAfterMismatch`で、セッションを1回取り直す：進行中の取得は取り消してから新しく取る（データが無いとき、TanStack Query は新しい取り直しを既存の取得に合流させるため）。同時の 409 は、進行中の1つに合流する。取り直しの答えは、`lib/refetch-answer.ts`の`refetchAnswerOf`で見分け、結果を4つに分ける
+   - `switched`：別の利用者が返った。3 の (b) として入口を呼ぶ
+   - `same`：文書の利用者が返った。**続けて3回目で`unknown`にし**、セッションのクエリをエラー状態（`RequireAuth`が「ログイン状態を確認できませんでした」と再試行を出す）にする。数える単位は完了した取り直し。`same`以外の結果・`unknown`を返したとき・最後の`same`から30秒、409 が無かったとき、数を戻す
+   - `unauthenticated`：401。`api-client.ts`の既存の401の処理が動く
+   - `unknown`：5xx・通信の失敗・取り消し・手での書き換えと重なって答えが分からないとき。中身を隠す（`RequireAuth`の既存の表示）。取り消しを理由に、セッションの状態を失敗にはしない
+6. **資格の確かめとの関係（#376）**：案件の画面の資格の確かめ（`features/cases/hooks/useCaseAccessLoss.ts`の`verifyParticipant`）は、答えが 409 `SESSION_USER_MISMATCH`のとき、`confirmSessionUserAfterMismatch`の結果を待つ（[cases.md](cases.md)の「資格を失ったときの画面の切り替え（#308）」）。**別の利用者が確かで、切り替えの入口が動いているときだけ**喪失として扱わない（`switched`）。それ以外は確かめられない（`unverified`）として、中身を隠す。キャッシュの不在を、喪失の証拠にしない
+
+### 画面の側：決まり
+
+- ヘッダーの値は、画面の側の状態（キャッシュ・ログイン状態）が変わっても変えない。古い画面の続きの要求が、始めた利用者のまま送られ、サーバーが食い違いとして断るため。別の利用者に替わったら、読み込み直しで文書ごと替わる
+- 画面の既存の 409 の分岐（競合の表示）は、ステータスではなく、コード`CONFLICT`で判定する（`isConflictError`。PR-2a）。食い違いの 409 は、競合の表示にならない
+- 取り直しの答えが得られないとき（オフライン・手での書き換えとの重なりなど）の資格の確かめは、`unverified`（中身を隠し、読み込み直しを促す）になる。以前は、キャッシュに残っていた値で判定していた
+- 守れない範囲：添付の配信・古い版の画面・文書の利用者が決まる前の通信（ADR-0035）。後追い：#380（不安定なテスト）・#382（取り直しが未ログインだったときの、内部の結果の名前）・#383（別のタブのログインの直後に、古いタブの 401 が、新しい Cookie を消すことがある。以前からの動き）
 
 ## 既定拒否とゲート
 
@@ -282,6 +306,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 | API仕様との一致 | `backend/src/openapi.test.ts` |
 | 画面 | `frontend/src/pages/LoginPage.test.tsx`・`HomePage.test.tsx`、`frontend/src/features/auth/`配下の`*.test.ts(x)`、`frontend/src/components/SecretField.test.tsx` |
 | Issue #123の画面・再認証 | `frontend/src/pages/PasswordChangePage.test.tsx`、`frontend/src/features/auth/schemas/password-change-form.test.ts`・`hooks/useReauth.test.tsx`・`components/`配下の関連テスト |
+| 画面の利用者とセッションの利用者の食い違い・画面の側（Issue #298・#376。PR-2b） | 単体：`frontend/src/features/auth/document-user.test.ts`（文書の利用者・付ける要求と付けない要求）、`session-user-mismatch-handler.test.ts`（結果の4つ・合流・取り消し・手での書き換えとの重なり・`same`の数え方と30秒）、`user-switch-guard.reload.test.ts`（見張りが入口を呼ぶ条件）、`frontend/src/services/api-client.session-user.test.ts`（ヘッダーを付ける・付けない・409 の処理への受け渡し）、`frontend/src/features/access-loss/reload-after-access-loss.user-switch.test.ts`（切り替えの入口。待機の引き継ぎ・交錯・5秒・知らせの消去）。画面：`frontend/src/pages/CaseAccessLoss.userMismatch.test.tsx`、`frontend/src/features/cases/hooks/useCaseAccessLoss.switch.test.tsx`（資格の確かめ）、`frontend/src/user-switch.reload-flows.test.tsx`・`user-switch.reload-overlay.test.tsx`・`user-switch.upload-mismatch.test.tsx`（App 全体：読み込み直しの流れ・覆いと`beforeunload`・アップロードの保留中の切り替え）。枠・世界：`frontend/src/test/user-switch-harness.tsx`（`main.tsx`と同じつなぎ方）、`frontend/src/test/session-mismatch-world.ts`（食い違いを再現する擬似のサーバー）。E2E：`e2e/session-user-mismatch.spec.ts`（[e2e.md](../testing/e2e.md)） |
 | Issue #284の利用者の切り替え | 単体：`frontend/src/features/auth/user-switch-guard.test.ts`（QueryClientだけ）。画面：`frontend/src/user-switch.session-switch.test.tsx`（App全体）。枠：`frontend/src/test/user-switch-harness.tsx`（`main.tsx`と同じ組み立てのデータルーター・離れる前の確認・401の処理・見張りの登録）、`frontend/src/test/render-watch.tsx`（Profilerで描画の確定ごとに、前の利用者の識別の文字列が本文・入力欄の値・`aria-label`にないことを記録する見張り。検出力は`user-switch.session-switch.test.tsx`の見張りの確かめ（誤った見本の部品で記録が1件以上になること）で確かめる）。E2Eは足していない |
 | E2E | `e2e/login.spec.ts`、`e2e/sample-users.spec.ts`（架空データ`e2euser_`・`@example.com`） |
 | テスト用の部品 | `backend/test/auth-fixtures.ts`、`frontend/src/test/auth-handlers.ts` |
@@ -300,7 +325,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 - Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
 - ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）
 - Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）
-- Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側は実装済み、画面の側は後の PR）
+- Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側と画面の側の両方が実装済み）。#376（資格の確かめの取り違え。#298 とまとめて直した）。後追い：#380・#382・#383
 - 決定記録：C-187、C-209、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`
 - 関連する設計書：[roles-and-setup.md](roles-and-setup.md)（`/api/setup`、`password.ts`の元の部分）

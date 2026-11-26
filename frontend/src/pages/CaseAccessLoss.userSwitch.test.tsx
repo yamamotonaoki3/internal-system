@@ -1,9 +1,12 @@
 // #308 AC-1（利用者の切り替え。#284 の枠）：S-17 で、A が外されて非公開の表示に切り替わった後、同じ端末で B に替わっても、
 // A の検出の状態（重ねない印・確かめられない状態）と A の内容を持ち越さない。B は参加者のままなので説明が出て、B が外されたときは B の画面も切り替わる。
 // 偽の時計で2秒の自動の更新を進める。API は MSW。データはすべて架空（testuser_308_・[UNIT_TEST]）。
+// 【#298（C-209・ADR-0035）の追記】A → B の替わりで、切り替えの読み込み直しが1回求められることを足した（計画 plan-298 の 8-2・既定の方針2）。
+// 入口は test/setup.ts で vi.fn に差し替えてあり、実際には読み込み直さないので、後半の B の画面の確かめは、読み込み直すまでの二重の守りとして残す。
 import { act, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestUserSwitchReload } from "../features/access-loss/reload-after-access-loss";
 import { authKeys } from "../features/auth";
 import { installDomStubs, type DomStubs } from "../test/app-shell-harness";
 import {
@@ -121,6 +124,7 @@ describe("#308 AC-1 #284 S-17 を開いたまま利用者が替わる", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     stubs = installDomStubs();
+    vi.mocked(requestUserSwitchReload).mockClear();
   });
   afterEach(() => {
     disposeUserSwitchApps();
@@ -148,6 +152,8 @@ describe("#308 AC-1 #284 S-17 を開いたまま利用者が替わる", () => {
     act(() => {
       app.client.setQueryData(authKeys.session, sessionOf(USER_B));
     });
+    // #298：別の利用者に替わった時点で、読み込み直しが1回求められる
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(shows(`${B_MARK}の説明`)).toBe(true));
     expect(shows(PRIVATE_TEXT)).toBe(false);
     expect(app.watch.hits).toEqual([]);

@@ -5,11 +5,16 @@
 // 切り替えの経路：(i) セッションを直接 B で上書き／(ii) セッションを捨ててから B を入れる／(iii) 実際の取り直し（GET /auth/session が B を返す）。
 // B の応答は手で解決する Promise で保留する（固定の時間の待ちは使わない）。範囲外：進行中の操作（#300）・別のタブ（#298）。
 // データはすべて架空。A・B の識別の文字列は互いに部分一致しない。
+// 【#298（C-209・ADR-0035）の追記】同じタブで別の利用者に替わったら、ページごと読み込み直す（その場の作り直しを置き換える）。
+// 枠（user-switch-harness）は main.tsx と同じく、切り替えの読み込み直しの入口 requestUserSwitchReload（test/setup.ts で vi.fn に差し替え）を見張りに渡す。
+// T11・T13・T22・T25 に「別の利用者に替わった時点で、読み込み直しが1回求められる」を足した（計画 plan-298 の 8-2・既定の方針2）。
+// 「A の内容がどの確定にも出ない」の確かめは、読み込み直すまでの二重の守りとして、そのまま残す。
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, type HttpResponseResolver } from "msw";
 import { useState, useSyncExternalStore, memo } from "react";
 import { render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestUserSwitchReload } from "./features/access-loss/reload-after-access-loss";
 import { authKeys } from "./features/auth";
 import { fetchSession } from "./features/auth/api/auth-api";
 import { installDomStubs, type DomStubs } from "./test/app-shell-harness";
@@ -394,6 +399,10 @@ let stubs: DomStubs;
 beforeEach(() => {
   stubs = installDomStubs();
 });
+beforeEach(() => {
+  // #298：差し替えの vi.fn の呼び出しの記録を、前のテストから持ち越さない
+  vi.mocked(requestUserSwitchReload).mockClear();
+});
 afterEach(() => {
   disposeUserSwitchApps();
   stubs.restore();
@@ -564,6 +573,8 @@ describe("#284 AC-1（T25）: 遅れた通知が届く前の描画", () => {
     // 同期の区間（act の中）で、少なくとも1回は確定している
     expect(app.watch.commits()).toBeGreaterThan(commitsBefore);
     expect(app.watch.hits).toEqual([]);
+    // #298：別の利用者に替わった時点で、読み込み直しが1回求められる
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
 
     gate.release();
     await waitFor(() => expect(shows(`${B_MARK}の本文`)).toBe(true));
@@ -600,6 +611,8 @@ describe("#284 AC-1（T11）: 入力中・離れる前の確認が有効なま�
     app.watch.arm();
     await switchToB(app, world, "direct", gate);
     expect(app.watch.hits).toEqual([]);
+    // #298：別の利用者に替わった時点で、読み込み直しが1回求められる
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
     gate.release();
     await waitFor(() => expect(shows(`${B_MARK}の本文`)).toBe(true));
     expect(app.watch.hits).toEqual([]);
@@ -731,6 +744,8 @@ describe("#284 AC-1（T13）: 401 の後に、別の利用者がログインす�
     await logIn(app, USER_B);
     await waitFor(() => expect(app.router.state.location.pathname).toBe("/"));
     expect(app.watch.hits).toEqual([]);
+    // #298：401 の後でも、文書の利用者 A と違う B がログインしたら、読み込み直しが1回求められる（ログインの後の移動と重なっても1回）
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
 
     gate.release();
     await waitFor(() => expect(shows(`${B_MARK}の部屋`)).toBe(true));
@@ -767,6 +782,8 @@ describe("#284 AC-1（T22）: 初回のパスワード変更の画面で、A か
     act(() => {
       app.client.setQueryData(authKeys.session, sessionOf(USER_B, true));
     });
+    // #298：別の利用者に替わった時点で、読み込み直しが1回求められる
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
 
     await waitFor(() =>
       expect(
@@ -909,5 +926,41 @@ describe("#284 AC-2（T14・T15）: 同じ利用者（A）の再ログイン", (
         ).value,
       ).toBe(`${A_MARK}の下書き`),
     );
+  });
+});
+
+describe("#298 AC-4（計画 8-1 の AC-4 (ii)・(iii)）: 401 の後のログインと、切り替えの読み込み直しの回数", () => {
+  it("#298 AC-4 (ii)（0-2 AC-8）: 401 → A で再ログイン：読み込み直しは求めない（0回）", async () => {
+    const world = respondWorld(USER_A);
+    const app = renderUserSwitchApp(`/channels/${CHANNEL_ID}`, {
+      needles: [],
+    });
+    await findMainWith(`${A_MARK}の部屋`);
+    await expireSession(app, world);
+    world.user = USER_A;
+    await logIn(app, USER_A);
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/"));
+    await waitFor(() =>
+      expect(
+        app.client.getQueryState(authKeys.session)?.fetchStatus ?? "idle",
+      ).toBe("idle"),
+    );
+    expect(requestUserSwitchReload).not.toHaveBeenCalled();
+  });
+
+  it("#298 AC-4 (iii): 401 → B でログイン：読み込み直しを1回求める（同じ画面で続けて取り直しが起きても1回）", async () => {
+    const world = respondWorld(USER_A);
+    const app = renderUserSwitchApp(`/channels/${CHANNEL_ID}`, {
+      needles: [],
+    });
+    await findMainWith(`${A_MARK}の部屋`);
+    await expireSession(app, world);
+    await logIn(app, USER_B);
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/"));
+    await waitFor(() => expect(shows(`${B_MARK}の部屋`)).toBe(true));
+    await act(async () => {
+      await app.client.refetchQueries({ queryKey: authKeys.session });
+    });
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,6 +4,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { SessionInfo } from "./api/auth-api";
 import { authKeys } from "./api/query-keys";
+import { reportOtherUser } from "./document-user";
 
 function readUserId(queryClient: QueryClient): string | undefined {
   return queryClient.getQueryData<SessionInfo>(authKeys.session)?.user.id;
@@ -13,8 +14,14 @@ function isSessionKey(queryKey: readonly unknown[]): boolean {
   return JSON.stringify(queryKey) === JSON.stringify(authKeys.session);
 }
 
-/** 切り替えの見張りを登録し、解除の関数を返す */
-export function installUserSwitchGuard(queryClient: QueryClient): () => void {
+/**
+ * 切り替えの見張りを登録し、解除の関数を返す。onOtherUser は、別の利用者に替わったときに呼ぶ（main.tsx が切り替えの読み込み直しの入口を渡す。#298）。
+ * キャッシュの破棄は、読み込み直すまでの二重の守りとして残す
+ */
+export function installUserSwitchGuard(
+  queryClient: QueryClient,
+  onOtherUser?: () => void,
+): () => void {
   let knownUserId = readUserId(queryClient);
   return queryClient.getQueryCache().subscribe(() => {
     const next = readUserId(queryClient);
@@ -24,6 +31,7 @@ export function installUserSwitchGuard(queryClient: QueryClient): () => void {
     // 削除の通知で再び呼ばれても何もしないよう、捨てる前に更新する
     knownUserId = next;
     if (previous === undefined) return;
+    if (onOtherUser !== undefined) reportOtherUser(onOtherUser);
     // 捨てたクエリの進行中の取得は取り消され、古い応答は書き戻されない
     queryClient.removeQueries({
       predicate: (query) => !isSessionKey(query.queryKey),
