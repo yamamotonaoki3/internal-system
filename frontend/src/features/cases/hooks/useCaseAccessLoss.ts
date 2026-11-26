@@ -7,7 +7,11 @@
 // 切り替えの入口が動いたと確かめられたときだけ何もしない（文書ごと替わる）。それ以外は確かめられない（unverified）に倒す（Q14）。
 // 拒否のきっかけは、全体の見張り（case-access-loss-monitor.ts）が1つの購読で受け、この画面の担当として登録した処理へ渡す（#339）。
 // 概要を一度も取得していない画面の初回の概要が非参加・404 でも、その案件の部屋・スレッドの取得の実績があれば、喪失として確定する（#339。C-210）。
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  isCancelledError,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { requestAccessLossReload } from "../../access-loss";
 import {
@@ -18,6 +22,7 @@ import {
 import {
   announceCaseAccessLossOnce,
   claimCaseVerification,
+  type CaseAccessLossRoute,
   currentLossPeriod,
   forgetCaseRoomDraftsOnce,
   installCaseAccessLossMonitor,
@@ -61,10 +66,11 @@ function requestReloadOnce(
 }
 
 /**
- * 確かめを始めた時点の参加の期間（遅れて届いた答えで、新しい期間の合図・下書きの印を使わせないため）。
+ * 確かめを始めた時点の参加の期間（遅れて届いた答えで、新しい期間の合図・下書きの印を使わせないため）と、確かめの経路
+ * （list：スレッド一覧の行の消失。確かめられない・参加者のままなら、何もしない。計画 3 節）。
  * 利用者の世代では捨てない：この部品のキャッシュのキーと下書きは、確定を始めた利用者のもので、切り替えの後も、その利用者の分を片付ける（#338 P-11・#340 AC-2）
  */
-type VerificationContext = { period: number };
+type VerificationContext = { period: number; route: CaseAccessLossRoute };
 
 /** 確定した喪失の、合図と下書きの処理（どちらも、同じ参加の期間で1回だけ。入口の後に呼ぶ） */
 function confirmLossOnce(
@@ -82,8 +88,9 @@ function verificationContext(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
+  route: CaseAccessLossRoute,
 ): VerificationContext {
-  return { period: currentLossPeriod(queryClient, userId, caseId) };
+  return { period: currentLossPeriod(queryClient, userId, caseId), route };
 }
 
 /**
@@ -106,53 +113,110 @@ function confirmedByEvidence(
   return caseRoomIdFromEvidence(queryClient, caseId);
 }
 
-/**
- * 概要で参加者でないと確かめられた状態に「なったとき」の片付け（149-C・#323・#363）。
- * 実績で確定した初回は、スレッドを、ほかの部屋の表示中のものを巻き込まないよう、この部屋のものだけ（"room"）にし、
- * 404 は、概要・案件一覧を非参加に書き換えない（#339。C-210）
- */
+/** 概要で参加者でないと確かめられた状態に「なったとき」の片付け（149-C・#323・#363） */
 function forgetAsOutsider(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
-  {
-    roomId,
-    wasParticipant,
-    confirmed,
-    knownRoomId,
-  }: {
-    roomId: string | null;
-    wasParticipant: boolean;
-    /** 実績で確定した初回 */
-    confirmed: boolean;
-    /** 片付けの前に分かった、この案件の部屋の ID */
-    knownRoomId: string | null;
-  },
+  roomId: string | null,
+  wasParticipant: boolean,
 ): void {
-  if (confirmed) {
-    const notFound = isCaseNotFound(
-      queryClient.getQueryState(caseKeys.summary(userId, caseId))?.error,
-    );
-    if (!notFound) {
-      void forgetCaseAfterLeave(
-        queryClient,
-        userId,
-        caseId,
-        knownRoomId,
-        "room",
-      );
-      return;
-    }
-    void forgetCaseContent(queryClient, userId, caseId, knownRoomId, "room");
-    void invalidateCaseLists(queryClient, userId);
-    return;
-  }
   void forgetCaseContent(queryClient, userId, caseId, roomId);
   // 一覧の行を直すのは、この画面で参加者だったと見ていたときだけ。見ていない非参加（作り直しの後・最初から非参加）は、
   // 古い概要のキャッシュかもしれず、それを根拠に行を外すと、参加者のままのとき戻らない（#363 コードレビュー3回目）。
   // その場合は、一覧に古い印だけを付け、サーバーの答えで取り直させる
   if (wasParticipant) void forgetCaseInLists(queryClient, userId, caseId);
   else void invalidateCaseLists(queryClient, userId);
+}
+
+/**
+ * 実績で確定した初回の片付け（#339。C-210）。スレッドは、ほかの部屋の表示中のものを巻き込まないよう、この部屋のものだけ（"room"）。
+ * 404 は、概要・案件一覧を非参加に書き換えない
+ */
+function forgetConfirmedOutsider(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+  roomId: string | null,
+  verdict: "lost" | "notFound",
+): void {
+  if (verdict === "lost") {
+    void forgetCaseAfterLeave(queryClient, userId, caseId, roomId, "room");
+    return;
+  }
+  void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
+  void invalidateCaseLists(queryClient, userId);
+}
+
+/** 概要の Query の状態の判定（取得の答えとして読む） */
+function verdictOfSummaryState(
+  data: CaseSummary | undefined,
+  error: unknown,
+): Verdict {
+  if (error !== null && error !== undefined)
+    return isCaseNotFound(error) ? "notFound" : "unverified";
+  return data?.isParticipant === true ? "participant" : "lost";
+}
+
+/**
+ * 概要の新しい答えを受け取る。取得の途中なら、その取得の答え（手での書き換え・取り消しでない成功か失敗）を待つ
+ * （古い非参加のキャッシュだけで確定しないため。計画 3 節の補足）。取得の途中でなければ、いまの答えを使う。
+ * Query が捨てられたら、答えなしとして何もしない
+ */
+function whenFreshSummary(
+  queryClient: QueryClient,
+  summaryKey: ReturnType<typeof caseKeys.summary>,
+  onAnswer: (verdict: Verdict) => void,
+): void {
+  const cache = queryClient.getQueryCache();
+  const query = cache.find<CaseSummary>({ queryKey: summaryKey, exact: true });
+  if (query === undefined) return;
+  if (query.state.fetchStatus !== "fetching") {
+    onAnswer(verdictOfSummaryState(query.state.data, query.state.error));
+    return;
+  }
+  const stop = cache.subscribe((event) => {
+    if (event.query !== query) return;
+    if (event.type === "removed") {
+      stop();
+      return;
+    }
+    if (event.type !== "updated") return;
+    const { action } = event;
+    if (action.type === "success" && action.manual !== true) {
+      stop();
+      onAnswer(verdictOfSummaryState(action.data as CaseSummary, null));
+    } else if (action.type === "error" && !isCancelledError(action.error)) {
+      stop();
+      onAnswer(verdictOfSummaryState(undefined, action.error));
+    }
+  });
+}
+
+/**
+ * 実績がある初回の非参加・404（#339。C-210）：概要の新しい答えで確定する。部屋の ID は、片付けより前に決めて渡す（N-3）。
+ * 新しい答えが参加者・確かめられないなら、この契機からは確定しない
+ */
+function confirmFirstOutsider(
+  queryClient: QueryClient,
+  userId: string,
+  caseId: string,
+  roomOfCase: string | null,
+  reloadRequested: { current: boolean },
+): void {
+  const period = currentLossPeriod(queryClient, userId, caseId);
+  whenFreshSummary(queryClient, caseKeys.summary(userId, caseId), (verdict) => {
+    if (verdict !== "lost" && verdict !== "notFound") return;
+    // 待つ間に、別の利用者に替わった・参加者に戻った：古い答えで確定しない
+    if (
+      sessionUserId(queryClient) !== userId ||
+      currentLossPeriod(queryClient, userId, caseId) !== period
+    )
+      return;
+    forgetConfirmedOutsider(queryClient, userId, caseId, roomOfCase, verdict);
+    requestReloadOnce(reloadRequested, queryClient, userId);
+    confirmLossOnce(queryClient, userId, caseId, roomOfCase, period);
+  });
 }
 
 export function useCaseAccessLoss({
@@ -229,20 +293,23 @@ export function useCaseAccessLoss({
       caseId,
       becameOutsider && !wasParticipant,
     );
-    const confirmed = evidenceRoomId !== undefined;
-    if (confirmed) knownRoomId.current ??= evidenceRoomId;
     if (becameOutsider)
-      forgetAsOutsider(queryClient, userId, caseId, {
-        roomId,
-        wasParticipant,
-        confirmed,
-        knownRoomId: knownRoomId.current,
-      });
+      forgetAsOutsider(queryClient, userId, caseId, roomId, wasParticipant);
+    if (evidenceRoomId !== undefined) {
+      knownRoomId.current ??= evidenceRoomId;
+      confirmFirstOutsider(
+        queryClient,
+        userId,
+        caseId,
+        knownRoomId.current,
+        reloadRequested,
+      );
+    }
     previousOutsider.current = outsider;
     previousParticipant.current = isParticipant;
-    if (lostHere || confirmed) {
+    if (lostHere) {
       requestReloadOnce(reloadRequested, queryClient, userId);
-      // 参加者だったと見た後、または取得の実績がある喪失に限る（どちらでもない非参加は、古い概要かもしれず、消すと戻らない）。
+      // 参加者だったと見た後の喪失に限る（見ていない非参加は、古い概要かもしれず、消すと戻らない。実績がある初回は confirmFirstOutsider）。
       // 想定外の例外は境界まで伝える
       confirmLossOnce(
         queryClient,
@@ -278,9 +345,15 @@ export function useCaseAccessLoss({
   useEffect(() => {
     const confirmLoss = (period: number) =>
       confirmLossOnce(queryClient, userId, caseId, knownRoomId.current, period);
-    settle.current = (verdict, retried, { period }) => {
+    settle.current = (verdict, retried, { period, route }) => {
       // 文書ごと読み込み直すので、片付け・読み込み直しの予約・合図・下書きの消去・表示の切り替えをしない
       if (verdict === "switched") return;
+      // 一覧の行の消失からの確かめは、確定したときだけ動く（次のきっかけを受けられるよう、印も立てない）
+      if (
+        route === "list" &&
+        (verdict === "unverified" || verdict === "participant")
+      )
+        return;
       if (!mounted.current) {
         // 非参加・404・確かめられないときは、元の案件の中身を取り除く（戻ったときに古い内容を出さない。AC-2）。部屋の分も、ほかの機能のキャッシュに残りうる（#323）。
         // スレッドは、移動先のものを巻き込まないよう、この部屋のものだけ（"room"）
@@ -336,7 +409,7 @@ export function useCaseAccessLoss({
       userId,
       caseId,
       roomId,
-      onDenied: () => {
+      onDenied: (route) => {
         if (handling.current) return;
         // 本人の退出の後片付けで、既に非参加になっている：確かめ直さない（退出の既存の動きのまま）
         if (
@@ -345,13 +418,31 @@ export function useCaseAccessLoss({
         )
           return;
         // 同じ利用者・案件の確かめは1つ（始めた側が、画面を離れた後も最後まで処理する）
-        const release = claimCaseVerification(queryClient, userId, caseId);
-        if (release === null) return;
-        handling.current = true;
-        const context = verificationContext(queryClient, userId, caseId);
+        // 進行中なら、中身の拒否の経路だけを引き継ぐ
+        const verification = claimCaseVerification(
+          queryClient,
+          userId,
+          caseId,
+          route,
+        );
+        if (verification === null) return;
+        // 中身の拒否の確かめの間と、参加者のままと分かった後は、拒否で確かめを重ねない（行の消失は印を立てない）
+        if (route === "content") handling.current = true;
+        const { period } = verificationContext(
+          queryClient,
+          userId,
+          caseId,
+          route,
+        );
         void verifyBySummaryRefetch(queryClient, summaryKey)
-          .then((verdict) => settle.current(verdict, false, context))
-          .finally(release);
+          .then((verdict) => {
+            if (verification.route === "content") handling.current = true;
+            settle.current(verdict, false, {
+              period,
+              route: verification.route,
+            });
+          })
+          .finally(verification.release);
       },
     });
   }, [queryClient, userId, caseId, roomId]);
@@ -359,7 +450,12 @@ export function useCaseAccessLoss({
   return {
     unverified,
     retry() {
-      const context = verificationContext(queryClient, userId, caseId);
+      const context = verificationContext(
+        queryClient,
+        userId,
+        caseId,
+        "content",
+      );
       void verifyBySummaryRefetch(
         queryClient,
         caseKeys.summary(userId, caseId),

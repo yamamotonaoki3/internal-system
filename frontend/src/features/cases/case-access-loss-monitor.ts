@@ -47,7 +47,16 @@ export type CaseAccessLossHandler = {
   caseId: string;
   /** S-17 が表示している案件の部屋（分からなければ null） */
   roomId: string | null;
-  onDenied: () => void;
+  /** content：中身の拒否／list：スレッド一覧の行の消失（確かめられないときの扱いが違う。計画 3 節） */
+  onDenied: (route: CaseAccessLossRoute) => void;
+};
+
+export type CaseAccessLossRoute = "content" | "list";
+
+/** 進行中の確かめ。経路は、途中に中身の拒否が届けば content に上がる（後から届いたきっかけを失わないため） */
+export type CaseVerification = {
+  readonly route: CaseAccessLossRoute;
+  release: () => void;
 };
 
 /** 画面の外の確かめのきっかけ。content：返信・部屋の拒否／list：スレッド一覧の行の消失 */
@@ -55,7 +64,7 @@ type Candidate = {
   userId: string;
   caseId: string;
   roomId: string | null;
-  route: "content" | "list";
+  route: CaseAccessLossRoute;
   /** 始めた時点の利用者の世代と、参加の期間（終わったときと副作用の直前に照らす） */
   generation: number;
   period: number;
@@ -67,7 +76,7 @@ type LossMarks = { period: number; announced: boolean; draftsHandled: boolean };
 type MonitorState = {
   handlers: Set<CaseAccessLossHandler>;
   /** 進行中の確かめ（利用者・案件ごと。持ち主は始めた側〔S-17 か、この見張り〕で、終わるまで外さない） */
-  verifying: Set<string>;
+  verifying: Map<string, { route: CaseAccessLossRoute }>;
   /** 合図・下書きの処理の印（読み込み直しの印とは別。参加者に戻ったと分かったときだけ外す） */
   marks: Map<string, LossMarks>;
   /** 利用者の世代：セッションの利用者が、別の利用者に替わるたびに進める（A → B → A でも、古い確かめを捨てるため） */
@@ -86,7 +95,7 @@ function stateOf(queryClient: QueryClient): MonitorState {
   if (state === undefined) {
     state = {
       handlers: new Set(),
-      verifying: new Set(),
+      verifying: new Map(),
       marks: new Map(),
       generation: 0,
       knownUserId: undefined,
@@ -113,18 +122,32 @@ export function registerCaseAccessLossHandler(
   };
 }
 
-/** 確かめを始める担当になる。同じ利用者・案件の確かめが進行中なら null（重ねない）。返り値は、終わったときに呼ぶ関数 */
+/**
+ * 確かめを始める担当になる。同じ利用者・案件の確かめが進行中なら null（重ねない）。そのとき、後から届いたのが中身の拒否なら、
+ * 進行中の確かめの経路を content に上げる（始めた担当が、終わったときに、上がった経路で処理する）
+ */
 export function claimCaseVerification(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
-): (() => void) | null {
+  route: CaseAccessLossRoute,
+): CaseVerification | null {
   const { verifying } = stateOf(queryClient);
   const mark = markOf(userId, caseId);
-  if (verifying.has(mark)) return null;
-  verifying.add(mark);
-  return () => {
-    verifying.delete(mark);
+  const running = verifying.get(mark);
+  if (running !== undefined) {
+    if (route === "content") running.route = "content";
+    return null;
+  }
+  const entry = { route };
+  verifying.set(mark, entry);
+  return {
+    get route() {
+      return entry.route;
+    },
+    release: () => {
+      if (verifying.get(mark) === entry) verifying.delete(mark);
+    },
   };
 }
 
@@ -284,21 +307,26 @@ async function verifyOutside(
   queryClient: QueryClient,
   candidate: Candidate,
 ): Promise<void> {
-  const release = claimCaseVerification(
+  const verification = claimCaseVerification(
     queryClient,
     candidate.userId,
     candidate.caseId,
+    candidate.route,
   );
-  if (release === null) return;
+  if (verification === null) return;
   let verdict: CaseAccessVerdict;
   try {
     verdict = await verifyBySummaryFetch(candidate.caseId);
   } finally {
-    release();
+    verification.release();
   }
   // 確かめの間に利用者が替わった（戻った場合も）・ログアウトした・参加者に戻った：古い答えを作用させない
   if (!stillCurrent(queryClient, candidate)) return;
-  settleOutside(queryClient, candidate, verdict);
+  settleOutside(
+    queryClient,
+    { ...candidate, route: verification.route },
+    verdict,
+  );
 }
 
 /** きっかけを、S-17 の担当へ渡すか、画面の外で確かめる */
@@ -308,9 +336,9 @@ function dispatchCandidate(
   candidate: Candidate,
   handlers: CaseAccessLossHandler[],
 ): void {
-  if (state.verifying.has(markOf(candidate.userId, candidate.caseId))) return;
   if (handlers.length > 0) {
-    for (const handler of handlers) handler.onDenied();
+    // S-17 の担当に任せる。進行中の確かめがあれば、担当の側で経路だけを引き継ぐ
+    for (const handler of handlers) handler.onDenied(candidate.route);
     return;
   }
   verifyOutside(queryClient, candidate).catch((error: unknown) =>
@@ -414,10 +442,8 @@ function subscribe(queryClient: QueryClient, state: MonitorState): () => void {
     const { data } = query.state;
     const handlers = handlersFor(state, queryKey, data);
     if (handlers.length > 0) {
-      // S-17 の担当に任せる。進行中の確かめがあれば、その持ち主が最後まで処理する
-      for (const handler of handlers)
-        if (!state.verifying.has(markOf(handler.userId, handler.caseId)))
-          handler.onDenied();
+      // S-17 の担当に任せる。進行中の確かめがあれば、その持ち主が、上がった経路で最後まで処理する
+      for (const handler of handlers) handler.onDenied("content");
       return;
     }
     const userId = sessionUserId(queryClient);

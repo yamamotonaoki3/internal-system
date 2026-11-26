@@ -5,6 +5,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { authKeys, type SessionInfo } from "../auth";
 import { messageKeys, type ThreadRepliesData } from "../messages";
+import { channelKeys, type ChannelDetail } from "../channels";
 import { threadKeys, type ThreadPage } from "../threads";
 import type { CaseDetail, CaseSummary } from "./api/case-api";
 import { caseKeys } from "./api/query-keys";
@@ -71,6 +72,19 @@ function fetchedRoomIdsOf(queryClient: QueryClient, caseId: string): string[] {
   ];
 }
 
+/** チャンネルの詳細から分かる、その案件の部屋の ID（通常のチャンネルは caseId が null なので含まない） */
+function channelRoomIdsOf(queryClient: QueryClient, caseId: string): string[] {
+  return queryClient
+    .getQueriesData<ChannelDetail>({
+      queryKey: channelKeys.all,
+      predicate: (query) => query.queryKey[1] === "detail",
+    })
+    .map(([, data]) => data)
+    .filter((data) => data?.caseId === caseId)
+    .map((data) => data?.roomId)
+    .filter((roomId) => typeof roomId === "string");
+}
+
 /** 返信・スレッド一覧から分かる、その案件の部屋の ID（無ければ null）。部屋の ID を求める通信はしない */
 export function caseRoomIdFromEvidence(
   queryClient: QueryClient,
@@ -93,6 +107,10 @@ export function caseIdOfRoom(
     (row) => row.roomId === roomId && row.caseId !== null,
   );
   if (fromList?.caseId != null) return fromList.caseId;
+  const channel = queryClient.getQueryData<ChannelDetail>(
+    channelKeys.detail(roomId),
+  );
+  if (typeof channel?.caseId === "string") return channel.caseId;
   for (const kind of ["summary", "detail"] as const)
     for (const [, data] of queryClient.getQueriesData<CaseSummary | CaseDetail>(
       { queryKey: ["cases", kind, userId] },
@@ -111,11 +129,13 @@ export function hasCaseRoomEvidence(
   caseId: string,
 ): boolean {
   if (fetchedRoomIdsOf(queryClient, caseId).length > 0) return true;
+  // 対応だけの情報（概要・詳細・チャンネルの詳細）は、その部屋のメッセージの正常な取得（空の配列を含む）と組み合わせて、実績にする
   const knownRooms = [
     queryClient.getQueryData<CaseDetail>(caseKeys.detail(userId, caseId))
       ?.channelId,
     queryClient.getQueryData<CaseSummary>(caseKeys.summary(userId, caseId))
       ?.channelId,
+    ...channelRoomIdsOf(queryClient, caseId),
   ].filter((roomId) => typeof roomId === "string");
   return knownRooms.some(
     (roomId) =>

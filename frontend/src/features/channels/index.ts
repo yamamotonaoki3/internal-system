@@ -14,6 +14,7 @@ export { ChannelRestoreDialog } from "./components/ChannelRestoreDialog";
 // #143-b：S-39（チャンネル管理）・S-38（アーカイブ）
 export type {
   AdminChannel,
+  ChannelDetail,
   AdminChannelFilter,
   AdminChannelState,
   ArchivedChannel,
