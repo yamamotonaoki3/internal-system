@@ -34,7 +34,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 | `backend/src/db/auth.repository.ts` | `createAuthRepository`・`withAuth`。受付枠の確保（`acquireSourceSlot`）、社員IDの失敗数（`readAccountThrottle`・`recordLoginFailure`）、利用者の検索（`findLoginUser`）、セッションの作成（`createSession`）、再ハッシュの置き換え（`updatePasswordHashIfUnchanged`）、ログアウト（`revokeSession`）、掃除（`deleteExpiredSessions`・`deleteExpiredLoginAttempts`）、ロックの監査（`recordRateLimited`） |
 | `backend/src/db/session.repository.ts` | `createSessionRepository`・`withSessions`。セッションの読み取り（`findSession`）と最終操作の更新（`touchSession`）。失効の文`revokeAllForUserStatement`・`revokeOthersForUserStatement`（文を返すだけで、実行しない）。後者は`credential.repository.ts`がパスワード変更batchで実行する |
 | `backend/src/db/audit-log.repository.ts` | 既存の`auditLogInsert`に加えて、`auditLogInsertForSession`（セッションがあるときだけ書く条件付きの監査。ログインの成功・ログアウトで使う） |
-| `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ。`loadSession`は、`X-Expected-User-Id`を読んで`resolveSession`に渡し、食い違いなら`no-store`を付けて409`SESSION_USER_MISMATCH`を投げる（Issue #298） |
+| `backend/src/lib/session-middleware.ts` | `loadSession`・`noStoreForProtected`・`requireAuth`・`requirePasswordChanged`。公開の許可リストと、ゲートの許可リストをここに持つ。`loadSession`は、`X-Expected-User-Id`を読んで`resolveSession`に渡し、食い違いなら`no-store`を付けて409`SESSION_USER_MISMATCH`を投げる（Issue #298）。使えないセッションでもCookieは消さない（Issue #383。「セッション」） |
 | `shared/session-user-header.ts` | 画面が想定する利用者を伝える要求ヘッダーの名前`EXPECTED_USER_ID_HEADER`（`X-Expected-User-Id`）の定義元。バックエンドと画面（`frontend/src/services/api-client.ts`）が、同じ名前を参照する（Issue #298） |
 | `backend/src/lib/session-policy.ts` | Cookie名`SESSION_COOKIE`（`__Host-session`）、無操作30分・ログインから24時間・最終操作の更新間隔1分の定数、`isSessionExpired` |
 | `backend/src/lib/session-token.ts` | `generateSessionToken`（32バイトの乱数のbase64url）・`hashSessionToken`（SHA-256の16進。DBの`sessions.id`） |
@@ -116,7 +116,7 @@ Issue #120（親 #108）と #123 で実装した、ログイン（S-02）・ロ�
 - 有効期限（`isSessionExpired`。読み取り時に判定）：失効済み（`revoked_at`）、最終操作から30分、ログインから24時間のどれかで切れる。ちょうど30分・24時間で切れる
 - 最終操作の更新（`resolveSession`）：前回の更新から1分以上たったときだけ`touchSession`（`last_active_at`が読んだ値のままのときだけ更新）。失敗しても認証の結果は変えず、`warn`を出す。無操作30分の判定が最大1分ずれる（C-149）
 - 無効化された利用者（`is_active`が偽）のセッションは使えない
-- 使えないCookie（失効・期限切れ・偽物）が付いてきたときは、`loadSession`がCookieを削除する。ただし`POST /api/auth/logout`では、失効が確定した後にハンドラが消す（DBの失敗で500のときにCookieを消さないため）
+- 使えないCookie（失効・期限切れ・偽物・存在しないトークン）が付いてきたときは、`loadSession`は`principal`を`null`にして先へ進み、保護された経路は401`UNAUTHENTICATED`で拒否する。**`loadSession`はCookieを設定も削除もしない**（どの経路でも）。消す応答が、後からログインした別のセッションのCookieを消しうるため。Cookieを消すのは、失効が確定した後の`POST /api/auth/logout`のハンドラだけ（DBの失敗で500のときは消さない）。使えないCookieはブラウザに残り、`Max-Age=86400`で自然に消えるまで送られ続け、そのたびに拒否される【Issue #383（C-211。[ADR-0037](../adr/0037-keep-cookie-on-invalid-session.md)）で置き換えた。以前は、`loadSession`がCookieを削除していた。元の記述は残す：使えないCookieが付いてきたときは、`loadSession`がCookieを削除する。ただしログアウトでは、失効が確定した後にハンドラが消す】
 - `GET /api/auth/session`とログイン成功応答は`SessionInfo`を返す。`user`にはID・表示名・社員IDを含み、`reauthenticatedAt`はログイン直後・未再認証では`null`、再認証済みならUTC ISO 8601時刻になる。未ログインのsession確認は401`UNAUTHENTICATED`。
 - `GET /api/auth/session`の`permissions`は、管理メニューの表示の制御に使う権限IDの一覧（`backend/src/routes/auth.ts`）。取引先管理・アカウント管理・部署管理の権限に加えて、**Issue #131で`perm.channel.request.approve.owner`を足した**。全体管理者と、いずれかの部署のオーナーに載る（`authorizer.ts`の`canReviewChannelRequests`。中で`reviewerFactsOf`を使い、`resolvePermissions`と同じ条件にする）。部署のオーナーに載るのはこの権限だけで、取引先管理などの権限は載らない。これは表示の制御であり、認可はサーバーが申請ごとに行う（[channel-requests.md](channel-requests.md)） **Issue #128（128-c）で`perm.workspace.manage`を足した**。いずれかの部署のオーナー（部署の範囲で`perm.workspace.manage`を持つ）に載る（`authorizer.ts`の`canManageAnyDepartment`。候補の部署を本人の部署範囲の割り当てから取り、判定は`resolvePermissions`で行う）。全体管理者は、オーナーに任命された部署があるときだけ載る。用途は、社員一覧（S-20）に、オーナーにだけ「自分の退職処理の申請」のリンクを出す表示の制御だけ。認可は各API（申請の作成は対象の今の部署の範囲で、Serviceが毎回確かめる。[accounts.md](accounts.md)）。権限の一覧（権限ID）は増やしていない（決定記録 C-177） **Issue #156で`perm.audit_log.view`を足した**。全体管理者だけに載る（`audit-log.service.ts`の`canViewAuditLogs`。拒否の記録を出さない`can`を使う）。用途は管理メニュー「監査ログ」と`/audit-logs`の表示の制御だけで、認可は検索のAPIが毎回行う（[audit-logs.md](audit-logs.md)）。あわせて、`SessionPrincipal`（`session.service.ts`の`resolveSession`が返す）に`sessionId`を足した。閲覧の記録を、セッションが今も有効であることの確認と同じ`db.batch`で行うためで、応答・ログには出さない **Issue #143の143-bで、`perm.channel.edit`・`perm.channel.delete`を足した**。どちらも全体管理者と、いずれかの部署のオーナーに載る（`authorizer.ts`の`canManageAnyChannel`。中で`canInAnyScope`を使い、会社の範囲か、本人の部署範囲の割り当てのいずれかの部署で、`resolvePermissions`が権限を持つかを見る。無効・存在しない利用者は載らない）。用途は、管理メニューの「チャンネル管理」（S-39。`perm.channel.edit`）とサイドバーの「アーカイブ」（S-38。`perm.channel.delete`）の表示の制御と、画面のガードだけ。認可は`/api/admin/channels`・`/api/admin/deleted-items`が毎回行う（[channels.md](channels.md)）。既存の応答に必須の項目は足していない（`permissions`の値が増えただけ）
 
@@ -189,7 +189,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 - ヘッダーの値は、画面の側の状態（キャッシュ・ログイン状態）が変わっても変えない。古い画面の続きの要求が、始めた利用者のまま送られ、サーバーが食い違いとして断るため。別の利用者に替わったら、読み込み直しで文書ごと替わる
 - 画面の既存の 409 の分岐（競合の表示）は、ステータスではなく、コード`CONFLICT`で判定する（`isConflictError`。PR-2a）。食い違いの 409 は、競合の表示にならない
 - 取り直しの答えが得られないとき（オフライン・手での書き換えとの重なりなど）の資格の確かめは、`unverified`（中身を隠し、読み込み直しを促す）になる。以前は、キャッシュに残っていた値で判定していた
-- 守れない範囲：添付の配信・古い版の画面・文書の利用者が決まる前の通信（ADR-0035）。後追い：#380（不安定なテスト）・#382（取り直しが未ログインだったときの、内部の結果の名前）・#383（別のタブのログインの直後に、古いタブの 401 が、新しい Cookie を消すことがある。以前からの動き）
+- 守れない範囲：添付の配信・古い版の画面・文書の利用者が決まる前の通信（ADR-0035）。後追い：#380（不安定なテスト）・#382（取り直しが未ログインだったときの、内部の結果の名前）・#383（別のタブのログインの直後に、古いタブの 401 が、新しい Cookie を消すことがある。以前からの動き）【Issue #383（C-211。ADR-0037）で、古い 401 による削除は解消した（上の「セッション」）。遅れて届いたログアウトの応答が、新しい Cookie を消す場合などは、残る。元の記述は残す】
 
 ## 既定拒否とゲート
 
@@ -299,6 +299,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 | 本人変更・再認証route/API契約 | `backend/src/routes/me.test.ts`・`backend/src/routes/auth.test.ts`・`backend/src/openapi.test.ts` |
 | 再認証と業務処理の接続 | `backend/src/reauth-business.test.ts`（テスト専用業務更新と監査。同Issueでは実業務APIを追加しない） |
 | 画面の利用者とセッションの利用者の食い違い（Issue #298） | `backend/src/services/session.service.test.ts`（`resolveSession`の判定の位置・最終操作の時刻を更新しないこと）、`backend/src/lib/session-middleware.mismatch.test.ts`（ミドルウェア。空・長い・任意の値で500にならないこと、公開の経路）、`backend/src/routes/session-user-mismatch.test.ts`（結合。副作用が増えないこと・ログアウト）、`backend/src/openapi.test.ts`（全操作に409と共通の応答） |
+| 使えないセッションのCookieを消さないこと（Issue #383。C-211） | `backend/src/lib/session-middleware.cookie.test.ts`（ミドルウェア。失効・期限切れ・存在しない・無効な利用者・形の壊れたトークンで、保護された経路は401、`GET /api/health`は200のまま、どれも`Set-Cookie`を付けない。DBの読み取りの失敗は500。ルートのスタブは、`c.json`・`c.body`で返す）、`backend/src/routes/auth.session-cookie.test.ts`（結合。ログインの失敗・無効なCookieを持ったログインの成功で`Set-Cookie`が新しいセッションの1件だけ、別のタブのログインの後の古いCookieの要求が401でCookieを消さないこと、ログアウトは失効を確定した後にCookieを消すこと〔対照〕）、E2E：`e2e/session-cookie-race.spec.ts`（[e2e.md](../testing/e2e.md)） |
 | セッションのトークン・期限 | `backend/src/lib/session-token.test.ts`、期限の境界・1分の間引きは`backend/src/routes/auth.test.ts`、`backend/src/db/session.repository.db.test.ts`・`session.repository.read.db.test.ts` |
 | 試行制限の値・接続元のキー | `backend/src/lib/throttle-policy.test.ts`、`source-key.test.ts`・`source-key-boundary.test.ts`、`backend/src/config.throttle.test.ts` |
 | ログインのService・Repository | `backend/src/services/auth.service.test.ts`・`auth.service.mutation.test.ts`、`backend/src/db/auth.repository.db.test.ts` |
@@ -325,7 +326,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 ## 関係するIssueとADR
 
 - Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
-- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）
+- ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）、[0037](../adr/0037-keep-cookie-on-invalid-session.md)（使えないセッションの通常の要求では、Cookieを消さない）
 - Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）
 - Issue #339（S-17 の外での資格の見張り。C-210・ADR 0036）：利用者の切り替えの見張りより後に登録し、利用者の世代で古い確かめを捨てる（上の「画面の側：決まり」）
 - Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側と画面の側の両方が実装済み）。#376（資格の確かめの取り違え。#298 とまとめて直した）。後追い：#380・#382・#383
