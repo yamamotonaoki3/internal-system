@@ -7,8 +7,9 @@
 // frontend/src/features/access-loss/reload-after-access-loss.user-switch.test.ts・frontend/src/pages/CaseAccessLoss.userMismatch.test.tsx ほか）に任せ、重ねない。
 // 観測の仕組み：
 //   - A のページ1（S-17）・ページ3（観測のページ /）を、B のログインの前に開く。両ページの API の要求（セッションの取得を含む）を page.route で保留し、
-//     フォーカス等の取り直しで、意図より先に B を見ないようにする。あわせて、B のログインの処理中に A の Cookie のままの要求が
-//     サーバーへ届いて 401 と Cookie の削除（Max-Age=0）を受け、B の Cookie が消える競合も防ぐ（保留は、Cookie が B に替わったことを確かめた後に解く）
+//     フォーカス等の取り直しで、意図より先に B を見ないようにする（観測の順を決める。保留は、Cookie が B に替わったことを確かめた後に解く）。
+//     以前は、B のログインの処理中に届いた A の Cookie のままの要求の 401 が B の Cookie を消す競合も避けていたが、#383（C-211・ADR-0037）で
+//     サーバーが通常の要求の応答で Cookie を消さなくなった。その競合は e2e/session-cookie-race.spec.ts が確かめる
 //   - B のログインは、同じコンテキストの API（context.request）で、許可した Origin を付けて行う（Cookie を共有する）。ログインは A・B で1回ずつ、計2回
 //   - ページ1の投稿（POST /api/rooms/:roomId/messages）は page.route で保留し、要求のヘッダーを記録する（読み込み直しの入口が、受理済みの書き込みを待つ間を作る）
 //   - 各ページの文書の読み込み（主の枠の document の要求）を、保留を解く前から数え、B の画面が確定した時点で1回と照らす
@@ -106,8 +107,8 @@ function recordDialogs(page: Page): string[] {
 
 /**
  * API の要求（セッションの取得を含む）を、hold() の後に届いたものだけ保留する。release() で通す。
- * B のログインの処理中に、A の Cookie のままの要求が届くと、サーバーは A のセッションの失効後の 401 と Cookie の削除（Max-Age=0）を返し、
- * ブラウザの B の Cookie を消してしまう（テストの準備が壊れる）。Cookie が B に替わるまで、A の画面の要求をサーバーへ出さない
+ * Cookie が B に替わるまで、A の画面の要求をサーバーへ出さず、A の画面が意図より先に B を見ないようにする（観測の順を決めるため）。
+ * 以前の、401 の応答が B の Cookie を消す競合は、#383（C-211・ADR-0037）で直した（確かめるのは e2e/session-cookie-race.spec.ts）
  */
 async function holdRequests(page: Page) {
   let gate: ReturnType<typeof signal> | null = null;
