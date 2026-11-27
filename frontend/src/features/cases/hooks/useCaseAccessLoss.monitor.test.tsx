@@ -18,7 +18,7 @@ import {
 } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { StrictMode, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestAccessLossReload } from "../../access-loss/reload-after-access-loss";
 import {
@@ -179,12 +179,9 @@ const INITIAL_OUTSIDER_PROPS: Props = {
 
 function mountS17(initial: Props, options: { strict?: boolean } = {}) {
   const onLost = vi.fn();
-  const wrapper = ({ children }: { children: ReactNode }) => {
-    const inner = (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-    return options.strict ? <StrictMode>{inner}</StrictMode> : inner;
-  };
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
   const view = renderHook(
     (props: Props) =>
       useCaseAccessLoss({
@@ -196,7 +193,13 @@ function mountS17(initial: Props, options: { strict?: boolean } = {}) {
         outsider: props.outsider,
         onLost,
       }),
-    { wrapper, initialProps: initial },
+    // StrictMode はルートの側で指定する（効果の登録 → 解除 → 再登録を確実に通す）。wrapper の中の <StrictMode> では、
+    // この版（React 19.3.1・Testing Library 16.3.3）で効果が1回しか登録されないことを確かめた（#339 コードレビュー2回目）
+    {
+      wrapper,
+      initialProps: initial,
+      reactStrictMode: options.strict === true,
+    },
   );
   return { ...view, onLost };
 }
@@ -716,24 +719,29 @@ describe("#339 AC-2 古い非参加の概要のキャッシュだけでは確定
     });
   });
 
-  it("#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが参加者なら、何も起きない", async () => {
-    await arrangeStale();
-    mountS17(INITIAL_OUTSIDER_PROPS);
-    answer = "participant";
-    await act(async () => {
-      await client.fetchQuery({ queryKey: SUMMARY, staleTime: 0 });
-    });
-    await expectNothingConfirmed();
-  });
+  it.each([false, true])(
+    "#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが参加者なら、何も起きない（StrictMode=%s）",
+    async (strict) => {
+      await arrangeStale();
+      mountS17(INITIAL_OUTSIDER_PROPS, { strict });
+      answer = "participant";
+      await act(async () => {
+        await client.fetchQuery({ queryKey: SUMMARY, staleTime: 0 });
+      });
+      await expectNothingConfirmed();
+    },
+  );
 
   it.each([
-    ["非参加", "lost"],
-    ["404", "notFound"],
+    ["非参加", false, "lost"],
+    ["404", false, "notFound"],
+    ["非参加", true, "lost"],
+    ["404", true, "notFound"],
   ] as const)(
-    "#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが%sなら、入口・合図・下書きの消去が順に1回ずつ",
-    async (_label, verdict) => {
+    "#339 AC-2: 古い非参加の概要のキャッシュで開いた後、取得した答えが%sなら、入口・合図・下書きの消去が順に1回ずつ（StrictMode=%s）",
+    async (_label, strict, verdict) => {
       await arrangeStale();
-      mountS17(INITIAL_OUTSIDER_PROPS);
+      mountS17(INITIAL_OUTSIDER_PROPS, { strict });
       await expectNothingConfirmed();
       answer = verdict;
       await act(async () => {
@@ -764,4 +772,43 @@ describe("#339 AC-2 古い非参加の概要のキャッシュだけでは確定
     mountS17(INITIAL_OUTSIDER_PROPS);
     await expectNothingConfirmed();
   });
+});
+
+// ---- コードレビュー2回目の指摘 B：Query の破棄で、古い確定の待ちを無効にする（計画 2 節「キャッシュの削除後は、そのキャッシュを実績として使わない」。C-207） ----
+describe("#339 AC-2 答えを待つ間に、概要の Query と実績が捨てられる（指摘B）", () => {
+  it.each([
+    ["非参加", "lost"],
+    ["404", "notFound"],
+  ] as const)(
+    "#339 AC-2: 古い非参加の概要のキャッシュ＋実績で開き、答えを待つ間に概要の Query と実績（返信・部屋のメッセージ）が捨てられた後、同じキーで取得した%sが届いても、実績が無い初回の動き（入口0・合図0・下書きは残る）",
+    async (_label, verdict) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      await fetched(ROOM_KEY, []);
+      client.setQueryData(SUMMARY, summary(false));
+      mountS17(INITIAL_OUTSIDER_PROPS);
+      await act(async () => {
+        await flushTasks(3);
+      });
+      client.removeQueries({ queryKey: SUMMARY, exact: true });
+      client.removeQueries({ queryKey: threadKey(PARENT), exact: true });
+      client.removeQueries({ queryKey: ROOM_KEY, exact: true });
+      answer = verdict;
+      await act(async () => {
+        await client
+          .fetchQuery({ queryKey: SUMMARY, staleTime: 0 })
+          .catch((error: unknown) => error);
+        await flushTasks(5);
+      });
+      await waitFor(() =>
+        expect(client.isFetching({ queryKey: SUMMARY })).toBe(0),
+      );
+      await act(async () => {
+        await flushTasks(3);
+      });
+      expect(entryCalls()).toHaveLength(0);
+      expect(announced()).toEqual([]);
+      expect(draftsPresent()).toBe(DRAFTS.length);
+    },
+  );
 });

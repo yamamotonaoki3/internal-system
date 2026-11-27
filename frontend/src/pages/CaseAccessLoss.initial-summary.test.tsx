@@ -457,3 +457,68 @@ describe("#339 AC-2 古い非参加の概要のキャッシュと、部屋・ス
     },
   );
 });
+
+// ---- コードレビュー2回目の指摘 C：チャンネルの詳細で分かった部屋の ID を、初回の確定へ渡す（計画 2 節・3 節「初回の新しい概要。実績あり」） ----
+describe("#339 AC-2 実績が、チャンネルの詳細と、その部屋のメッセージの正常な取得だけ（指摘C）", () => {
+  const OTHER_USER_DRAFT = `internal-system:draft:v1:01JTESTUSER339000000000IS9:room:${ROOM}`;
+
+  it.each([
+    ["非参加", "outsider"],
+    ["404", "notFound"],
+  ] as const)(
+    "#339 AC-2: チャンネルの詳細（caseId つき）と空の部屋のメッセージだけが実績のとき、初回に取得した答えが%sなら、その部屋の中身が片付き、入口・合図・その部屋の下書きの消去が順に1回ずつ",
+    async (_label, opening) => {
+      respondCase(opening);
+      window.localStorage.setItem(
+        OTHER_USER_DRAFT,
+        JSON.stringify({ body: "[UNIT_TEST]339他人", updatedAt: Date.now() }),
+      );
+      const client = await openCase(async (primed) => {
+        await primed.fetchQuery({
+          queryKey: ["channels", "detail", ROOM],
+          queryFn: () =>
+            Promise.resolve({
+              id: ROOM,
+              roomId: ROOM,
+              name: "[UNIT_TEST]339チャンネル",
+              description: "",
+              visibility: "private",
+              departmentId: null,
+              joined: true,
+              isCaseChannel: true,
+              caseId: CASE,
+              canPost: true,
+              readOnly: false,
+              version: 1,
+              manage: {
+                canRename: false,
+                canEditDescription: false,
+                canArchive: false,
+              },
+            }),
+        });
+        await primed.fetchQuery({
+          queryKey: ["messages", "room", ROOM],
+          queryFn: () => Promise.resolve([]),
+        });
+      });
+      await waitForOpened(opening);
+      await waitFor(() => expect(announced()).toHaveLength(1));
+      await waitFor(() => expect(caseDraftsPresent()).toBe(0));
+      await flushTasks(5);
+      expect(entryCalls()).toHaveLength(1);
+      expect(atEntry[0]?.request).toEqual({
+        ownerId: TEST_USER.id,
+        reason: "lost",
+      });
+      expect(atEntry[0]?.announced).toBe(0);
+      expect(atEntry[0]?.caseDrafts).toBe(CASE_DRAFTS.length);
+      expect(draftsAtAnnounce).toEqual([CASE_DRAFTS.length]);
+      // その部屋の中身（チャンネルの詳細）が片付いている
+      expect(client.getQueryData(["channels", "detail", ROOM])).toBeUndefined();
+      // ほかの部屋・ほかの利用者の下書きは残る
+      expect(window.localStorage.getItem(OTHER_DRAFT)).not.toBeNull();
+      expect(window.localStorage.getItem(OTHER_USER_DRAFT)).not.toBeNull();
+    },
+  );
+});
