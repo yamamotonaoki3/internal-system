@@ -37,10 +37,10 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | `shared/message-rules.ts` | `REPLY_BLOCKED_REASONS`（`deleted_parent`・`not_joined`・`read_only`・`partner_inactive`）。返信できない理由の定義元。応答と画面の案内が同じ値を参照する |
 | `backend/src/db/reply-insert.sql.ts` | DAO。返信の条件付き`INSERT … SELECT`1文（`insertReplyIfOrdered`）。条件は下の「書き込みの条件」 |
 | `backend/src/db/message.repository.ts` | `listLatest`・`listAfter`に`parent_message_id IS NULL`と`replyCount`を追加。返信の関数：`findThreadParent`（親の確認用）・`findItem`（親の1件の表示用）・`listRepliesLatest`・`listRepliesAfter`・`insertReplyIfOrdered`。`maxId`は返信も含めた部屋全体のまま変えない。`toItem`はスレッド一覧の親の項目にも使う |
-| `backend/src/services/message.service.ts` | `listReplies`（EP-1-07）・`postReply`（EP-1-08）・内部の`requireReplyable`・`requireReadableThread`・`roomReplyState`（`joined`・`roomWritable`・部屋が原因の理由を1か所で求める） |
-| `backend/src/db/thread-list.sql.ts` | DAO。スレッド一覧の1本目のSQL（`listThreadRows`）。自分が投稿・返信・メンションしたスレッドの抽出、見える範囲の絞り込み・並び・LIMITを内側で済ませ、件数・部屋・既読位置は件数が決まった後の行にだけ付ける |
+| `backend/src/services/message.service.ts` | `listReplies`（EP-1-07。【#339】成功応答に`caseId`を足す。認可済みの`room.channel.caseId`を返し、DM は`null`。エラー応答には足さない）・`postReply`（EP-1-08）・内部の`requireReplyable`・`requireReadableThread`・`roomReplyState`（`joined`・`roomWritable`・部屋が原因の理由を1か所で求める） |
+| `backend/src/db/thread-list.sql.ts` | DAO。スレッド一覧の1本目のSQL（`listThreadRows`）。自分が投稿・返信・メンションしたスレッドの抽出、見える範囲の絞り込み・並び・LIMITを内側で済ませ、件数・部屋・既読位置は件数が決まった後の行にだけ付ける。【#339（C-210）：案件の ID（`case_id`）も、この外側で、`cases`に一意の索引`cases_channel_id_unique`の`LEFT JOIN`で付ける。行を増やさず・除かないので、件数・`nextCursor`は変わらない】 |
 | `backend/src/db/thread-unread-counts.sql.ts` | DAO。スレッドごとの未読数の2本目のSQL（`listThreadUnreadCounts`）。スレッドと下限の組を`json_each`1つのパラメータで渡し、スレッドの数でクエリもパラメータも増えない |
-| `backend/src/db/thread.repository.ts` | `createThreadRepository`の`listThreads`。2本のSQLをつなぎ、`unreadLowerBound`（スレッドの既読位置・チャンネルの`joined_at`）で下限を決める。`toPage`で`nextCursor`を作る |
+| `backend/src/db/thread.repository.ts` | `createThreadRepository`の`listThreads`。2本のSQLをつなぎ、`unreadLowerBound`（スレッドの既読位置・チャンネルの`joined_at`）で下限を決める。`toPage`で`nextCursor`を作る。【#339】各項目に`caseId`（案件の部屋は案件の ID、通常のチャンネル・DM は`null`）を足す（`case_id`の変換だけ） |
 | `backend/src/services/thread.service.ts` | `createThreadService`の`list`。`perm.notification.own`を`authorize`し、`perm.dm.message.view`を`can`で調べて、持たなければDMのスレッドを条件で除く |
 | `backend/src/db/thread-read-advance.sql.ts` | DAO。スレッドの既読位置を進める条件付きupsert1文（`advanceThreadReadPosition`）。後戻りさせない |
 | `backend/src/db/read-position.repository.ts` | `advanceThread`・`replyExistsInThread`・`threadPosition`（0行のときの読み分けに使う） |
@@ -65,9 +65,9 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | `features/threads/hooks/useThreadParam.ts` | URLのクエリ`?thread=<親ID>`の読み書き（ほかのクエリを残す） |
 | `features/threads/hooks/useMyThreads.ts` | `useInfiniteQuery`。先頭から最大5ページまで。2秒ごとの取り直し（`pollIntervalUnlessDenied`。権限がない・見つからないときは止める） |
 | `features/threads/hooks/useMarkThreadRead.ts` | `useReadPositionSender`でスレッドの既読を送り、成功したら`threadKeys.all`を取り直す |
-| `features/threads/api/thread-api.ts`・`query-keys.ts` | EP-3-08・EP-3-09の通信と応答のZod、`threadKeys` |
+| `features/threads/api/thread-api.ts`・`query-keys.ts` | EP-3-08・EP-3-09の通信と応答のZod、`threadKeys`。【#339】一覧の各項目の`caseId`（`string`か`null`。必須）を検証する。型`ThreadItem`・`ThreadPage`は`features/threads/index.ts`から公開する（案件の資格の見張りが、一覧の行を読むため） |
 | `features/messages/components/ThreadReplies.tsx` | S-07の中身（親の表示・返信の一覧・返信の入力欄・案内）。親は表示だけ |
-| `features/messages/hooks/useThreadReplies.ts` | 返信のキャッシュ（`messageKeys.thread`）と、2秒ごとの「最後のID以降」の取り足し。親・`replyBlockedReason`・`joined`・`roomWritable`は応答のたびに置き換える |
+| `features/messages/hooks/useThreadReplies.ts` | 返信のキャッシュ（`messageKeys.thread`）と、2秒ごとの「最後のID以降」の取り足し。親・`replyBlockedReason`・`joined`・`roomWritable`は応答のたびに置き換える。【#339】`caseId`も保持する（追加の取得が0件で`lastPage`が無いときは、現在の値を残す。返信の 403・404 のあと、案件を確かめるときの対象になる。[access-loss.md](access-loss.md)） |
 | `features/messages/hooks/message-polling.ts` | 部屋とスレッドの共通の部品：`hasMore`の間は続けて取る`catchUpMessages`・ポーリングの設定・非表示から戻ったときの取り直し |
 | `features/messages/hooks/usePostMessage.ts`・`replace-room-message.ts`・`useEditMessage.ts`・`useDeleteMessage.ts` | 部屋とスレッドの両方を扱う。返信の投稿後は、スレッドを取り直し、部屋の一覧の親の`replyCount`を`setQueryData`で1増やす（返信はEP-1-01に出ず、取り直しでは件数が変わらないため） |
 | `features/messages/components/MessageItem.tsx`・`MessageList.tsx`・`RoomMessages.tsx` | 各投稿に「返信 n 件」のボタン（読み上げ名に投稿者名と件数）。`MessageComposer`は`parentMessageId`で返信の入力欄になる（名前は「返信」） |
@@ -116,7 +116,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 - **DMの権限**：`perm.dm.message.view`を持たない利用者には、DMのスレッドを含めない（一覧自体は200）。取得の後に除くとページの件数と`nextCursor`がずれるので、**SQLの条件**（`includeDirect`）で除く。表示の判定なので、`can`（拒否を監査に残さない）を使う。2秒ごとの取り直しで、拒否が監査に溜まらないようにするため【#148：案件専用チャンネルのスレッドも同じ作りで、`perm.case.view`を持たない利用者には含めない。`thread-list.sql.ts`の`includeCase`（**必須の引数**）と`case-room.sql.ts`の`caseRoomListable`。権限があれば、案件のスレッドも一覧に出る。`/channels/<部屋>`を作る入口は、チャンネルの詳細が案件の画面（`/cases/:caseId?thread=`）へ置き換えて移る。通知`message.mentioned`の移動先はS-35のまま。C-184(2)）。[cases.md](cases.md)】
 - **未読（`unreadCount`）**：0〜100（`UNREAD_COUNT_LIMIT`）。自分の返信と削除済みの返信は数えない。下限は`unreadLowerBound`（スレッドの既読位置と、チャンネルの`joined_at`の新しい方）
 - **本文のない親**（#270の2つ目。C-205）：親が添付だけの投稿のとき、`parent.body`は空文字（`toItem`が目印を空文字にする）。画面（`ThreadList.tsx`）は、親の本文が空文字なら「（添付ファイルのみ）」をリンクの文字にする（名前のないリンクを作らない。削除済みの`null`は従来の「このメッセージは削除されました」）。定数`ATTACHMENT_ONLY_LABEL`は`features/messages/index.ts`から読む
-- **応答の形**：項目は`parent`（親の1件と`replyCount`）・`room`（チャンネルは`kind`・`id`・`name`、DMは`kind`・`id`・`partner`）・`lastReplyAt`・`unreadCount`。権限は`perm.notification.own`。応答は`no-store`
+- **応答の形**：項目は`parent`（親の1件と`replyCount`）・`room`（チャンネルは`kind`・`id`・`name`、DMは`kind`・`id`・`partner`）・`lastReplyAt`・`unreadCount`・【#339。C-210】`caseId`（案件専用チャンネルのスレッドなら案件の ID、通常のチャンネル・DM は`null`。画面が、資格を失ったかを確かめる対象を特定するための情報で、認可には使わない。エラー応答には含めない）。権限は`perm.notification.own`。応答は`no-store`
 - SQLは2本（一覧 → 未読数）で、スレッドの数に比例しない。2本の間に返信が付く・既読になると、その1回だけ古い未読数になる（次の取得で直る）【#297：資格を持ったままの部屋でのずれだけが許容。2本の間に閲覧者が資格を失った部屋のスレッドは、未読数の文の条件（`messageViewableBy`）で 0 になる（行は残す）。親・付随の情報の読み取り（メンション・リアクション・添付）にも同じ条件が入る。DMの当事者の条件には、閲覧者が有効であることも足した（`directVisible`）。[cases.md](cases.md)】
 
 ### 画面
@@ -134,10 +134,10 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 
 | 関数 | 入力 | 出力 |
 | --- | --- | --- |
-| `createMessageService().listReplies` | 利用者・親ID・`after`または`cursor`と`limit` | `parent`・`replyBlockedReason`・`joined`・`roomWritable`・`caseRoom`（【#148の148-B-2】スレッドの部屋が案件専用チャンネルか。DMは偽。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない。[cases.md](cases.md)）・`items`（`after`なら`hasMore`、最新なら`nextCursor`）。見えなければ404（`AppError`） |
+| `createMessageService().listReplies` | 利用者・親ID・`after`または`cursor`と`limit` | `parent`・`replyBlockedReason`・`joined`・`roomWritable`・`caseRoom`（【#148の148-B-2】スレッドの部屋が案件専用チャンネルか。DMは偽。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない。[cases.md](cases.md)）・`caseId`（【#339。C-210】案件専用チャンネルなら案件の ID、それ以外は`null`。最新・`after`の両方。資格の確かめの対象を特定するだけで、認可には使わない）・`items`（`after`なら`hasMore`、最新なら`nextCursor`）。見えなければ404（`AppError`） |
 | `createMessageService().postReply` | 利用者・親ID・本文 | `{ id, roomId, parentMessageId, createdAt }`。404・403・409・503（`AppError`）【Issue #140：入力に`attachmentIds`（任意）を足した。返信用にアップロードした、同じ親の添付だけを結び付けられる】 |
 | `insertReplyIfOrdered` | 返信の各値 | 挿入した行数（1か0） |
-| `createThreadService().list` | 利用者・`limit`・`cursor` | `{ items, nextCursor }`（`ThreadItem`） |
+| `createThreadService().list` | 利用者・`limit`・`cursor` | `{ items, nextCursor }`（`ThreadItem`。【#339】各項目に`caseId`） |
 | `createUnreadService().markThreadRead` | 利用者・親ID・`lastReadMessageId` | なし（成功は204）。404・403・409 |
 | `advanceThreadReadPosition` | 利用者・親ID・最後に読んだ返信のID・時刻 | 変更した行数（1か0） |
 
@@ -149,6 +149,7 @@ Issue #137（親：#133）。メッセージに返信し（スレッド。S-07�
 | 返信の最新・`after` | `messages_parent_message_id_id_idx`（`parent_message_id=?`・`parent_message_id=? AND id>?`） |
 | 返信の親 | 主キー |
 | スレッド一覧のSQL1 | 自分の親は`messages_sender_id_parent_message_id_idx`、自分の返信は同索引のカバリング、最後の返信と件数は`messages_parent_message_id_id_idx`のカバリング、親・参加は主キー、既読は`thread_read_positions`の主キー |
+| スレッド一覧のSQL1の`cases`との結び付き（【#339】） | `cases`は一意の索引`cases_channel_id_unique`で引く。`cases`・`messages`・`thread_read_positions`を頭から読まない。スレッドの数を増やしても、SQL の本数は変わらない（2本のまま）。確かめは`backend/src/db/threads.explain.db.test.ts`の`#339 AC-3（EXPLAIN）` |
 | スレッド一覧のSQL2（未読数） | `messages_parent_message_id_id_idx (parent_message_id=? AND id>?)`（`json_each`はSCAN） |
 | スレッドの既読 | 判定のSELECTはすべて主キー |
 | 部屋の未読・DM一覧 | `messages_room_id_id_idx` |
@@ -171,7 +172,7 @@ SQLの本数：スレッド一覧は2本、返信のGETは6本（認証・親・
 
 | 区分 | 場所 |
 | --- | --- |
-| バックエンドの結合 | `backend/src/routes/messages.replies.test.ts`・`messages.replies.authz.test.ts`・`messages.replies.modify.test.ts`・`threads.test.ts`・`threads.room-effects.test.ts`・`thread-read-positions.test.ts`、既存の`openapi.test.ts`・`messages.edit.test.ts`・`messages.delete.test.ts` |
+| バックエンドの結合 | 【#339】`backend/src/routes/threads.case-id.test.ts`（`caseId`の値・閲覧制限の維持・エラー応答に足さない・件数・順序・`nextCursor`が変わらない）、`backend/src/services/case-id.permissions.test.ts`（`perm.case.view`が無いときの扱い。Service の層）、`messages.replies.case-room.test.ts`・`messages.replies.authz.test.ts`・`threads.test.ts`（応答のキーに`caseId`を足した。期待の意味は変えていない）、`backend/src/db/thread.repository.test.ts`・`threads.explain.db.test.ts`。ほか、`backend/src/routes/messages.replies.test.ts`・`messages.replies.authz.test.ts`・`messages.replies.modify.test.ts`・`threads.test.ts`・`threads.room-effects.test.ts`・`thread-read-positions.test.ts`、既存の`openapi.test.ts`・`messages.edit.test.ts`・`messages.delete.test.ts` |
 | Service・競合 | `backend/src/services/message.reply-service.test.ts`・`message.reply-race.test.ts`（確認からINSERTの間の変化）・`thread.service.test.ts`・`unread.thread-race.test.ts`（既読の確認と書き込みの間の変化）、`backend/src/lib/reply-blocked-reasons.test.ts` |
 | DB（実際のD1相当） | `backend/src/db/message.reply-insert.db.test.ts`・`threads.schema.db.test.ts`（0020の制約・索引・列を足した後も通常の投稿が通る）・`threads.explain.db.test.ts`（実行計画）・`cleanup-sql.thread.db.test.ts`（共通の後片付け）。共通のデータ`backend/test/thread-fixtures.ts`・`message-fixtures.ts`・`dm-fixtures.ts` |
 | 画面（MSW） | `frontend/src/features/threads/threads.pane.test.tsx`・`threads.room.test.tsx`（実際の`ChannelDetailView`・`DmView`を通す）・`threads.drafts.test.tsx`・`useThreadParam.test.tsx`、`pages/ThreadsPage.test.tsx`・`threads-route.test.tsx`、`features/messages/hooks/useThreadReplies.test.tsx`・`api/message-api.thread.test.ts`、`features/channels/channel-detail.thread.test.tsx`・`features/dms/DmView.thread.test.tsx`、`features/drafts/draft-policy.thread.test.ts`、`features/app-shell/navigation.threads.test.ts`。共通のデータ`frontend/src/test/thread-handlers.ts`・`thread-harness.tsx`・`message-handlers.ts` |
@@ -186,4 +187,5 @@ SQLの本数：スレッド一覧は2本、返信のGETは6本（認証・親・
 - [ADR-0006](../adr/0006-id-cursor-unread.md)（ID・カーソル・未読）・[ADR-0004](../adr/0004-realtime-polling-then-websocket.md)（ポーリング）・[ADR-0020](../adr/0020-test-scope-mutation-e2e.md)（ミューテーションとE2Eの範囲。(c)に当たる）
 - 関連する設計書：[messages.md](messages.md)・[unread.md](unread.md)・[drafts.md](drafts.md)・[dms.md](dms.md)・[message-edit-markdown.md](message-edit-markdown.md)・[app-shell.md](app-shell.md)・[reactions.md](reactions.md)（#138。返信・親にもリアクションを付けられる。スレッド一覧の項目`reactions`、`ThreadReplies.tsx`の`canReact`）、[attachments.md](attachments.md)（#140。返信にも添付できる。返信用のアップロードの入口、スレッド一覧の親の項目`attachments`）
 - 要件：1-4 AC-1〜AC-4、EP-1-07・EP-1-08・EP-3-08・EP-3-09、S-07・S-35
+- Issue #339（親 #323）：スレッド一覧・返信の成功応答に`caseId`を足し、一覧の SQL に`cases`との結び付きを足した。決定記録C-210、[ADR-0036](../adr/0036-case-access-loss-outside-view.md)。使う側の設計は[access-loss.md](access-loss.md)の「S-17 の外での検出」
 - Issue #148の148-A：案件専用チャンネルの部屋のスレッド。返信できない理由に`case_closed`を足し、スレッドの一覧に`includeCase`を足した。詳細は[cases.md](cases.md)の「148-A の設計」。決定記録C-184。要件：5-2 AC-4、5-1 AC-11、S-07・S-35

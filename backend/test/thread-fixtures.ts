@@ -118,6 +118,10 @@ export type RepliesPage = {
   joined: boolean;
   /** #137：部屋に今書き込めるか（チャンネルは参加中・未アーカイブ・部署が有効、DM は当事者で相手が有効） */
   roomWritable: boolean;
+  /** #148：スレッドの部屋が案件専用チャンネルか（表示の制御だけ） */
+  caseRoom: boolean;
+  /** #339：案件の部屋なら案件の ID、通常のチャンネル・DM は null（成功応答だけに付く） */
+  caseId: string | null;
   items: ReplyItem[];
   nextCursor?: string | null;
   hasMore?: boolean;
@@ -134,6 +138,8 @@ export type ThreadListItem = {
       };
   lastReplyAt: string;
   unreadCount: number;
+  /** #339：案件の部屋なら案件の ID、通常のチャンネル・DM は null */
+  caseId: string | null;
 };
 
 export type ThreadListPage = {

@@ -83,6 +83,7 @@ function world(initial: "active" | "closed") {
         parent,
         replyBlockedReason: closed ? "case_closed" : null,
         caseRoom: true,
+        caseId: caseId(N),
         joined: true,
         roomWritable: !closed,
       });

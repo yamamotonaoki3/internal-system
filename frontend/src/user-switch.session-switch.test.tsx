@@ -226,6 +226,7 @@ function respondWorld(initialUser: TestUser | null): World {
           parent,
           replyBlockedReason: null,
           caseRoom: false,
+          caseId: null,
           joined: true,
           roomWritable: true,
         };

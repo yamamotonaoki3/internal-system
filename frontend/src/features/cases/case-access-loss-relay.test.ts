@@ -276,7 +276,7 @@ describe("#341 AC-2 T-R1 利用者が違う・分からない：通信しない"
 });
 
 describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", () => {
-  it("#341 AC-4 T-R2: その案件の概要のキャッシュが無い：GET は0回、入口なし", async () => {
+  it("#341 AC-4 T-R2: その案件の概要のキャッシュが無い（部屋・スレッドの実績もない）：GET は0回、入口なし", async () => {
     const summary = respondSummary({ kind: "outsider" });
     client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
     postFromOtherTab(CHANNEL, hint());
@@ -287,7 +287,7 @@ describe("#341 AC-4 T-R2 参加者の概要を持たない：通信しない", (
     expect(reportError).not.toHaveBeenCalled();
   });
 
-  it("#341 AC-4 T-R2: その案件の概要のキャッシュが非参加：GET は0回、入口なし", async () => {
+  it("#341 AC-4 T-R2: その案件の概要のキャッシュが非参加（部屋・スレッドの実績もない）：GET は0回、入口なし", async () => {
     const summary = respondSummary({ kind: "outsider" });
     client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
     client.setQueryData(summaryKey(USER_A), outsiderSummary(N));
@@ -514,5 +514,325 @@ describe("#298 AC-7（#376） 合図を受けたタブの確かめが 409 SESSIO
     expect(window.localStorage.getItem(THREAD_DRAFT())).not.toBeNull();
     expect(relaySent()).toEqual([]);
     expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
+// ---- #339（計画 plan-339 の 3 節「別タブの合図後の確認」・5 節「決定2・3の4分岐」の中継の2件と、切り替え後の実績）----
+// 決定3（C-208(3)(10) の置き換え。受け入れ条件への追記）：合図を受けて確かめるタブを、参加者の概要を持つタブに加え、
+// 同じ案件の部屋・スレッドの取得の実績を持つタブまで広げる。受けたタブは入口だけを呼び、片付け・下書きの消去・合図の送り返しはしない（変えない）。
+// 実績は、正常に取得した返信のデータ（caseId つき）・スレッド一覧の行（caseId つき）。案件一覧の行・案件の詳細だけでは、実績にしない（計画 2 節）。
+// 実績は実際の取得（fetchQuery）で作る（手での書き込みは実績にしない）。キャッシュの削除・利用者の切り替えの後は、実績として使わない。
+const ROOM_339 = caseSummary(N).channelId ?? "";
+const PARENT_339 = "01JTESTMSG3390000000000RL1";
+
+function parent339(id: string, roomId: string) {
+  return {
+    id,
+    roomId,
+    author: {
+      id: "01JTESTUSER339000000000RL9",
+      displayName: "testuser_339_author",
+      isActive: true,
+    },
+    body: "[UNIT_TEST]339親",
+    createdAt: "2026-11-25T00:00:00.000Z",
+    editedAt: null,
+    deleted: false,
+    parentMessageId: null,
+    replyCount: 0,
+    mentions: [],
+    reactions: [],
+    attachments: [],
+  };
+}
+
+function repliesData339(
+  caseIdValue: string | null,
+  parentId = PARENT_339,
+  roomId = ROOM_339,
+) {
+  return {
+    parent: parent339(parentId, roomId),
+    replies: [],
+    replyBlockedReason: null,
+    joined: true,
+    roomWritable: true,
+    caseRoom: caseIdValue !== null,
+    caseId: caseIdValue,
+  };
+}
+
+/** このタブで、その案件のスレッドの返信を正常に取得した（概要は持たない） */
+async function fetchedCaseReplies() {
+  await client.fetchQuery({
+    queryKey: ["messages", "thread", PARENT_339],
+    queryFn: () => Promise.resolve(repliesData339(caseId)),
+  });
+}
+
+/** このタブで、スレッド一覧（S-35）を正常に取得した。その案件の行がある */
+async function fetchedCaseThreadRow() {
+  await client.fetchInfiniteQuery({
+    queryKey: ["threads", "list"],
+    queryFn: () =>
+      Promise.resolve({
+        items: [
+          {
+            parent: parent339(PARENT_339, ROOM_339),
+            room: { kind: "channel", id: ROOM_339, name: "[UNIT_TEST]339部屋" },
+            lastReplyAt: "2026-11-25T00:00:00.000Z",
+            unreadCount: 0,
+            caseId,
+          },
+        ],
+        nextCursor: null,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: () => undefined,
+  });
+}
+
+describe("#339 AC-1 決定3：概要がなく、部屋・スレッドの取得の実績があるタブ", () => {
+  it.each([
+    ["返信を取得した", "成功して非参加", "replies", { kind: "outsider" }],
+    ["返信を取得した", "404", "replies", { kind: "status", status: 404 }],
+    [
+      "スレッド一覧の行を取得した",
+      "成功して非参加",
+      "list",
+      { kind: "outsider" },
+    ],
+    [
+      "スレッド一覧の行を取得した",
+      "404",
+      "list",
+      { kind: "status", status: 404 },
+    ],
+  ] as const)(
+    "#339 AC-1: 概要がなくスレッドの取得実績があるタブは、合図から確認して入口だけを呼ぶ（%s・確かめが%s）：GET 1回、入口1回。片付け・下書き消去・送り返しは0",
+    async (_evidenceName, _answerName, evidence, answer) => {
+      const summary = respondSummary(answer as Answer);
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      if (evidence === "replies") await fetchedCaseReplies();
+      else await fetchedCaseThreadRow();
+      writeDrafts();
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+      await flushTasks();
+      expect(summary.calls).toBe(1);
+      expect(entryCalls()).toHaveLength(1);
+      expect(entryCalls()[0]?.[0]).toBe(client);
+      expect(entryCalls()[0]?.[1]).toStrictEqual({
+        ownerId: USER_A,
+        reason: "lost",
+      });
+      // 片付けない（キャッシュは残る。概要のキャッシュは作らない）
+      if (evidence === "replies")
+        expect(
+          client.getQueryData(["messages", "thread", PARENT_339]),
+        ).toBeDefined();
+      else expect(client.getQueryData(["threads", "list"])).toBeDefined();
+      expect(client.getQueryData(summaryKey(USER_A))).toBeUndefined();
+      // 下書きを消さない・送り返さない
+      expect(window.localStorage.getItem(ROOM_DRAFT())).not.toBeNull();
+      expect(window.localStorage.getItem(THREAD_DRAFT())).not.toBeNull();
+      expect(relaySent()).toEqual([]);
+      expect(reportError).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["参加者のまま", { kind: "participant" }],
+    ["500", { kind: "status", status: 500 }],
+    ["通信の失敗", { kind: "network" }],
+  ] as const)(
+    "#339 AC-1: 概要がなくスレッドの取得実績があるタブは、合図から確認して入口だけを呼ぶ：確かめが%sなら、入口を呼ばない",
+    async (_name, answer) => {
+      const summary = respondSummary(answer as Answer);
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      await fetchedCaseReplies();
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(summary.calls).toBe(1));
+      // 1回目の確かめが終わったこと（同じ案件の確かめ中の印が外れたこと）を、次の合図で2回目の GET が出ることで待つ
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(summary.calls).toBe(2));
+      expect(entryCalls()).toHaveLength(0);
+      expect(reportError).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#339 AC-1: 概要も部屋・スレッドの取得実績もないタブは、合図を受けても通信しない：案件一覧の行・案件の詳細・ほかの案件の返信・通常の部屋の返信・取得が初回から失敗した返信だけを持つ：GET 0回、入口なし", async () => {
+    const summary = respondSummary({ kind: "outsider" });
+    client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+    // 案件一覧の行（実績にしない）
+    await client.fetchInfiniteQuery({
+      queryKey: ["cases", "list", USER_A, "all", "active"],
+      queryFn: () =>
+        Promise.resolve({ items: [outsiderSummary(N)], nextCursor: null }),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: () => undefined,
+    });
+    // 案件の詳細（実績にしない）
+    await client.fetchQuery({
+      queryKey: detailKey(USER_A),
+      queryFn: () => Promise.resolve({ sentinel: "[UNIT_TEST]339詳細" }),
+    });
+    // ほかの案件の返信・通常の部屋の返信
+    await client.fetchQuery({
+      queryKey: ["messages", "thread", "01JTESTMSG3390000000000RL2"],
+      queryFn: () =>
+        Promise.resolve(
+          repliesData339(
+            OTHER_CASE,
+            "01JTESTMSG3390000000000RL2",
+            "01JTESTROOM339000000000RL2",
+          ),
+        ),
+    });
+    await client.fetchQuery({
+      queryKey: ["messages", "thread", "01JTESTMSG3390000000000RL3"],
+      queryFn: () =>
+        Promise.resolve(
+          repliesData339(
+            null,
+            "01JTESTMSG3390000000000RL3",
+            "01JTESTROOM339000000000RL3",
+          ),
+        ),
+    });
+    // その案件の部屋の返信の取得が、初回から失敗した（成功のデータが無い）
+    await client
+      .fetchQuery({
+        queryKey: ["messages", "thread", PARENT_339],
+        queryFn: () =>
+          Promise.reject({
+            status: 404,
+            code: "NOT_FOUND",
+            message: "[UNIT_TEST]339",
+          }),
+      })
+      .catch(() => undefined);
+    postFromOtherTab(CHANNEL, hint());
+    await flushTasks(10);
+    expect(summary.calls).toBe(0);
+    expect(entryCalls()).toHaveLength(0);
+    expect(relaySent()).toEqual([]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
+describe("#339 AC-1 利用者の切り替えの後の合図は、前の利用者の実績を使わない", () => {
+  it("#339 AC-1: 切り替え後の合図は前の利用者の実績を使わない：A でスレッドを取得 → 利用者の切り替えの見張りが B への切り替えでキャッシュを捨てる → B の合図：GET 0回、入口なし", async () => {
+    const { installUserSwitchGuard } = await import("../auth");
+    const stopGuard = installUserSwitchGuard(client);
+    try {
+      const summary = respondSummary({ kind: "outsider" });
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      await fetchedCaseReplies();
+      await fetchedCaseThreadRow();
+      client.setQueryData(["auth", "session"], sessionOf(USER_B));
+      postFromOtherTab(CHANNEL, hint({ userId: USER_B.id }));
+      await flushTasks(10);
+      expect(summary.calls).toBe(0);
+      expect(entryCalls()).toHaveLength(0);
+    } finally {
+      stopGuard();
+    }
+  });
+
+  it("#339 AC-1: 切り替え後の合図は前の利用者の実績を使わない：A の返信の取得の途中に B へ切り替わり、遅れて A の応答が届いても、B の合図では GET 0回", async () => {
+    const { installUserSwitchGuard } = await import("../auth");
+    const stopGuard = installUserSwitchGuard(client);
+    try {
+      const summary = respondSummary({ kind: "outsider" });
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      const gate = deferred();
+      const late = client
+        .fetchQuery({
+          queryKey: ["messages", "thread", PARENT_339],
+          queryFn: async () => {
+            await gate.promise;
+            return repliesData339(caseId);
+          },
+        })
+        .catch((error: unknown) => error);
+      await flushTasks();
+      client.setQueryData(["auth", "session"], sessionOf(USER_B));
+      gate.release();
+      await late;
+      postFromOtherTab(CHANNEL, hint({ userId: USER_B.id }));
+      await flushTasks(10);
+      expect(summary.calls).toBe(0);
+      expect(entryCalls()).toHaveLength(0);
+    } finally {
+      stopGuard();
+    }
+  });
+});
+
+describe("#339 AC-1 チャンネルの詳細で分かる対応（コードレビュー1回目の指摘4。計画 2 節）", () => {
+  function channelDetail339(caseIdValue: string | null) {
+    return {
+      id: ROOM_339,
+      roomId: ROOM_339,
+      name: "[UNIT_TEST]339チャンネル",
+      description: "",
+      visibility: "private",
+      departmentId: null,
+      joined: true,
+      isCaseChannel: caseIdValue !== null,
+      caseId: caseIdValue,
+      canPost: true,
+      readOnly: false,
+      version: 1,
+      manage: {
+        canRename: false,
+        canEditDescription: false,
+        canArchive: false,
+      },
+    };
+  }
+
+  it.each([
+    ["成功して非参加", { kind: "outsider" }],
+    ["404", { kind: "status", status: 404 }],
+  ] as const)(
+    "#339 AC-1: チャンネルの詳細（caseId つき）と、正常に取得した空の部屋のメッセージだけがあるタブは、合図から確かめて入口だけを呼ぶ（確かめが%s）",
+    async (_name, answer) => {
+      const summary = respondSummary(answer as Answer);
+      client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+      await client.fetchQuery({
+        queryKey: ["channels", "detail", ROOM_339],
+        queryFn: () => Promise.resolve(channelDetail339(caseId)),
+      });
+      await client.fetchQuery({
+        queryKey: ["messages", "room", ROOM_339],
+        queryFn: () => Promise.resolve([]),
+      });
+      writeDrafts();
+      postFromOtherTab(CHANNEL, hint());
+      await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+      expect(summary.calls).toBe(1);
+      expect(entryCalls()[0]?.[1]).toStrictEqual({
+        ownerId: USER_A,
+        reason: "lost",
+      });
+      expect(client.getQueryData(["messages", "room", ROOM_339])).toEqual([]);
+      expect(window.localStorage.getItem(ROOM_DRAFT())).not.toBeNull();
+      expect(relaySent()).toEqual([]);
+    },
+  );
+
+  it("#339 AC-1: チャンネルの詳細だけ（部屋のメッセージの取得が無い）のタブは、合図を受けても通信しない", async () => {
+    const summary = respondSummary({ kind: "outsider" });
+    client.setQueryData(["auth", "session"], sessionOf(TEST_USER));
+    await client.fetchQuery({
+      queryKey: ["channels", "detail", ROOM_339],
+      queryFn: () => Promise.resolve(channelDetail339(caseId)),
+    });
+    postFromOtherTab(CHANNEL, hint());
+    await flushTasks(10);
+    expect(summary.calls).toBe(0);
+    expect(entryCalls()).toHaveLength(0);
   });
 });

@@ -112,6 +112,8 @@ const repliesLatestSchema = z.object({
   roomWritable: z.boolean(),
   /** スレッドの部屋が案件専用チャンネルか。添付の公開範囲の選択を出すかに使う（表示の制御だけ） */
   caseRoom: z.boolean(),
+  /** スレッドの部屋の案件の ID（通常のチャンネル・DM は null）。資格の確かめの対象を決めるだけで、認可には使わない（#339） */
+  caseId: z.string().min(1).nullable(),
 });
 const repliesAfterSchema = z.object({
   items: z.array(replySchema),
@@ -124,6 +126,8 @@ const repliesAfterSchema = z.object({
   roomWritable: z.boolean(),
   /** スレッドの部屋が案件専用チャンネルか。添付の公開範囲の選択を出すかに使う（表示の制御だけ） */
   caseRoom: z.boolean(),
+  /** スレッドの部屋の案件の ID（通常のチャンネル・DM は null）。資格の確かめの対象を決めるだけで、認可には使わない（#339） */
+  caseId: z.string().min(1).nullable(),
 });
 const createdSchema = z.object({
   id: z.string().min(1),
@@ -157,6 +161,7 @@ export type ThreadRepliesPage = {
   joined: boolean;
   roomWritable: boolean;
   caseRoom: boolean;
+  caseId: string | null;
 };
 export type ThreadRepliesAfterPage = ThreadRepliesPage & { hasMore: boolean };
 
@@ -258,6 +263,7 @@ export async function fetchLatestReplies(
     joined: page.joined,
     roomWritable: page.roomWritable,
     caseRoom: page.caseRoom,
+    caseId: page.caseId,
   };
 }
 

@@ -111,6 +111,8 @@ function threadRow(overrides: Record<string, unknown> = {}) {
     partner_display_name: "テスト次郎",
     partner_is_active: 1,
     last_read_message_id: null,
+    // #339：案件の部屋なら案件の ID（DM・通常のチャンネルは null）。ほかの壊れた行のテストが、この欠けではなく元の異常で失敗するようにそろえる
+    case_id: null,
     ...overrides,
   };
 }
@@ -232,6 +234,47 @@ describe("#137 AC-1（1-4 AC-4）壊れた行を成功の一覧に見せない�
       ),
     ).rejects.toBeInstanceOf(Error);
   });
+
+  it("#339 AC-1: 行の case_id を項目の caseId に写す（案件の部屋は案件の ID、それ以外は null）", async () => {
+    const page = await listWith(
+      [
+        threadRow({
+          id: idAt(1),
+          last_reply_id: idAt(4),
+          room_id: "testroom_threpo_case",
+          channel_name: `${TEST_TAG}案件の部屋`,
+          partner_id: null,
+          partner_display_name: null,
+          partner_is_active: null,
+          case_id: "testcase_threpo_001",
+        }),
+        threadRow({ id: idAt(2), last_reply_id: idAt(3) }),
+      ],
+      [
+        { parent_id: idAt(1), unread_count: 0 },
+        { parent_id: idAt(2), unread_count: 0 },
+      ],
+    );
+    expect(page.items.map((item) => item.caseId)).toEqual([
+      "testcase_threpo_001",
+      null,
+    ]);
+  });
+
+  it.each([
+    ["欠けている", { case_id: undefined }],
+    ["数値", { case_id: 1 }],
+  ])(
+    "#339 AC-1: case_id が%s行は、caseId のない項目を返さずに失敗する",
+    async (_label, overrides) => {
+      await expect(
+        listWith(
+          [threadRow(overrides)],
+          [{ parent_id: idAt(1), unread_count: 0 }],
+        ),
+      ).rejects.toBeInstanceOf(Error);
+    },
+  );
 
   it("#137 AC-1（1-4 AC-4）: スレッドの未読数が取れなかった行があれば、未読数のない項目を返さずに失敗する", async () => {
     await expect(

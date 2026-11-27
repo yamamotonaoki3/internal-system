@@ -180,9 +180,11 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
    - `same`：文書の利用者が返った。**続けて3回目で`unknown`にし**、セッションのクエリをエラー状態（`RequireAuth`が「ログイン状態を確認できませんでした」と再試行を出す）にする。数える単位は完了した取り直し。`same`以外の結果・`unknown`を返したとき・最後の`same`から30秒、409 が無かったとき、数を戻す
    - `unauthenticated`：401。`api-client.ts`の既存の401の処理が動く
    - `unknown`：5xx・通信の失敗・取り消し・手での書き換えと重なって答えが分からないとき。中身を隠す（`RequireAuth`の既存の表示）。取り消しを理由に、セッションの状態を失敗にはしない
-6. **資格の確かめとの関係（#376）**：案件の画面の資格の確かめ（`features/cases/hooks/useCaseAccessLoss.ts`の`verifyParticipant`）は、答えが 409 `SESSION_USER_MISMATCH`のとき、`confirmSessionUserAfterMismatch`の結果を待つ（[cases.md](cases.md)の「資格を失ったときの画面の切り替え（#308）」）。**別の利用者が確かで、切り替えの入口が動いているときだけ**喪失として扱わない（`switched`）。それ以外は確かめられない（`unverified`）として、中身を隠す。キャッシュの不在を、喪失の証拠にしない
+6. **資格の確かめとの関係（#376）**：案件の画面の資格の確かめ（`features/cases/case-access-verification.ts`の`verifyBySummaryRefetch`。【#339で、`useCaseAccessLoss.ts`の`verifyParticipant`から移した。判定は変えない】）は、答えが 409 `SESSION_USER_MISMATCH`のとき、`confirmSessionUserAfterMismatch`の結果を待つ（[cases.md](cases.md)の「資格を失ったときの画面の切り替え（#308）」）。**別の利用者が確かで、切り替えの入口が動いているときだけ**喪失として扱わない（`switched`）。それ以外は確かめられない（`unverified`）として、中身を隠す。キャッシュの不在を、喪失の証拠にしない
 
 ### 画面の側：決まり
+
+- 【#339（C-210）】S-17 の外での資格の見張り（`features/cases/case-access-loss-monitor.ts`の`installCaseAccessLossMonitor`）は、`main.tsx`で、利用者の切り替えの見張り（`installUserSwitchGuard`）より**後**に登録する。別の利用者に替わったときは、切り替えの見張りが先にキャッシュを捨て、見張りは、捨てられた Query の遅れて届いた応答を使わない。見張りは、セッションの利用者が別の利用者に替わるたびに「利用者の世代」を進め（A → B → A でも）、画面の外の確かめは、始めたときの利用者・世代を、副作用の直前に照らす。別の利用者に替わったと分かったときの読み込み直し（上の 3・4）と、資格の確かめの 409 の扱い（上の 6）は変えない。詳細は[access-loss.md](access-loss.md)の「S-17 の外での検出」
 
 - ヘッダーの値は、画面の側の状態（キャッシュ・ログイン状態）が変わっても変えない。古い画面の続きの要求が、始めた利用者のまま送られ、サーバーが食い違いとして断るため。別の利用者に替わったら、読み込み直しで文書ごと替わる
 - 画面の既存の 409 の分岐（競合の表示）は、ステータスではなく、コード`CONFLICT`で判定する（`isConflictError`。PR-2a）。食い違いの 409 は、競合の表示にならない
@@ -325,6 +327,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 - Issue：#120（親 #108）、#123（本人パスワード変更・再認証）、依存 #119。後続：#121・#122・#127・無効化のIssue・各業務Issue
 - ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）
 - Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）
+- Issue #339（S-17 の外での資格の見張り。C-210・ADR 0036）：利用者の切り替えの見張りより後に登録し、利用者の世代で古い確かめを捨てる（上の「画面の側：決まり」）
 - Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側と画面の側の両方が実装済み）。#376（資格の確かめの取り違え。#298 とまとめて直した）。後追い：#380・#382・#383
 - 決定記録：C-187、C-209、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`

@@ -123,6 +123,7 @@ function respondThread(
         parent,
         replyBlockedReason: options.parentDeleted ? "deleted_parent" : null,
         caseRoom: true,
+        caseId: caseId(options.roomN),
         joined: true,
         roomWritable: true,
       });
@@ -606,6 +607,7 @@ describe("#148 AC-7 コードレビュー1回目（軽微） 削除・編集の�
           }),
           replyBlockedReason: null,
           caseRoom: true,
+          caseId: caseId(17),
           joined: true,
           roomWritable: true,
         }),

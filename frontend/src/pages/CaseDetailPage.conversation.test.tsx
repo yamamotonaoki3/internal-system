@@ -435,6 +435,7 @@ function respondSwitchWorld() {
         parent: parentOf(user),
         replyBlockedReason: null,
         caseRoom: true,
+        caseId: caseId(N),
         joined: true,
         roomWritable: true,
       })),

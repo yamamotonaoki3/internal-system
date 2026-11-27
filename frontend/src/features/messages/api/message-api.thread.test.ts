@@ -115,6 +115,7 @@ describe("#137 AC-1（1-4 AC-1）返信の応答の joined（今参加してい�
             parent: PARENT,
             replyBlockedReason: null,
             caseRoom: false,
+            caseId: null,
             joined,
             roomWritable: true,
           }),
@@ -160,6 +161,7 @@ describe("#137 AC-1（1-4 AC-1）返信の応答の roomWritable（部屋に今�
             parent: PARENT,
             replyBlockedReason: null,
             caseRoom: false,
+            caseId: null,
             joined: true,
             roomWritable,
           }),
@@ -250,6 +252,10 @@ describe("#137 AC-1（1-4 AC-1・AC-3）返信の取得", () => {
             parent: PARENT,
             replyBlockedReason: value,
             caseRoom: false,
+            caseId: null,
+            // #339：ほかの必須項目をそろえ、理由の値だけで失敗することを確かめる
+            joined: true,
+            roomWritable: true,
           }),
         ),
       );
@@ -294,5 +300,76 @@ describe("#137 AC-1（1-4 AC-1・AC-2）返信の投稿", () => {
     await expect(
       postReply(PARENT.id, "[E2E_TEST]遅れた返信"),
     ).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+  });
+});
+
+// #339 AC-1（計画 plan-339 の 2 節・5 節「成功応答のcaseIdを検証する」）：返信の最新・追加取得の成功応答の caseId を検証して受け取る。
+// 案件の部屋なら案件の ID、通常のチャンネル・DM は null。欠落・型違いは契約違反。エラー応答（403・404）には caseId を求めない。
+// 前提にした口（実装の担当へ）：fetchLatestReplies・fetchRepliesAfter の戻り値（ThreadRepliesPage・ThreadRepliesAfterPage）に caseId: string | null を足す。
+describe("#339 AC-1 返信の成功応答の caseId", () => {
+  const CASE_ID = "01JTESTCASE339000000000MA1";
+
+  it.each([
+    ["案件の部屋", CASE_ID],
+    ["通常のチャンネル・DM", null],
+  ])(
+    "#339 AC-1: 成功応答のcaseIdを検証する：%sの caseId を、最新の取得（fetchLatestReplies）と追加の取得（fetchRepliesAfter）の両方で受け取る",
+    async (_label, caseId) => {
+      respondReplies({
+        parent: PARENT,
+        replies: [reply(PARENT, 1)],
+        caseRoom: caseId !== null,
+        caseId,
+      });
+      expect((await fetchLatestReplies(PARENT.id)).caseId).toBe(caseId);
+      const after = await fetchRepliesAfter(PARENT.id, reply(PARENT, 1).id);
+      expect(after.items).toEqual([]);
+      expect(after.caseId).toBe(caseId);
+    },
+  );
+
+  it.each([
+    ["欠落", undefined],
+    ["数値", 339],
+    ["空文字", ""],
+    ["真偽値", false],
+    ["オブジェクト", { id: CASE_ID }],
+  ])(
+    "#339 AC-1: 成功応答のcaseIdを検証する：caseId が%sの応答は、最新・追加の取得とも契約違反として失敗にする",
+    async (_label, caseId) => {
+      server.use(
+        http.get("/api/messages/:messageId/replies", () =>
+          HttpResponse.json({
+            items: [],
+            nextCursor: null,
+            hasMore: false,
+            parent: PARENT,
+            replyBlockedReason: null,
+            caseRoom: true,
+            caseId,
+            joined: true,
+            roomWritable: true,
+          }),
+        ),
+      );
+      await expect(fetchLatestReplies(PARENT.id)).rejects.toBeDefined();
+      await expect(fetchRepliesAfter(PARENT.id, "0")).rejects.toBeDefined();
+    },
+  );
+
+  it("#339 AC-1: 404 のエラー応答に caseId が無くても、ApiError のまま返す（エラー応答の形は変えない）", async () => {
+    server.use(
+      http.get("/api/messages/:messageId/replies", () =>
+        apiErrorResponse(404, "NOT_FOUND", "見つかりません"),
+      ),
+    );
+    await expect(fetchLatestReplies(PARENT.id)).rejects.toMatchObject({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+    await expect(fetchRepliesAfter(PARENT.id, "0")).rejects.toMatchObject({
+      status: 404,
+      code: "NOT_FOUND",
+    });
   });
 });

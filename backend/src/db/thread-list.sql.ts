@@ -4,6 +4,7 @@
 // 索引：自分の投稿は messages_sender_id_parent_message_id_idx（sender_id, parent_message_id）で引き、会社全体の返信を読まない。
 //   最後の返信は messages_parent_message_id_id_idx の MAX、親・部屋・参加は主キー、スレッドの既読位置は主キー（EXPLAIN は docs/design/threads.md）。
 // 内側の SELECT で「見える範囲の絞り込み・並び・LIMIT」を済ませ、返信の件数・部屋・既読位置などの詳細は、LIMIT 後の行にだけ付ける（件数はスレッドの数に比例しない）。
+// 案件との対応（case_id。#339）も、この外側で cases_channel_id_unique（一意）の LEFT JOIN で付ける。行を増やさず・除かないので、件数とカーソルは変わらない。
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { CursorPayload } from "../lib/cursor";
@@ -30,6 +31,7 @@ const rowSchema = z.object({
   partner_display_name: z.string().nullable(),
   partner_is_active: z.union([z.literal(0), z.literal(1)]).nullable(),
   last_read_message_id: z.string().nullable(),
+  case_id: z.string().nullable(),
 });
 
 export type ThreadListRow = z.infer<typeof rowSchema>;
@@ -77,7 +79,8 @@ export async function listThreadRows(
       (SELECT lr.created_at FROM messages lr WHERE lr.id = page.last_reply_id) AS last_reply_at,
       c.name AS channel_name, cm.joined_at AS joined_at,
       pu.id AS partner_id, pu.display_name AS partner_display_name, pu.is_active AS partner_is_active,
-      tp.last_read_message_id AS last_read_message_id
+      tp.last_read_message_id AS last_read_message_id,
+      cs.id AS case_id
     FROM (
       SELECT t.parent_id AS parent_id, t.last_reply_id AS last_reply_id
       FROM (
@@ -99,6 +102,7 @@ export async function listThreadRows(
     JOIN messages p ON p.id = page.parent_id
     JOIN users au ON au.id = p.sender_id
     LEFT JOIN channels c ON c.room_id = p.room_id
+    LEFT JOIN cases cs ON cs.channel_id = c.room_id
     LEFT JOIN channel_members cm ON cm.channel_id = p.room_id AND cm.user_id = ${userId}
     LEFT JOIN conversation_members pm ON pm.conversation_id = p.room_id AND pm.user_id <> ${userId}
     LEFT JOIN users pu ON pu.id = pm.user_id

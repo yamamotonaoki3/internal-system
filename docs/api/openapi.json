@@ -8748,7 +8748,8 @@
           "roomWritable",
           "items",
           "nextCursor",
-          "caseRoom"
+          "caseRoom",
+          "caseId"
         ],
         "additionalProperties": false,
         "properties": {
@@ -8793,6 +8794,14 @@
           "caseRoom": {
             "type": "boolean",
             "description": "スレッドの部屋が案件専用チャンネルか（DM は偽）。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない"
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "スレッドの部屋が案件専用チャンネルなら、その案件の ID（#339）。通常のチャンネル・DM は null。画面が、資格を失ったかを確かめる対象を特定するための情報で、認可には使わない。エラー応答には含めない"
           }
         }
       },
@@ -8805,7 +8814,8 @@
           "roomWritable",
           "items",
           "hasMore",
-          "caseRoom"
+          "caseRoom",
+          "caseId"
         ],
         "additionalProperties": false,
         "properties": {
@@ -8847,6 +8857,14 @@
           "caseRoom": {
             "type": "boolean",
             "description": "スレッドの部屋が案件専用チャンネルか（DM は偽）。添付の公開範囲の選択を出すかの表示の制御だけで、認可には使わない"
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "スレッドの部屋が案件専用チャンネルなら、その案件の ID（#339）。通常のチャンネル・DM は null。画面が、資格を失ったかを確かめる対象を特定するための情報で、認可には使わない。エラー応答には含めない"
           }
         }
       },
@@ -8923,7 +8941,8 @@
           "parent",
           "room",
           "lastReplyAt",
-          "unreadCount"
+          "unreadCount",
+          "caseId"
         ],
         "additionalProperties": false,
         "properties": {
@@ -8943,6 +8962,14 @@
             "minimum": 0,
             "maximum": 100,
             "description": "スレッドの未読の返信の件数（100 件で打ち切る。画面は 99 を超えたら「99+」と表示する）。自分の返信と削除済みの返信は数えない"
+          },
+          "caseId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+            "description": "スレッドの部屋が案件専用チャンネルなら、その案件の ID（#339）。通常のチャンネル・DM は null。画面が、資格を失ったかを確かめる対象を特定するための情報で、認可には使わない。件数・並び・nextCursor は変わらない"
           }
         }
       },

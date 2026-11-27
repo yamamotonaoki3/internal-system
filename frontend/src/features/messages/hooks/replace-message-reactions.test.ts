@@ -54,6 +54,7 @@ const thread = (): ThreadRepliesData => ({
   replies: [REPLY, reply(PARENT, 2, { reactions: OLD })],
   replyBlockedReason: null,
   caseRoom: false,
+  caseId: null,
   joined: true,
   roomWritable: true,
 });

@@ -56,7 +56,7 @@ function build(thread?: string) {
     body: "[E2E_TEST]148b2案件の親",
   });
   respondRoom([parent]);
-  respondReplies({ parent, replies: [], caseRoom: true });
+  respondReplies({ parent, replies: [], caseRoom: true, caseId: caseId(N) });
   const api = respondAttachments();
   recordReplyPosts(api, parent.id);
   const view = renderCaseRequestScreen(<CaseDetailPage />, {
