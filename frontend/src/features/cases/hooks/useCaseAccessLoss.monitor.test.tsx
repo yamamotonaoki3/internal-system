@@ -26,7 +26,10 @@ import {
   flushTasks,
 } from "../../../test/fake-broadcast-channel";
 import { server } from "../../../test/server";
-import { installCaseAccessLossMonitor } from "../case-access-loss-monitor";
+import {
+  installCaseAccessLossMonitor,
+  startCaseParticipationPeriod,
+} from "../case-access-loss-monitor";
 import { useCaseAccessLoss } from "./useCaseAccessLoss";
 
 vi.mock(
@@ -809,6 +812,381 @@ describe("#339 AC-2 答えを待つ間に、概要の Query と実績が捨て�
       expect(entryCalls()).toHaveLength(0);
       expect(announced()).toEqual([]);
       expect(draftsPresent()).toBe(DRAFTS.length);
+    },
+  );
+});
+
+// ---- ミューテーション診断（#339。mj339 の T1〜T39 のうち、S-17 のフックの側）で足したもの ----
+// 期待は、C-206〜C-210・設計書 access-loss.md「S-17 の外での検出」・確定した計画と、統括の決定（初回の確定は、取得して届いた答えだけで行う）から決めた。
+const OTHER_CASE_HM = "01JTESTCASE339000000000HM2";
+const OTHER_USER_HM = "01JTESTUSER339000000000HM2";
+const sessionOfUser = (id: string) => ({
+  user: { id, displayName: "testuser_339_hm", loginId: "testuser_339_hm" },
+  mustChangePassword: false,
+  reauthenticatedAt: null,
+  permissions: [],
+});
+const listRow = (parentId: string, roomId: string, caseId: string | null) => ({
+  parent: repliesData(parentId, roomId, caseId).parent,
+  room: { kind: "channel", id: roomId, name: "[UNIT_TEST]339部屋" },
+  lastReplyAt: "2026-11-25T00:00:00.000Z",
+  unreadCount: 0,
+  caseId,
+});
+async function fetchedList(rows: unknown[]) {
+  await client.fetchInfiniteQuery({
+    queryKey: ["threads", "list"],
+    queryFn: () => Promise.resolve({ items: rows, nextCursor: null }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: () => undefined,
+  });
+}
+function channelDetailOf(roomId: string, caseId: string | null) {
+  return {
+    id: roomId,
+    roomId,
+    name: "[UNIT_TEST]339チャンネル",
+    description: "",
+    visibility: "private",
+    departmentId: null,
+    joined: true,
+    isCaseChannel: caseId !== null,
+    caseId,
+    canPost: true,
+    readOnly: false,
+    version: 1,
+    manage: { canRename: false, canEditDescription: false, canArchive: false },
+  };
+}
+async function expectNothingYet() {
+  await act(async () => {
+    await flushTasks(5);
+  });
+  expect(entryCalls()).toHaveLength(0);
+  expect(announced()).toEqual([]);
+  expect(draftsPresent()).toBe(DRAFTS.length);
+}
+async function expectConfirmedOnce() {
+  await waitFor(() => expect(announced()).toHaveLength(1));
+  await waitFor(() => expect(draftsPresent()).toBe(0));
+  expect(entryCalls()).toHaveLength(1);
+  expect(window.localStorage.getItem(OTHER_DRAFT)).not.toBeNull();
+}
+
+describe("#339 AC-2 初回の確定に使う実績と部屋の ID（T1〜T3。計画 2 節・3 節「初回の新しい概要。実績あり」）", () => {
+  it.each([
+    [
+      "別の案件の行と通常の部屋の行だけ",
+      () => [
+        listRow(OTHER_PARENT, OTHER_ROOM, OTHER_CASE_HM),
+        listRow("01JTESTMSG3390000000000HM3", OTHER_ROOM, null),
+      ],
+      false,
+    ],
+    [
+      "別の案件の行の後に、その案件の行",
+      () => [
+        listRow(OTHER_PARENT, OTHER_ROOM, OTHER_CASE_HM),
+        listRow(PARENT, ROOM, CASE),
+      ],
+      true,
+    ],
+  ])(
+    "#339 AC-2: 実績がスレッド一覧の%sのとき、初回に取得した非参加で、その案件の行だけを実績にし、その行の部屋の下書きを消す",
+    async (_label, rows, confirms) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetchedList(rows());
+      const fresh = startFreshSummary();
+      mountS17(INITIAL_OUTSIDER_PROPS);
+      await fresh.deliver();
+      if (confirms) await expectConfirmedOnce();
+      else await expectNothingYet();
+    },
+  );
+
+  it.each([
+    ["別の案件", OTHER_CASE_HM],
+    ["通常のチャンネル（caseId が null）", null],
+  ])(
+    "#339 AC-2: 実績が、%sのチャンネルの詳細と、その部屋の正常に取得したメッセージだけなら、この案件の初回の非参加では確定しない",
+    async (_label, caseIdValue) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetched(
+        ["channels", "detail", OTHER_ROOM],
+        channelDetailOf(OTHER_ROOM, caseIdValue),
+      );
+      await fetched(["messages", "room", OTHER_ROOM], []);
+      const fresh = startFreshSummary();
+      mountS17(INITIAL_OUTSIDER_PROPS);
+      await fresh.deliver();
+      await expectNothingYet();
+    },
+  );
+
+  it("#339 AC-2: まだデータの無いチャンネルの詳細の Query が混ざっていても、例外にせず、案件の詳細の部屋と取得済みのメッセージで確定する", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    const pending = deferred();
+    const waiting = client
+      .fetchQuery({
+        queryKey: ["channels", "detail", OTHER_ROOM],
+        queryFn: async () => {
+          await pending.promise;
+          return channelDetailOf(OTHER_ROOM, null);
+        },
+      })
+      .catch((error: unknown) => error);
+    client.setQueryData(DETAIL, { id: CASE, channelId: ROOM });
+    await fetched(ROOM_KEY, []);
+    const fresh = startFreshSummary();
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    await fresh.deliver();
+    await expectConfirmedOnce();
+    pending.release();
+    await waiting;
+  });
+});
+
+describe("#339 AC-2 初回の答えを待つ間の変化（T33〜T35・T37）", () => {
+  it("#339 AC-2: 開いたときにセッションの利用者が画面の利用者と違えば、その後に同じ利用者になって非参加が届いても、そのとき読んだ実績で確定しない", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(["auth", "session"], sessionOfUser(OTHER_USER_HM));
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    const fresh = startFreshSummary();
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    client.setQueryData(["auth", "session"], sessionOfUser(USER));
+    await fresh.deliver();
+    await expectNothingYet();
+  });
+
+  it("#339 AC-2: 初回の答えを待つ間に、手で書いた非参加を挟んでも、その時点では確定せず、待ちも失わない：その後に取得した非参加で1回確定する", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    client.setQueryData(SUMMARY, summary(false));
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    await expectNothingYet();
+    client.setQueryData(SUMMARY, summary(false));
+    await expectNothingYet();
+    await act(async () => {
+      await client.fetchQuery({ queryKey: SUMMARY, staleTime: 0 });
+    });
+    await expectConfirmedOnce();
+  });
+
+  it("#339 AC-2: 捨てた古い概要の Query に遅れて届いた更新は、作り直した Query の答えとして扱わない（作り直した Query の答えが参加者なら、何も起きない）", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    client.setQueryData(SUMMARY, summary(false));
+    const oldQuery = client
+      .getQueryCache()
+      .find({ queryKey: SUMMARY, exact: true });
+    client.removeQueries({ queryKey: SUMMARY, exact: true });
+    const fresh = startFreshSummary();
+    mountS17(INITIAL_OUTSIDER_PROPS);
+    await expectNotConfirmedYet();
+    await act(async () => {
+      await oldQuery
+        ?.fetch({
+          queryKey: SUMMARY,
+          queryFn: () => Promise.resolve(summary(false)),
+        })
+        .catch((error: unknown) => error);
+    });
+    await expectNothingYet();
+    answer = "participant";
+    await fresh.deliver();
+    await expectNothingYet();
+  });
+
+  it.each([
+    ["セッションの利用者だけが替わる", "user"],
+    ["参加の期間だけが進む", "period"],
+  ] as const)(
+    "#339 AC-2: 初回の答えを待つ間に%sと、届いた非参加で確定しない",
+    async (_label, kind) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      const fresh = startFreshSummary();
+      mountS17(INITIAL_OUTSIDER_PROPS);
+      await expectNotConfirmedYet();
+      if (kind === "user")
+        client.setQueryData(["auth", "session"], sessionOfUser(OTHER_USER_HM));
+      else startCaseParticipationPeriod(client, USER, CASE);
+      await fresh.deliver();
+      await expectNothingYet();
+    },
+  );
+});
+
+describe("#339 AC-1 S-17 の担当の確かめ（T15・T17・T18・T38・T39）", () => {
+  async function failNow(queryKey: unknown[], status: number) {
+    await act(async () => {
+      await fail(queryKey, status);
+    });
+  }
+
+  it("#339 AC-1: 一覧の行の消失の確かめの途中に中身の拒否が届き、確かめが参加者なら、中身の経路として処理済みにする：続く同じ拒否で、確かめを重ねない", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(SUMMARY, summary(true));
+    await fetched(ROOM_KEY, [{ id: "m1" }]);
+    let rows: unknown[] = [listRow(PARENT, ROOM, CASE)];
+    await client.fetchInfiniteQuery({
+      queryKey: ["threads", "list"],
+      queryFn: () => Promise.resolve({ items: rows, nextCursor: null }),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: () => undefined,
+    });
+    mountS17(PARTICIPANT_PROPS);
+    answer = "participant";
+    const pending = deferred();
+    gate = pending.promise;
+    rows = [];
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["threads", "list"] });
+    });
+    await waitFor(() => expect(hookChecks).toBe(1));
+    await failNow(ROOM_KEY, 403);
+    gate = null;
+    pending.release();
+    await waitFor(() =>
+      expect(client.isFetching({ queryKey: SUMMARY })).toBe(0),
+    );
+    await act(async () => {
+      await flushTasks(3);
+    });
+    await failNow(ROOM_KEY, 403);
+    await act(async () => {
+      await flushTasks(3);
+    });
+    expect(verifications()).toBe(1);
+  });
+
+  it("#339 AC-1: 確かめの途中に参加者に戻ったと分かり（参加の期間が進む）、新しい下書きが置かれた後に、古い期間の非参加が届いても、合図を送らず、新しい下書きを消さない", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(SUMMARY, summary(true));
+    await fetched(ROOM_KEY, [{ id: "m1" }]);
+    const view = mountS17(PARTICIPANT_PROPS);
+    const pending = deferred();
+    gate = pending.promise;
+    await failNow(ROOM_KEY, 403);
+    await waitFor(() => expect(hookChecks).toBe(1));
+    view.rerender({ ...PARTICIPANT_PROPS, isParticipant: false });
+    view.rerender(PARTICIPANT_PROPS);
+    const NEW_DRAFT = draftKey(`thread:${ROOM}:${OTHER_PARENT}`);
+    window.localStorage.setItem(
+      NEW_DRAFT,
+      JSON.stringify({ body: "[UNIT_TEST]339新しい", updatedAt: Date.now() }),
+    );
+    gate = null;
+    pending.release();
+    await waitFor(() =>
+      expect(client.isFetching({ queryKey: SUMMARY })).toBe(0),
+    );
+    await act(async () => {
+      await flushTasks(5);
+    });
+    expect(announced()).toEqual([]);
+    expect(window.localStorage.getItem(NEW_DRAFT)).not.toBeNull();
+    expect(draftsPresent()).toBe(DRAFTS.length);
+  });
+
+  it("#339 AC-1: 部屋の分からない確定では下書きを消さず、処理済みにもしない：同じ喪失で、後から部屋が分かった確定では、その部屋の下書きを1回消す", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(SUMMARY, summary(true));
+    const noRoom = {
+      isParticipant: true,
+      outsider: false,
+      roomId: null,
+      participantRoomId: null,
+    };
+    const view = mountS17(noRoom);
+    view.rerender({ ...noRoom, isParticipant: false, outsider: true });
+    await waitFor(() => expect(announced()).toHaveLength(1));
+    expect(draftsPresent()).toBe(DRAFTS.length);
+    view.unmount();
+    await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+    await failNow(threadKey(PARENT), 404);
+    await waitFor(() => expect(draftsPresent()).toBe(0));
+    expect(announced()).toHaveLength(1);
+  });
+
+  it.each([
+    ["概要のキャッシュが無い", "absent"],
+    ["概要のキャッシュが非参加", "outsider"],
+  ] as const)(
+    "#339 AC-1: %sときに届いた中身の拒否では、確かめを始めず、例外にしない",
+    async (_label, kind) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      client.setQueryData(SUMMARY, summary(true));
+      mountS17(PARTICIPANT_PROPS);
+      if (kind === "absent")
+        client.removeQueries({ queryKey: SUMMARY, exact: true });
+      else client.setQueryData(SUMMARY, summary(false));
+      // 取得の失敗は、拒否のまま（担当が例外を投げて、別の失敗に変わらない）
+      let failure: unknown = null;
+      await act(async () => {
+        failure = await client
+          .fetchQuery({
+            queryKey: ROOM_KEY,
+            queryFn: () =>
+              Promise.reject({
+                status: 403,
+                code: "FORBIDDEN",
+                message: "[UNIT_TEST]339拒否",
+              }),
+            staleTime: 0,
+          })
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+      });
+      expect(failure).toMatchObject({ status: 403, code: "FORBIDDEN" });
+      await act(async () => {
+        await flushTasks(5);
+      });
+      expect(verifications()).toBe(0);
+      expect(entryCalls()).toHaveLength(0);
+    },
+  );
+
+  it("#339 AC-1: 確かめられない（500）の後の再試行で参加者と分かったら、その後の本当の拒否から、もう一度確かめて確定する", async () => {
+    uninstall = installCaseAccessLossMonitor(client);
+    client.setQueryData(SUMMARY, summary(true));
+    const view = mountS17(PARTICIPANT_PROPS);
+    answer = "error500";
+    await failNow(ROOM_KEY, 403);
+    await waitFor(() => expect(view.result.current.unverified).toBe(true));
+    answer = "participant";
+    act(() => view.result.current.retry());
+    await waitFor(() => expect(view.result.current.unverified).toBe(false));
+    expect(hookChecks).toBe(2);
+    answer = "lost";
+    await failNow(ROOM_KEY, 403);
+    await waitFor(() => expect(hookChecks).toBe(3));
+    await waitFor(() => expect(announced()).toHaveLength(1));
+  });
+});
+
+// ---- T36（統括の決定：初回の概要の答えを待つ間に S-17 を外したら、待ちも捨てる） ----
+describe("#339 AC-2 初回の概要の答えを待つ間に、S-17 を外す（T36）", () => {
+  it.each([
+    ["非参加", "lost"],
+    ["404", "notFound"],
+  ] as const)(
+    "#339 AC-2: 実績ありの初回の概要を待つ間に S-17 を外すと、その後に取得した%sが届いても、入口0・合図0・下書きは残る",
+    async (_label, verdict) => {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetched(threadKey(PARENT), repliesData(PARENT, ROOM, CASE));
+      answer = verdict;
+      const fresh = startFreshSummary();
+      const view = mountS17(INITIAL_OUTSIDER_PROPS);
+      await expectNotConfirmedYet();
+      view.unmount();
+      await fresh.deliver();
+      await waitFor(() =>
+        expect(client.isFetching({ queryKey: SUMMARY })).toBe(0),
+      );
+      await expectNothingYet();
     },
   );
 });

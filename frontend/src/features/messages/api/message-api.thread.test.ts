@@ -331,6 +331,7 @@ describe("#339 AC-1 返信の成功応答の caseId", () => {
   it.each([
     ["欠落", undefined],
     ["数値", 339],
+    ["空文字", ""],
     ["真偽値", false],
     ["オブジェクト", { id: CASE_ID }],
   ])(

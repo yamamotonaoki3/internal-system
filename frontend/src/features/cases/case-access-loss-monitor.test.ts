@@ -53,7 +53,12 @@ import { apiErrorResponse, message, reply } from "../../test/message-handlers";
 import { server } from "../../test/server";
 import { threadItem, type TestThread } from "../../test/thread-handlers";
 import { fetchCases } from "./api/case-api";
-import { installCaseAccessLossMonitor } from "./case-access-loss-monitor";
+import {
+  claimCaseVerification,
+  installCaseAccessLossMonitor,
+  registerCaseAccessLossHandler,
+  startCaseParticipationPeriod,
+} from "./case-access-loss-monitor";
 import { useRemoveCaseParticipant } from "./hooks/useCaseWrites";
 
 vi.mock("../access-loss/reload-after-access-loss", async (importOriginal) => ({
@@ -1533,4 +1538,602 @@ describe("#339 AC-1 チャンネルの詳細で分かる、案件と部屋の対
       expect(summary.calls).toEqual([OTHER_CASE]);
     },
   );
+});
+
+// ---- ミューテーション診断（#339。mj339 の T1〜T39）で足したもの：見張り・実績・判定の、分岐ごとの確かめ ----
+// 期待は、C-206〜C-210・設計書 access-loss.md「S-17 の外での検出」・確定した計画から決めた（判定の表の文は写していない）。
+
+const ROOM_B = "01JTESTROOM339000000000MB2";
+const CASE_B = caseIdOf(3395);
+const PARENT_B = message(21).id;
+
+/** 確かめの対照：あとから、確かめが必ず始まる拒否（別の案件 CASE_B の返信の 404）を起こし、その GET が出るまで待つ */
+async function controlDenial(summary: SummaryServer) {
+  await fetchedReplies(PARENT_B, ROOM_B, CASE_B);
+  await failReplies(PARENT_B, 404, "NOT_FOUND");
+  await vi.waitFor(() => expect(summary.calls).toContain(CASE_B));
+  await settledAfterAnswer(summary, summary.calls.length);
+}
+
+describe("#339 AC-1 部屋の ID から案件を求める（T3〜T6。計画 2 節の対応の求め方）", () => {
+  it("#339 AC-1: 部屋の 403 の案件は、その部屋に一致する返信の案件だけ（別の部屋・案件の返信を先に持っていても、取り違えない）", async () => {
+    await fetchedReplies(OTHER_PARENT, OTHER_ROOM, OTHER_CASE);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await fetchedRoom(ROOM);
+    const summary = arrangeVerdict("participant");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    await settledAfterAnswer(summary);
+    expect(summary.calls).toEqual([CASE]);
+  });
+
+  it("#339 AC-1: 部屋の 403 の案件を、スレッド一覧の行だけから求める：別の案件・通常の部屋の行を先に持っていても、一致する案件だけを確かめ、通常の部屋の 403 では確かめない", async () => {
+    list = respondList([
+      [
+        threadItem(31, {
+          room: { kind: "channel", id: OTHER_ROOM, name: "[UNIT_TEST]339別" },
+          caseId: OTHER_CASE,
+        }),
+        threadItem(32, {
+          room: { kind: "channel", id: ROOM_B, name: "[UNIT_TEST]339通常" },
+        }),
+        CASE_ROW,
+      ],
+    ]);
+    await openThreadList(1);
+    await fetchedRoom(ROOM);
+    await fetchedRoom(ROOM_B);
+    const summary = arrangeVerdict("participant");
+    await failRoom(ROOM_B, 403, "FORBIDDEN");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    await settledAfterAnswer(summary);
+    expect(summary.calls).toEqual([CASE]);
+  });
+
+  it.each([
+    ["案件の詳細", "detail"],
+    ["参加者の概要", "summary"],
+  ] as const)(
+    "#339 AC-1: 部屋の 403 の案件を、その利用者の%sの channelId から求める：ほかの利用者・ほかの部屋の概要が混ざっていても、一致するものだけ",
+    async (_label, kind) => {
+      client.setQueryData(
+        ["cases", "summary", OTHER_USER, OTHER_CASE],
+        caseSummary(N, { id: OTHER_CASE, channelId: ROOM }),
+      );
+      client.setQueryData(
+        ["cases", kind, USER, CASE_B],
+        caseSummary(N, { id: CASE_B, channelId: ROOM_B }),
+      );
+      client.setQueryData(
+        ["cases", kind, USER, CASE],
+        caseSummary(N, { id: CASE, channelId: ROOM }),
+      );
+      await fetchedRoom(ROOM);
+      const summary = arrangeVerdict("participant");
+      await failRoom(ROOM, 403, "FORBIDDEN");
+      await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+      await settledAfterAnswer(summary);
+      expect(summary.calls).toEqual([CASE]);
+    },
+  );
+
+  it("#339 AC-1: ほかの利用者の概要だけが部屋と対応する場合は、部屋の 403 で確かめない", async () => {
+    client.setQueryData(
+      ["cases", "summary", OTHER_USER, OTHER_CASE],
+      caseSummary(N, { id: OTHER_CASE, channelId: ROOM }),
+    );
+    await fetchedRoom(ROOM);
+    const summary = arrangeVerdict("participant");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await controlDenial(summary);
+    expect(summary.calls).toEqual([CASE_B]);
+  });
+
+  it("#339 AC-1: まだデータの無い Query（取得中のチャンネルの詳細・概要）が混ざっていても、例外にせず、使える対応（案件の詳細）で確かめる", async () => {
+    const pending = deferred();
+    const waiting = [
+      client
+        .fetchQuery({
+          queryKey: ["channels", "detail", ROOM],
+          queryFn: async () => {
+            await pending.promise;
+            return channelDetail(ROOM, CASE);
+          },
+        })
+        .catch((error: unknown) => error),
+      client
+        .fetchQuery({
+          queryKey: ["cases", "summary", USER, CASE_B],
+          queryFn: async () => {
+            await pending.promise;
+            return caseSummary(N, { id: CASE_B });
+          },
+        })
+        .catch((error: unknown) => error),
+    ];
+    client.setQueryData(DETAIL_KEY, caseDetail(N));
+    await fetchedRoom(ROOM);
+    const summary = arrangeVerdict("lost");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+    expect(summary.calls).toEqual([CASE]);
+    expect(reportError).not.toHaveBeenCalled();
+    pending.release();
+    await Promise.all(waiting);
+  });
+});
+
+describe("#339 AC-1 画面の外の確かめの、失敗の判定（T7・T8。case-access-verification）", () => {
+  it("#339 AC-1: 概要の応答が契約に合わない（検証の失敗）なら、unverified にせず reportError に渡す：片付け・入口・合図・下書きの消去なし", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const calls: string[] = [];
+    server.use(
+      http.get("/api/cases/:caseId", ({ params }) => {
+        calls.push(String(params.caseId));
+        return HttpResponse.json({ id: CASE, isParticipant: "no" });
+      }),
+    );
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(reportError).toHaveBeenCalledTimes(1));
+    expect(calls).toEqual([CASE]);
+    expect(reportError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(draftsKept()).toBe(true);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+  });
+
+  it("#339 AC-1: 概要の 500 は、409 の後の利用者の確かめを呼ばずに unverified（中身片付け・入口あり・合図なし）。切り替えと答えうる状態でも、switched にしない", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("unverified");
+    vi.mocked(confirmSessionUserAfterMismatch).mockResolvedValue("switched");
+    vi.mocked(isUserSwitchReloadRequested).mockReturnValue(true);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+    await settledAfterAnswer(summary);
+    expect(confirmSessionUserAfterMismatch).not.toHaveBeenCalled();
+    expect(announced()).toEqual([]);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeUndefined();
+  });
+});
+
+describe("#339 AC-1 利用者・案件ごとの印（T12・T16）", () => {
+  it("#339 AC-1: 別の案件の確かめの途中でも、案件ごとに確かめを始め、それぞれ合図・下書きの処理を行う（ほかの組の印で抑止しない）", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await fetchedReplies(PARENT_B, ROOM_B, CASE_B);
+    const summary = arrangeVerdict("lost");
+    const gate = deferred();
+    summary.gate = gate.promise;
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await failReplies(PARENT_B, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(2));
+    expect([...summary.calls].sort()).toEqual([CASE, CASE_B].sort());
+    summary.gate = null;
+    gate.release();
+    await vi.waitFor(() => expect(announced()).toHaveLength(2));
+    expect(announced()).toEqual(
+      expect.arrayContaining([
+        { v: 1, userId: USER, caseId: CASE },
+        { v: 1, userId: USER, caseId: CASE_B },
+      ]),
+    );
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+  });
+
+  it("#339 AC-1: 確かめの担当の解除を、終わった後にもう一度呼んでも、次に始めた確かめの印を外さない（重ねて始めない）", async () => {
+    const first = claimCaseVerification(client, USER, CASE, "content");
+    expect(first).not.toBeNull();
+    first?.release();
+    const second = claimCaseVerification(client, USER, CASE, "content");
+    expect(second).not.toBeNull();
+    first?.release();
+    expect(claimCaseVerification(client, USER, CASE, "content")).toBeNull();
+    second?.release();
+  });
+});
+
+describe("#339 AC-1 S-17 の担当への渡し方（T13・T19〜T22・T27。計画 2 節「S-17 と見張りの分担」）", () => {
+  type Handler = {
+    userId: string;
+    caseId: string;
+    roomId: string | null;
+    onDenied: ReturnType<typeof vi.fn>;
+  };
+  let unregisters: (() => void)[];
+  beforeEach(() => {
+    unregisters = [];
+  });
+  afterEach(() => {
+    for (const unregister of unregisters) unregister();
+  });
+  async function register(
+    userId: string,
+    caseId: string,
+    roomId: string | null,
+  ): Promise<Handler> {
+    const handler = { userId, caseId, roomId, onDenied: vi.fn() };
+    unregisters.push(registerCaseAccessLossHandler(client, handler));
+    return handler;
+  }
+
+  it("#339 AC-1: 解除した担当には渡さず、画面の外で確かめる", async () => {
+    const onDenied = vi.fn();
+    const unregister = registerCaseAccessLossHandler(client, {
+      userId: USER,
+      caseId: CASE,
+      roomId: ROOM,
+      onDenied,
+    });
+    unregister();
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await fetchedRoom(ROOM);
+    const summary = arrangeVerdict("participant");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+    expect(onDenied).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["TODO", ["cases", "todos", USER, CASE]],
+    ["添付", ["cases", "attachments", USER, CASE]],
+    ["削除済みの TODO", ["cases", "deletedTodos", USER, CASE]],
+    [
+      "TODO の履歴",
+      ["cases", "todoEvents", USER, CASE, "01JTESTTODO339000000000T1"],
+    ],
+  ])(
+    "#339 AC-1: 案件の中身（%s）の 403 は、利用者と案件の両方が一致する担当だけに渡す",
+    async (_label, queryKey) => {
+      const otherCase = await register(USER, OTHER_CASE, OTHER_ROOM);
+      const otherUser = await register(OTHER_USER, CASE, ROOM);
+      const mine = await register(USER, CASE, ROOM);
+      await client
+        .fetchQuery({
+          queryKey,
+          queryFn: () =>
+            Promise.reject({
+              status: 403,
+              code: "FORBIDDEN",
+              message: "[UNIT_TEST]339",
+            }),
+        })
+        .catch((error: unknown) => error);
+      await flushTasks(3);
+      expect(mine.onDenied).toHaveBeenCalledTimes(1);
+      expect(mine.onDenied).toHaveBeenCalledWith("content");
+      expect(otherCase.onDenied).not.toHaveBeenCalled();
+      expect(otherUser.onDenied).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#339 AC-1: 部屋の 403 は、その部屋を表示している担当だけに渡す（別の部屋・部屋の分からない担当には渡さない）", async () => {
+    const mine = await register(USER, CASE, ROOM);
+    const otherRoom = await register(USER, OTHER_CASE, OTHER_ROOM);
+    const noRoom = await register(USER, CASE_B, null);
+    await fetchedRoom(ROOM);
+    const summary = arrangeVerdict("lost");
+    await failRoom(ROOM, 403, "FORBIDDEN");
+    await flushTasks(3);
+    expect(mine.onDenied).toHaveBeenCalledTimes(1);
+    expect(otherRoom.onDenied).not.toHaveBeenCalled();
+    expect(noRoom.onDenied).not.toHaveBeenCalled();
+    expect(summary.calls).toEqual([]);
+  });
+
+  it("#339 AC-1: 通常のチャンネル・DM の返信（caseId が null）の 404 は、どの担当にも渡さず、確かめず、例外にしない", async () => {
+    const other = await register(USER, CASE, ROOM);
+    await fetchedReplies(OTHER_PARENT, OTHER_ROOM, null);
+    const summary = arrangeVerdict("lost");
+    server.use(
+      http.get("/api/messages/:messageId/replies", () =>
+        apiErrorResponse(404, "NOT_FOUND", "[UNIT_TEST]339"),
+      ),
+    );
+    // 取得の失敗は、拒否の ApiError のまま（見張りの購読が例外を投げて、別の失敗に変わらない）
+    const failure = await client
+      .fetchQuery({
+        queryKey: threadKey(OTHER_PARENT),
+        queryFn: () => fetchLatestReplies(OTHER_PARENT),
+        staleTime: 0,
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(failure).toMatchObject({ status: 404, code: "NOT_FOUND" });
+    await flushTasks(3);
+    expect(other.onDenied).not.toHaveBeenCalled();
+    expect(summary.calls).toEqual([]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("#339 AC-1: 案件の返信の 404 で、別の案件の担当しか無ければ、渡さずに画面の外で1回確かめる", async () => {
+    const other = await register(USER, OTHER_CASE, OTHER_ROOM);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+    expect(summary.calls).toEqual([CASE]);
+    expect(other.onDenied).not.toHaveBeenCalled();
+  });
+
+  it("#339 AC-3: 一覧の行の消失は、利用者と案件の両方が一致する担当だけに渡す。一致する担当が無ければ、画面の外で確かめる", async () => {
+    const otherCase = await register(USER, OTHER_CASE, OTHER_ROOM);
+    const otherUser = await register(OTHER_USER, CASE, ROOM);
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    const summary = arrangeVerdict("participant");
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+    expect(otherCase.onDenied).not.toHaveBeenCalled();
+    expect(otherUser.onDenied).not.toHaveBeenCalled();
+
+    const mine = await register(USER, CASE, ROOM);
+    list.pages = [[CASE_ROW, CHANNEL_ROW]];
+    await refetchList();
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await flushTasks(3);
+    expect(mine.onDenied).toHaveBeenCalledTimes(1);
+    expect(mine.onDenied).toHaveBeenCalledWith("list");
+    expect(summary.calls).toEqual([CASE]);
+  });
+});
+
+describe("#339 AC-3 一覧の経路の重なり（T14）", () => {
+  it("#339 AC-3: 一覧の行の消失の確かめの途中に、同じ案件の行の消失が重なっても、経路は一覧のまま：500 で終われば、片付け・入口なし", async () => {
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("unverified");
+    const gate = deferred();
+    summary.gate = gate.promise;
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    list.pages = [[CASE_ROW, CHANNEL_ROW]];
+    await refetchList();
+    list.pages = [[CHANNEL_ROW]];
+    await refetchList();
+    summary.gate = null;
+    gate.release();
+    await settledAfterAnswer(summary, summary.calls.length);
+    expect(entryCalls()).toHaveLength(0);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+  });
+});
+
+describe("#339 AC-1 古い確かめの答えを作用させない（T23・T24・T30）", () => {
+  it("#339 AC-1: 画面の外の確かめの途中にセッションが消えたら（ログアウト）、遅れて届いた非参加で、片付け・入口・合図・下書きの消去をしない", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    const gate = deferred();
+    summary.gate = gate.promise;
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    client.removeQueries({ queryKey: ["auth", "session"] });
+    summary.gate = null;
+    gate.release();
+    await settledAfterAnswer(summary);
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(draftsKept()).toBe(true);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+  });
+
+  it("#339 AC-1: 画面の外の確かめの途中に参加の期間が進んだら（参加者に戻った）、遅れて届いた古い非参加で、片付け・入口・合図・下書きの消去をしない", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    const gate = deferred();
+    summary.gate = gate.promise;
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    startCaseParticipationPeriod(client, USER, CASE);
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    summary.gate = null;
+    gate.release();
+    await settledAfterAnswer(summary);
+    expect(entryCalls()).toHaveLength(0);
+    expect(announced()).toEqual([]);
+    expect(draftsKept()).toBe(true);
+    expect(client.getQueryData(threadKey(CASE_PARENT))).toBeDefined();
+  });
+
+  it("#339 AC-1: 確かめの途中にセッションが一時的に消えて、同じ利用者に戻っただけなら、別の利用者への切り替えとは扱わず、届いた非参加で確定する", async () => {
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("lost");
+    const gate = deferred();
+    summary.gate = gate.promise;
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toHaveLength(1));
+    client.removeQueries({ queryKey: ["auth", "session"] });
+    client.setQueryData(["auth", "session"], SESSION);
+    summary.gate = null;
+    gate.release();
+    await vi.waitFor(() => expect(entryCalls()).toHaveLength(1));
+    await vi.waitFor(() => expect(announced()).toHaveLength(1));
+    await vi.waitFor(() => expect(draftsErased()).toBe(true));
+  });
+});
+
+describe("#339 AC-1 見張りの登録・解除（T25）", () => {
+  it("#339 AC-1: 同じ QueryClient に2回登録し、一方の解除を2回呼んでも、残りの登録の間は動き、最後の解除の後は反応しない", async () => {
+    const second = installCaseAccessLossMonitor(client);
+    second();
+    second();
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    const summary = arrangeVerdict("participant");
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+    await settledAfterAnswer(summary);
+    uninstall?.();
+    uninstall = undefined;
+    await fetchedReplies(CASE_PARENT, ROOM, CASE);
+    await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+    list = respondList([[CASE_ROW]]);
+    await openThreadList(1);
+    list.pages = [[]];
+    await refetchList();
+    await flushTasks(5);
+    expect(summary.calls).toEqual([CASE]);
+  });
+});
+
+describe("#339 AC-3 行の比較の元の扱い（T26・T28・T29・T32）", () => {
+  async function startPendingRefetch() {
+    const gate = deferred();
+    list.gate = gate.promise;
+    const before = list.calls;
+    // 見張りの購読が例外を投げたら、取り直しの失敗として表に出す（throwOnError）
+    const refetching = client.refetchQueries(
+      { queryKey: THREAD_LIST_KEY },
+      { throwOnError: true },
+    );
+    await vi.waitFor(() => expect(list.calls).toBeGreaterThan(before));
+    return {
+      async finish() {
+        list.gate = null;
+        gate.release();
+        await refetching;
+      },
+    };
+  }
+
+  it("#339 AC-3: 一覧の取り直しの途中に、手での書き換え（setQueryData で行を外す）があっても、その書き換えから確かめを始めない。その後の取得の成功でも、例外にせず確かめない", async () => {
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    const summary = arrangeVerdict("lost");
+    const pending = await startPendingRefetch();
+    client.setQueryData<{ pages: { items: TestThread[] }[] }>(
+      THREAD_LIST_KEY,
+      (previous) =>
+        previous === undefined
+          ? previous
+          : {
+              ...previous,
+              pages: previous.pages.map((page) => ({
+                ...page,
+                items: page.items.filter((item) => item.caseId !== CASE),
+              })),
+            },
+    );
+    list.pages = [[CHANNEL_ROW]];
+    await pending.finish();
+    await controlDenial(summary);
+    expect(summary.calls).toEqual([CASE_B]);
+    expect(entryCalls().map(([, r]) => r)).toEqual([
+      { ownerId: USER, reason: "lost" },
+    ]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["セッションが消える", "logout"],
+    ["見張りだけで利用者が A → B → A と替わる", "generation"],
+  ] as const)(
+    "#339 AC-3: 一覧の取り直しの途中に%sと、その取得の成功で行が消えていても、確かめない",
+    async (_label, kind) => {
+      list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+      await openThreadList(1);
+      const summary = arrangeVerdict("lost");
+      const pending = await startPendingRefetch();
+      if (kind === "logout")
+        client.removeQueries({ queryKey: ["auth", "session"] });
+      else {
+        client.setQueryData(["auth", "session"], {
+          ...SESSION,
+          user: {
+            id: OTHER_USER,
+            displayName: "testuser_339_b",
+            loginId: "testuser_339_b",
+          },
+        });
+        client.setQueryData(["auth", "session"], SESSION);
+      }
+      list.pages = [[CHANNEL_ROW]];
+      await pending.finish();
+      if (kind === "logout") client.setQueryData(["auth", "session"], SESSION);
+      await controlDenial(summary);
+      expect(summary.calls).toEqual([CASE_B]);
+      expect(reportError).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#339 AC-3: 一覧の取り直しの途中に、古い印だけを付ける更新（invalidateQueries）があっても、比較の元を捨てない：その取得の成功で行が消えていれば、1回確かめる", async () => {
+    list = respondList([[CASE_ROW, CHANNEL_ROW]]);
+    await openThreadList(1);
+    const summary = arrangeVerdict("participant");
+    const pending = await startPendingRefetch();
+    await client.invalidateQueries({
+      queryKey: THREAD_LIST_KEY,
+      refetchType: "none",
+    });
+    list.pages = [[CHANNEL_ROW]];
+    await pending.finish();
+    await vi.waitFor(() => expect(summary.calls).toEqual([CASE]));
+  });
+
+  it.each([
+    ["通知の一覧", ["notifications", "list"]],
+    ["スレッドの別の一覧", ["threads", "archive"]],
+  ])(
+    "#339 AC-3: %s（スレッド一覧でない、ページの形の Query）の取得・取り直しは、スレッド一覧として読まず、例外にしない",
+    async (_label, queryKey) => {
+      const summary = arrangeVerdict("lost");
+      let items: unknown[] = [{ id: "01JTESTNOTICE339000000001" }];
+      const options = {
+        queryKey,
+        queryFn: () => Promise.resolve({ items, nextCursor: null }),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: () => undefined,
+      };
+      await client.fetchInfiniteQuery(options);
+      items = [];
+      await client.refetchQueries({ queryKey });
+      await controlDenial(summary);
+      expect(summary.calls).toEqual([CASE_B]);
+      expect(reportError).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("#339 AC-1 捨てられた Query の出来事を使わない（T31）", () => {
+  it("#339 AC-1: 先に登録したほかの購読が、拒否を受けた返信の Query を捨てたら、同じ出来事で確かめを始めない", async () => {
+    uninstall?.();
+    uninstall = undefined;
+    const stop = client.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === "error" &&
+        event.query.queryKey[1] === "thread"
+      )
+        client.removeQueries({ queryKey: event.query.queryKey, exact: true });
+    });
+    try {
+      uninstall = installCaseAccessLossMonitor(client);
+      await fetchedReplies(CASE_PARENT, ROOM, CASE);
+      const summary = arrangeVerdict("lost");
+      await failReplies(CASE_PARENT, 404, "NOT_FOUND");
+      await controlDenialWithoutRemoval(summary);
+      expect(summary.calls).toEqual([CASE_B]);
+      expect(entryCalls()).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  });
+
+  /** 対照は部屋の 403（返信を捨てる購読に当たらない） */
+  async function controlDenialWithoutRemoval(summary: SummaryServer) {
+    client.setQueryData(["cases", "detail", USER, CASE_B], {
+      ...caseDetail(N),
+      id: CASE_B,
+      channelId: ROOM_B,
+    });
+    await fetchedRoom(ROOM_B);
+    await failRoom(ROOM_B, 403, "FORBIDDEN");
+    await vi.waitFor(() => expect(summary.calls).toContain(CASE_B));
+    await settledAfterAnswer(summary, summary.calls.length);
+  }
 });
