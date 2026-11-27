@@ -85,14 +85,6 @@ function channelRoomIdsOf(queryClient: QueryClient, caseId: string): string[] {
     .filter((roomId) => typeof roomId === "string");
 }
 
-/** 返信・スレッド一覧から分かる、その案件の部屋の ID（無ければ null）。部屋の ID を求める通信はしない */
-export function caseRoomIdFromEvidence(
-  queryClient: QueryClient,
-  caseId: string,
-): string | null {
-  return fetchedRoomIdsOf(queryClient, caseId)[0] ?? null;
-}
-
 /** 部屋の ID から案件を求める（返信・スレッド一覧・その利用者の概要と詳細の、既知の対応だけ） */
 export function caseIdOfRoom(
   queryClient: QueryClient,
@@ -120,16 +112,19 @@ export function caseIdOfRoom(
 }
 
 /**
- * その案件の部屋・スレッドを、正常に取得した実績がいまのキャッシュにあるか：案件の ID つきの返信、スレッド一覧のその案件の行、
- * 対応の分かる部屋のメッセージ。利用者をキーに持たない Query は、利用者の切り替えで見張りが捨てるので、残っているものはいまの利用者のもの
+ * その案件の部屋・スレッドを、正常に取得した実績がいまのキャッシュにあるか。あれば、実績の部屋の ID（分からなければ null）、無ければ null でなく undefined。
+ * 実績：案件の ID つきの返信、スレッド一覧のその案件の行、対応の分かる部屋（概要・詳細・チャンネルの詳細）の正常に取得したメッセージ（空の配列を含む）。
+ * 判定と部屋の ID を、同じ読み方から求める（初回の確定の片付け・下書きの消去に、判定に使った部屋を渡すため）。
+ * 利用者をキーに持たない Query は、利用者の切り替えで見張りが捨てるので、残っているものはいまの利用者のもの
  */
-export function hasCaseRoomEvidence(
+export function caseRoomEvidence(
   queryClient: QueryClient,
   userId: string,
   caseId: string,
-): boolean {
-  if (fetchedRoomIdsOf(queryClient, caseId).length > 0) return true;
-  // 対応だけの情報（概要・詳細・チャンネルの詳細）は、その部屋のメッセージの正常な取得（空の配列を含む）と組み合わせて、実績にする
+): { roomId: string | null } | undefined {
+  const fetched = fetchedRoomIdsOf(queryClient, caseId);
+  if (fetched.length > 0) return { roomId: fetched[0] ?? null };
+  // 対応だけの情報は、その部屋のメッセージの正常な取得と組み合わせて、実績にする
   const knownRooms = [
     queryClient.getQueryData<CaseDetail>(caseKeys.detail(userId, caseId))
       ?.channelId,
@@ -137,8 +132,8 @@ export function hasCaseRoomEvidence(
       ?.channelId,
     ...channelRoomIdsOf(queryClient, caseId),
   ].filter((roomId) => typeof roomId === "string");
-  return knownRooms.some(
-    (roomId) =>
-      queryClient.getQueryData(messageKeys.room(roomId)) !== undefined,
+  const roomId = knownRooms.find(
+    (room) => queryClient.getQueryData(messageKeys.room(room)) !== undefined,
   );
+  return roomId === undefined ? undefined : { roomId };
 }

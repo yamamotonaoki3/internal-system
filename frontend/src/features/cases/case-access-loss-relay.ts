@@ -13,7 +13,7 @@ import {
 } from "../access-loss";
 import { fetchCaseSummary, type CaseSummary } from "./api/case-api";
 import { caseKeys } from "./api/query-keys";
-import { hasCaseRoomEvidence, sessionUserId } from "./case-access-evidence";
+import { caseRoomEvidence, sessionUserId } from "./case-access-evidence";
 import { isApiError } from "./describe-error";
 
 type HintedVerdict = "outsider" | "participant" | "unknown";
@@ -51,7 +51,7 @@ export function installCaseAccessLossRelay(
     );
     if (
       cached?.isParticipant !== true &&
-      !hasCaseRoomEvidence(queryClient, userId, caseId)
+      caseRoomEvidence(queryClient, userId, caseId) === undefined
     )
       return;
     if (verifying.has(caseId)) return;

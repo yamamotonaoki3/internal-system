@@ -11,15 +11,12 @@ import {
   hashKey,
   isCancelledError,
   useQueryClient,
+  type QueryCacheNotifyEvent,
   type QueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { requestAccessLossReload } from "../../access-loss";
-import {
-  caseRoomIdFromEvidence,
-  hasCaseRoomEvidence,
-  sessionUserId,
-} from "../case-access-evidence";
+import { caseRoomEvidence, sessionUserId } from "../case-access-evidence";
 import {
   announceCaseAccessLossOnce,
   claimCaseVerification,
@@ -105,13 +102,8 @@ function confirmedByEvidence(
   /** 参加者だったことを見ていないまま、参加者でないと確かめられた状態になった */
   firstOutsider: boolean,
 ): string | null | undefined {
-  if (
-    !firstOutsider ||
-    sessionUserId(queryClient) !== userId ||
-    !hasCaseRoomEvidence(queryClient, userId, caseId)
-  )
-    return undefined;
-  return caseRoomIdFromEvidence(queryClient, caseId);
+  if (!firstOutsider || sessionUserId(queryClient) !== userId) return undefined;
+  return caseRoomEvidence(queryClient, userId, caseId)?.roomId;
 }
 
 /** 概要で参加者でないと確かめられた状態に「なったとき」の片付け（149-C・#323・#363） */
@@ -164,58 +156,72 @@ function verdictOfSummaryState(
  * （初回の確定に使ってよいのは、取得して届いた答えだけ。開いた時点でキャッシュにあっただけの状態・手で書いたデータは使わない。計画 3 節の補足）
  */
 type FreshSummary = {
-  /** 最後に届いた答え（手での書き換え・Query の削除で捨てる） */
+  /** 最後に届いた答え（手での書き換え・Query の削除・購読の解除で捨てる） */
   answer: Verdict | null;
-  /** 答えを待っている確定（届いたら1回だけ呼んで外す） */
-  waiter: ((verdict: Verdict) => void) | null;
+  /**
+   * 答えを待っている初回の確定（届いたら1回だけ呼んで外す）。効果の解除・再登録（StrictMode など）をまたいで残し、
+   * 再登録した購読が受ける。概要の Query が捨てられたら無効にする（作り直された Query に、古い実績・部屋の ID の文脈を引き継がない）
+   */
+  pending: { summaryHash: string; onAnswer: (verdict: Verdict) => void } | null;
 };
 
 /** 届いた答えを受け取る。届いていなければ、届いたときに受け取る（待ち） */
 function whenFreshSummary(
   fresh: FreshSummary,
+  summaryKey: ReturnType<typeof caseKeys.summary>,
   onAnswer: (verdict: Verdict) => void,
 ): void {
   if (fresh.answer !== null) {
     onAnswer(fresh.answer);
     return;
   }
-  fresh.waiter = onAnswer;
+  fresh.pending = { summaryHash: hashKey(summaryKey), onAnswer };
 }
 
-/** 概要の Query の出来事から、取得で届いた答えを控える。返り値は購読の解除（待ちも外す） */
+/** 取得で届いた答え（手での書き換え・取り消しは答えにしない。null）。答えでない更新は undefined */
+function answerOfAction(
+  event: QueryCacheNotifyEvent,
+): Verdict | null | undefined {
+  if (event.type !== "updated") return undefined;
+  const { action } = event;
+  if (action.type === "success")
+    return action.manual === true
+      ? null
+      : verdictOfSummaryState(action.data as CaseSummary, null);
+  if (action.type === "error" && !isCancelledError(action.error))
+    return verdictOfSummaryState(undefined, action.error);
+  return undefined;
+}
+
+/** 概要の Query の出来事から、取得で届いた答えを控え、待っている確定へ渡す。返り値は購読の解除（待ちは残す） */
 function watchFreshSummary(
   queryClient: QueryClient,
   summaryKey: ReturnType<typeof caseKeys.summary>,
   fresh: FreshSummary,
 ): () => void {
   const summaryHash = hashKey(summaryKey);
-  const stop = queryClient.getQueryCache().subscribe((event) => {
+  const cache = queryClient.getQueryCache();
+  const stop = cache.subscribe((event) => {
     if (event.query.queryHash !== summaryHash) return;
     if (event.type === "removed") {
       fresh.answer = null;
+      fresh.pending = null;
       return;
     }
-    if (event.type !== "updated") return;
-    const { action } = event;
-    let answer: Verdict;
-    if (action.type === "success") {
-      if (action.manual === true) {
-        fresh.answer = null;
-        return;
-      }
-      answer = verdictOfSummaryState(action.data as CaseSummary, null);
-    } else if (action.type === "error" && !isCancelledError(action.error))
-      answer = verdictOfSummaryState(undefined, action.error);
-    else return;
+    // 捨てられた Query に遅れて届いた応答は、使わない
+    if (cache.get(summaryHash) !== event.query) return;
+    const answer = answerOfAction(event);
+    if (answer === undefined) return;
     fresh.answer = answer;
-    const waiter = fresh.waiter;
-    fresh.waiter = null;
-    waiter?.(answer);
+    if (answer === null) return;
+    const pending = fresh.pending;
+    if (pending?.summaryHash !== summaryHash) return;
+    fresh.pending = null;
+    pending.onAnswer(answer);
   });
   return () => {
     stop();
     fresh.answer = null;
-    fresh.waiter = null;
   };
 }
 
@@ -232,7 +238,7 @@ function confirmFirstOutsider(
   fresh: FreshSummary,
 ): void {
   const period = currentLossPeriod(queryClient, userId, caseId);
-  whenFreshSummary(fresh, (verdict) => {
+  whenFreshSummary(fresh, caseKeys.summary(userId, caseId), (verdict) => {
     if (verdict !== "lost" && verdict !== "notFound") return;
     // 待つ間に、別の利用者に替わった・参加者に戻った：古い答えで確定しない
     if (
@@ -289,7 +295,7 @@ export function useCaseAccessLoss({
   // 最後に分かった、この案件の部屋の ID（#340）。喪失の片付けで詳細が消え、非参加の概要には部屋の ID がないため、消す前に覚えておく
   const knownRoomId = useRef<string | null>(null);
   // この部品が開いてから取得で届いた概要の答えと、その答えを待つ初回の確定（#339）
-  const freshSummary = useRef<FreshSummary>({ answer: null, waiter: null });
+  const freshSummary = useRef<FreshSummary>({ answer: null, pending: null });
   // 答えを控える購読は、下の効果より先に設ける。画面を外したとき・案件や利用者が替わったときに外し、待ちも捨てる
   useEffect(
     () =>
@@ -315,6 +321,7 @@ export function useCaseAccessLoss({
       handling.current = false;
       reloadRequested.current = false;
       startCaseParticipationPeriod(queryClient, userId, caseId);
+      freshSummary.current.pending = null;
     }
     if (isParticipant) participantSeen.current = true;
     const wasParticipant = participantSeen.current;
