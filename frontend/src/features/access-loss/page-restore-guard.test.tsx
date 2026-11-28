@@ -41,6 +41,7 @@ import { isBeforeUnloadSuppressed, restoreBeforeUnload } from "../leave-guard";
 import { reloadPage } from "./browser-location";
 import {
   getPageRestoreState,
+  reloadWhenRetryUnreachable,
   retryPageRestoreVerification,
 } from "./page-restore-guard";
 import {
@@ -549,6 +550,114 @@ describe("#342 AC-1・AC-6 U5 対象の捕捉の例外の後（統括の判断 2
     expect(getPageRestoreState()).toBe("failed");
     expect(world.summaryCalls).toEqual([]);
     expect(reportError).toHaveBeenNthCalledWith(2, targets.failure);
+  });
+});
+
+// 2b3155b で足された入口 reloadWhenRetryUnreachable()（index.ts には公開しない。境界の失敗の覆いが、子のモーダルが開いたまま showModal に失敗したときに、
+// reportError の後に呼ぶ。統括の判断：覆ったまま、ページごと読み込み直す）。jsdom では :modal が何にも当てはまらず、境界のこの道筋を通せないので、入口を直接呼ぶ
+describe("#342 AC-6 失敗の覆いを開けず、再試行を押せないときの読み込み直し（reloadWhenRetryUnreachable）", () => {
+  async function arrangeFailed() {
+    const doc = arrangeDocument([N_A]);
+    doc.world.session.answers.push({ kind: "network" });
+    restore();
+    await waitForState("failed");
+    return doc;
+  }
+
+  function expectNoLossSideEffects() {
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
+    expect(requestUserSwitchReload).not.toHaveBeenCalled();
+    expect(announced()).toEqual([]);
+    expect(draftKept(N_A)).toBe(true);
+    // 知らせ（sessionStorage の読み込み直しの後の知らせ）も書かない
+    expect(window.sessionStorage.length).toBe(0);
+  }
+
+  it("#342 AC-6: 状態が failed のときに呼ぶと、handedOff になり、離脱の確認を止めて、読み込み直しを1回。喪失の入口・知らせ・合図・下書きの消去はしない", async () => {
+    const { client } = await arrangeFailed();
+    act(() => {
+      reloadWhenRetryUnreachable();
+    });
+    expect(getPageRestoreState()).toBe("handedOff");
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    expect(isBeforeUnloadSuppressed()).toBe(true);
+    expectNoLossSideEffects();
+    expect(client.getQueryData(detailKey(N_A))).toBeDefined();
+  });
+
+  it("#342 AC-6: 2回続けて呼んでも（StrictMode の2回目に当たる）、読み込み直しは1回", async () => {
+    await arrangeFailed();
+    act(() => {
+      reloadWhenRetryUnreachable();
+      reloadWhenRetryUnreachable();
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    expect(getPageRestoreState()).toBe("handedOff");
+  });
+
+  it("#342 AC-6: 状態が idle（復元していない）なら、何もしない", () => {
+    arrangeDocument([N_A]);
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("idle");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
+  });
+
+  it("#342 AC-6: 状態が prepared（離れた後、戻る前）なら、何もしない", () => {
+    arrangeDocument([N_A]);
+    firePageHide(true);
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("prepared");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
+  });
+
+  it("#342 AC-6: 状態が verifying（確かめの途中）なら、何もせず、確かめはそのまま続いて外れる", async () => {
+    const { world } = arrangeDocument([N_A]);
+    const held = gate();
+    world.session.gates.push(held.promise);
+    restore();
+    await waitForState("verifying");
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("verifying");
+    expect(reloadPage).not.toHaveBeenCalled();
+    held.release();
+    await waitForState("idle");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
+  });
+
+  it("#342 AC-6: 状態が handedOff（確定の入口へ引き渡した後）なら、何もしない（読み込み直しを足さない）", async () => {
+    const { world } = arrangeDocument([N_A]);
+    answerCase(world, N_A, { kind: "outsider" });
+    restore();
+    await waitForState("handedOff");
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("handedOff");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
+  });
+
+  it("#342 AC-6: failed のまま登録を解除した後に呼ばれても（古い登録の境界から遅れて呼ばれた場合）、何もしない", async () => {
+    const { dispose } = await arrangeFailed();
+    dispose();
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("idle");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
+  });
+
+  it("#342 AC-6: failed のまま登録を解除して登録し直した後に呼ばれても、新しい登録の状態（idle・prepared）は変わらず、読み込み直さない", async () => {
+    const { client, dispose } = await arrangeFailed();
+    dispose();
+    installRestoreGuardLikeMain(client);
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("idle");
+    firePageHide(true);
+    reloadWhenRetryUnreachable();
+    expect(getPageRestoreState()).toBe("prepared");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(isBeforeUnloadSuppressed()).toBe(false);
   });
 });
 
