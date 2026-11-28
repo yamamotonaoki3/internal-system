@@ -186,6 +186,7 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 
 - 【#339（C-210）】S-17 の外での資格の見張り（`features/cases/case-access-loss-monitor.ts`の`installCaseAccessLossMonitor`）は、`main.tsx`で、利用者の切り替えの見張り（`installUserSwitchGuard`）より**後**に登録する。別の利用者に替わったときは、切り替えの見張りが先にキャッシュを捨て、見張りは、捨てられた Query の遅れて届いた応答を使わない。見張りは、セッションの利用者が別の利用者に替わるたびに「利用者の世代」を進め（A → B → A でも）、画面の外の確かめは、始めたときの利用者・世代を、副作用の直前に照らす。別の利用者に替わったと分かったときの読み込み直し（上の 3・4）と、資格の確かめの 409 の扱い（上の 6）は変えない。詳細は[access-loss.md](access-loss.md)の「S-17 の外での検出」
 
+- 【#342（C-212。[ADR-0038](../adr/0038-bfcache-access-check.md)）】ブラウザの「戻る」で文書が丸ごと戻る場合（bfcache）は、`main.tsx`が実行し直されず、文書の利用者は、凍る前の値のまま固定される。戻ったとき、`features/auth/verify-document-session.ts`の`verifyDocumentSession()`が、セッション（`GET /api/auth/session`）を新しく直接取り（キャッシュ・進行中の取得に合流せず、答えをキャッシュに書き戻さない）、文書の利用者と比べて、`same`・`otherUser`・`unauthenticated`（HTTP の状態 401。エラーのコードによらない）・`unknown`（答えが無い・文書の利用者が決まっていない）を返す。呼ぶのは、`features/access-loss/page-restore-guard.ts`の守りで、`main.tsx`が関数として渡す（`features/auth`は`features/access-loss`を取り込まない）。別の利用者なら、守りが、`reportOtherUser`を通して、切り替えの入口を呼ぶ（上の「処理の流れ」の 3 と同じく、文書の間に1回だけ）。401 なら、守りが自分で、覆ったまま読み込み直す（既存の 401 の処理〔`/login`への移動〕を待たない）。この直接の確かめは、409 の後の取り直しの回数（上の 5）に数えない。概要の取得の 409 は、既存の決まりどおり数える。設計は[access-loss.md](access-loss.md)の「bfcache の復元の守り」
 - ヘッダーの値は、画面の側の状態（キャッシュ・ログイン状態）が変わっても変えない。古い画面の続きの要求が、始めた利用者のまま送られ、サーバーが食い違いとして断るため。別の利用者に替わったら、読み込み直しで文書ごと替わる
 - 画面の既存の 409 の分岐（競合の表示）は、ステータスではなく、コード`CONFLICT`で判定する（`isConflictError`。PR-2a）。食い違いの 409 は、競合の表示にならない
 - 取り直しの答えが得られないとき（オフライン・手での書き換えとの重なりなど）の資格の確かめは、`unverified`（中身を隠し、読み込み直しを促す）になる。以前は、キャッシュに残っていた値で判定していた
@@ -329,7 +330,8 @@ Cookie はブラウザ全体で1つのため、別のタブで別の利用者が
 - ADR：[0003](../adr/0003-auth-cookie-session.md)（Cookieのセッション）、[0007](../adr/0007-password-hash-scrypt.md)（scrypt）、[0008](../adr/0008-session-and-login-throttle.md)（セッションと試行制限・token維持と5分境界競合）、[0009](../adr/0009-admin-mfa-totp.md)（TOTP）、[0012](../adr/0012-zero-trust-principle.md)（ゼロトラスト）、[0013](../adr/0013-initial-setup-auth-and-pii-encryption.md)（初回セットアップ）、[0017](../adr/0017-password-composition-policy.md)（password構成規則）、[0030](../adr/0030-clear-cache-on-user-switch.md)（利用者の切り替えのキャッシュ）、[0035](../adr/0035-session-user-mismatch-header.md)（画面の想定する利用者と食い違う要求を409で断る）、[0037](../adr/0037-keep-cookie-on-invalid-session.md)（使えないセッションの通常の要求では、Cookieを消さない）
 - Issue #284（利用者の切り替えのキャッシュ。ADR 0030）。後続：#300（進行中の操作）
 - Issue #339（S-17 の外での資格の見張り。C-210・ADR 0036）：利用者の切り替えの見張りより後に登録し、利用者の世代で古い確かめを捨てる（上の「画面の側：決まり」）
+- Issue #342（「戻る」で文書が丸ごと戻る場合の守り。C-212・ADR 0038）：セッションの直接の確かめ`verifyDocumentSession`を足した（上の「画面の側：決まり」）。守りは、見張りの後・描画の前に登録する
 - Issue #298（画面の利用者とセッションの利用者の食い違い。ADR 0035。サーバーの側と画面の側の両方が実装済み）。#376（資格の確かめの取り違え。#298 とまとめて直した）。後追い：#380・#382・#383
-- 決定記録：C-187、C-209、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
+- 決定記録：C-187、C-209、C-212、C-148〜C-150、C-158、C-159〜C-161（`docs/requirements/decision-register.md`）
 - 秘密情報の設定：`docs/secrets.md`の`LOGIN_THROTTLE_KEY`
 - 関連する設計書：[roles-and-setup.md](roles-and-setup.md)（`/api/setup`、`password.ts`の元の部分）

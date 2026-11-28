@@ -6,7 +6,7 @@
 
 - 目的：資格を失ったと確定した画面で、参加者だけの中身を、メモリに残さない。読み込み直した後に、理由の知らせを1回出す
 - 範囲：S-17 の表示中に確定する場合（下の「呼ぶ場所と条件」）。呼ぶ場所は`frontend/src/features/cases/`にあり、この機能（`features/access-loss/`）は、待ち方・隠し方・知らせを持つ
-- 範囲の外：S-17 の外での検出（#339）・bfcache（#342）・数え上げの方式の削除（#339〜#342 の後の別の Issue）。【#341（C-208）で、別のタブを範囲に加えた：下の「別のタブへの伝え方」。ただし、別のタブの全部を解消したわけではない（同じ節の「既知の限界」）】【#339（C-210）で、S-17 の外での検出を範囲に加えた：下の「S-17 の外での検出」。検索だけの経路は別の Issue（#388） で、範囲の外のまま。元の記述は残す】
+- 範囲の外：S-17 の外での検出（#339）・bfcache（#342）・数え上げの方式の削除（#339〜#342 の後の別の Issue）。【#341（C-208）で、別のタブを範囲に加えた：下の「別のタブへの伝え方」。ただし、別のタブの全部を解消したわけではない（同じ節の「既知の限界」）】【#339（C-210）で、S-17 の外での検出を範囲に加えた：下の「S-17 の外での検出」。検索だけの経路は別の Issue（#388） で、範囲の外のまま。元の記述は残す】【#342 の 342-A（C-212。[ADR-0038](../adr/0038-bfcache-access-check.md)）で、bfcache（「戻る」で文書が丸ごと戻る場合）を範囲に加えた：下の「bfcache の復元の守り」。実際の復元の確かめは、2026-11-28 に、開発用のサーバーと Chrome（DevTools の MCP）で行った。M1・M2 は合格、M3 は守りの動きは合格で、入力の保持は既知の限界（C-212）。結果は Issue #342 のコメント。元の記述は残す】
 - 【#340（C-207）で、下書きを範囲に加えた】資格を失った案件の部屋のメッセージの下書きを、端末から消す。消す処理そのものは`features/cases/`と`features/drafts/`にあり（[drafts.md](drafts.md)・[cases.md](cases.md)）、この機能は、**消せなかったときの、読み込み直した後の知らせ**（`noteDraftsRemain`・知らせの2つの種類）だけを持つ
 
 ## ファイルと役割
@@ -27,7 +27,8 @@
 | `frontend/src/features/cases/case-access-evidence.ts`・`case-access-verification.ts`・`case-access-loss-monitor.ts` | 【#339。C-210】S-17 の外での検出。実績の読み取り・資格の確かめと5種類の判定・画面の外の見張りと確定。`features/cases/`にあり、見張りの登録`installCaseAccessLossMonitor`は`features/cases/index.ts`が公開する。役割の詳細は、下の「S-17 の外での検出」 |
 | `frontend/src/features/leave-guard/before-unload-suppression.ts` | 離脱の確認（`beforeunload`）を止めない印（`suppressBeforeUnload`・`restoreBeforeUnload`・`isBeforeUnloadSuppressed`）。`leave-guard/index.ts`から公開し（【#298】`isBeforeUnloadSuppressed`も公開した）、`hooks/useLeaveGuard.ts`の`beforeunload`の処理が印を読む。立てる・外すのは入口だけ |
 | `frontend/src/services/api-client.ts` | 進行中の**書き込みの要求**（GET・HEAD・OPTIONS 以外）の数を数える口（`getPendingWriteCount`・`subscribePendingWrites`）。リクエストのインターセプターで、実際の送信（アダプター）を包み、増減は`try`/`finally`で必ず戻す。持つのは**数だけ**（本文・URL・応答を覚えない）。`useMutation`を使わない送信（パスワードの変更・ログイン・再認証・アカウントの作成・初期設定など。`MutationCache`に載らない）も、入口の待つ対象になる。入口だけが使う口で、通常の機能は直接使わない |
-| `frontend/src/main.tsx` | `QueryClientProvider`の中で、`RouterProvider`を`AccessLossBoundary`で包む（`LeaveGuardProvider`は、ルーターの要素として`App`を包んでいるので、境界はその外側になり、離脱の確認も隠れる）。描画の前に`takeAccessLossNotice`を1回呼ぶ。【#341】`takeAccessLossNotice`の後に、`installCaseAccessLossRelay(queryClient)`を1回だけ呼ぶ（解除しない）。登録の想定外の失敗は、`main.tsx`で受け止めて`reportError`に渡し、アプリの描画は止めない。【#339】中継の後に、`installCaseAccessLossMonitor(queryClient)`を1回だけ呼ぶ（解除しない）。【#298】文書の利用者・ヘッダー・409 の処理・見張りに、切り替えの入口`requestUserSwitchReload`を、関数として渡す（`features/auth`は`features/access-loss`を取り込まない。[auth-session.md](auth-session.md)） |
+| `frontend/src/main.tsx` | `QueryClientProvider`の中で、`RouterProvider`を`AccessLossBoundary`で包む（`LeaveGuardProvider`は、ルーターの要素として`App`を包んでいるので、境界はその外側になり、離脱の確認も隠れる）。描画の前に`takeAccessLossNotice`を1回呼ぶ。【#341】`takeAccessLossNotice`の後に、`installCaseAccessLossRelay(queryClient)`を1回だけ呼ぶ（解除しない）。登録の想定外の失敗は、`main.tsx`で受け止めて`reportError`に渡し、アプリの描画は止めない。【#339】中継の後に、`installCaseAccessLossMonitor(queryClient)`を1回だけ呼ぶ（解除しない）。【#298】文書の利用者・ヘッダー・409 の処理・見張りに、切り替えの入口`requestUserSwitchReload`を、関数として渡す（`features/auth`は`features/access-loss`を取り込まない。[auth-session.md](auth-session.md)）。【#342】見張りの後・描画の前に、`installPageRestoreGuard`を1回だけ呼ぶ（解除しない。下の「bfcache の復元の守り」の「登録の順序」） |
+| `frontend/src/features/access-loss/page-restore-guard.ts`・`frontend/src/features/auth/verify-document-session.ts` | 【#342。C-212】bfcache の復元の守りと、セッションの直接の確かめ。役割は、下の「bfcache の復元の守り」の「ファイルと役割」 |
 | `frontend/src/features/app-shell/AppShell.tsx` | `LogoutFailureNotice`の直後に`AccessLossNotice`を置く |
 
 ## 呼ぶ場所と条件
@@ -58,6 +59,7 @@
 - 覆いは`cancel`（Esc）を止め、`close`されたら開き直す。`idle`に戻れば外れる
 - 持ち主のログアウトを待つ間に`/login`へ移っても、覆いは外さない（後処理の後に読み込み直すため。ログイン画面は操作できない）
 - 状態は外部ストア（`useSyncExternalStore`）で読む。境界は、`hidden`・`inert`で隠す仕組みを持つだけで、認可ではない
+- 【#342。C-212】復元の守り（`page-restore-guard.ts`）の状態も、同じ包みを隠す。包みの属性は、毎回の描画の後に、その時点の状態から付け直し、守りが`pagehide`の処理の中で直接付けた属性を、古い描画の値で取り消さない。復元の覆いの種類・失敗のときの子のモーダルの扱いは、下の「bfcache の復元の守り」の「境界の包みと覆い」。読み込み直しの覆い（上の項目）は変えない
 
 ## 離脱の確認の抑止
 
@@ -150,7 +152,7 @@
 - **`BroadcastChannel`が使えない環境**・別の保存の区画（別のブラウザ・プロファイル・プライベートウィンドウ）：これまでどおり
 - **取り違え（画面の利用者と通信の利用者が食い違うタブ。#376 と同じ条件）で読み込み直した場合**：読み込み直した後の文書が、セッションの確認で別の利用者を受けると、種類だけの知らせ（`lost`。案件の中身は含まない）が、その別の利用者に、1回出る（`access-loss-notice.ts`は、最初に確定した利用者が誰かを問わないため。「閉じる」で消える）。その動きを、`access-loss-notice.test.tsx`で、既知の動きとして固定している。【#298（C-209）：別の利用者に替わったと分かって読み込み直す経路では、切り替えの入口が、読み込み直す前に保存済みの知らせを消すので、出ない。受けたタブの確かめも、想定の利用者のヘッダーを付けて送るので、食い違うタブでは 409 になり、入口を呼ばない。元の記述は残す】
 - **この Issue の範囲の外**：画面の利用者と通信の利用者が食い違うタブでの取り違え（#376。#341 の次に、優先して直す）、書き込みの取り違え（#298）【この2つは、C-209（#298・#376）で扱った。上の「利用者の切り替えでの読み込み直し」。元の記述は残す】
-- bfcache（#342）
+- bfcache（#342）【#342 の 342-A（C-212）で扱った：下の「bfcache の復元の守り」。元の記述は残す】
 
 ## 利用者の切り替えでの読み込み直し（Issue #298・#376。C-209。[ADR-0035](../adr/0035-session-user-mismatch-header.md)）
 
@@ -260,12 +262,167 @@ S-17 を開いていない間（S-35 のスレッド一覧・S-07 の返信な�
 「画面の外の全部を、解消した」とは言わない。
 
 - **検索だけの経路**：扱わない（利用者の決定。別の Issue（#388））。既存の片付けが検索のキャッシュを取り除く動きは変わらない
-- **bfcache**（#342）
+- **bfcache**（#342）【#342 の 342-A（C-212）で扱った：下の「bfcache の復元の守り」。元の記述は残す】
 - **別のタブ**：`BroadcastChannel`が使えない環境・別の保存の区画には、合図が届かない。実績も概要も持たないタブは、通信しない
 - **中継は、利用者が A → B → A と替わった場合を見分けない**：入口を呼ぶだけの経路で、片付け・下書きの消去はしない
 - **概要の Query だけが捨てられ、実績は残っている場合**：作り直された Query の答えでは、確定しない（下書きを消さない側。作り直された画面を、あらためて「実績がある初回」として扱う仕組みは、足さない）
 - **S-17 の確かめは、切り替えの後も、始めた利用者の分を片付ける**（前からの決まった動き。上の「利用者の世代」）
 - 409 の後の確かめが「分からない」なら、切り替えの入口が動いていても、`unverified`（中身を隠し、読み込み直す。C-209）
+
+## bfcache の復元の守り（Issue #342 の 342-A。C-212。[ADR-0038](../adr/0038-bfcache-access-check.md)）
+
+ブラウザの「戻る」で、前の文書が、メモリごと凍って戻ることがある（bfcache）。戻った文書では、`main.tsx` は実行し直されず、離れている間に外された案件の中身が、確かめる前に出てしまう。そこで、離れるとき、その処理の中で中身を隠し、戻ったとき、自分で取り直したセッションと案件の概要の答えだけで、外す・再試行を出す・覆ったまま読み込み直す、を決める。API・DB は変えない（フロントエンドだけ）。守りは表示の側の後片付けで、認可ではない（サーバーの認可は変えない）。
+
+### 目的と範囲
+
+- 目的：資格を失った中身を、戻った直後に出さない。資格が残っていれば、入力・画面の状態（スクロール・フォーカス・選択範囲・開いているモーダル・popover）を保ち、読み込み直さない
+- 範囲：342-A。守るのは、離れる（`pagehide`）ときに、案件の中身を持つ文書。持たない文書（対象が 0 件で、読み込み直しが`idle`）は、覆わず、確かめない
+- 範囲の外：次の表。残る範囲は、下の「既知の限界」
+
+| Issue | 範囲の外のこと |
+| --- | --- |
+| #391（342-B。条件つき） | 凍る前に送った要求の遅い答えへの、さらに強い守り（S-17・中継・409 の処理・一覧の比較元への復元の世代、直接の取得の中断、通常の取得の保留） |
+| #392（342-C） | 待ちの上限（5秒）を、凍っていた時間を除いて数えること。元の遷移の種類・行き先の保存と、読み込み直しの保留・再開 |
+| #388 | 検索だけの経路 |
+| #390 | 通常の例外後の印、Refetch 側の例外の契約など |
+| #398 | テストの準備の完了待ち（本番の動きではない） |
+
+### ファイルと役割
+
+置き場所は、`frontend/src/features/`の下（以下、機能名から書く）。
+
+| ファイル | 役割 |
+| --- | --- |
+| `access-loss/page-restore-guard.ts`（新規） | 守りの本体。状態（`idle`・`prepared`・`verifying`・`failed`・`handedOff`）と、試行の番号・登録ごとの識別を、この1ファイルに持つ。`installPageRestoreGuard(options)`：`pagehide`・`pageshow`の登録（解除の関数を返す）。`getPageRestoreState`・`subscribePageRestoreState`：状態の取得と購読。`retryPageRestoreVerification`：失敗の案内の「再試行」。`reloadWhenRetryUnreachable`：失敗の覆いを開けなかったときの読み込み直し。`attachPageRestoreSurface`：境界が、包みの直接の操作（隠す・外す・表示の状態の控えと復帰）を登録する口 |
+| `access-loss/components/AccessLossBoundary.tsx` | 境界。包みの`hidden`・`inert`の付け直し、守りの状態に応じた覆い（確かめの間・失敗・引き渡しの後）、表示の状態の控えと復帰。下の「境界の包みと覆い」 |
+| `access-loss/reload-after-access-loss.ts` | `retryReloadNavigationAfterPageRestore()`を足した。状態が`reloading`のときだけ、`reloadPage()`を1回呼ぶ。`idle`・`waiting`では何もしない（待機・期限・知らせを作り直さない） |
+| `access-loss/index.ts` | `installPageRestoreGuard`を公開 |
+| `auth/verify-document-session.ts`（新規） | `verifyDocumentSession()`：セッションを新しく直接取り（`fetchSession`）、文書の利用者と比べる。キャッシュ・進行中の取得に合流せず、答えをキャッシュに書き戻さない。409 の後の取り直しの回数には触れない。`access-loss`には依存しない |
+| `auth/index.ts` | `verifyDocumentSession`・型`DocumentSessionOutcome`と、既存の`reportOtherUser`を公開 |
+| `cases/case-access-evidence.ts` | `caseAccessTargets(queryClient, userId)`：確かめる対象（案件と部屋の ID だけ）を全件返す。実績の判定と部屋の ID は`caseRoomEvidence`と同じ読み方で、案件の ID で重なりを除く |
+| `cases/case-access-verification.ts` | `verifyBySummaryFetch`に、詳しい結果を返す呼び方（`{ withFailureStatus: true }`）を足した。判定と、根拠の HTTP の状態（成功は`null`、通信の失敗・時間切れは 0）を返す。1つの引数の呼び出しの戻り値・投げ方は変えない |
+| `cases/case-access-loss-monitor.ts` | `settleVerifiedCaseAccess(queryClient, context, verdict)`：復元用の確定の入口。型`CaseAccessContext`・`VerifiedCaseAccessVerdict`・`VerifiedCaseAccessSettlement`。通常の確定（`settleOutside`）は、中身を取り出して共通の関数に分けただけで、動きは変えない |
+| `cases/index.ts` | 上の関数・型と、文脈の取得に要る`currentLossPeriod`・`currentUserGeneration`を公開 |
+| `frontend/src/main.tsx` | 守りを登録（下の「登録の順序」） |
+| `stryker.config.json` | ミューテーションの対象に、守り・境界・入口など7ファイルを登録しただけ。基準は変えない |
+
+依存の向きは、`main.tsx`が関数として渡す形（`access-loss`は`cases`に依存せず、`auth`・`cases`は`access-loss`の守りに依存しない）。実際の復元の確かめに使う観測の補助`e2e/support/bfcache-observer.js`は、製品の成果物に入れない（[bfcache.md](../testing/bfcache.md)）。
+
+### 状態
+
+| 状態 | 意味 |
+| --- | --- |
+| `idle` | 通常。覆っていない。退避の準備がない |
+| `prepared` | 離れるときに、隠して戻るのを待っている。対象と、隠す前の表示の状態を控えてある |
+| `verifying` | 戻って、確かめている（セッション → 対象の全件）。覆いを出し、中身は隠れたまま |
+| `failed` | 確かめられなかった。隠したまま、失敗の案内と「再試行」を出す。入力は保つ |
+| `handedOff` | 既存の入口（切り替え・資格の喪失・読み込み直し）か、守り自身の読み込み直しへ渡した。覆いを保つ。`idle`には戻らない |
+
+既存の読み込み直しの状態（`idle`・`waiting`・`reloading`）とは別に持つ。覆いは、読み込み直しが`idle`でなければ、そちらを先に出す（表示の優先は「読み込み直し中 → 復元の確かめ中・失敗 → 通常」）。
+
+### 離れるとき（`pagehide`）
+
+`persisted`の値によらず、毎回働く。`installPageRestoreGuard`が登録した処理が、この順で進める。
+
+1. 試行の番号を進める（前の確かめの完了を無効にする）
+2. 状態が`idle`なら：セッションのキャッシュの利用者から、確かめる対象を捕まえる（`caseAccessTargets`。利用者が無ければ対象 0 件。文書の利用者で補わない）。対象が 0 件で、読み込み直しが`idle`なら、何もしない（覆わず、確かめの予約も作らない）
+3. 対象がある、または読み込み直しが`idle`でないなら、`prepared`にして、隠す前の表示の状態（ウィンドウのスクロール・0 でないスクロールを持つ要素・フォーカス・選択範囲）を控え（`captureView`）、**その処理の中で**、包みに`hidden`・`inert`を直接付ける（`cover`）。控えるのが例外で終わっても、隠す（`finally`）。そのあとで通知し、例外は`reportError`に渡す
+4. 捕まえるのが例外で終わったときは、対象 0 件の正常な結果にしない。隠したまま`prepared`にして（捕捉の印は`failed`）、`reportError`に渡す
+5. `idle`でない（確かめ・失敗・引き渡しの途中）なら、試行を捨て、捕まえた対象と、最初に控えた表示の状態を保ったまま、隠し続け、`prepared`にする
+
+### 戻ったとき（`pageshow`）
+
+状態が`prepared`のときだけ働く（退避の準備がない文書は何もしない。初回・新しい文書・画面の中の移動を含む）。`persisted`の値は見ない。確かめずに準備だけを解く経路は無い。
+
+1. 読み込み直しの遷移をやり直した印を戻し、新しい試行の番号で`verify`を始める
+2. 捕捉が例外で終わっていて、読み込み直しが`idle`なら、確かめず、`failed`にする（再試行が、いまのキャッシュから捕まえ直す）
+3. `verifying`にして、`verifyDocumentSession`でセッションを新しく直接取る。例外は`reportError`に渡し、答えが無い扱いにする
+4. 試行が古ければ捨てる。読み込み直しが`idle`でなければ、案件は確かめず、既存の読み込み直しに任せる（下の表）
+5. セッションの答えで分ける：401 → 守り自身が読み込み直す（`handedOff`）。別の利用者 → 切り替えの入口（`onOtherUser`。`main.tsx`が渡す`reportOtherUser`）→ `handedOff`。答えが無い（5xx・通信の失敗・時間切れ・文書の利用者が決まっていない・例外）→ `failed`。同じ利用者 → 次へ
+6. 対象を決める：離れるときに捕まえたもの。捕まえられていなければ、いまのキャッシュから捕まえ直す。それでも捕まえられなければ`failed`
+7. 対象の全件を、同時に2件まで確かめる（`verifyBySummaryFetch`の詳しい結果。キャッシュの外で、概要を直接1回）。各件の答えが届いたら、試行・読み込み直しの状態を照らしたうえで、下の表のとおりに分ける
+8. 全件が`confirmed`なら、最新の試行で、読み込み直しが`idle`なことを確かめてから、`idle`に戻し、包みを外し（`release(true)`）、表示の状態を戻す（参加の期間は進めない。読み込み直さない）
+
+### 状態 × 出来事
+
+| 状態 | 出来事 | 期待 |
+| --- | --- | --- |
+| `idle` | `pagehide`。対象 0 件（利用者が無い場合を含む）で、読み込み直しが`idle` | 覆わない。確かめの予約を作らない（`idle`のまま） |
+| `idle` | `pagehide`。対象がある、または読み込み直しが`idle`でない | `persisted`によらず、その処理の中で包みを隠す（`prepared`） |
+| `idle` | `pagehide`。捕捉が例外で終わった | 隠す。対象 0 件にしない。例外を報告（`prepared`。戻ったとき`failed`） |
+| `verifying`・`failed`・`handedOff` | `pagehide` | 試行を捨てる。捕まえた対象と、最初に控えた表示の状態を保ち、隠し続ける（`prepared`） |
+| `prepared` | `pageshow`（`persisted`が真でも偽でも） | 新しい試行で、セッションの直接の確かめから始める（`verifying`）。確かめずには解かない |
+| `idle`・`verifying`・`failed`・`handedOff` | `pageshow` | 何もしない |
+| `verifying` | 読み込み直しが`waiting`・`reloading` | 案件は確かめない。覆いは外さない。セッションの結果が別の利用者なら、先に切り替えの入口。`reloading`なら、その復元について1回だけ`retryReloadNavigationAfterPageRestore`（結果によらない）。`handedOff`にする |
+| `verifying` | セッションの確かめが 401 | 案件は確かめない。覆ったまま、離脱の確認を抑止して、`reloadPage`（`handedOff`。喪失の知らせ・合図・下書きの消去はしない） |
+| `verifying` | セッションの確かめが別の利用者 | 切り替えの入口へ（`handedOff`）。喪失側の副作用なし |
+| `verifying` | セッションの確かめに答えが無い | `failed` |
+| `verifying` | 案件の確かめが 401（HTTP の状態で判定。コードによらない） | 覆ったまま読み込み直す（`handedOff`。重なった 401 で遷移を重ねない） |
+| `verifying` | 案件の確かめが、通信の失敗・5xx・時間切れ・一般の確かめられない | `failed`。片付け・合図・下書きの消去・読み込み直しはしない |
+| `verifying` | 案件の確かめが 403 | `settleVerifiedCaseAccess`へ`forbidden`として渡す。採用されれば、中身を`"room"`で片付けて読み込み直す（`handedOff`）。下書きの消去・合図はしない |
+| `verifying` | 案件の確かめが`lost`・`notFound` | `settleVerifiedCaseAccess`へ。採用されれば、既存と同じ順で片付けて入口へ（`handedOff`） |
+| `verifying` | 案件の確かめが`switched` | `settleVerifiedCaseAccess`へ。切り替えの入口が動いていれば`handedOff`、動いていなければ`failed` |
+| `verifying` | `settleVerifiedCaseAccess`が`unverified`（照合で採用できなかった） | 読み込み直しが`idle`なら`failed`、そうでなければ`handedOff` |
+| `verifying` | 一部の件だけが`confirmed` | 解除しない |
+| `verifying` | 全件が`confirmed`。最新の試行・読み込み直しが`idle` | `idle`。包みを外し、表示の状態を戻す。参加の期間を進めない。読み込み直さない |
+| `verifying` | 応答の検証の失敗・実装の例外 | 確かめの成功にしない。`reportError`に渡し、`failed` |
+| `failed` | 「再試行」（`retryPageRestoreVerification`） | 新しい試行で、セッションから全件を確かめ直す（前回の一部の成功は使わない。`verifying`）。確かめの間は、再度押せない |
+| `failed` | 失敗の覆いを開けなかった（`reloadWhenRetryUnreachable`） | 覆ったまま読み込み直す（`handedOff`。1回だけ。`failed`のときだけ動く） |
+| どれでも | 古い試行・登録を解除した後・`failed`や`handedOff`の後に残った要求の完了 | 解除にも、確定の入口の呼び出しにも使わない |
+| どれでも | 捕まえた後の、キャッシュの削除 | 対象を確認済みにしない。不在から喪失も決めない |
+| どれでも | `pagehide`の後の、描画への通知の失敗 | 包みは隠れたまま。例外を報告。再試行が成功すれば、直接の操作と描画の後の付け直しで外れる |
+
+### 確定の入口（`settleVerifiedCaseAccess`）と、確かめの詳しい結果
+
+- 各件の確かめの直前に、文脈（利用者の ID・案件の ID・部屋の ID・利用者の世代・参加の期間）を控える（`main.tsx`の`contextOf`）。部屋の ID は、片付けの前に決めた値を使う
+- 渡す判定は、`participant`・`lost`・`notFound`・`switched`と、概要の 403 を表す復元専用の`forbidden`。一般の`unverified`は渡さない（守りが`failed`にする）。403 かどうかは、`verifyBySummaryFetch`の詳しい結果の HTTP の状態で決める（判定の文字列だけでは、状態が失われるため）
+- 戻り値は`confirmed`（参加者を採用できた）・`handedOff`（片付け・入口への引き渡しが成り立った）・`unverified`（既存の照合で採用できなかった、または切り替えの入口が動いていなかった）
+- 既存の照合（`stillCurrent`：セッションの利用者・利用者の世代・参加の期間）が成り立たなければ、副作用なしで`unverified`を返す。`switched`は、セッションの利用者がもう違うので、照合せず、切り替えの入口が動いているか（`isUserSwitchReloadRequested`）だけを見る
+- 判定ごとの扱い：
+
+| 判定 | 採用できたときの処理 |
+| --- | --- |
+| `participant` | 確かめの成功だけを返す（`confirmed`）。**参加の期間を進めない**。合図・下書きの印も変えない（通常の経路の`participant`の動きは変えない） |
+| `lost` | `forgetCaseAfterLeave` → 入口`requestAccessLossReload` → 合図 → 下書きの消去（通常の確定と同じ順・同じ印）。`handedOff` |
+| `notFound` | `forgetCaseContent` → 同じ入口・合図・下書き。概要・案件一覧を非参加に書き換えない。`handedOff` |
+| `forbidden`（概要の 403） | `forgetCaseContent`（スレッドは`"room"`）→ 入口。合図・下書きの消去はしない。`handedOff`。保存していない入力は、読み込み直しで失われる |
+| `switched` | 喪失側の副作用はしない。切り替えの入口が動いていれば`handedOff`、そうでなければ`unverified` |
+
+- `verifyBySummaryFetch`の詳しい結果：`{ verdict, failureStatus }`。404 は`notFound`と状態 404。特定の 409（`SESSION_USER_MISMATCH`）は既存の確かめ（`confirmSessionUserAfterMismatch`）を使い、その結果が 401 なら状態 401、それ以外は 409 の状態。403 は判定が`unverified`のまま、状態 403 を渡す。通信の失敗・時間切れは状態 0。API の失敗でないもの（応答の検証の失敗・実装の例外）は、従来どおり投げる。概要の取得の 409 は、既存の決まりどおり「同じ利用者が続いた回数」に数える（セッションの直接の確かめは数えない）
+- 確かめの対象（`caseAccessTargets`）：案件の ID つきの返信・スレッド一覧の読み込み済みの全ページの案件の行・案件との対応が分かる部屋の取得済みのメッセージ（空の配列を含む）・その利用者の参加者の概要を、案件の ID で重なりを除いて返す。案件一覧の行・案件の詳細だけでは、新しい部屋・スレッドの実績にしない。検索だけの結果は加えない。保持するのは、案件の ID・部屋の ID だけ
+
+### 境界の包みと覆い（`AccessLossBoundary`）
+
+- 包み（ルーター全体）の`hidden`・`inert`は、2つの道で付く。(1) 守りが、`attachPageRestoreSurface`で登録された`cover`で、`pagehide`の処理の中に、DOM へ直接付ける。(2) 境界が、**毎回の描画の後**（レイアウトの効果）に、その時点の読み込み直しの状態と守りの状態から、両方向へ付け直す（描画したときの古い値で、直接付けた属性を取り消さない・残さない）
+- 解除（`release`）のときも、DOM から直接外す（描画が同じ値と判断して、属性が残ることを防ぐ）。外す直前にも、読み込み直しが`idle`かを確かめ、`idle`でなければ外さない
+- 表示の状態の復帰：隠す前に控えた、フォーカス・選択範囲・要素のスクロール・ウィンドウのスクロールを、全件の確認に成功して外した後の描画の後に、この順で戻す。フォーカスはスクロールさせずに戻す。覆った状態で再び離れても、最初に控えた記録は上書きしない
+- 覆い（包みの外）：確かめの間（`prepared`・`verifying`）は見出し「画面を確認しています」、引き渡しの後（`handedOff`）は見出し「画面を読み込み直しています」の、モーダルでない全画面の要素。失敗（`failed`）は、案内「画面を確認できませんでした。再試行してください」と、共通の`Button`「再試行」
+- **失敗の覆いは、原則、モーダルでない通常の全画面の要素**にする。`showModal()`で開くと、開いている auto の popover が閉じ、戻ったときに画面の状態が変わるため。中身は`inert`で操作を止める。覆いの間は、Esc の既定の動きを止める（隠した中身のモーダル・popover は最上位の層に残り、Esc の閉じる要求を受けるため）
+- **子のモーダル（`showModal()`のダイアログ）が開いたまま失敗したときだけ、失敗の覆いを`showModal()`のダイアログにする**（`FailedModal`）。文書の仕様で、モーダルのダイアログが開いていると、その外は、祖先を`hidden`にしても、操作できず、通常の覆いの再試行に届かないため。後から開いたモーダルが一番上になるので、再試行を押せる。覆いが外れたら閉じ、子のモーダルが再び一番上になる。このとき、開いている auto の popover は、開くときに閉じる。失敗になったときに1回だけ、子のモーダルの有無を見る
+- その覆いの`showModal()`が例外になったら、`reportError`に渡し、`reloadWhenRetryUnreachable`で、覆ったまま読み込み直す（守りが`failed`のときだけ。1回だけ。離脱の確認を抑止。下書きの消去・喪失の知らせはしない）
+- jsdom では、`:modal`が何にも当てはまらず、隠した要素の`blur()`も効かない。子のモーダルがある道筋の確かめは、E2E と、守りの入口の単体のテストで行う
+
+### 登録の順序（`main.tsx`）
+
+利用者の切り替えの見張り（`installUserSwitchGuard`）→ 知らせの読み取り（`takeAccessLossNotice`）→ 中継（`installCaseAccessLossRelay`）→ 見張り（`installCaseAccessLossMonitor`）→ **守り（`installPageRestoreGuard`）** → 描画。守りは、見張りの後・描画の前に、1回だけ登録する（アプリの間ずっと有効なので解除しない）。`verifySession`（`verifyDocumentSession`）・`onOtherUser`（`reportOtherUser`に`requestUserSwitchReload`を渡したもの）・`listTargets`（`caseAccessTargets`）・`contextOf`（利用者の世代と参加の期間を取る）・`verifyCase`（`verifyBySummaryFetch`の詳しい結果）・`settleCase`（`settleVerifiedCaseAccess`）を、関数として渡す。既存の 401 の共通の処理の登録は、1か所のまま変えない（守りは、自分の確かめの結果だけで 401 を扱う）。
+
+### 既知の限界
+
+「戻ったときの全部を解消した」とは言わない。
+
+- **凍る前に送った要求の遅い答え**：その副作用は、C-210 の既存の照合（利用者の世代・参加の期間）の範囲でだけ防ぐ。強い守りは #391
+- **待ちの上限（5秒）**：読み込み直しの待ちの上限は、ページが凍っていた時間の分だけ延びうる（#392）
+- **401 で読み込み直す**：メモリのキャッシュ（ログインし直した後、すぐ表示に使えるもの）を失う
+- **403 で読み込み直す**：保存していない入力を失う（利用者の決定。保存済みの下書きは消えない）
+- **セッションのキャッシュが無い文書**：離れるとき対象 0 件になるので、戻ったときに確かめない。画面は、認証の枠（`RequireAuth`）が止めるので、案件の中身は出ない。メモリの案件のキャッシュは残るので、同じ利用者がログインし直すと、取り直すまでの間、喪失した案件のキャッシュが表示されうる（既存のセッション切れと同じ動き）
+- **概要の 409 の後の 401**：`main.tsx`と同じ組み立てでは、401 の共通の処理が、取り直しの途中でセッションの Query を消し、取り直しの結果が「確かめられない」になるので、隠したまま`failed`になる。再試行を押すと、直接のセッションの確かめの 401 で、覆ったまま読み込み直す。中身は出ない（#382 と同じ経路）
+- **子のモーダルを開いたまま失敗したとき**：失敗の覆いを`showModal()`で開くので、開いている auto の popover が閉じる
+- **その覆いを開けなかったとき**：覆ったまま読み込み直すので、保存していない入力を失う。この例外は、テストが差し替えて起こしただけで、実際のブラウザで起きる場面は確かめていない
+- **子のモーダルが無いときの覆い**：クリックすると、開いている popover が閉じうる（未検証）
+- **戻ったときに全部の通信が失敗する場合（オフラインなど）**：守りは、中身を隠したまま再試行を出し、再試行で外れる。ただし、隠れている中身の側で、通常のログイン状態の確認も失敗し、案件の画面が、既存の「ログイン状態を確認できませんでした」の画面に入れ替わる。そのため、下書きを持たない、保存していない入力・フォーカス・スクロールは保たれない（保存済みの下書きは、下書きから戻る）。中身は隠れたままで、資格を失った中身が出る問題ではない。「入力は保つ」は、この場合に満たせない。利用者の決定（2026-11-28）で、既知の限界として受け入れた。直すのは #391（復元の確かめの間に、通常の取得を止める仕組み。着手の条件は、M3 の確かめで満たした）
+- **合成のイベントの E2E は、実際の復元の証拠ではない**：実際の復元は、通常のブラウザでの確かめ（[bfcache.md](../testing/bfcache.md)の M0〜M3）で行った（2026-11-28 に、開発用のサーバーと Chrome（DevTools の MCP）で行った。M1・M2 は合格、M3 は守りの動きは合格で、入力の保持は既知の限界（C-212）。結果は Issue #342 のコメント）。Safari・iOS は未確認
+- **Safari・iOS**：確かめる環境がなく、未確認。退避の準備のある文書で`persisted`が偽の`pageshow`も確かめるが、それは実機での確認の代わりにならない
+- **検索だけの経路**：#388
 
 ## 関連する既存の機能との関係
 
@@ -297,6 +454,16 @@ S-17 を開いていない間（S-35 のスレッド一覧・S-07 の返信な�
 | `takeAccessLossNotice` | `QueryClient` | 読んだ種類（`null`なら知らせなし）。副作用として、出す知らせを持ち、セッションの変化を購読する |
 | `openNoticeStorage` | なし | `Storage`か`null`（`SecurityError`のとき） |
 | `reloadPage`・`replacePage` | なし／行き先 | `window.location`の操作 |
+| `installPageRestoreGuard`（#342。C-212） | オプション（`queryClient`・`verifySession`・`onOtherUser`・`listTargets`・`contextOf`・`verifyCase`・`settleCase`） | 解除の関数（状態を`idle`・試行の番号を初期に戻し、包みを外す）。`pagehide`・`pageshow`を受ける |
+| `getPageRestoreState`・`subscribePageRestoreState`（#342） | なし／リスナー | 状態`idle`・`prepared`・`verifying`・`failed`・`handedOff`と、購読の解除関数 |
+| `retryPageRestoreVerification`（#342） | なし | なし。`failed`のときだけ、新しい試行でセッションから全件を確かめ直す |
+| `reloadWhenRetryUnreachable`（#342） | なし | なし。`failed`のときだけ、覆ったまま読み込み直す（`handedOff`）。解除の後・再試行の後・2回目は何もしない |
+| `attachPageRestoreSurface`（#342） | 包みの直接の操作（`captureView`・`cover`・`release`） | 解除の関数。境界が登録する |
+| `retryReloadNavigationAfterPageRestore`（#342） | なし | なし。`reloading`のときだけ、いまの場所を`reloadPage`で読み込み直す |
+| `verifyDocumentSession`（#342。`features/auth/`） | なし | `same`・`otherUser`・`unauthenticated`（HTTP の状態 401）・`unknown`。API の失敗でない例外は投げる |
+| `caseAccessTargets`（#342。`features/cases/`） | `QueryClient`・利用者の ID | 案件と部屋の ID の組の配列（案件の ID で重なりなし）。部屋が分からなければ`roomId`は`null` |
+| `verifyBySummaryFetch`（詳しい結果。#342） | 案件の ID・`{ withFailureStatus: true }` | `{ verdict, failureStatus }`（成功は`null`、通信の失敗・時間切れは 0）。1つの引数の呼び出しは、これまでどおり判定だけ |
+| `settleVerifiedCaseAccess`（#342。`features/cases/`） | `QueryClient`・文脈（利用者・案件・部屋・利用者の世代・参加の期間）・判定（`participant`・`lost`・`notFound`・`switched`・`forbidden`） | `confirmed`・`handedOff`・`unverified`。照合が成り立たなければ、副作用なしで`unverified` |
 
 ## テストの場所
 
@@ -324,14 +491,26 @@ S-17 を開いていない間（S-35 のスレッド一覧・S-07 の返信な�
   - サーバー：[threads.md](threads.md)の「テストの場所」
   - E2E：`e2e/case-access-loss-outside-view.spec.ts`（2件。[e2e.md](../testing/e2e.md)）
   - 期待を変えた既存のテスト（`caseId`の追加・決定 D2 の置き換え）は、PR の本文に、ファイルとテストの名前で列挙する
+- 【#342。C-212】bfcache の復元の守り（受け入れ条件の番号は Issue #342 のもの。テストの名前に `#342 AC-n` を付けてある）
+  - 守りの単体：`frontend/src/features/access-loss/page-restore-guard.test.tsx`（`pagehide`・`pageshow`の`persisted`の真偽の組み合わせ、捕まえた後のキャッシュの削除、全件の確かめと同時2件の上限・一部だけの成功、再試行で全件を取り直す、古い試行・解除の後・`failed`や`handedOff`の後に残った要求の完了、401・403・通信の失敗・5xx・時間切れの分け方、`waiting`・`reloading`のときの扱い、別の利用者、概要の 409 の後の 401〔#382 による既知の限界〕、`reloadWhenRetryUnreachable`の入口〔失敗の覆いを開けられなかったとき〕。通信は MSW、確定の入口・概要の取得・セッションの確かめは本物）
+  - 境界：`frontend/src/features/access-loss/components/AccessLossBoundary.restore.test.tsx`（`pagehide`の同じ処理の中での`hidden`・`inert`、描画への同期が失敗した後の再試行と解除、子を外さずに入力・ダイアログを保つこと、外した後のフォーカス・選択範囲・スクロールの復帰、失敗の覆い）。jsdom では`:modal`が何にも当てはまらず、隠した要素の`blur()`も効かないので、ブラウザで起きるこの2つは、テストの中で手で起こす
+  - 再遷移の口：`frontend/src/features/access-loss/reload-after-access-loss.restore.test.ts`（`reloading`のときだけ`reloadPage`を1回。`idle`・`waiting`では何もしない。知らせの消去との前後）
+  - セッションの確かめ：`frontend/src/features/auth/verify-document-session.test.ts`
+  - 対象・詳しい結果・確定の入口：`frontend/src/features/cases/case-access-evidence.restore.test.ts`（`caseAccessTargets`。`caseRoomEvidence`との一致）、`case-access-verification.restore.test.ts`（詳しい結果の状態、1つの引数の呼び出しが変わらないこと、409 の数え方）、`case-access-loss-monitor.restore.test.ts`（`settleVerifiedCaseAccess`の判定ごとの副作用と戻り値、照合が成り立たないときの`unverified`）
+  - 画面：`frontend/src/pages/CaseAccessLossRestore.test.tsx`（守り・境界・S-17・S-35・確定の入口・切り替えの入口・離脱の確認の接続と、入力の保持）
+  - テストの共通の準備：`frontend/src/test/page-restore-harness.tsx`（`main.tsx`と同じ組み立てで守りを登録し、`pagehide`・`pageshow`を合成し、確かめの通信を答えの列と保留つきで返す。後始末で、登録の解除により、守りの状態と試行の番号を初期に戻す）
+  - E2E：`e2e/bfcache-access-loss.spec.ts`（開発用。12件）・`e2e-prod/bfcache-access-loss.spec.ts`（本番形。1件）。合成のイベントで、実際の復元の証拠ではない。[e2e.md](../testing/e2e.md)
+  - 通常のブラウザでの確かめ（M0〜M3）：[bfcache.md](../testing/bfcache.md)。2026-11-28 に、開発用のサーバーと Chrome（DevTools の MCP）で行った。M1・M2 は合格、M3 は守りの動きは合格で、入力の保持は既知の限界（C-212）。結果は Issue #342 のコメント
 
 ## 関係するIssueとADR
 
-- Issue #338（親 #323）。依存：#363（(b) の判定）。後続：#339（S-17 の外での検出）・#340（下書き。済み）・#341（別のタブ。済み。ただし限界あり）・#342（bfcache）
+- Issue #338（親 #323）。依存：#363（(b) の判定）。後続：#339（S-17 の外での検出）・#340（下書き。済み）・#341（別のタブ。済み。ただし限界あり）・#342（bfcache。342-A を実装。上の Issue #342 の行）
 - Issue #340（親 #323）：消せなかった下書きの知らせ。画面の側のログの仕組みは#372
 - Issue #341（親 #323）：別のタブへの合図。関連：#298（別のタブでの利用者の切り替え。C-209・ADR-0035 で実装済み）・#376（画面の利用者と通信の利用者が食い違うタブでの取り違え。#298 とまとめて直した）
 - Issue #298（#376 を含む）：利用者の切り替えでの読み込み直し。後追い：#380・#382・#383
 - Issue #339（親 #323）：S-17 の外での検出。検索だけの経路は別の Issue（#388）
-- 決定：C-206・C-207・C-208・C-209・C-210（[decision-register.md](../requirements/decision-register.md)）、C-190
-- [ADR-0033](../adr/0033-reload-page-after-access-loss.md)、[ADR-0034](../adr/0034-cross-tab-access-loss-hint.md)、[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)、[ADR-0035](../adr/0035-session-user-mismatch-header.md)、[ADR-0036](../adr/0036-case-access-loss-outside-view.md)
+- Issue #342（親 #323）：bfcache の復元の守り（342-A）。分けた後続：#391（342-B。条件つき）・#392（342-C）。範囲の外：#388・#390・#398。後追い：#382（概要の 409 の後の 401）
+- 決定：C-206・C-207・C-208・C-209・C-210・C-212（[decision-register.md](../requirements/decision-register.md)）、C-190
+- [ADR-0033](../adr/0033-reload-page-after-access-loss.md)、[ADR-0034](../adr/0034-cross-tab-access-loss-hint.md)、[ADR-0030](../adr/0030-clear-cache-on-user-switch.md)、[ADR-0035](../adr/0035-session-user-mismatch-header.md)、[ADR-0036](../adr/0036-case-access-loss-outside-view.md)、[ADR-0038](../adr/0038-bfcache-access-check.md)
 - 設計書：[cases.md](cases.md)・[app-shell.md](app-shell.md)・[drafts.md](drafts.md)・[auth-session.md](auth-session.md)
+- テストの手順：[e2e.md](../testing/e2e.md)・[bfcache.md](../testing/bfcache.md)

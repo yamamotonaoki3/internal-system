@@ -11,6 +11,7 @@ import type {
 } from "@tanstack/react-query";
 import {
   announceCaseAccessLoss,
+  isUserSwitchReloadRequested,
   requestAccessLossReload,
 } from "../access-loss";
 import { threadKeys } from "../threads";
@@ -256,45 +257,101 @@ function outsideTarget(
   return caseId === null ? null : { caseId, roomId: queryKey[2] };
 }
 
+/** 確定の副作用に要る文脈（確かめを始める直前に控える） */
+export type CaseAccessContext = Omit<Candidate, "route">;
+
+function requestLostReload(queryClient: QueryClient, userId: string): void {
+  void requestAccessLossReload(queryClient, {
+    ownerId: userId,
+    reason: "lost",
+  });
+}
+
+/** 確かめられないまま、拒否を受けた中身を隠して読み込み直す。参加者のままかもしれないので、合図・下書きの消去はしない */
+function hideUnconfirmedContent(
+  queryClient: QueryClient,
+  { userId, caseId, roomId }: CaseAccessContext,
+): void {
+  void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
+  requestLostReload(queryClient, userId);
+}
+
 /**
- * 画面の外の確定（計画 3 節の表）。スレッドは、別の部屋の表示中のものを巻き込まないよう、この部屋のものだけ（"room"）。
+ * 確定した喪失（非参加・404）。スレッドは、別の部屋の表示中のものを巻き込まないよう、この部屋のものだけ（"room"）。
  * 順序は、片付け → 入口 → 合図 → 下書きの消去。部屋の ID は、片付けの前に決めておく（片付けで返信・詳細が消えるため）
  */
+function confirmLoss(
+  queryClient: QueryClient,
+  { userId, caseId, roomId, period }: CaseAccessContext,
+  verdict: "lost" | "notFound",
+): void {
+  if (verdict === "lost")
+    void forgetCaseAfterLeave(queryClient, userId, caseId, roomId, "room");
+  // 404 は、概要・案件一覧を非参加に書き換えない
+  else void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
+  requestLostReload(queryClient, userId);
+  announceCaseAccessLossOnce(queryClient, userId, caseId, period);
+  forgetCaseRoomDraftsOnce(queryClient, userId, caseId, roomId, period);
+}
+
+/** 画面の外の確定（計画 3 節の表） */
 function settleOutside(
   queryClient: QueryClient,
-  { userId, caseId, roomId, route, period }: Candidate,
+  candidate: Candidate,
   verdict: CaseAccessVerdict,
 ): void {
   // 利用者の切り替えは、切り替えの入口に任せる
   if (verdict === "switched") return;
   if (verdict === "participant") {
-    startCaseParticipationPeriod(queryClient, userId, caseId);
+    startCaseParticipationPeriod(
+      queryClient,
+      candidate.userId,
+      candidate.caseId,
+    );
     return;
   }
   // 行の消失から確かめられないときは、何もしない（次のきっかけを受けられる状態に戻る）
-  if (verdict === "unverified" && route === "list") return;
-  const reload = () =>
-    void requestAccessLossReload(queryClient, {
-      ownerId: userId,
-      reason: "lost",
-    });
+  if (verdict === "unverified" && candidate.route === "list") return;
   if (verdict === "unverified") {
-    // 確かめられないまま、拒否を受けた中身を隠して読み込み直す。参加者のままかもしれないので、合図・下書きの消去はしない
-    void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
-    reload();
+    hideUnconfirmedContent(queryClient, candidate);
     return;
   }
-  if (verdict === "lost")
-    void forgetCaseAfterLeave(queryClient, userId, caseId, roomId, "room");
-  // 404 は、概要・案件一覧を非参加に書き換えない
-  else void forgetCaseContent(queryClient, userId, caseId, roomId, "room");
-  reload();
-  announceCaseAccessLossOnce(queryClient, userId, caseId, period);
-  forgetCaseRoomDraftsOnce(queryClient, userId, caseId, roomId, period);
+  confirmLoss(queryClient, candidate, verdict);
+}
+
+/** 復元の守り（#342）が確定の入口に渡す判定。forbidden は概要の 403（一般の unverified は渡さない） */
+export type VerifiedCaseAccessVerdict =
+  "participant" | "lost" | "notFound" | "switched" | "forbidden";
+
+/** confirmed：参加者を採用できた／handedOff：片付け・入口への引き渡しが成立した／unverified：照合で採用できなかった */
+export type VerifiedCaseAccessSettlement =
+  "confirmed" | "handedOff" | "unverified";
+
+/**
+ * 復元の守り（#342）の確定の入口。照合（stillCurrent）が成り立たなければ、副作用なしで unverified を返す（守りは再試行を出す）。
+ * participant は確かめの成功だけを返し、参加の期間を進めない（通常の確かめの期間・印を、復元の答えで動かさないため）。
+ * forbidden（概要の 403）は、中身の拒否で確かめられないときと同じに、中身を隠して読み込み直す（合図・下書きの消去はしない）
+ */
+export function settleVerifiedCaseAccess(
+  queryClient: QueryClient,
+  context: CaseAccessContext,
+  verdict: VerifiedCaseAccessVerdict,
+): VerifiedCaseAccessSettlement {
+  // 別の利用者に替わったときは、セッションの利用者がもう違うので照合せず、切り替えの入口が動いているかだけを見る
+  if (verdict === "switched")
+    return isUserSwitchReloadRequested() ? "handedOff" : "unverified";
+  if (!stillCurrent(queryClient, context)) return "unverified";
+  if (verdict === "participant") return "confirmed";
+  if (verdict === "forbidden") hideUnconfirmedContent(queryClient, context);
+  else confirmLoss(queryClient, context, verdict);
+  return "handedOff";
 }
 
 /** 確かめを始めたときの利用者の世代・参加の期間のままか（古い答えを、新しい世代・期間に作用させない。切り替えは verdict の switched で扱う） */
-function stillCurrent(queryClient: QueryClient, candidate: Candidate): boolean {
+function stillCurrent(
+  queryClient: QueryClient,
+  candidate: CaseAccessContext,
+): boolean {
   return (
     sessionUserId(queryClient) === candidate.userId &&
     currentUserGeneration(queryClient) === candidate.generation &&
