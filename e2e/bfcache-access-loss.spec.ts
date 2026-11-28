@@ -147,7 +147,10 @@ function watch(page: Page, errors: string[], extra: Rule[] = []) {
     if (!rules.some((rule) => rule(m.text(), url)))
       errors.push(`${m.text()} (${url})`);
   });
-  page.on("pageerror", (e) => errors.push(String(e)));
+  // 処理されなかった例外（reportError の報告を含む）も、許す規則に当てる。URL は無いので、URL で絞る BASE_RULES には当たらない
+  page.on("pageerror", (e) => {
+    if (!rules.some((rule) => rule(String(e), ""))) errors.push(String(e));
+  });
 }
 
 type Signed = { context: BrowserContext; page: Page; errors: string[] };
@@ -942,7 +945,9 @@ test("#342 AC-6・AC-7 E4: 戻ったときの概要の取得が通信の失敗�
     rules: [
       // この E2E が起こす通信の失敗（概要の取得を1回だけ切る）
       (text, url) =>
-        text.includes("net::ERR_FAILED") && new URL(url).pathname === summary,
+        text.includes("net::ERR_FAILED") &&
+        url !== "" &&
+        new URL(url).pathname === summary,
     ],
   });
   const log = recordRequests(page);
@@ -1018,7 +1023,9 @@ test("#342 AC-6・AC-4 E4: 子のモーダルを開いたまま、確かめが�
     rules: [
       // この E2E が起こす通信の失敗（概要の取得を2回だけ切る）
       (text, url) =>
-        text.includes("net::ERR_FAILED") && new URL(url).pathname === summary,
+        text.includes("net::ERR_FAILED") &&
+        url !== "" &&
+        new URL(url).pathname === summary,
     ],
   });
   const log = recordRequests(page);
@@ -1114,6 +1121,76 @@ test("#342 AC-6・AC-4 E4: 子のモーダルを開いたまま、確かめが�
   expect(summaries.length).toBeGreaterThanOrEqual(1);
   expect(summaries[0]?.at).toBeGreaterThanOrEqual(sessions[0]?.at ?? Infinity);
   expect(dialogs).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+// コードレビュー2回目の重大1：子のモーダルが開いたままの失敗の覆い（showModal の dialog）を開けなかった（showModal が例外）ときは、
+// 例外を報告したうえで、覆ったまま、ページごと読み込み直す（統括の判断。401 と同じ。保存していない入力は、この道筋だけ失われる）。
+// 例外は、子のモーダルを開いた後に、このテストの中だけで HTMLDialogElement.prototype.showModal を差し替えて起こす
+test("#342 AC-6 E4: 子のモーダルを開いたまま確かめが失敗し、失敗の覆いを開けなかった（showModal が例外）場合は、覆ったまま読み込み直す", async ({
+  browser,
+}) => {
+  const summary = summaryPath(CASES.c1.id);
+  const SHOW_MODAL_FAILURE =
+    "[E2E_TEST]342 showModal の失敗（テストが差し替えた）";
+  const { page, errors, dialogs } = await openAs(browser, a, {
+    rules: [
+      // この E2E が起こす通信の失敗（概要の取得を1回だけ切る）
+      (text, url) =>
+        text.includes("net::ERR_FAILED") &&
+        url !== "" &&
+        new URL(url).pathname === summary,
+      // この E2E が差し替えた showModal の例外を、守り・境界が reportError で報告したもの
+      (text) => text.includes(SHOW_MODAL_FAILURE),
+    ],
+  });
+  const reported = signal();
+  page.on("pageerror", (error) => {
+    if (String(error).includes(SHOW_MODAL_FAILURE)) reported.fire();
+  });
+  const main = await openCase(page, CASES.c1.id, CASES.c1.description);
+  await main.getByRole("button", { name: "参加者を管理", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "参加者を管理" });
+  await expect(manager).toBeVisible();
+  await typeInto(manager.getByRole("textbox", { name: "社員の検索" }), "E2E");
+  await placeMarker(page);
+  let failNext = false;
+  const aborted = signal();
+  await page.route(
+    (url) => url.pathname === summary,
+    async (route) => {
+      if (!failNext || route.request().method() !== "GET")
+        return route.fallback();
+      failNext = false;
+      aborted.fire();
+      return route.abort("failed");
+    },
+  );
+  // 子のモーダルは、すでに開いている。この後の showModal() だけを、例外にする
+  await page.evaluate((message) => {
+    HTMLDialogElement.prototype.showModal = function showModal() {
+      throw new Error(message);
+    };
+  }, SHOW_MODAL_FAILURE);
+
+  expect(await dispatchPageHide(page)).toEqual(COVERED);
+  await installCoverWatch(page);
+  const reloaded = page.waitForEvent("load", { timeout: RELOAD_TIMEOUT_MS });
+  failNext = true;
+  await dispatchPageShow(page);
+  // 失敗に入り（概要の取得の失敗）、失敗の覆いを開こうとして例外になり、報告された
+  await aborted.fired;
+  await reported.fired;
+  // 覆ったまま、ページごと読み込み直す
+  await reloaded;
+  expect(await documentState(page)).toEqual({ type: "reload", marker: null });
+  expect(await readCoverWatch(page)).toEqual({ reasons: [], pagehide: "seen" });
+  expect(dialogs).toEqual([]);
+  // 資格を失ったわけではないので、喪失の知らせは出ない。新しい文書は、参加者として案件を表示する
+  await expect(
+    page.getByRole("main").getByText(CASES.c1.description, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(LOST_TEXT, { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
