@@ -1006,6 +1006,117 @@ test("#342 AC-6・AC-7 E4: 戻ったときの概要の取得が通信の失敗�
   expect(errors).toEqual([]);
 });
 
+// コードレビュー1回目の重大1：子が showModal() で開いたダイアログが開いたままだと、文書はそのダイアログの外を操作できない（HTML の仕様。
+// 祖先を hidden にしても残る）。「モーダルあり × 失敗と再試行」の組み合わせを確かめる。再試行は、キーボード（Tab → Enter）と、
+// 実際のマウスのクリック（locator.click()。force・dispatchEvent で inert を迂回しない）の両方で押す。そのため、守りの概要の取得を2回だけ失敗にし、
+// 1回目の再試行（キーボード）の後も失敗の状態に戻してから、2回目（クリック）で成功させる
+test("#342 AC-6・AC-4 E4: 子のモーダルを開いたまま、確かめが通信の失敗で終わっても、再試行を押せ、成功すれば、同じモーダル・入力が戻る", async ({
+  browser,
+}) => {
+  const summary = summaryPath(CASES.c1.id);
+  const { page, errors, dialogs } = await openAs(browser, a, {
+    rules: [
+      // この E2E が起こす通信の失敗（概要の取得を2回だけ切る）
+      (text, url) =>
+        text.includes("net::ERR_FAILED") && new URL(url).pathname === summary,
+    ],
+  });
+  const log = recordRequests(page);
+  const main = await openCase(page, CASES.c1.id, CASES.c1.description);
+  await main.getByRole("button", { name: "参加者を管理", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "参加者を管理" });
+  await expect(manager).toBeVisible();
+  const search = manager.getByRole("textbox", { name: "社員の検索" });
+  await typeInto(search, "E2E");
+  await tag(manager, "manager");
+  await tag(search, "search");
+  const managerBox = await manager.boundingBox();
+  if (managerBox === null) throw new Error("モーダルの位置を取れない");
+  await placeMarker(page);
+  let failRemaining = 0;
+  let failed = 0;
+  const secondFailure = signal();
+  await page.route(
+    (url) => url.pathname === summary,
+    async (route) => {
+      if (failRemaining === 0 || route.request().method() !== "GET")
+        return route.fallback();
+      failRemaining -= 1;
+      failed += 1;
+      if (failed === 2) secondFailure.fire();
+      return route.abort("failed");
+    },
+  );
+  const retry = page.getByRole("button", { name: RETRY_BUTTON });
+  const failure = page.getByText(RESTORE_FAILED_TEXT, { exact: true });
+  async function expectFailedWithModalKept() {
+    await expect(retry).toBeVisible();
+    await expect(failure).toBeVisible();
+    await expectCovered(page);
+    await expect(tagged(page, "manager")).toHaveAttribute("open", "");
+    await expect(tagged(page, "manager")).toBeHidden();
+    await expect(tagged(page, "search")).toHaveValue("E2E");
+  }
+
+  expect(await dispatchPageHide(page)).toEqual(COVERED);
+  failRemaining = 2;
+  await dispatchPageShow(page);
+  // 1回目の失敗：隠したまま、案内と再試行。子のモーダルは開いたまま見えない
+  await expectFailedWithModalKept();
+  expect(failed).toBe(1);
+  // 失敗の間も、中身（モーダルの中を含む）に操作が届かない：Esc・Tab・モーダルがあった位置のクリックで、モーダルは閉じず、入力も変わらない
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  await page.mouse.click(
+    managerBox.x + managerBox.width / 2,
+    managerBox.y + managerBox.height / 2,
+  );
+  await expectFailedWithModalKept();
+  expect(
+    await page.evaluate(() => {
+      const wrapper = document.querySelector("#root > :has(main)");
+      const active = document.activeElement;
+      return active !== null && wrapper?.contains(active) === true;
+    }),
+  ).toBe(false);
+
+  // キーボードで再試行：フォーカスを外した状態から、Tab で再試行のボタンに届き、Enter で押せる（2回目の失敗に戻る）
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.keyboard.press("Tab");
+  await expect(retry).toBeFocused();
+  const keyboardRetryAt = Date.now();
+  await page.keyboard.press("Enter");
+  await secondFailure.fired;
+  await expectFailedWithModalKept();
+  expect(
+    getsOf(log, SESSION_PATH, keyboardRetryAt).length,
+  ).toBeGreaterThanOrEqual(1);
+
+  // 実際のマウスのクリックで再試行：セッション → 概要を取り直し、参加者なら外れる。同じモーダルが開いたまま見え、入力が残る
+  const clickRetryAt = Date.now();
+  await retry.click();
+  await expectUncovered(page);
+  await expect(tagged(page, "manager")).toBeVisible();
+  await expect(tagged(page, "manager")).toHaveAttribute("open", "");
+  await expect(tagged(page, "search")).toHaveValue("E2E");
+  await expect(failure).toHaveCount(0);
+  expect(failed).toBe(2);
+  expect(await documentState(page)).toEqual({
+    type: "navigate",
+    marker: MARKER,
+  });
+  const sessions = getsOf(log, SESSION_PATH, clickRetryAt);
+  const summaries = getsOf(log, summary, clickRetryAt);
+  expect(sessions.length).toBeGreaterThanOrEqual(1);
+  expect(summaries.length).toBeGreaterThanOrEqual(1);
+  expect(summaries[0]?.at).toBeGreaterThanOrEqual(sessions[0]?.at ?? Infinity);
+  expect(dialogs).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test("#342 AC-10 E5: 案件の中身を持たない画面（通常のチャンネル）では、pagehide・pageshow で覆わず、セッション・案件を確かめず、読み込み直さない", async ({
   browser,
 }) => {
