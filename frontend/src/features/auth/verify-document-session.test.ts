@@ -20,6 +20,13 @@ import {
 } from "./session-user-mismatch-handler";
 import { verifyDocumentSession } from "./verify-document-session";
 
+// ミューテーション診断の後の補い（T20〜T22）：API の失敗の形でない値で拒否されたときを作るため、取得の関数を、本物に委ねる差し替えにする
+// （ふだんは本物のまま。テストの中で mockRejectedValueOnce したときだけ、その値で拒否する）
+vi.mock("./api/auth-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api/auth-api")>();
+  return { ...actual, fetchSession: vi.fn(actual.fetchSession) };
+});
+
 const USER_A = {
   id: "01JTESTUSER342A00000000003",
   displayName: "testuser_342_a",
@@ -195,5 +202,61 @@ describe("#342 計画レビュー3回目の軽微2 セッションの直接の�
     await verifyDocumentSession();
     await expect(confirmSessionUserAfterMismatch()).resolves.toBe("same");
     expect(client.getQueryState(authKeys.session)?.status).toBe("success");
+  });
+});
+
+// ミューテーション診断（2026-11-28）の後の補い。API の失敗（api-client が変換した形：status と code を持つオブジェクト、status は数値）だけを、
+// 401 → unauthenticated・それ以外 → unknown に分ける。それ以外の値（実装の例外・形の違う値）は、答えが無いことにせず、同じ値のまま投げる（C-212 の (3)）
+describe("#342 AC-6・AC-8 T20〜T22 API の失敗の形でない拒否は、同じ値のまま投げる", () => {
+  function functionWithStatus() {
+    const value = () => undefined;
+    return Object.assign(value, { status: 401, code: "UNAUTHENTICATED" });
+  }
+
+  it.each([
+    ["status が 401 だが code を持たないオブジェクト（T20）", { status: 401 }],
+    [
+      "code はあるが status が文字列のオブジェクト（T22）",
+      { status: "401", code: "UNAUTHENTICATED" },
+    ],
+    ["null（T21）", null],
+    ["undefined（T21）", undefined],
+    ["文字列（T21）", "[UNIT_TEST]342拒否の文字列"],
+    ["数値（T21）", 401],
+    ["status と code を持つ関数（T21）", functionWithStatus()],
+  ] as [string, unknown][])(
+    "#342 AC-6・AC-8: セッションの取得が%sで拒否されたら、unauthenticated・unknown にせず、同じ値で拒否する",
+    async (_label, rejection) => {
+      vi.mocked(fetchSession).mockRejectedValueOnce(rejection);
+      const outcome = await verifyDocumentSession().then(
+        (value: unknown) => ({ resolved: value }),
+        (error: unknown) => ({ rejected: error }),
+      );
+      expect(outcome).toStrictEqual({ rejected: rejection });
+      if (typeof rejection === "function")
+        expect((outcome as { rejected: unknown }).rejected).toBe(rejection);
+    },
+  );
+
+  it("#342 AC-8 T20（対照）: API の失敗の形（status 401・code あり）なら unauthenticated", async () => {
+    vi.mocked(fetchSession).mockRejectedValueOnce({
+      status: 401,
+      code: "UNAUTHENTICATED",
+      message: "[UNIT_TEST]342",
+    });
+    await expect(verifyDocumentSession()).resolves.toBe("unauthenticated");
+  });
+});
+
+describe("#342 AC-3 T23 文書の利用者が決まっていない", () => {
+  it("#342 AC-3 T23: 文書の利用者が決まっていなければ、取得が成功しても unknown（same・otherUser・ほかの値にしない）", async () => {
+    stopDocumentUser();
+    // 解除の後も、後始末で二重に呼ばれて困らないよう、何もしない関数にしておく
+    stopDocumentUser = () => undefined;
+    answers.push({ kind: "user", user: USER_B });
+    await expect(verifyDocumentSession()).resolves.toBe("unknown");
+    answers.push({ kind: "user", user: USER_A });
+    await expect(verifyDocumentSession()).resolves.toBe("unknown");
+    expect(calls).toBe(2);
   });
 });

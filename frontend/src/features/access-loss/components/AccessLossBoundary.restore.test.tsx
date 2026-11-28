@@ -18,6 +18,7 @@ import {
   onTestFinished,
   vi,
 } from "vitest";
+import { caseId } from "../../../test/case-handlers";
 import { FakeBroadcastChannel } from "../../../test/fake-broadcast-channel";
 import {
   RESTORE_FAILED_TEXT,
@@ -437,5 +438,449 @@ describe("#342 計画レビュー3回目の軽微3 守りの状態の既定は i
     expect(isUncovered(wrapperOf(screen.getByText(CHILD_TEXT)))).toBe(true);
     expect(screen.queryByText(RESTORE_FAILED_TEXT)).toBeNull();
     expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
+  });
+});
+
+// ---- ミューテーション診断（2026-11-28）の後の補い（判定の 2 節の T 番号）。期待は C-212・設計書「境界の包みと覆い」から決めた ----
+
+const VIEW_TEXT = "[UNIT_TEST]342表示の状態の画面";
+const VIEW_INPUT = "[UNIT_TEST]342表示の状態の入力欄";
+const VIEW_BUTTON = "[UNIT_TEST]342子のボタン";
+const VIEW_CHECKBOX = "[UNIT_TEST]342子のチェックボックス";
+const VERIFYING_TITLE = "画面を確認しています";
+const RELOADING_TITLE = "画面を読み込み直しています";
+
+/** 子：入力欄・ボタン・チェックボックス・縦だけ／横だけスクロールする要素を持つ */
+function ViewScreen({ onClick }: { onClick: () => void }) {
+  return (
+    <section>
+      <p>{VIEW_TEXT}</p>
+      <label>
+        {VIEW_INPUT}
+        <input defaultValue={TYPED} />
+      </label>
+      <button type="button" onClick={onClick}>
+        {VIEW_BUTTON}
+      </button>
+      <label>
+        {VIEW_CHECKBOX}
+        <input type="checkbox" />
+      </label>
+      <div data-testid="vertical">
+        <p>[UNIT_TEST]342縦の一覧</p>
+      </div>
+      <div data-testid="horizontal">
+        <p>[UNIT_TEST]342横の一覧</p>
+      </div>
+    </section>
+  );
+}
+
+/** 参加者の案件を1件持つ文書で、ViewScreen を描画する（beforeRender は、境界の購読より前に呼ぶ） */
+function arrangeView(
+  options: Parameters<typeof installRestoreGuardLikeMain>[1] = {},
+  beforeRender: () => void = () => undefined,
+) {
+  const world = respondRestoreWorld();
+  world.addCase(N);
+  const client = newRestoreClient();
+  cacheParticipantSummary(client, N);
+  const wiring = installRestoreGuardLikeMain(client, options);
+  beforeRender();
+  const clicks = { count: 0 };
+  renderInBoundary(
+    client,
+    <ViewScreen
+      onClick={() => {
+        clicks.count += 1;
+      }}
+    />,
+  );
+  const wrapper = () =>
+    wrapperOf(screen.getByText(VIEW_TEXT).closest("section") as HTMLElement);
+  return { world, wiring, wrapper, clicks };
+}
+
+/** 包みの外にボタンを置き、そこへフォーカスを移す（隠れた要素からフォーカスが外れる、ブラウザの動きの代わり。テストの終わりに外す） */
+function moveFocusOutside(): HTMLElement {
+  const outside = document.createElement("button");
+  outside.textContent = "[UNIT_TEST]342包みの外のボタン";
+  document.body.appendChild(outside);
+  onTestFinished(() => {
+    outside.remove();
+  });
+  outside.focus();
+  return outside;
+}
+
+async function restoreView() {
+  firePageShow(true);
+  await waitFor(() => expect(getPageRestoreState()).toBe("idle"));
+}
+
+function keydown(target: EventTarget, key: string): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+  });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+  return event;
+}
+
+describe("#342 AC-1 T2 境界が2つ登録された", () => {
+  it("#342 AC-1 T2: 境界 A の後に境界 B を描画し、A を外しても、離れるときに B の包みが、その処理の中で隠れる（A の解除で B の登録を消さない）", () => {
+    const world = respondRestoreWorld();
+    world.addCase(N);
+    const client = newRestoreClient();
+    cacheParticipantSummary(client, N);
+    installRestoreGuardLikeMain(client);
+    const first = renderInBoundary(client, <p>[UNIT_TEST]342境界 A</p>);
+    renderInBoundary(client, <p>{CHILD_TEXT}</p>);
+    first.unmount();
+    const wrapperB = () => wrapperOf(screen.getByText(CHILD_TEXT));
+    const seen = watchWrapperOnPageHide(wrapperB);
+    firePageHide(true);
+    expect(seen).toEqual([{ hidden: true, inert: true }]);
+  });
+});
+
+describe("#342 AC-1・AC-4 T5・T32 表示の状態の控えが例外で終わった", () => {
+  it("#342 AC-1・AC-4 T5・T32: 離れるときの表示の状態の控えが例外で終わっても、その処理の中で隠れ、その例外そのものを報告する。確かめが通れば、控えが無くても例外を出さずに外れる", async () => {
+    const failure = new Error("[UNIT_TEST]342表示の状態の控えの失敗");
+    const { wrapper } = arrangeView();
+    const original = Element.prototype.querySelectorAll;
+    let armed = true;
+    vi.spyOn(Element.prototype, "querySelectorAll").mockImplementation(
+      function (this: Element, selectors: string) {
+        if (armed && selectors === "*") {
+          armed = false;
+          throw failure;
+        }
+        return original.call(this, selectors);
+      },
+    );
+    const seen = watchWrapperOnPageHide(wrapper);
+    firePageHide(true);
+    expect(seen).toEqual([{ hidden: true, inert: true }]);
+    expect(reportError).toHaveBeenCalledWith(failure);
+    await restoreView();
+    await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#342 AC-1・AC-6 T8 失敗の案内の後に、もう一度離れた", () => {
+  it("#342 AC-1・AC-6 T8: 再試行が出ている failed から離れると、prepared の知らせが届き、失敗の案内・再試行が消えて、確かめの間の見出しになる", async () => {
+    const { world, wrapper } = arrangeView();
+    world.session.answers.push({ kind: "network" });
+    firePageHide(true);
+    firePageShow(true);
+    await screen.findByRole("button", { name: RETRY_BUTTON });
+    firePageHide(true);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: RETRY_BUTTON })).toBeNull(),
+    );
+    expect(screen.queryByText(RESTORE_FAILED_TEXT)).toBeNull();
+    expect(screen.getByRole("heading", { name: VERIFYING_TITLE })).toBeTruthy();
+    expect(isCovered(wrapper())).toBe(true);
+  });
+});
+
+describe("#342 AC-6 T13 解除の処理の例外で、捕まえた対象が空になった失敗", () => {
+  it.each(["再試行", "もう一度の離脱と復元"] as const)(
+    "#342 AC-6 T13: 全件を確かめた後、包みを外す処理が例外で終わったら、その例外を報告して failed（隠したまま）。%sで、いまのキャッシュから対象を捕まえ直して、外れる",
+    async (how) => {
+      const failure = new Error("[UNIT_TEST]342包みを外す処理の失敗");
+      const { world, wrapper } = arrangeView();
+      firePageHide(true);
+      const target = wrapper();
+      const original = Element.prototype.removeAttribute;
+      let armed = true;
+      vi.spyOn(Element.prototype, "removeAttribute").mockImplementation(
+        function (this: Element, name: string) {
+          if (armed && this === target && name === "hidden") {
+            armed = false;
+            throw failure;
+          }
+          return original.call(this, name);
+        },
+      );
+      firePageShow(true);
+      await waitFor(() => expect(getPageRestoreState()).toBe("failed"));
+      expect(reportError).toHaveBeenCalledWith(failure);
+      await waitFor(() => expect(isCovered(wrapper())).toBe(true));
+      if (how === "再試行")
+        await act(async () => {
+          retryPageRestoreVerification();
+        });
+      else {
+        firePageHide(true);
+        firePageShow(true);
+      }
+      await waitFor(() => expect(getPageRestoreState()).toBe("idle"));
+      await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+      expect(world.summaryCalls).toHaveLength(2);
+      expect(reportError).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("#342 AC-1・AC-4 T18・T19 守りの登録の解除", () => {
+  it("#342 AC-4 T18: 離れた後に登録を解除すると、包みは外れるが、資格を確かめたときの表示の復帰（フォーカスを戻す）はしない", async () => {
+    const { wiring, wrapper } = arrangeView();
+    const input = screen.getByLabelText(VIEW_INPUT);
+    input.focus();
+    firePageHide(true);
+    const outside = moveFocusOutside();
+    act(() => {
+      wiring.dispose();
+    });
+    await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+    await afterLaterRoundTrip();
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("#342 AC-1 T19: 失敗の案内を出したまま登録を解除すると、包みの属性だけでなく、失敗の案内・再試行・覆いの見出しも消える", async () => {
+    const { world, wiring, wrapper } = arrangeView();
+    world.session.answers.push({ kind: "network" });
+    firePageHide(true);
+    firePageShow(true);
+    await screen.findByRole("button", { name: RETRY_BUTTON });
+    act(() => {
+      wiring.dispose();
+    });
+    await waitFor(() =>
+      expect(screen.queryByText(RESTORE_FAILED_TEXT)).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: RETRY_BUTTON })).toBeNull();
+    expect(screen.queryByRole("heading", { name: VERIFYING_TITLE })).toBeNull();
+    expect(isUncovered(wrapper())).toBe(true);
+  });
+});
+
+describe("#342 AC-1・AC-5・AC-6 T24 覆いの文", () => {
+  it("#342 AC-1 T24: 離れた後（prepared）と確かめの間（verifying）の見出しは「画面を確認しています」", async () => {
+    const { world } = arrangeView();
+    const held = gate();
+    world.session.gates.push(held.promise);
+    firePageHide(true);
+    expect(screen.getByRole("heading", { name: VERIFYING_TITLE })).toBeTruthy();
+    firePageShow(true);
+    await waitFor(() => expect(getPageRestoreState()).toBe("verifying"));
+    expect(screen.getByRole("heading", { name: VERIFYING_TITLE })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: RELOADING_TITLE })).toBeNull();
+    held.release();
+    await waitFor(() => expect(getPageRestoreState()).toBe("idle"));
+  });
+
+  it("#342 AC-5 T24: 確定の入口へ引き渡した後（handedOff）の見出しは「画面を読み込み直しています」で、再試行は出さない", async () => {
+    const { world } = arrangeView();
+    world.caseOf(caseId(N)).answers.push({ kind: "outsider" });
+    firePageHide(true);
+    firePageShow(true);
+    await waitFor(() => expect(getPageRestoreState()).toBe("handedOff"));
+    expect(screen.getByRole("heading", { name: RELOADING_TITLE })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: VERIFYING_TITLE })).toBeNull();
+    expect(screen.queryByRole("button", { name: RETRY_BUTTON })).toBeNull();
+  });
+});
+
+describe("#342 AC-1 T25 覆いの間は、Esc の既定の動きだけを止める", () => {
+  it("#342 AC-1 T25: 覆いの間は、中身の要素で受けた Esc も（中身が伝わりを止めても）既定の動きを止め、Tab・Enter・文字は止めない。外れた後は Esc も止めない", async () => {
+    arrangeView();
+    const input = screen.getByLabelText(VIEW_INPUT);
+    // 中身の要素で伝わりを止めても、覆いは、それより先に（捕捉の段階で）受ける
+    input.addEventListener("keydown", (event) => event.stopPropagation());
+    firePageHide(true);
+    expect(keydown(input, "Escape").defaultPrevented).toBe(true);
+    for (const key of ["Tab", "Enter", "a"])
+      expect(keydown(input, key).defaultPrevented).toBe(false);
+    await restoreView();
+    expect(keydown(input, "Escape").defaultPrevented).toBe(false);
+    expect(keydown(window, "Escape").defaultPrevented).toBe(false);
+  });
+});
+
+describe("#342 AC-6 T26 子のモーダルが開いたままの失敗の覆い", () => {
+  it("#342 AC-6 T26: 子のモーダルが開いたまま失敗したときの覆い（モーダルのダイアログ）は、閉じる要求（cancel）を止める", async () => {
+    // jsdom では :modal が何にも当てはまらないので、「子のモーダルが開いている」ことだけを差し替える
+    const original = document.querySelector.bind(document);
+    vi.spyOn(document, "querySelector").mockImplementation(
+      (selectors: string) =>
+        selectors === "dialog:modal" ? document.body : original(selectors),
+    );
+    const { world } = arrangeView();
+    world.session.answers.push({ kind: "network" });
+    firePageHide(true);
+    firePageShow(true);
+    const dialog = await screen.findByRole("dialog", {
+      name: RESTORE_FAILED_TEXT,
+    });
+    const cancel = new Event("cancel", { cancelable: true });
+    act(() => {
+      dialog.dispatchEvent(cancel);
+    });
+    expect(cancel.defaultPrevented).toBe(true);
+  });
+});
+
+describe("#342 AC-4 T27〜T31 表示の状態の控えと復帰", () => {
+  it.each(["ボタン", "選択範囲を持たない入力欄", "フォーカスなし"] as const)(
+    "#342 AC-4 T27: 離れたときのフォーカスが%sでも、復帰の処理を例外で止めず、要素のスクロールの復帰まで終える",
+    async (kind) => {
+      const { wrapper } = arrangeView();
+      const focused =
+        kind === "ボタン"
+          ? screen.getByRole("button", { name: VIEW_BUTTON })
+          : kind === "選択範囲を持たない入力欄"
+            ? screen.getByLabelText(VIEW_CHECKBOX)
+            : null;
+      const vertical = screen.getByTestId("vertical");
+      vertical.scrollTop = 90;
+      if (focused === null) moveFocusOutside();
+      else focused.focus();
+      firePageHide(true);
+      const outside = moveFocusOutside();
+      vertical.scrollTop = 0;
+      await restoreView();
+      await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+      await waitFor(() => expect(vertical.scrollTop).toBe(90));
+      expect(document.activeElement).toBe(focused ?? outside);
+      expect(reportError).not.toHaveBeenCalled();
+    },
+  );
+
+  it("#342 AC-4 T28: 縦だけ、横だけスクロールした要素も控え、確かめが通ったときに元の位置へ戻す", async () => {
+    arrangeView();
+    const vertical = screen.getByTestId("vertical");
+    const horizontal = screen.getByTestId("horizontal");
+    vertical.scrollTop = 90;
+    horizontal.scrollLeft = 40;
+    firePageHide(true);
+    vertical.scrollTop = 0;
+    horizontal.scrollLeft = 0;
+    await restoreView();
+    await waitFor(() => expect(vertical.scrollTop).toBe(90));
+    expect([vertical.scrollTop, vertical.scrollLeft]).toEqual([90, 0]);
+    expect([horizontal.scrollTop, horizontal.scrollLeft]).toEqual([0, 40]);
+  });
+
+  it("#342 AC-4 T29: 控えたフォーカスの要素が、つながったまま包みの外へ移ったら、その要素へフォーカスを戻さない", async () => {
+    const { wrapper } = arrangeView();
+    const section = screen
+      .getByText(VIEW_TEXT)
+      .closest("section") as HTMLElement;
+    const moved = document.createElement("input");
+    moved.setAttribute("aria-label", "[UNIT_TEST]342外へ移る入力欄");
+    section.appendChild(moved);
+    onTestFinished(() => {
+      moved.remove();
+    });
+    moved.focus();
+    firePageHide(true);
+    document.body.appendChild(moved);
+    expect(moved.isConnected).toBe(true);
+    const outside = moveFocusOutside();
+    await restoreView();
+    await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+    await afterLaterRoundTrip();
+    expect(document.activeElement).not.toBe(moved);
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("#342 AC-4 T30: フォーカスは、スクロールさせずに戻す（preventScroll）", async () => {
+    arrangeView();
+    const input = screen.getByLabelText(VIEW_INPUT);
+    input.focus();
+    firePageHide(true);
+    moveFocusOutside();
+    const original = HTMLElement.prototype.focus;
+    const calls: { element: HTMLElement; options: unknown }[] = [];
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+      this: HTMLElement,
+      options?: FocusOptions,
+    ) {
+      calls.push({ element: this, options });
+      original.call(this, options);
+    });
+    await restoreView();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(calls.filter((call) => call.element === input)).toEqual([
+      { element: input, options: { preventScroll: true } },
+    ]);
+  });
+
+  it("#342 AC-4 T31: ウィンドウの横の位置だけが控えた値と違えば、横の位置を戻す", async () => {
+    arrangeView();
+    const position = { x: 40, y: 0 };
+    for (const [name, axis] of [
+      ["scrollX", "x"],
+      ["scrollY", "y"],
+    ] as const) {
+      const before = Object.getOwnPropertyDescriptor(window, name);
+      Object.defineProperty(window, name, {
+        configurable: true,
+        get: () => position[axis],
+      });
+      onTestFinished(() => {
+        if (before === undefined) Reflect.deleteProperty(window, name);
+        else Object.defineProperty(window, name, before);
+      });
+    }
+    const scrollTo = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => undefined);
+    firePageHide(true);
+    position.x = 0;
+    await restoreView();
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    expect(scrollTo).toHaveBeenCalledWith({
+      left: 40,
+      top: 0,
+      behavior: "instant",
+    });
+  });
+});
+
+describe("#342 AC-1 T33 外すときは、描画を待たずに包みの属性を外す", () => {
+  it("#342 AC-1 T33: 全件を確かめて idle になった知らせを受けた時点で（React の次の描画の前に）、包みの hidden・inert は外れている", async () => {
+    const seenAtIdle: boolean[] = [];
+    const wrapperRef: { current?: () => HTMLElement } = {};
+    const { wrapper } = arrangeView({}, () => {
+      // 境界の購読より先に登録する（境界の描画より前に、DOM を見る）。テストの終わりに外す
+      const stop = subscribePageRestoreState(() => {
+        if (
+          getPageRestoreState() === "idle" &&
+          wrapperRef.current !== undefined
+        )
+          seenAtIdle.push(isUncovered(wrapperRef.current()));
+      });
+      onTestFinished(stop);
+    });
+    wrapperRef.current = wrapper;
+    firePageHide(true);
+    await restoreView();
+    expect(seenAtIdle).toEqual([true]);
+  });
+});
+
+describe("#342 AC-10 T34 通常の idle の描画", () => {
+  it("#342 AC-10 T34: 守りを登録しただけの idle の文書では、覆い（見出し・案内）が無く、中身を操作でき、Esc の既定の動きを止めない", async () => {
+    const { wrapper, clicks } = arrangeView();
+    expect(isUncovered(wrapper())).toBe(true);
+    expect(screen.queryByRole("heading", { name: VERIFYING_TITLE })).toBeNull();
+    expect(screen.queryByRole("heading", { name: RELOADING_TITLE })).toBeNull();
+    expect(screen.queryByText(RESTORE_FAILED_TEXT)).toBeNull();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: VIEW_BUTTON }));
+    expect(clicks.count).toBe(1);
+    expect(
+      keydown(screen.getByLabelText(VIEW_INPUT), "Escape").defaultPrevented,
+    ).toBe(false);
+    expect(keydown(window, "Escape").defaultPrevented).toBe(false);
   });
 });

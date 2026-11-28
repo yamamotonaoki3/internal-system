@@ -297,3 +297,77 @@ describe("#342 AC-2 U2 実績と部屋の ID は、caseRoomEvidence と同じ読
     expect(caseAccessTargets(client, USER)).toEqual([]);
   });
 });
+
+// ミューテーション診断（2026-11-28）の後の補い：関係の無い Query・まだデータの無い Query・案件と結び付かないチャンネルが混ざっても、
+// 対象の捕捉を例外で止めず、関係する案件だけを返す（捕捉が例外になると、隠したまま再試行になり、資格があっても外れない。C-212 の (b)）
+describe("#342 AC-2 T35〜T37 混ざった Query の中から、関係する案件だけを返す", () => {
+  async function fetchedCaseReply() {
+    await fetched(
+      ["messages", "thread", "p3461"],
+      repliesData(1, caseRoomId(3461), caseIdOf(3461)),
+    );
+  }
+
+  it("#342 AC-2 T35: 関係の無いキーに、正常な値として null を持つ Query があっても、例外にせず、関係する案件だけを返す", async () => {
+    await fetchedCaseReply();
+    client.setQueryData(["unrelated", "342", "null-value"], null);
+    client.setQueryData(["cases", "list", USER, "joined", "active"], null);
+    await fetched(["profiles", "342"], {
+      id: caseIdOf(3462),
+      name: "[UNIT_TEST]342",
+    });
+    expect(caseAccessTargets(client, USER)).toEqual([
+      { caseId: caseIdOf(3461), roomId: caseRoomId(3461) },
+    ]);
+  });
+
+  it.each([
+    ["案件の概要", ["cases", "summary", USER, caseIdOf(3463)]],
+    ["案件の詳細", ["cases", "detail", USER, caseIdOf(3463)]],
+    ["チャンネルの詳細", ["channels", "detail", caseRoomId(3463)]],
+  ] as [string, unknown[]][])(
+    "#342 AC-2 T36: まだデータの無い%sの Query があっても、例外にせず、取得済みの正しい対象だけを返す",
+    async (_label, queryKey) => {
+      await fetchedCaseReply();
+      // 取得の途中（データが無い）の Query を作る
+      client.getQueryCache().build(client, { queryKey });
+      expect(client.getQueryData(queryKey)).toBeUndefined();
+      expect(caseAccessTargets(client, USER)).toEqual([
+        { caseId: caseIdOf(3461), roomId: caseRoomId(3461) },
+      ]);
+    },
+  );
+
+  it("#342 AC-2 T37: 案件と結び付かない通常のチャンネルの詳細（caseId が null）と、通常のスレッドの行があっても、通常のチャンネルを案件として返さない", async () => {
+    await fetched(
+      ["channels", "detail", PLAIN_ROOM],
+      channelDetail(PLAIN_ROOM, null),
+    );
+    await fetched(
+      ["messages", "room", PLAIN_ROOM],
+      [message(1, { roomId: PLAIN_ROOM })],
+    );
+    await fetched(["threads", "list"], {
+      pages: [
+        {
+          items: [
+            threadItem(41, {
+              room: {
+                kind: "channel",
+                id: PLAIN_ROOM,
+                name: "[UNIT_TEST]342通常の部屋",
+              },
+            }),
+          ],
+          nextCursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    });
+    await fetched(
+      ["messages", "thread", "pplain342"],
+      repliesData(2, PLAIN_ROOM, null),
+    );
+    expect(caseAccessTargets(client, USER)).toEqual([]);
+  });
+});

@@ -9,12 +9,21 @@
 // 前提にした口（実装の担当へ）：page-restore-guard.ts の getPageRestoreState()・retryPageRestoreVerification()（状態は idle・prepared・verifying・failed・handedOff）、
 //   reload-after-access-loss.ts の retryReloadNavigationAfterPageRestore()。守りの組み立ての形は test/page-restore-harness.tsx の冒頭
 import { QueryClient } from "@tanstack/react-query";
-import { act, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { apiClient } from "../../services/api-client";
 import { TEST_USER } from "../../test/auth-handlers";
 import { caseDetail, caseRoomId, caseSummary } from "../../test/case-handlers";
 import { FakeBroadcastChannel } from "../../test/fake-broadcast-channel";
+import { message, reply } from "../../test/message-handlers";
 import {
   RESTORE_OTHER_USER,
   afterLaterRoundTrip,
@@ -24,17 +33,23 @@ import {
   firePageShow,
   gate,
   installRestoreGuardLikeMain,
+  isCovered,
+  isUncovered,
   newRestoreClient,
+  renderInBoundary,
   respondRestoreWorld,
   waitForSessionAnswered,
   waitForSummaryAnswered,
   type RestoreWorld,
   type SessionAnswer,
   type SummaryAnswer,
+  wrapperOf,
 } from "../../test/page-restore-harness";
 import { caseAccessTargets } from "../cases/case-access-evidence";
+import { verifyBySummaryFetch } from "../cases/case-access-verification";
 import {
   currentLossPeriod,
+  settleVerifiedCaseAccess,
   startCaseParticipationPeriod,
 } from "../cases/case-access-loss-monitor";
 import { isBeforeUnloadSuppressed, restoreBeforeUnload } from "../leave-guard";
@@ -43,6 +58,7 @@ import {
   getPageRestoreState,
   reloadWhenRetryUnreachable,
   retryPageRestoreVerification,
+  subscribePageRestoreState,
 } from "./page-restore-guard";
 import {
   requestAccessLossReload,
@@ -1041,5 +1057,428 @@ describe("#342 AC-5・AC-6 U12 概要の 403 と、通信の失敗・5xx を分�
     expect(announced()).toEqual([
       { v: 1, userId: USER, caseId: caseSummary(N_A).id },
     ]);
+  });
+});
+
+// ---- ミューテーション診断（2026-11-28）の後の補い（判定の 2 節の T 番号）。期待は C-212・設計書「bfcache の復元の守り」の表から決めた ----
+
+describe("#342 AC-1 T1 新しい文書の守りの状態", () => {
+  it("#342 AC-1 T1: 新しい文書として読み込んだ守りの状態は idle（登録の前・後とも。解除の後始末の値に頼らない）", async () => {
+    vi.resetModules();
+    const fresh = await import("./page-restore-guard");
+    expect(fresh.getPageRestoreState()).toBe("idle");
+    const stop = fresh.installPageRestoreGuard({
+      queryClient: newRestoreClient(),
+      verifySession: () => Promise.resolve("same"),
+      onOtherUser: () => undefined,
+      listTargets: () => [],
+      contextOf: (userId, target) => ({
+        userId,
+        ...target,
+        generation: 0,
+        period: 0,
+      }),
+      verifyCase: () =>
+        Promise.resolve({ verdict: "participant", failureStatus: null }),
+      settleCase: () => "confirmed",
+    });
+    expect(fresh.getPageRestoreState()).toBe("idle");
+    stop();
+  });
+});
+
+describe("#342 AC-2・AC-10 T3 捕捉の時にセッションのキャッシュが無い", () => {
+  it("#342 AC-2・AC-10 T3: セッションのキャッシュが無ければ、案件の ID つきの返信・スレッドの実績があっても、対象は0件（覆わず、確かめない）", async () => {
+    const world = respondRestoreWorld();
+    world.addCase(N_A);
+    const client = newRestoreClient(false);
+    const parent = message(1, { roomId: caseRoomId(N_A), replyCount: 1 });
+    await client.fetchQuery({
+      queryKey: ["messages", "thread", "p342t3"],
+      queryFn: () =>
+        Promise.resolve({
+          parent,
+          replies: [reply(parent, 1)],
+          replyBlockedReason: null,
+          joined: true,
+          roomWritable: true,
+          caseRoom: true,
+          caseId: caseSummary(N_A).id,
+        }),
+    });
+    installRestoreGuardLikeMain(client);
+    firePageHide(true);
+    expect(getPageRestoreState()).toBe("idle");
+    firePageShow(true);
+    expect(getPageRestoreState()).toBe("idle");
+    expect(world.session.calls).toBe(0);
+  });
+});
+
+describe("#342 AC-9 T4 対象が0件・捕捉が例外でも、読み込み直しが idle でなければ、既存の読み込み直しに渡す", () => {
+  it.each([
+    ["対象0件", "waiting"],
+    ["対象0件", "reloading"],
+    ["捕捉の例外", "waiting"],
+    ["捕捉の例外", "reloading"],
+  ] as const)(
+    "#342 AC-9 T4: %sで、読み込み直しが %s なら、離れるときに隠し、戻ったときにセッションを確かめて、既存の読み込み直しへ渡す（handedOff。reloading なら再遷移を1回）",
+    async (kind, reload) => {
+      const world = respondRestoreWorld();
+      const client = newRestoreClient();
+      installRestoreGuardLikeMain(
+        client,
+        kind === "捕捉の例外"
+          ? {
+              overrides: {
+                listTargets: () => {
+                  throw new Error("[UNIT_TEST]342捕捉の失敗");
+                },
+              },
+            }
+          : {},
+      );
+      reloadState.set(reload);
+      firePageHide(true);
+      expect(getPageRestoreState()).toBe("prepared");
+      firePageShow(true);
+      await waitForState("handedOff");
+      await waitForSessionAnswered(world, 1);
+      await afterLaterRoundTrip();
+      expect(world.summaryCalls).toEqual([]);
+      expect(retryReloadNavigationAfterPageRestore).toHaveBeenCalledTimes(
+        reload === "reloading" ? 1 : 0,
+      );
+      expect(getPageRestoreState()).toBe("handedOff");
+    },
+  );
+});
+
+describe("#342 AC-6 T5 セッションの確かめの例外は、その値のまま報告する", () => {
+  it("#342 AC-6 T5: セッションの確かめが例外で終わったら、その例外そのものを reportError に渡し、failed（隠したまま再試行）", async () => {
+    const failure = new Error("[UNIT_TEST]342セッションの確かめの例外");
+    arrangeDocument([N_A], {
+      overrides: { verifySession: () => Promise.reject(failure) },
+    });
+    restore();
+    await waitForState("failed");
+    expect(reportError).toHaveBeenCalledWith(failure);
+  });
+});
+
+describe("#342 AC-7 T6 古い登録を残したまま、新しい登録をした", () => {
+  it("#342 AC-7 T6: 古い登録 A を残したまま B を登録すると、離れる・戻るは B だけが扱う（A の捕捉・確かめは呼ばれない）。A の守りを解除しても、B の守りは動き続ける", async () => {
+    const listA = vi.fn(() => []);
+    const verifyA = vi.fn(() => Promise.resolve("same" as const));
+    const a = installRestoreGuardLikeMain(newRestoreClient(), {
+      overrides: { listTargets: listA, verifySession: verifyA },
+    });
+    const { world, ids } = arrangeDocument([N_A]);
+    restore();
+    await waitForState("idle");
+    expect(listA).not.toHaveBeenCalled();
+    expect(verifyA).not.toHaveBeenCalled();
+    expect(world.session.calls).toBe(1);
+    expect(world.summaryCalls).toEqual(ids);
+    a.disposeGuard();
+    firePageHide(true);
+    expect(getPageRestoreState()).toBe("prepared");
+    firePageShow(true);
+    await waitForState("idle");
+    expect(world.session.calls).toBe(2);
+    expect(listA).not.toHaveBeenCalled();
+  });
+});
+
+describe("#342 AC-7 T7 同じ登録の、続けた2つの復元", () => {
+  it("#342 AC-7 T7: 前の復元と新しい復元の概要を両方とも保留し、新しい確かめの途中に、前の答え（非参加）を返しても、確定も解除もしない。その後、新しい答え（参加者）で外れる", async () => {
+    const { client, world } = arrangeDocument([N_A]);
+    answerCase(world, N_A, { kind: "outsider" }, { kind: "participant" });
+    const heldOld = holdCase(world, N_A);
+    const heldNew = holdCase(world, N_A);
+    restore();
+    await waitFor(() => expect(world.summaryCalls).toHaveLength(1));
+    restore();
+    await waitFor(() => expect(world.summaryCalls).toHaveLength(2));
+    heldOld.release();
+    await waitForSummaryAnswered(world, 1);
+    await afterLaterRoundTrip();
+    expect(getPageRestoreState()).toBe("verifying");
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
+    expect(announced()).toEqual([]);
+    expect(client.getQueryData(detailKey(N_A))).toBeDefined();
+    heldNew.release();
+    await waitForState("idle");
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
+    expect(draftKept(N_A)).toBe(true);
+  });
+});
+
+describe("#342 AC-3・AC-5・AC-9 T9・T10・T16 引き渡しの各経路は、状態を明らかに handedOff にする", () => {
+  it("#342 AC-9 T9: 戻ったときに読み込み直しが waiting なら、セッションを確かめた後、handedOff", async () => {
+    const { world } = arrangeDocument([N_A]);
+    reloadState.set("waiting");
+    restore();
+    await waitForState("handedOff");
+    expect(world.summaryCalls).toEqual([]);
+  });
+
+  it("#342 AC-3 T9: セッションが別の利用者なら、handedOff", async () => {
+    const { world } = arrangeDocument([N_A]);
+    world.session.answers.push({ kind: "user", user: RESTORE_OTHER_USER });
+    restore();
+    await waitForState("handedOff");
+    expect(requestUserSwitchReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("#342 AC-9 T10: 概要を保留している間に読み込み直しが始まったら、概要（非参加）が届いても、確定の入口を呼ばず（片付け・入口・合図・下書きの消去なし）、handedOff", async () => {
+    const { client, world } = arrangeDocument([N_A]);
+    answerCase(world, N_A, { kind: "outsider" });
+    const held = holdCase(world, N_A);
+    restore();
+    await waitFor(() => expect(world.summaryCalls).toHaveLength(1));
+    reloadState.set("waiting");
+    held.release();
+    await waitForState("handedOff");
+    await waitForSummaryAnswered(world, 1);
+    await afterLaterRoundTrip();
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
+    expect(announced()).toEqual([]);
+    expect(draftKept(N_A)).toBe(true);
+    expect(client.getQueryData(detailKey(N_A))).toBeDefined();
+    expect(
+      client.getQueryData<{ isParticipant: boolean }>(summaryKey(N_A))
+        ?.isParticipant,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["照合で採用できなかった（unverified）", "unverified"],
+    ["全件を参加者と確かめた（confirmed）直後", "confirmed"],
+  ] as const)(
+    "#342 AC-9 T9・T16: 確定の入口の中で読み込み直しが始まり、%sなら、外さずに handedOff",
+    async (_label, result) => {
+      const { world } = arrangeDocument([N_A], {
+        overrides: {
+          settleCase: () => {
+            reloadState.set("waiting");
+            return result;
+          },
+        },
+      });
+      restore();
+      await waitForState("handedOff");
+      await waitForSummaryAnswered(world, 1);
+      await afterLaterRoundTrip();
+      expect(getPageRestoreState()).toBe("handedOff");
+    },
+  );
+});
+
+describe("#342 AC-6・AC-7 T11・T12 確かめの処理の例外", () => {
+  it("#342 AC-6 T11: 1件目の確かめが例外で終われば、その例外そのものを報告し、failed。残りの件が参加者でも、成功にしない", async () => {
+    const failure = new Error("[UNIT_TEST]342確かめの処理の例外");
+    arrangeDocument([N_A, N_B], {
+      overrides: {
+        verifyCase: (caseId) =>
+          caseId === caseSummary(N_A).id
+            ? Promise.reject(failure)
+            : verifyBySummaryFetch(caseId, { withFailureStatus: true }),
+      },
+    });
+    restore();
+    await waitForState("failed");
+    await afterLaterRoundTrip();
+    expect(reportError).toHaveBeenCalledWith(failure);
+    expect(getPageRestoreState()).toBe("failed");
+  });
+
+  it("#342 AC-7 T12: 前の復元の確かめの例外が、新しい復元の確かめの途中に届いても、報告するだけで、新しい確かめを failed にしない", async () => {
+    const failure = new Error("[UNIT_TEST]342前の試行の例外");
+    let rejectOld: (error: unknown) => void = () => undefined;
+    let calls = 0;
+    const { world } = arrangeDocument([N_A], {
+      overrides: {
+        verifyCase: (caseId) => {
+          calls += 1;
+          if (calls === 1)
+            return new Promise((_resolve, reject) => {
+              rejectOld = reject;
+            });
+          return verifyBySummaryFetch(caseId, { withFailureStatus: true });
+        },
+      },
+    });
+    const heldNew = holdCase(world, N_A);
+    restore();
+    await waitFor(() => expect(calls).toBe(1));
+    restore();
+    await waitFor(() => expect(world.summaryCalls).toHaveLength(1));
+    rejectOld(failure);
+    await waitFor(() => expect(reportError).toHaveBeenCalledWith(failure));
+    expect(getPageRestoreState()).toBe("verifying");
+    heldNew.release();
+    await waitForState("idle");
+  });
+});
+
+describe("#342 AC-6 T14 捕捉の例外の後の再試行で、セッションのキャッシュも無い", () => {
+  it("#342 AC-6 T14: 再試行で捕まえ直せない（セッションのキャッシュが無い）なら failed のまま。ほかの例外（形の違う対象の扱い）を出さない", async () => {
+    const failure = new Error("[UNIT_TEST]342捕捉の失敗");
+    let thrown = false;
+    const world = respondRestoreWorld();
+    world.addCase(N_A);
+    const client = newRestoreClient();
+    cacheParticipantSummary(client, N_A);
+    installRestoreGuardLikeMain(client, {
+      overrides: {
+        listTargets: (userId) => {
+          if (!thrown) {
+            thrown = true;
+            throw failure;
+          }
+          return caseAccessTargets(client, userId);
+        },
+      },
+    });
+    restore();
+    await waitForState("failed");
+    client.removeQueries({ queryKey: ["auth", "session"] });
+    const history = recordRestoreStates(world);
+    await act(async () => {
+      retryPageRestoreVerification();
+    });
+    await waitFor(() =>
+      expect(history.map((entry) => entry.state)).toContain("failed"),
+    );
+    await afterLaterRoundTrip();
+    expect(getPageRestoreState()).toBe("failed");
+    expect(world.summaryCalls).toEqual([]);
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(failure);
+  });
+});
+
+describe("#342 AC-7 T15 最後の件の確かめの直後に、もう一度離れた", () => {
+  it("#342 AC-7 T15: 最後の件を参加者と確かめた直後（解除の前）に離れたら、前の試行で idle に戻さず、隠したまま prepared", async () => {
+    // 確定の入口は、文書の QueryClient で呼ぶ（呼ばれるのは登録の後なので、後から入れる）
+    const documentClient: { current?: QueryClient } = {};
+    const { client, world } = arrangeDocument([N_A], {
+      overrides: {
+        settleCase: (context, verdict) => {
+          if (documentClient.current === undefined)
+            throw new Error("[UNIT_TEST]342 準備の誤り");
+          const result = settleVerifiedCaseAccess(
+            documentClient.current,
+            context,
+            verdict,
+          );
+          // 解除の前に、文書を離れる
+          window.dispatchEvent(
+            new PageTransitionEvent("pagehide", { persisted: true }),
+          );
+          return result;
+        },
+      },
+    });
+    documentClient.current = client;
+    restore();
+    await waitForSummaryAnswered(world, 1);
+    await afterLaterRoundTrip();
+    expect(getPageRestoreState()).toBe("prepared");
+  });
+});
+
+describe("#342 AC-6 T17 再試行の入口は、failed のときだけ働く", () => {
+  it("#342 AC-6 T17: idle・prepared では、再試行の入口を呼んでも、確かめを始めない", async () => {
+    const { world } = arrangeDocument([N_A]);
+    retryPageRestoreVerification();
+    expect(getPageRestoreState()).toBe("idle");
+    firePageHide(true);
+    retryPageRestoreVerification();
+    expect(getPageRestoreState()).toBe("prepared");
+    await afterLaterRoundTrip();
+    expect(world.session.calls).toBe(0);
+    firePageShow(true);
+    await waitForState("idle");
+    expect(world.session.calls).toBe(1);
+  });
+
+  it("#342 AC-6 T17: verifying の途中で再試行の入口を呼んでも、新しい試行を始めず、いまの確かめのまま外れる", async () => {
+    const { world } = arrangeDocument([N_A]);
+    const held = gate();
+    world.session.gates.push(held.promise);
+    restore();
+    await waitFor(() => expect(world.session.calls).toBe(1));
+    retryPageRestoreVerification();
+    await afterLaterRoundTrip();
+    expect(world.session.calls).toBe(1);
+    held.release();
+    await waitForState("idle");
+    expect(world.session.calls).toBe(1);
+  });
+
+  it("#342 AC-6 T17: handedOff の後に再試行の入口を呼んでも、確かめ・確定・読み込み直しを始めない", async () => {
+    const { world } = arrangeDocument([N_A]);
+    answerCase(world, N_A, { kind: "outsider" });
+    restore();
+    await waitForState("handedOff");
+    retryPageRestoreVerification();
+    await afterLaterRoundTrip();
+    expect(getPageRestoreState()).toBe("handedOff");
+    expect(world.session.calls).toBe(1);
+    expect(world.summaryCalls).toHaveLength(1);
+    expect(requestAccessLossReload).toHaveBeenCalledTimes(1);
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("#342 AC-4 T32 外した直後に、読み込み直しが始まった", () => {
+  it("#342 AC-4 T32: 全件を確かめて外した直後、描画の前に読み込み直しが始まったら、覆っている間は表示の状態を戻さず（控えを使わない）、読み込み直しが idle に戻った後の描画で戻す", async () => {
+    const { client } = arrangeDocument([N_A]);
+    let started = false;
+    // 境界の購読より先に登録する：守りが idle を知らせた、その処理の中で、読み込み直しを始める
+    onTestFinished(
+      subscribePageRestoreState(() => {
+        if (getPageRestoreState() !== "idle" || started) return;
+        started = true;
+        reloadState.set("waiting");
+      }),
+    );
+    renderInBoundary(
+      client,
+      <section>
+        <p>[UNIT_TEST]342外した直後の画面</p>
+        <label>
+          [UNIT_TEST]342外した直後の入力欄
+          <input />
+        </label>
+      </section>,
+    );
+    const wrapper = () =>
+      wrapperOf(
+        screen
+          .getByText("[UNIT_TEST]342外した直後の画面")
+          .closest("section") as HTMLElement,
+      );
+    const input = screen.getByLabelText("[UNIT_TEST]342外した直後の入力欄");
+    input.focus();
+    firePageHide(true);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    onTestFinished(() => {
+      outside.remove();
+    });
+    outside.focus();
+    firePageShow(true);
+    await waitForState("idle");
+    await waitFor(() => expect(isCovered(wrapper())).toBe(true));
+    // 覆っている間は、控えたフォーカスへ戻さない
+    expect(document.activeElement).toBe(outside);
+    act(() => {
+      reloadState.set("idle");
+    });
+    await waitFor(() => expect(isUncovered(wrapper())).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(input));
   });
 });

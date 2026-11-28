@@ -112,6 +112,8 @@ export type RestoreGuardWiring = {
   /** 401 の共通の処理（createUnauthenticatedHandler）が移った先 */
   navigations: string[];
   dispose: () => void;
+  /** 守りの登録だけを解除する（文書の利用者・見張りなどは残す） */
+  disposeGuard: () => void;
 };
 
 const disposers: (() => void)[] = [];
@@ -144,26 +146,25 @@ export function installRestoreGuardLikeMain(
   );
   stops.push(installUserSwitchGuard(client, onOtherUser));
   stops.push(installCaseAccessLossMonitor(client));
-  stops.push(
-    installPageRestoreGuard({
-      queryClient: client,
-      verifySession: () => verifyDocumentSession(),
-      onOtherUser: () => reportOtherUser(onOtherUser),
-      listTargets: (userId) => caseAccessTargets(client, userId),
-      contextOf: (userId, target) => ({
-        userId,
-        caseId: target.caseId,
-        roomId: target.roomId,
-        generation: currentUserGeneration(client),
-        period: currentLossPeriod(client, userId, target.caseId),
-      }),
-      verifyCase: (caseId) =>
-        verifyBySummaryFetch(caseId, { withFailureStatus: true }),
-      settleCase: (context, verdict) =>
-        settleVerifiedCaseAccess(client, context, verdict),
-      ...options.overrides,
+  const stopGuard = installPageRestoreGuard({
+    queryClient: client,
+    verifySession: () => verifyDocumentSession(),
+    onOtherUser: () => reportOtherUser(onOtherUser),
+    listTargets: (userId) => caseAccessTargets(client, userId),
+    contextOf: (userId, target) => ({
+      userId,
+      caseId: target.caseId,
+      roomId: target.roomId,
+      generation: currentUserGeneration(client),
+      period: currentLossPeriod(client, userId, target.caseId),
     }),
-  );
+    verifyCase: (caseId) =>
+      verifyBySummaryFetch(caseId, { withFailureStatus: true }),
+    settleCase: (context, verdict) =>
+      settleVerifiedCaseAccess(client, context, verdict),
+    ...options.overrides,
+  });
+  stops.push(stopGuard);
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
@@ -172,7 +173,14 @@ export function installRestoreGuardLikeMain(
     for (const stop of stops.reverse()) stop();
   };
   disposers.push(dispose);
-  return { navigations, dispose };
+  // 守りだけを外す（ほかの登録は、テストの後始末で外す）。古い登録を残したまま、新しい登録を確かめるときに使う
+  let guardDisposed = false;
+  const disposeGuard = () => {
+    if (guardDisposed) return;
+    guardDisposed = true;
+    stopGuard();
+  };
+  return { navigations, dispose, disposeGuard };
 }
 
 /** 登録した守りを、すべて解除する（このファイルを読み込んだテストでは、各テストの後に自動で呼ぶ） */
