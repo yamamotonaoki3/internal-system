@@ -736,17 +736,14 @@ describe(
       expect((await getSession({ cookie: s.token })).status).toBe(200);
     });
 
-    it("#120 0-2 AC-5: 無操作 30分 で使えなくなり（401）、Cookie を消す", async () => {
+    // #383 AC-2（2026-11-25 の利用者の決定）：期限切れのセッションは今までどおり 401 で拒否するが、通常の要求の応答では Cookie を消さない
+    it("#120 0-2 AC-5・#383 AC-2: 無操作 30分 で使えなくなり（401）、Cookie は消さない", async () => {
       const s = await sessionAt(0, 0);
       freezeAt(30 * MIN);
       const res = await getSession({ cookie: s.token });
       expect(res.status).toBe(401);
-      const cookie = sessionCookieOf(res);
-      expect(cookie?.attributes.get("max-age")).toBe("0");
-      expect(cookie?.name).toBe("__Host-session");
-      expect(cookie?.attributes.get("path")).toBe("/");
-      expect(cookie?.attributes.has("secure")).toBe(true);
-      expect(cookie?.attributes.has("domain")).toBe(false);
+      expect(await res.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+      expect(res.headers.get("Set-Cookie")).toBeNull();
     });
 
     it("#120 0-2 AC-5: 操作していても、ログインから24時間で使えなくなる（直前の1秒前は使える）", async () => {

@@ -3,7 +3,7 @@
 // → requirePasswordChanged（初回パスワードのままの利用者は、許可リスト以外を 403）。
 // 許可リストは「メソッドとパスの完全一致」の6件だけ。新しい公開 API は、ここに足す（足すときは理由をレビューで確かめる）。
 import type { MiddlewareHandler } from "hono";
-import { deleteCookie, getCookie } from "hono/cookie";
+import { getCookie } from "hono/cookie";
 import {
   resolveSession,
   type SessionPrincipal,
@@ -12,7 +12,7 @@ import {
 import { EXPECTED_USER_ID_HEADER } from "../../../shared/session-user-header";
 import { AppError } from "./app-error";
 import { createLogger } from "./logger/logger";
-import { SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES } from "./session-policy";
+import { SESSION_COOKIE } from "./session-policy";
 
 // c.get("principal") / c.set("principal", ...) を、どの Hono のアプリでも型つきで使えるようにする（Hono の ContextVariableMap）
 declare module "hono" {
@@ -42,7 +42,8 @@ const isPublic = (method: string, path: string) =>
   PUBLIC_ENDPOINTS.has(`${method} ${path}`);
 
 /**
- * Cookie のセッションから、ログイン中の利用者を c.var.principal に入れる（いなければ null）。Cookie があるのに使えないときは、Cookie を消す。
+ * Cookie のセッションから、ログイン中の利用者を c.var.principal に入れる（いなければ null）。Cookie があるのに使えないときも、ここでは Cookie を消さない。
+ * 消す応答が、後からログインした別のセッションの Cookie を消しうるため（#383）。Cookie の削除は、失効を確定した後のログアウトのルートだけが行う。
  * 画面の想定する利用者（X-Expected-User-Id）があり、有効なセッションの利用者と食い違うときは、公開の経路も含めて 409 で断る（#298）。
  * ヘッダーは断る向きにだけ使い、認可・利用者の特定には使わない。値はログにも応答にも出さない。
  */
@@ -71,12 +72,6 @@ export function loadSession(
         "SESSION_USER_MISMATCH",
         "別の利用者でログインし直されています。ページを読み込み直してください",
       );
-    }
-    // ログアウトの Cookie 削除は、失効が確定した後にハンドラが行う（DB の失敗で 500 のときは消さない）
-    const isLogout =
-      c.req.method === "POST" && c.req.path === "/api/auth/logout";
-    if (principal === null && !isLogout) {
-      deleteCookie(c, SESSION_COOKIE, SESSION_COOKIE_ATTRIBUTES);
     }
     c.set("principal", principal);
     return next();
