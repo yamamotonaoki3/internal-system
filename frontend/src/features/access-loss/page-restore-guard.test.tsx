@@ -561,10 +561,14 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
     },
   );
 
-  it("#342 AC-8 U9: 案件の概要が 409 SESSION_USER_MISMATCH で、その後のセッションの取り直しが 401 なら、読み込み直しを1回", async () => {
-    const { world } = arrangeDocument([N_A]);
+  // 統括の判断（2026-11-28。計画の変更）：main.tsx と同じ組み立てでは、401 の共通の処理が、409 の後の取り直しの途中でセッションの Query を消し、
+  // 失敗が届かずに、409 の後の確かめが unknown になる（#382 と同じ経路）。この Issue では直さず、既知の限界として受け入れる。
+  // そのとき守りは、隠したまま failed になり（中身は出ない）、再試行の直接のセッションの確かめが 401 で、覆ったまま読み込み直す
+  it("#342 AC-6・AC-8 U9（#382 による既知の限界）: 案件の概要が 409 SESSION_USER_MISMATCH で、その後のセッションの取り直しが 401 なら、隠したまま failed（確定も読み込み直しもしない）。再試行の直接のセッションの確かめが 401 で、覆ったまま読み込み直しを1回", async () => {
+    const { client, world } = arrangeDocument([N_A]);
     world.session.answers.push(
       { kind: "user", user: TEST_USER },
+      { kind: "status", status: 401, code: "UNAUTHENTICATED" },
       { kind: "status", status: 401, code: "UNAUTHENTICATED" },
     );
     answerCase(world, N_A, {
@@ -573,10 +577,22 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
       code: "SESSION_USER_MISMATCH",
     });
     restore();
+    await waitForState("failed");
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
+    expect(announced()).toEqual([]);
+    expect(draftKept(N_A)).toBe(true);
+    expect(client.getQueryData(detailKey(N_A))).toBeDefined();
+    await act(async () => {
+      retryPageRestoreVerification();
+    });
     await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
+    await waitForSessionAnswered(world, 3);
     await flushTasks(3);
     expect(reloadPage).toHaveBeenCalledTimes(1);
     expect(getPageRestoreState()).toBe("handedOff");
+    expect(isBeforeUnloadSuppressed()).toBe(true);
+    expect(requestAccessLossReload).not.toHaveBeenCalled();
   });
 
   it("#342 AC-8 U9: 2件の概要が両方 401 でも、読み込み直しは1回", async () => {

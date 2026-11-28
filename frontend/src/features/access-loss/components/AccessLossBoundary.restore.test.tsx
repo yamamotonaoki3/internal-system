@@ -9,7 +9,15 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import {
   FakeBroadcastChannel,
   flushTasks,
@@ -196,27 +204,46 @@ describe("#342 AC-1 U5 捕捉・通知・描画・覆いの例外の後も、隠
     expect(reportError).toHaveBeenCalledWith(failure);
   });
 
-  it("#342 AC-1 U5: 覆いの showModal が例外を投げても、子は隠れたままで、例外は reportError に渡る", async () => {
+  // 統括の判断（2026-11-28）：復元の覆いは showModal で開かない（開くと、開いている auto の popover が閉じ、決定1「資格があれば、画面の状態を保つ」に反する）。
+  // 覆いは、包みの外の通常の全画面の要素。覆いの表示のどこかで例外が起きても、pagehide で付けた hidden・inert は外れない
+  it("#342 AC-1・AC-4 U5: 復元の覆いの間（確かめの間・失敗の間）は showModal を呼ばない。覆いを開く処理（dialog の show・popover の showPopover）が例外を投げても、hidden・inert は外れず、投げた例外は reportError に届く。子の開いたダイアログは開いたまま", async () => {
     const { world, wrapper } = arrangeScreen();
     const failure = new DOMException(
       "[UNIT_TEST]342開けない",
       "InvalidStateError",
     );
-    vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
-      () => {
+    const showModal = vi
+      .spyOn(HTMLDialogElement.prototype, "showModal")
+      .mockImplementation(() => {
         throw failure;
-      },
-    );
+      });
+    const opening = [
+      vi.spyOn(HTMLDialogElement.prototype, "show").mockImplementation(() => {
+        throw failure;
+      }),
+      vi.spyOn(HTMLElement.prototype, "showPopover").mockImplementation(() => {
+        throw failure;
+      }),
+    ];
+    const childDialog = screen.getByRole("dialog", { name: DIALOG_LABEL });
     const held = gate();
     world.session.gates.push(held.promise);
+    world.session.answers.push({ kind: "network" });
     firePageHide(true);
     firePageShow(true);
-    await waitFor(() => expect(reportError).toHaveBeenCalledWith(failure));
+    await waitForState("verifying");
     expect(isCovered(wrapper())).toBe(true);
-    expect(getPageRestoreState()).toBe("verifying");
-    // 保留した要求を解いて、確かめを終わらせる（未処理の要求を残さない）
+    // 保留した要求を解いて（通信の失敗）、失敗の覆いまで進める（未処理の要求を残さない）
     held.release();
-    await waitForState("idle");
+    await waitForState("failed");
+    await waitForSessionAnswered(world, 1);
+    await flushTasks(3);
+    expect(isCovered(wrapper())).toBe(true);
+    expect(showModal).not.toHaveBeenCalled();
+    expect(childDialog.hasAttribute("open")).toBe(true);
+    // 覆いを開く処理を使う作りなら、その例外は、もみ消さず reportError に届く
+    if (opening.some((spy) => spy.mock.calls.length > 0))
+      expect(reportError).toHaveBeenCalledWith(failure);
   });
 
   it("#342 AC-1・AC-6 U5: 描画への反映（React の購読）が届かないまま失敗しても、再試行が全件で通れば、包みの hidden・inert と覆いが外れる（直接付けた属性を残さない）", async () => {
@@ -292,10 +319,26 @@ describe("#342 AC-4 資格があれば、子を外さず、入力・ダイアロ
     return { input, scroller, dialog };
   }
 
-  /** 隠れている間に、ブラウザで起きること（隠れた要素からフォーカスが外れ、要素のスクロールが戻る）を手で起こす */
+  /** 包みの外にボタンを置き、そこへフォーカスを移す（テストの終わりに外す） */
+  function focusOutside(): HTMLElement {
+    const outside = document.createElement("button");
+    outside.textContent = "[UNIT_TEST]342包みの外";
+    document.body.appendChild(outside);
+    onTestFinished(() => {
+      outside.remove();
+    });
+    outside.focus();
+    return outside;
+  }
+
+  /**
+   * 隠れている間に、ブラウザで起きること（隠れた要素からフォーカスが外れ、要素のスクロールが戻る）を手で起こす。
+   * jsdom の blur は、hidden の祖先を持つ要素では何もしないので、包みの外の要素へフォーカスを移す（隠すとフォーカスが外れる動きは E2E の E1）
+   */
   function loseWhileHidden(input: HTMLInputElement, scroller: HTMLElement) {
     input.setSelectionRange(0, 0);
-    input.blur();
+    const outside = focusOutside();
+    expect(document.activeElement).toBe(outside);
     scroller.scrollTop = 0;
     scroller.scrollLeft = 0;
   }
@@ -329,10 +372,26 @@ describe("#342 AC-4 資格があれば、子を外さず、入力・ダイアロ
     const { input, scroller } = await typeAndPlace();
     world.session.answers.push({ kind: "network" });
     firePageHide(true);
-    loseWhileHidden(input, scroller);
+    // jsdom の blur は、hidden の祖先を持つ要素では何もしないので、隠れた後のフォーカスの移動は、包みの外の要素へのフォーカスで起こす
+    // （ブラウザで「隠すとフォーカスが外れる」動きは、E2E の E1 に任せる）
+    const outside = focusOutside();
+    input.setSelectionRange(0, 0);
+    scroller.scrollTop = 0;
+    scroller.scrollLeft = 0;
+    // 失敗の間に、守りが入力欄へ focus() しないことを見張る
+    const focusCalls: Element[] = [];
+    const focusSpy = vi
+      .spyOn(HTMLElement.prototype, "focus")
+      .mockImplementation(function (this: HTMLElement) {
+        focusCalls.push(this);
+      });
     firePageShow(true);
     await waitForState("failed");
-    expect(document.activeElement).not.toBe(input);
+    await waitForSessionAnswered(world, 1);
+    await flushTasks(3);
+    expect(focusCalls).not.toContain(input);
+    expect(document.activeElement).toBe(outside);
+    focusSpy.mockRestore();
     expect(input.value).toBe(TYPED);
     // 失敗中（フォーカスは body、スクロールは 0）に、もう一度離れて戻る
     firePageHide(true);
