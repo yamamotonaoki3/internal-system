@@ -885,24 +885,35 @@ test("#342 AC-3 E3: 離れている間に、このブラウザの Cookie が別�
   // 離れている間に、同じブラウザで B がログインした状態にする（B の Cookie を写す。値は出力しない）。ほかの API は、戻るまで保留する
   apiHold.start();
   await context.addCookies(await b.context.cookies(ORIGIN));
-  const answeredUsers: (string | undefined)[] = [];
-  const sessionAnswer = page.waitForResponse(async (response) => {
-    if (
-      new URL(response.url()).pathname !== SESSION_PATH ||
-      response.request().method() !== "GET"
-    )
-      return false;
-    // 文書が替わると本文を読めなくなるため、受け取った時点で読む（docs/testing/e2e.md の 409 の行と同じ）
-    answeredUsers.push(
-      ((await response.json()) as { user?: { id?: string } }).user?.id,
-    );
-    return true;
-  });
+  // 戻ったときのセッションの確かめの応答を、ページに渡す前に読む。別の利用者と分かると、切り替えの入口が、応答の直後に読み込み直すため、
+  // ページに届いた後の応答の本文は読めないことがある（#396 と同じ型の競合）。そこで、page.route で受けて、実際のサーバーから取り（route.fetch。
+  // コンテキストの Cookie＝B と、要求のヘッダーのまま）、状態と利用者の ID を記録してから、作り替えずに渡す（route.fulfill）。
+  // holdApiExceptSession より後に登録するので、セッションの要求はこちらが先に受ける
+  const answered: { status: number; userId: string | undefined }[] = [];
+  const sessionRecorded = signal();
+  let recordSession = false;
+  await page.route(
+    (url) => url.pathname === SESSION_PATH,
+    async (route) => {
+      if (!recordSession || route.request().method() !== "GET")
+        return route.fallback();
+      recordSession = false;
+      const response = await route.fetch();
+      answered.push({
+        status: response.status(),
+        userId: ((await response.json()) as { user?: { id?: string } }).user
+          ?.id,
+      });
+      sessionRecorded.fire();
+      return route.fulfill({ response });
+    },
+  );
   const reloaded = page.waitForEvent("load", { timeout: RELOAD_TIMEOUT_MS });
   const shownAt = Date.now();
+  recordSession = true;
   await dispatchPageShow(page);
-  expect((await sessionAnswer).status()).toBe(200);
-  expect(answeredUsers).toEqual([USER_B.id]);
+  await sessionRecorded.fired;
+  expect(answered).toEqual([{ status: 200, userId: USER_B.id }]);
   await reloaded;
   apiHold.release();
 
