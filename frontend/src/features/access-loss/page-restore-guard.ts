@@ -385,6 +385,15 @@ function onPageShow(registered: Registration): void {
   startVerification(registered, false);
 }
 
+/**
+ * 失敗の覆いを出せず、再試行を押せないとき（境界が呼ぶ）：覆ったまま読み込み直す（資格を失ったわけではないので、知らせは出さない）。
+ * いまの登録の失敗の状態のときだけ動くので、解除の後・再試行の後・2回目の呼び出しでは何もしない
+ */
+export function reloadWhenRetryUnreachable(): void {
+  if (registration === null || state !== "failed") return;
+  reloadBySelf();
+}
+
 /** 失敗の案内の「再試行」：新しい試行で、セッションから確かめ直す（前回の一部の成功は使わない） */
 export function retryPageRestoreVerification(): void {
   if (registration === null || state !== "failed") return;

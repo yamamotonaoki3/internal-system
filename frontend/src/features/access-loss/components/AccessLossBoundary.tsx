@@ -19,6 +19,7 @@ import { Button } from "../../../components/Button";
 import {
   attachPageRestoreSurface,
   getPageRestoreState,
+  reloadWhenRetryUnreachable,
   retryPageRestoreVerification,
   subscribePageRestoreState,
   type PageRestoreState,
@@ -92,6 +93,8 @@ function FailedModal() {
         dialog.showModal();
       } catch (error) {
         reportError(error);
+        // 子のモーダルの下では再試行に届かないので、中身を隠したまま読み込み直す
+        reloadWhenRetryUnreachable();
       }
     }
     return () => {
