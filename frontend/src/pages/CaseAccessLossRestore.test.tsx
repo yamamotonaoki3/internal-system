@@ -28,14 +28,12 @@ import {
   caseRoomId,
 } from "../test/case-handlers";
 import { respondTodos, todoItem } from "../test/case-todo-handlers";
-import {
-  FakeBroadcastChannel,
-  flushTasks,
-} from "../test/fake-broadcast-channel";
+import { FakeBroadcastChannel } from "../test/fake-broadcast-channel";
 import {
   RESTORE_FAILED_TEXT,
   RESTORE_OTHER_USER,
   RETRY_BUTTON,
+  afterLaterRoundTrip,
   cacheParticipantSummary,
   firePageHide,
   firePageShow,
@@ -177,7 +175,8 @@ async function renderCasePage(n: number): Promise<CasePage> {
   );
   await screen.findByText(SECRET);
   await screen.findByRole("textbox", { name: "メッセージ" });
-  await flushTasks(5);
+  // 描画の直後の取得が終わるまで待ち、そこを数える基準にする
+  await waitFor(() => expect(client.isFetching()).toBe(0));
   const wrapper = wrapperContaining(container, SECRET);
   return {
     world,
@@ -253,7 +252,7 @@ describe("#342 AC-2・AC-3・AC-5 V2 共通の確定・切り替えの入口へ�
     await waitFor(() =>
       expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
     );
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(newSummaryCalls(page)).toEqual([]);
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(announced()).toEqual([]);
@@ -343,7 +342,7 @@ describe("#342 AC-8・AC-9・AC-10 V3 401・読み込み直しの最中・離脱
       reloadState.set("waiting");
     });
     await restoreAndWait(page);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(newSummaryCalls(page)).toEqual([]);
     expect(isCovered(page.wrapper)).toBe(true);
     expect(reloadPage).not.toHaveBeenCalled();
@@ -366,7 +365,7 @@ describe("#342 AC-5・AC-6 V4 概要の 403 と、通信の失敗の違い", () 
         reason: "lost",
       }),
     );
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(window.localStorage.getItem(roomDraftKey(3439))).not.toBeNull();
     expect(announced()).toEqual([]);
     expect(isCovered(page.wrapper)).toBe(true);

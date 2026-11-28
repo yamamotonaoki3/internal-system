@@ -34,7 +34,11 @@ import {
   AccessLossBoundary,
   requestUserSwitchReload,
 } from "../features/access-loss";
-import { installPageRestoreGuard } from "../features/access-loss/page-restore-guard";
+import {
+  getPageRestoreState,
+  installPageRestoreGuard,
+  subscribePageRestoreState,
+} from "../features/access-loss/page-restore-guard";
 import {
   createSessionUserMismatchHandler,
   expectedUserIdFor,
@@ -54,6 +58,7 @@ import {
 } from "../features/cases/case-access-loss-monitor";
 import { verifyBySummaryFetch } from "../features/cases/case-access-verification";
 import {
+  apiClient,
   setExpectedUserIdProvider,
   setSessionUserMismatchHandler,
   setUnauthenticatedHandler,
@@ -443,6 +448,51 @@ export async function waitForSummaryAnswered(
         `概要の応答が ${count} 回届いていません（${world.summaryAnswered.length} 回）`,
       );
   });
+}
+
+// ---- 守りの処理の終わりを、外から分かる条件で待つ（コードレビュー1回目の軽微） ----
+
+/** 後から送る1往復の要求の行き先（テストの中だけの架空の API。本番の API には無い） */
+const LATER_ROUND_TRIP_PATH = "/test/page-restore-342/later-round-trip";
+
+/**
+ * 先に応答した要求の「続きの処理」（守りの判定・確定・解除・入口の呼び出し）が終わるのを待つ。
+ * 先の応答が届いた（request:end）後に、同じ apiClient で、もう1往復の要求を送り、その応答を受け取るまで待つ。
+ * 応答は届いた順に画面の側で処理され、守りの続きは、先の応答の受け取りに続くマイクロタスクで走るので、
+ * この往復が終わった時点で、先に届いた応答の続きは終わっている（固定の回数のタスクを進めるだけの待ちにしない）。
+ * 先の応答の続きが、さらに通信をする場合は、その通信の応答が届いたことを待ってから呼ぶ
+ */
+export async function afterLaterRoundTrip(): Promise<void> {
+  server.use(
+    http.get(`/api${LATER_ROUND_TRIP_PATH}`, () => HttpResponse.json({})),
+  );
+  await act(async () => {
+    await apiClient.get(LATER_ROUND_TRIP_PATH);
+  });
+}
+
+export type RestoreStateRecord = {
+  state: ReturnType<typeof getPageRestoreState>;
+  /** その状態になった時点で、画面の側へ届いていた概要・セッションの応答の数 */
+  summaryAnswered: number;
+  sessionAnswered: number;
+};
+
+/**
+ * 守りの状態の移り変わりを、移った時点で届いていた応答の数と一緒に記録する（後から「この状態は、この応答より前には無かった」を確かめる）。
+ * 記録はテストの後に止める
+ */
+export function recordRestoreStates(world: RestoreWorld): RestoreStateRecord[] {
+  const history: RestoreStateRecord[] = [];
+  const stop = subscribePageRestoreState(() => {
+    history.push({
+      state: getPageRestoreState(),
+      summaryAnswered: world.summaryAnswered.length,
+      sessionAnswered: world.session.answered,
+    });
+  });
+  disposers.push(stop);
+  return history;
 }
 
 /** 参加者の概要を、キャッシュに置く（計画 3-2 の「従来から対象としている参加者の概要」。対象の捕捉に使う） */

@@ -14,12 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "../../services/api-client";
 import { TEST_USER } from "../../test/auth-handlers";
 import { caseDetail, caseRoomId, caseSummary } from "../../test/case-handlers";
-import {
-  FakeBroadcastChannel,
-  flushTasks,
-} from "../../test/fake-broadcast-channel";
+import { FakeBroadcastChannel } from "../../test/fake-broadcast-channel";
 import {
   RESTORE_OTHER_USER,
+  afterLaterRoundTrip,
+  recordRestoreStates,
   cacheParticipantSummary,
   firePageHide,
   firePageShow,
@@ -188,7 +187,8 @@ describe("#342 AC-2・AC-4・AC-6・AC-7 U6 全件を確かめる・同時に2�
     const held = [N_A, N_B, N_C].map((n) => holdCase(world, n));
     restore();
     await waitFor(() => expect(world.summaryCalls).toHaveLength(2));
-    await flushTasks(3);
+    // 守りが続けて要求を始める処理の終わりを、後からの1往復で待つ（上限が無ければ、この間に3件目が始まる）
+    await afterLaterRoundTrip();
     expect(world.summaryCalls).toHaveLength(2);
     expect(getPageRestoreState()).toBe("verifying");
     // 1件目が届くまで、3件目を始めない。届いたら始める
@@ -205,12 +205,17 @@ describe("#342 AC-2・AC-4・AC-6・AC-7 U6 全件を確かめる・同時に2�
   it("#342 AC-4・AC-7 U6: 一部が参加者と分かっても、残りが届くまで外さない", async () => {
     const { world } = arrangeDocument([N_A, N_B]);
     const heldB = holdCase(world, N_B);
+    const history = recordRestoreStates(world);
     restore();
     await waitForSummaryAnswered(world, 1);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).toBe("verifying");
     heldB.release();
     await waitForState("idle");
+    // idle になったのは、2件目の答えが届いた後だけ
+    const idle = history.filter((entry) => entry.state === "idle");
+    expect(idle.length).toBeGreaterThan(0);
+    for (const entry of idle) expect(entry.summaryAnswered).toBe(2);
   });
 
   it("#342 AC-2 U6: 捕捉の後に、その案件のキャッシュが消えても、確かめ済みにせず、捕捉した対象を確かめる（不在から喪失も決めない）", async () => {
@@ -312,15 +317,46 @@ describe("#342 AC-7 U7 古い試行の遅い答えでは、外さない・確定
     await waitFor(() => expect(world.session.calls).toBe(1));
     firePageHide(true);
     expect(getPageRestoreState()).toBe("prepared");
+    const history = recordRestoreStates(world);
     held.release();
     await waitForSessionAnswered(world, 1);
-    await flushTasks(3);
+    // 古い試行のセッションの答えの続きが終わるのを、後からの1往復で待つ
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).toBe("prepared");
     expect(world.summaryCalls).toEqual([]);
+    // 古い答えでは、状態が動いていない（知らせがあっても prepared のまま）
+    expect(history.every((entry) => entry.state === "prepared")).toBe(true);
     firePageShow(true);
     await waitForState("idle");
     expect(world.summaryCalls).toEqual(ids);
   });
+
+  it.each([
+    ["別の利用者", { kind: "user", user: RESTORE_OTHER_USER }],
+    ["401", { kind: "status", status: 401, code: "UNAUTHENTICATED" }],
+    ["通信の失敗", { kind: "network" }],
+  ] as [string, SessionAnswer][])(
+    "#342 AC-7 U7: 確かめの途中にもう一度離れた後に、前の試行のセッションの答え（%s）が届いても、切り替えの入口・読み込み直し・failed への移動をしない",
+    async (_label, answer) => {
+      const { world } = arrangeDocument([N_A]);
+      world.session.answers.push(answer);
+      const held = gate();
+      world.session.gates.push(held.promise);
+      restore();
+      await waitFor(() => expect(world.session.calls).toBe(1));
+      firePageHide(true);
+      const history = recordRestoreStates(world);
+      held.release();
+      await waitForSessionAnswered(world, 1);
+      // 古い試行のセッションの答えの続きが終わるのを、後からの1往復で待つ
+      await afterLaterRoundTrip();
+      expect(getPageRestoreState()).toBe("prepared");
+      expect(history.every((entry) => entry.state === "prepared")).toBe(true);
+      expect(requestUserSwitchReload).not.toHaveBeenCalled();
+      expect(reloadPage).not.toHaveBeenCalled();
+      expect(world.summaryCalls).toEqual([]);
+    },
+  );
 
   it("#342 AC-7 U7: 新しい試行で外した後に、前の試行の概要（非参加）が遅れて届いても、確定の入口を呼ばない（片付け・入口・合図・下書きの消去なし）", async () => {
     const { client, world } = arrangeDocument([N_A]);
@@ -332,8 +368,15 @@ describe("#342 AC-7 U7 古い試行の遅い答えでは、外さない・確定
     await waitForState("idle");
     held.release();
     await waitForSummaryAnswered(world, 2);
-    await flushTasks(3);
-    expect(getPageRestoreState()).toBe("idle");
+    // 古い答えの後に、もう一度の復元（3回目の取得。参加者）を始め、その処理が終わる（idle）まで待つ。古い答えの続きは、その前に終わっている
+    const history = recordRestoreStates(world);
+    restore();
+    await waitFor(() =>
+      expect(history.at(-1)).toMatchObject({
+        state: "idle",
+        summaryAnswered: 3,
+      }),
+    );
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(announced()).toEqual([]);
     expect(draftKept(N_A)).toBe(true);
@@ -344,12 +387,25 @@ describe("#342 AC-7 U7 古い試行の遅い答えでは、外さない・確定
     const { world } = arrangeDocument([N_A, N_B]);
     const heldA = holdCase(world, N_A);
     answerCase(world, N_B, { kind: "network" });
+    const history = recordRestoreStates(world);
     restore();
     await waitForState("failed");
     heldA.release();
     await waitForSummaryAnswered(world, 2);
-    await flushTasks(3);
-    expect(getPageRestoreState()).toBe("failed");
+    // 残っていた答えの後に、再試行（新しい試行）を始め、その処理が終わる（idle）まで待つ
+    await act(async () => {
+      retryPageRestoreVerification();
+    });
+    await waitForState("idle");
+    // failed の次は、再試行の verifying。残っていた答えで idle になっていない
+    const failedAt = history.findIndex((entry) => entry.state === "failed");
+    expect(failedAt).toBeGreaterThanOrEqual(0);
+    expect(
+      history.slice(failedAt).find((entry) => entry.state !== "failed")?.state,
+    ).toBe("verifying");
+    expect(
+      history.slice(0, failedAt + 1).some((entry) => entry.state === "idle"),
+    ).toBe(false);
   });
 
   it("#342 AC-5・AC-7 U7: 引き渡し（handedOff）の後に、残っていた要求が参加者で届いても、外さない", async () => {
@@ -360,7 +416,8 @@ describe("#342 AC-7 U7 古い試行の遅い答えでは、外さない・確定
     await waitForState("handedOff");
     heldB.release();
     await waitForSummaryAnswered(world, 2);
-    await flushTasks(3);
+    // handedOff の後には、守りの次の出来事が無いので、残っていた答えの続きの終わりを、後からの1往復で待つ
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).toBe("handedOff");
     expect(requestAccessLossReload).toHaveBeenCalledTimes(1);
   });
@@ -375,7 +432,8 @@ describe("#342 AC-7 U7 古い試行の遅い答えでは、外さない・確定
     expect(getPageRestoreState()).toBe("idle");
     held.release();
     await waitForSummaryAnswered(world, 1);
-    await flushTasks(3);
+    // 解除した後には、守りの次の出来事が無いので、届いた答えの続きの終わりを、後からの1往復で待つ
+    await afterLaterRoundTrip();
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(client.getQueryData(detailKey(N_A))).toBeDefined();
     expect(getPageRestoreState()).toBe("idle");
@@ -398,16 +456,26 @@ describe("#342 AC-7 U7 登録の解除と再登録をまたいだ古い答え（
     restore();
     await waitFor(() => expect(world.summaryCalls).toHaveLength(2));
     expect(getPageRestoreState()).toBe("verifying");
+    const history = recordRestoreStates(world);
     heldOld.release();
     await waitForSummaryAnswered(world, 1);
-    await flushTasks(3);
+    // 古い答えの続きの終わりを、後からの1往復で待つ（新しい答えは、まだ保留）
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).toBe("verifying");
+    expect(history.every((entry) => entry.state === "verifying")).toBe(true);
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(announced()).toEqual([]);
     expect(draftKept(N_A)).toBe(true);
     expect(client.getQueryData(detailKey(N_A))).toBeDefined();
     heldNew.release();
     await waitForState("idle");
+    // verifying 以外になったのは、新しい答えが届いた後（idle）だけ
+    const moved = history.filter((entry) => entry.state !== "verifying");
+    expect(moved.map((entry) => entry.state)).toContain("idle");
+    for (const entry of moved) {
+      expect(entry.state).toBe("idle");
+      expect(entry.summaryAnswered).toBe(2);
+    }
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(draftKept(N_A)).toBe(true);
   });
@@ -477,7 +545,7 @@ describe("#342 AC-1・AC-6 U5 対象の捕捉の例外の後（統括の判断 2
     });
     await waitFor(() => expect(targets.calls()).toBe(2));
     await waitFor(() => expect(reportError).toHaveBeenCalledTimes(2));
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).toBe("failed");
     expect(world.summaryCalls).toEqual([]);
     expect(reportError).toHaveBeenNthCalledWith(2, targets.failure);
@@ -492,7 +560,7 @@ describe("#342 AC-3 別の利用者", () => {
     await waitFor(() =>
       expect(requestUserSwitchReload).toHaveBeenCalledTimes(1),
     );
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(world.summaryCalls).toEqual([]);
     expect(requestAccessLossReload).not.toHaveBeenCalled();
     expect(announced()).toEqual([]);
@@ -516,7 +584,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
       world.session.answers.push({ kind: "status", status: 401, code });
       restore();
       await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
-      await flushTasks(3);
+      await afterLaterRoundTrip();
       expect(reloadPage).toHaveBeenCalledTimes(1);
       expect(isBeforeUnloadSuppressed()).toBe(true);
       expect(world.summaryCalls).toEqual([]);
@@ -554,7 +622,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
       answerCase(world, N_A, { kind: "status", status: 401, code });
       restore();
       await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
-      await flushTasks(3);
+      await afterLaterRoundTrip();
       expect(reloadPage).toHaveBeenCalledTimes(1);
       expect(getPageRestoreState()).toBe("handedOff");
       expect(requestAccessLossReload).not.toHaveBeenCalled();
@@ -588,7 +656,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
     });
     await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
     await waitForSessionAnswered(world, 3);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(reloadPage).toHaveBeenCalledTimes(1);
     expect(getPageRestoreState()).toBe("handedOff");
     expect(isBeforeUnloadSuppressed()).toBe(true);
@@ -602,7 +670,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
     restore();
     await waitForSummaryAnswered(world, 2);
     await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(reloadPage).toHaveBeenCalledTimes(1);
   });
 
@@ -623,7 +691,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
     await waitFor(() => expect(reloadPage).toHaveBeenCalledTimes(1));
     heldB.release();
     await waitForSummaryAnswered(world, 2);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(reloadPage).toHaveBeenCalledTimes(1);
     expect(getPageRestoreState()).toBe("handedOff");
   });
@@ -639,7 +707,7 @@ describe("#342 AC-8 U9 復元の確かめの 401 は、HTTP の状態で決め�
       apiClient.get(`/cases/${caseSummary(N_A).id}`),
     ).rejects.toMatchObject({ status: 401, code: "UNAUTHENTICATED" });
     await waitForSummaryAnswered(world, 1);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(navigations).toEqual(["/login"]);
     expect(reloadPage).not.toHaveBeenCalled();
     expect(getPageRestoreState()).toBe("idle");
@@ -662,7 +730,7 @@ describe("#342 AC-9 U10 復元のときに、読み込み直しが idle でな�
       world.session.answers.push(answer);
       restore();
       await waitForSessionAnswered(world, 1);
-      await flushTasks(3);
+      await afterLaterRoundTrip();
       expect(world.summaryCalls).toEqual([]);
       expect(retryReloadNavigationAfterPageRestore).not.toHaveBeenCalled();
       expect(reloadPage).not.toHaveBeenCalled();
@@ -696,7 +764,7 @@ describe("#342 AC-9 U10 復元のときに、読み込み直しが idle でな�
         expect(retryReloadNavigationAfterPageRestore).toHaveBeenCalledTimes(1),
       );
       await waitForSessionAnswered(world, 1);
-      await flushTasks(3);
+      await afterLaterRoundTrip();
       expect(retryReloadNavigationAfterPageRestore).toHaveBeenCalledTimes(1);
       expect(reloadPage).not.toHaveBeenCalled();
       expect(world.summaryCalls).toEqual([]);
@@ -735,7 +803,7 @@ describe("#342 AC-9 U10 復元のときに、読み込み直しが idle でな�
     await act(async () => {
       retryPageRestoreVerification();
     });
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(retryReloadNavigationAfterPageRestore).toHaveBeenCalledTimes(1);
     restore();
     await waitFor(() =>
@@ -752,7 +820,7 @@ describe("#342 AC-9 U10 復元のときに、読み込み直しが idle でな�
     reloadState.set("waiting");
     held.release();
     await waitForSummaryAnswered(world, 1);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).not.toBe("idle");
     expect(requestAccessLossReload).not.toHaveBeenCalled();
   });

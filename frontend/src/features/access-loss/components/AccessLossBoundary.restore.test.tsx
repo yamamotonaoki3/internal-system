@@ -18,13 +18,11 @@ import {
   onTestFinished,
   vi,
 } from "vitest";
-import {
-  FakeBroadcastChannel,
-  flushTasks,
-} from "../../../test/fake-broadcast-channel";
+import { FakeBroadcastChannel } from "../../../test/fake-broadcast-channel";
 import {
   RESTORE_FAILED_TEXT,
   RETRY_BUTTON,
+  afterLaterRoundTrip,
   cacheParticipantSummary,
   firePageHide,
   firePageShow,
@@ -178,13 +176,9 @@ describe("#342 AC-1 U5 捕捉・通知・描画・覆いの例外の後も、隠
     firePageShow(true);
     // 戻った後の処理が終わったこと（セッションの応答が届いた、または確かめが終わった）を待つ。
     // セッションは同じ利用者のまま答えるが、捕捉できなかった対象を、確かめたことにはしない
-    await waitFor(() =>
-      expect(
-        world.session.answered >= 1 ||
-          ["failed", "handedOff"].includes(getPageRestoreState()),
-      ).toBe(true),
-    );
-    await flushTasks(3);
+    // 統括の判断（2026-11-28）：捕まえた対象が無いので、案件を確かめずに failed になる。その後の続きの終わりは、後からの1往復で待つ
+    await waitForState("failed");
+    await afterLaterRoundTrip();
     expect(getPageRestoreState()).not.toBe("idle");
     expect(world.summaryCalls).toEqual([]);
     expect(isCovered(wrapper())).toBe(true);
@@ -237,7 +231,7 @@ describe("#342 AC-1 U5 捕捉・通知・描画・覆いの例外の後も、隠
     held.release();
     await waitForState("failed");
     await waitForSessionAnswered(world, 1);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(isCovered(wrapper())).toBe(true);
     expect(showModal).not.toHaveBeenCalled();
     expect(childDialog.hasAttribute("open")).toBe(true);
@@ -388,7 +382,7 @@ describe("#342 AC-4 資格があれば、子を外さず、入力・ダイアロ
     firePageShow(true);
     await waitForState("failed");
     await waitForSessionAnswered(world, 1);
-    await flushTasks(3);
+    await afterLaterRoundTrip();
     expect(focusCalls).not.toContain(input);
     expect(document.activeElement).toBe(outside);
     focusSpy.mockRestore();
