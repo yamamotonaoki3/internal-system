@@ -8,6 +8,7 @@
 | 単体テスト | [unit.md](unit.md) |
 | 結合テスト | [integration.md](integration.md) |
 | E2E | [e2e.md](e2e.md) |
+| 実際の bfcache の復元の確かめ（通常のブラウザ。Issue #342） | [bfcache.md](bfcache.md) |
 | ミューテーションテスト | [mutation.md](mutation.md) |
 | セキュリティのテスト（Semgrep・gitleaks・OSV-Scanner・Dependabot） | [security.md](security.md) |
 | API の異常な入力のテスト（Schemathesis） | [schemathesis.md](schemathesis.md) |
