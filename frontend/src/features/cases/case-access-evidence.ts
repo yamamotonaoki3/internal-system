@@ -137,3 +137,53 @@ export function caseRoomEvidence(
   );
   return roomId === undefined ? undefined : { roomId };
 }
+
+/** 復元の守りが確かめる対象。案件と部屋の ID だけ（本文・入力値を写さない） */
+export type CaseAccessTarget = { caseId: string; roomId: string | null };
+
+/** 実績を持ちうる案件の ID（返信・スレッド一覧・その利用者の概要と詳細・チャンネルの詳細に現れるもの） */
+function evidenceCandidates(
+  queryClient: QueryClient,
+  userId: string,
+): Set<string> {
+  const candidates = new Set<string>();
+  for (const pair of cachedReplies(queryClient)) candidates.add(pair.caseId);
+  for (const row of cachedListRows(queryClient))
+    if (row.caseId !== null) candidates.add(row.caseId);
+  for (const kind of ["summary", "detail"] as const)
+    for (const [, data] of queryClient.getQueriesData<CaseSummary | CaseDetail>(
+      { queryKey: ["cases", kind, userId] },
+    ))
+      if (data !== undefined) candidates.add(data.id);
+  for (const [, data] of queryClient.getQueriesData<ChannelDetail>({
+    queryKey: channelKeys.all,
+    predicate: (query) => query.queryKey[1] === "detail",
+  }))
+    if (typeof data?.caseId === "string") candidates.add(data.caseId);
+  return candidates;
+}
+
+/**
+ * 復元の守り（#342）が確かめる対象の全件：取得の実績がある案件と、その利用者の参加者の概要の案件。案件の ID で重なりを除く。
+ * 実績の判定と部屋の ID は caseRoomEvidence と同じ読み方にする（別々に判定すると食い違うため）。実績の無い参加者の概要は、概要の部屋の ID を使う
+ */
+export function caseAccessTargets(
+  queryClient: QueryClient,
+  userId: string,
+): CaseAccessTarget[] {
+  const targets = new Map<string, CaseAccessTarget>();
+  for (const caseId of evidenceCandidates(queryClient, userId)) {
+    const evidence = caseRoomEvidence(queryClient, userId, caseId);
+    if (evidence !== undefined)
+      targets.set(caseId, { caseId, roomId: evidence.roomId });
+  }
+  for (const [, summary] of queryClient.getQueriesData<CaseSummary>({
+    queryKey: ["cases", "summary", userId],
+  }))
+    if (summary?.isParticipant === true && !targets.has(summary.id))
+      targets.set(summary.id, {
+        caseId: summary.id,
+        roomId: summary.channelId,
+      });
+  return [...targets.values()];
+}

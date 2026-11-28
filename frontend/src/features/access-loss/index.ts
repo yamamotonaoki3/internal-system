@@ -16,6 +16,7 @@ export {
   type AccessLossReloadRequest,
   type AccessLossReloadState,
 } from "./reload-after-access-loss";
+export { installPageRestoreGuard } from "./page-restore-guard";
 export {
   announceCaseAccessLoss,
   subscribeCaseAccessLoss,

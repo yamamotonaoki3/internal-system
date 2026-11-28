@@ -11,7 +11,12 @@ export {
   expectedUserIdFor,
   getDocumentUserId,
   installDocumentUser,
+  reportOtherUser,
 } from "./document-user";
+export {
+  verifyDocumentSession,
+  type DocumentSessionOutcome,
+} from "./verify-document-session";
 export {
   confirmSessionUserAfterMismatch,
   createSessionUserMismatchHandler,

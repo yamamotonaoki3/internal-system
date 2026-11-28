@@ -139,6 +139,13 @@
     "frontend/src/features/auth/components/LogoutFailureNotice.tsx",
     "frontend/src/features/auth/components/DraftCleanupNotice.tsx",
     "frontend/src/features/auth/components/logout-failure-focus.ts",
+    "frontend/src/features/access-loss/page-restore-guard.ts",
+    "frontend/src/features/access-loss/reload-after-access-loss.ts",
+    "frontend/src/features/access-loss/components/AccessLossBoundary.tsx",
+    "frontend/src/features/auth/verify-document-session.ts",
+    "frontend/src/features/cases/case-access-evidence.ts",
+    "frontend/src/features/cases/case-access-verification.ts",
+    "frontend/src/features/cases/case-access-loss-monitor.ts",
     "!**/*.test.ts",
     "!**/*.test.tsx"
   ],

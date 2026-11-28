@@ -7,6 +7,7 @@ import "./lib/zod-config";
 import { App } from "./App";
 import {
   AccessLossBoundary,
+  installPageRestoreGuard,
   requestUserSwitchReload,
   takeAccessLossNotice,
 } from "./features/access-loss";
@@ -15,10 +16,17 @@ import {
   expectedUserIdFor,
   installDocumentUser,
   installUserSwitchGuard,
+  reportOtherUser,
+  verifyDocumentSession,
 } from "./features/auth";
 import {
+  caseAccessTargets,
+  currentLossPeriod,
+  currentUserGeneration,
   installCaseAccessLossMonitor,
   installCaseAccessLossRelay,
+  settleVerifiedCaseAccess,
+  verifyBySummaryFetch,
 } from "./features/cases";
 import { createUnauthenticatedHandler } from "./features/auth/unauthenticated-handler";
 import {
@@ -81,6 +89,25 @@ try {
 // 案件の画面の外での、資格の喪失の見張り（#339。アプリの間ずっと有効なので解除しない）。利用者の切り替えの見張りより後に置く
 // （別の利用者に替わったときは、切り替えの見張りが先にキャッシュを捨て、見張りは捨てられた Query の応答を使わない）
 installCaseAccessLossMonitor(queryClient);
+// 「戻る」で文書が丸ごと戻ったとき（bfcache。#342）の守り。見張りの後・描画の前に1回だけ登録する（アプリの間ずっと有効なので解除しない）。
+// access-loss は cases・auth の確かめに依存しないので、ここで関数として渡す
+installPageRestoreGuard({
+  queryClient,
+  verifySession: verifyDocumentSession,
+  onOtherUser: () => reportOtherUser(onOtherUser),
+  listTargets: (userId) => caseAccessTargets(queryClient, userId),
+  contextOf: (userId, target) => ({
+    userId,
+    caseId: target.caseId,
+    roomId: target.roomId,
+    generation: currentUserGeneration(queryClient),
+    period: currentLossPeriod(queryClient, userId, target.caseId),
+  }),
+  verifyCase: (caseId) =>
+    verifyBySummaryFetch(caseId, { withFailureStatus: true }),
+  settleCase: (context, verdict) =>
+    settleVerifiedCaseAccess(queryClient, context, verdict),
+});
 
 const root = document.getElementById("root");
 if (root === null)

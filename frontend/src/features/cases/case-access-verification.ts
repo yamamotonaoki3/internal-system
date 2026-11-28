@@ -3,7 +3,10 @@
 // キャッシュの不在を喪失の証拠にしない。応答の検証の失敗・実装の例外は、非参加・通信の失敗に変えず、呼び出し元へ投げる。
 import type { QueryClient } from "@tanstack/react-query";
 import { isUserSwitchReloadRequested } from "../access-loss";
-import { confirmSessionUserAfterMismatch } from "../auth";
+import {
+  confirmSessionUserAfterMismatch,
+  type SessionUserOutcome,
+} from "../auth";
 import { refetchAnswerOf } from "../../lib/refetch-answer";
 import { isSessionUserMismatchError } from "../../services/api-client";
 import { fetchCaseSummary, type CaseSummary } from "./api/case-api";
@@ -23,17 +26,39 @@ function switchedOrUnverified(): CaseAccessVerdict {
   return isUserSwitchReloadRequested() ? "switched" : "unverified";
 }
 
-async function verdictAfterMismatch(): Promise<CaseAccessVerdict> {
-  const outcome = await confirmSessionUserAfterMismatch();
+/**
+ * 判定と、判定の根拠になった HTTP の状態（成功は null、通信の失敗・時間切れは 0）。復元の守り（#342）が、403・401 を、
+ * ほかの確かめられない答えと分けるために使う（判定の文字列だけでは、状態が失われるため）
+ */
+export type CaseAccessFetchAnswer = {
+  verdict: CaseAccessVerdict;
+  failureStatus: number | null;
+};
+
+function verdictOfMismatchOutcome(
+  outcome: SessionUserOutcome,
+): CaseAccessVerdict {
   return outcome === "switched" ? switchedOrUnverified() : "unverified";
 }
 
+async function verdictAfterMismatch(): Promise<CaseAccessVerdict> {
+  return verdictOfMismatchOutcome(await confirmSessionUserAfterMismatch());
+}
+
 /** 概要の取得の失敗の判定。API の失敗でないもの（応答の検証の失敗・実装の例外）は投げる */
-async function verdictOfFailure(error: unknown): Promise<CaseAccessVerdict> {
+async function answerOfFailure(error: unknown): Promise<CaseAccessFetchAnswer> {
   if (!isApiError(error)) throw error;
-  if (isCaseNotFound(error)) return "notFound";
-  if (isSessionUserMismatchError(error)) return verdictAfterMismatch();
-  return "unverified";
+  if (isCaseNotFound(error))
+    return { verdict: "notFound", failureStatus: error.status };
+  if (isSessionUserMismatchError(error)) {
+    const outcome = await confirmSessionUserAfterMismatch();
+    // 409 の後のセッションの確かめが 401 なら、ログインが切れている（判定は unverified のまま、状態だけを 401 で渡す）
+    return {
+      verdict: verdictOfMismatchOutcome(outcome),
+      failureStatus: outcome === "unauthenticated" ? 401 : error.status,
+    };
+  }
+  return { verdict: "unverified", failureStatus: error.status };
 }
 
 /**
@@ -63,18 +88,34 @@ export async function verifyBySummaryRefetch(
   return switchedOrUnverified();
 }
 
-/**
- * 画面の外の確かめ：概要を、キャッシュの外で直接1回取る（概要の Query が無くても確かめられ、表示中の画面の判定をこの答えで動かさない）。
- * 応答の検証の失敗・実装の例外は投げる
- */
-export async function verifyBySummaryFetch(
-  caseId: string,
-): Promise<CaseAccessVerdict> {
+async function fetchAnswer(caseId: string): Promise<CaseAccessFetchAnswer> {
   let summary: CaseSummary;
   try {
     summary = await fetchCaseSummary(caseId);
   } catch (error) {
-    return verdictOfFailure(error);
+    return answerOfFailure(error);
   }
-  return summary.isParticipant ? "participant" : "lost";
+  return {
+    verdict: summary.isParticipant ? "participant" : "lost",
+    failureStatus: null,
+  };
+}
+
+/**
+ * 画面の外の確かめ：概要を、キャッシュの外で直接1回取る（概要の Query が無くても確かめられ、表示中の画面の判定をこの答えで動かさない）。
+ * 応答の検証の失敗・実装の例外は投げる。withFailureStatus を付けると、判定と根拠の HTTP の状態を返す（復元の守りだけが使う）
+ */
+export function verifyBySummaryFetch(
+  caseId: string,
+): Promise<CaseAccessVerdict>;
+export function verifyBySummaryFetch(
+  caseId: string,
+  options: { withFailureStatus: true },
+): Promise<CaseAccessFetchAnswer>;
+export async function verifyBySummaryFetch(
+  caseId: string,
+  options?: { withFailureStatus: true },
+): Promise<CaseAccessVerdict | CaseAccessFetchAnswer> {
+  const answer = await fetchAnswer(caseId);
+  return options?.withFailureStatus === true ? answer : answer.verdict;
 }

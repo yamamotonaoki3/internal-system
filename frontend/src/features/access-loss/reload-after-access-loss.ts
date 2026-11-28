@@ -293,6 +293,16 @@ export function requestUserSwitchReload(queryClient: QueryClient): void {
   startUserSwitchWaiting(queryClient);
 }
 
+/**
+ * 文書が丸ごと戻ったとき（bfcache。#342）に、読み込み直しが始まっていた（reloading）なら、いまの場所の読み込み直しを1回やり直す。
+ * 戻った文書では、離れる前に求めた遷移が取りやめられているため。idle・waiting では何もしない（待機・期限・知らせを作り直さない）。
+ * 元の遷移の行き先（退出の /cases への置き換え）は再現しない（#392）
+ */
+export function retryReloadNavigationAfterPageRestore(): void {
+  if (state !== "reloading") return;
+  reloadPage();
+}
+
 /** 切り替えの入口が呼ばれたか（呼ばれた後、この文書の間ずっと真。資格の確かめが、食い違いを喪失と取り違えないために読む） */
 export function isUserSwitchReloadRequested(): boolean {
   return userSwitchRequested;
