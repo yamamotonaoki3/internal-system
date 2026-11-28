@@ -3,12 +3,14 @@
 // 読み込み直しの覆いは包みの外の dialog（showModal）。Esc（cancel）を止め、閉じられたら開き直す。
 // 文書が丸ごと戻る場合（bfcache。#342）は、守り（page-restore-guard）が pagehide の処理の中で包みを直接隠す。描画を待つと、戻った直後に中身が見えるため。
 // 包みの hidden・inert は、毎回の描画の後に、その時点の状態から両方向に付け直す（直接付けた属性を、古い描画の値で残さない・取り消さない）。
-// 復元の覆いは dialog の showModal にしない（開くと、開いている popover が閉じ、戻ったときに画面の状態が変わるため）。中身は inert で操作を止める。
+// 復元の覆いは、原則として dialog の showModal にしない（開くと、開いている popover が閉じ、戻ったときに画面の状態が変わるため）。中身は inert で操作を止める。
+// ただし、子のモーダルが開いたままの失敗では、モーダルにする（FailedModal）。
 import {
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -60,27 +62,79 @@ function stopEscape(event: KeyboardEvent): void {
   if (event.key === "Escape") event.preventDefault();
 }
 
-/** 復元の確かめの間・引き渡しの後・失敗の覆い（包みの外の、通常の全画面の要素） */
+function FailedContent() {
+  return (
+    <>
+      <Alert tone="error" role="alert" as="p">
+        {RESTORE_FAILED_TEXT}
+      </Alert>
+      <Button onClick={retryPageRestoreVerification}>再試行</Button>
+    </>
+  );
+}
+
+/** 子のモーダルが開いている（祖先を hidden にしても、文書のほかの所は操作できないまま） */
+function hasOpenModal(): boolean {
+  return document.querySelector("dialog:modal") !== null;
+}
+
+/**
+ * 子のモーダルが開いたままの失敗の覆い。それより後に開いたモーダルが一番上になるので、覆いをモーダルにして再試行を押せるようにする。
+ * 子のモーダルは、この下で操作できなくなる。外れたら閉じ、子のモーダルが再び一番上になる（開いている auto の popover は、開くときに閉じる）
+ */
+function FailedModal() {
+  const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    if (dialog === null) return;
+    if (!dialog.open) {
+      try {
+        dialog.showModal();
+      } catch (error) {
+        reportError(error);
+      }
+    }
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      aria-label={RESTORE_FAILED_TEXT}
+      onCancel={(event) => event.preventDefault()}
+      className="m-0 h-full max-h-none w-full max-w-none bg-bg p-6 text-text backdrop:bg-bg"
+    >
+      <FailedContent />
+    </dialog>
+  );
+}
+
+/** 失敗の覆い。子のモーダルが無ければ、開いている popover を閉じないよう、モーダルでない通常の要素にする */
+function FailedOverlay() {
+  // 失敗になったときに1回だけ見る（覆いの間は、中身が新しくモーダルを開けない）
+  const [overModal] = useState(hasOpenModal);
+  if (overModal) return <FailedModal />;
+  return (
+    <div className="fixed inset-0 bg-bg p-6 text-text">
+      <FailedContent />
+    </div>
+  );
+}
+
+/** 復元の確かめの間・引き渡しの後・失敗の覆い（包みの外） */
 function RestoreOverlay({ state }: { state: PageRestoreState }) {
   // 隠した中身のモーダル・popover は最上位の層に残り、モーダルでない覆いの下でも Esc の閉じる要求を受けるので、覆いの間は止める
   useEffect(() => {
     window.addEventListener("keydown", stopEscape, true);
     return () => window.removeEventListener("keydown", stopEscape, true);
   }, []);
+  if (state === "failed") return <FailedOverlay />;
   return (
     <div className="fixed inset-0 bg-bg p-6 text-text">
-      {state === "failed" ? (
-        <>
-          <Alert tone="error" role="alert" as="p">
-            {RESTORE_FAILED_TEXT}
-          </Alert>
-          <Button onClick={retryPageRestoreVerification}>再試行</Button>
-        </>
-      ) : (
-        <h2 className="text-xl font-bold">
-          {state === "handedOff" ? OVERLAY_TITLE : VERIFYING_TITLE}
-        </h2>
-      )}
+      <h2 className="text-xl font-bold">
+        {state === "handedOff" ? OVERLAY_TITLE : VERIFYING_TITLE}
+      </h2>
     </div>
   );
 }
